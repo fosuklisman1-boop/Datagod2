@@ -9,12 +9,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { Shield } from "lucide-react"
+import { authService } from "@/lib/auth"
 
 export default function LoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
-    username: "",
+    email: "",
     password: "",
   })
 
@@ -33,24 +34,19 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      // Simulate login - in production, this would call an API
-      if (formData.username && formData.password) {
-        // Store user session in localStorage
-        localStorage.setItem(
-          "user",
-          JSON.stringify({
-            username: formData.username,
-            email: `${formData.username}@datagod.com`,
-            isLoggedIn: true,
-          })
-        )
-        toast.success("Login successful!")
-        router.push("/dashboard")
-      } else {
+      if (!formData.email || !formData.password) {
         toast.error("Please fill in all fields")
+        setIsLoading(false)
+        return
       }
-    } catch (error) {
-      toast.error("Login failed. Please try again.")
+
+      await authService.login(formData.email, formData.password)
+      toast.success("Login successful!")
+      router.push("/dashboard")
+    } catch (error: any) {
+      const errorMessage = error?.message || "Login failed. Please try again."
+      toast.error(errorMessage)
+      console.error("Login error:", error)
     } finally {
       setIsLoading(false)
     }
@@ -70,15 +66,15 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Username/Email Field */}
+            {/* Email Field */}
             <div className="space-y-2">
-              <Label htmlFor="username">Username or Email</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
-                id="username"
-                name="username"
-                type="text"
-                placeholder="Enter your username or email"
-                value={formData.username}
+                id="email"
+                name="email"
+                type="email"
+                placeholder="Enter your email"
+                value={formData.email}
                 onChange={handleChange}
                 required
               />

@@ -8,11 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { Shield, ArrowLeft } from "lucide-react"
+import { authService } from "@/lib/auth"
 
 export default function ForgotPasswordPage() {
-  const [step, setStep] = useState<"email" | "otp" | "reset">("email")
+  const [step, setStep] = useState<"email" | "reset">("email")
   const [email, setEmail] = useState("")
-  const [otp, setOtp] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -28,32 +28,13 @@ export default function ForgotPasswordPage() {
         return
       }
 
-      // Simulate sending OTP
-      toast.success("OTP sent to your email")
-      setStep("otp")
-    } catch (error) {
-      toast.error("Failed to send OTP")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleOtpSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setIsLoading(true)
-
-    try {
-      if (!otp) {
-        toast.error("Please enter the OTP")
-        setIsLoading(false)
-        return
-      }
-
-      // Simulate OTP verification
-      toast.success("OTP verified")
+      await authService.resetPassword(email)
+      toast.success("Password reset link sent to your email")
       setStep("reset")
-    } catch (error) {
-      toast.error("Invalid OTP")
+    } catch (error: any) {
+      const errorMessage = error?.message || "Failed to send reset email"
+      toast.error(errorMessage)
+      console.error("Reset password error:", error)
     } finally {
       setIsLoading(false)
     }
@@ -82,13 +63,15 @@ export default function ForgotPasswordPage() {
         return
       }
 
-      // Simulate password reset
+      await authService.updatePassword(newPassword)
       toast.success("Password reset successfully!")
       setTimeout(() => {
         window.location.href = "/auth/login"
       }, 2000)
-    } catch (error) {
-      toast.error("Failed to reset password")
+    } catch (error: any) {
+      const errorMessage = error?.message || "Failed to reset password"
+      toast.error(errorMessage)
+      console.error("Update password error:", error)
     } finally {
       setIsLoading(false)
     }
@@ -105,8 +88,7 @@ export default function ForgotPasswordPage() {
           </div>
           <CardTitle className="text-2xl font-bold">Reset Password</CardTitle>
           <CardDescription>
-            {step === "email" && "Enter your email to receive an OTP"}
-            {step === "otp" && "Enter the OTP sent to your email"}
+            {step === "email" && "Enter your email to receive a reset link"}
             {step === "reset" && "Create a new password"}
           </CardDescription>
         </CardHeader>
@@ -130,41 +112,7 @@ export default function ForgotPasswordPage() {
                 className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                 disabled={isLoading}
               >
-                {isLoading ? "Sending..." : "Send OTP"}
-              </Button>
-            </form>
-          )}
-
-          {/* OTP Step */}
-          {step === "otp" && (
-            <form onSubmit={handleOtpSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="otp">One-Time Password</Label>
-                <Input
-                  id="otp"
-                  type="text"
-                  placeholder="Enter 6-digit OTP"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  maxLength={6}
-                  required
-                />
-              </div>
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                disabled={isLoading}
-              >
-                {isLoading ? "Verifying..." : "Verify OTP"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => setStep("email")}
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
+                {isLoading ? "Sending..." : "Send Reset Link"}
               </Button>
             </form>
           )}
@@ -205,7 +153,7 @@ export default function ForgotPasswordPage() {
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => setStep("otp")}
+                onClick={() => setStep("email")}
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back

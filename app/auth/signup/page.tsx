@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { Shield } from "lucide-react"
+import { authService } from "@/lib/auth"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -17,7 +18,6 @@ export default function SignupPage() {
     firstName: "",
     lastName: "",
     email: "",
-    username: "",
     password: "",
     confirmPassword: "",
   })
@@ -36,7 +36,7 @@ export default function SignupPage() {
 
     try {
       // Validate form
-      if (!formData.firstName || !formData.lastName || !formData.email || !formData.username || !formData.password) {
+      if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
         toast.error("Please fill in all fields")
         setIsLoading(false)
         return
@@ -54,22 +54,18 @@ export default function SignupPage() {
         return
       }
 
-      // Store user in localStorage
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-          username: formData.username,
-          isLoggedIn: true,
-        })
-      )
+      // Sign up with Supabase
+      await authService.signUp(formData.email, formData.password, {
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+      })
 
-      toast.success("Account created successfully!")
-      router.push("/dashboard")
-    } catch (error) {
-      toast.error("Signup failed. Please try again.")
+      toast.success("Account created! Please check your email to verify your account.")
+      router.push("/auth/login")
+    } catch (error: any) {
+      const errorMessage = error?.message || "Signup failed. Please try again."
+      toast.error(errorMessage)
+      console.error("Signup error:", error)
     } finally {
       setIsLoading(false)
     }
@@ -126,20 +122,6 @@ export default function SignupPage() {
                 type="email"
                 placeholder="Enter your email"
                 value={formData.email}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            {/* Username */}
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                name="username"
-                type="text"
-                placeholder="Choose a username"
-                value={formData.username}
                 onChange={handleChange}
                 required
               />
