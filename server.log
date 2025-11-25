@@ -1,0 +1,52 @@
+
+> datagod-app@0.1.0 dev
+> next dev --turbopack
+
+ ⚠ Found lockfile missing swc dependencies, patching...
+ ⚠ Port 3000 is in use by an unknown process, using available port 3001 instead.
+ ⚠ Lockfile was successfully patched, please run "npm install" to ensure @next/swc dependencies are downloaded
+   ▲ Next.js 15.5.6 (Turbopack)
+   - Local:        http://localhost:3001
+   - Network:      http://169.254.0.21:3001
+
+ ✓ Starting...
+ ✓ Ready in 2.3s
+ ○ Compiling / ...
+ ✓ Compiled / in 5.5s
+ GET / 200 in 2596ms
+ GET / 200 in 6425ms
+ ⚠ Cross origin request detected from datagod.lindy.site to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 579ms
+ GET /favicon.ico?favicon.bf3c9292.ico 200 in 916ms
+ ○ Compiling /auth/login ...
+ ✓ Compiled /auth/login in 706ms
+ GET /auth/login 200 in 813ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 805ms
+ GET /dashboard 200 in 921ms
+ ○ Compiling /dashboard/data-packages ...
+ ✓ Compiled /dashboard/data-packages in 582ms
+ GET /dashboard/data-packages 200 in 678ms
+ ○ Compiling /dashboard/my-orders ...
+ ✓ Compiled /dashboard/my-orders in 634ms
+ GET /dashboard/my-orders 200 in 730ms
+ ○ Compiling /dashboard/wallet ...
+ ✓ Compiled /dashboard/wallet in 556ms
+ GET /dashboard/wallet 200 in 695ms
+ ○ Compiling /dashboard/profile ...
+ ✓ Compiled /dashboard/profile in 660ms
+ GET /dashboard/profile 200 in 776ms
+ ○ Compiling /dashboard/transactions ...
+ ✓ Compiled /dashboard/transactions in 511ms
+ GET /dashboard/transactions 200 in 607ms
+ ○ Compiling /dashboard/afa-orders ...
+ ✓ Compiled /dashboard/afa-orders in 525ms
+ GET /dashboard/afa-orders 200 in 668ms
+ ○ Compiling /dashboard/complaints ...
+ ✓ Compiled /dashboard/complaints in 588ms
+ GET /dashboard/complaints 200 in 685ms
+ GET /dashboard/data-packages 200 in 109ms
+ GET / 200 in 223ms
+ GET / 200 in 292ms
