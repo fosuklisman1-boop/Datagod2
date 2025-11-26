@@ -12,7 +12,7 @@ interface InitializePaymentParams {
   amount: number // Amount in GHS (will be converted to kobo)
   reference: string
   metadata?: Record<string, any>
-  channels?: string[] // Payment channels: card, bank, ussd, qr, mobile_money, bank_transfer, eft, apple_pay, google_pay
+  channels?: string[] // Payment channels: card, mobile_money, bank_transfer (per merchant config)
 }
 
 interface VerifyPaymentParams {
@@ -51,14 +51,8 @@ export async function initializePayment(
       metadata: params.metadata || {},
       channels: params.channels || [
         "card",
-        "bank",
-        "ussd",
-        "qr",
         "mobile_money",
         "bank_transfer",
-        "eft",
-        "apple_pay",
-        "google_pay",
       ],
     }
 
