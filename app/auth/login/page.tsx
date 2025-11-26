@@ -42,7 +42,12 @@ export default function LoginPage() {
 
       await authService.login(formData.email, formData.password)
       toast.success("Login successful!")
-      router.push("/dashboard")
+      
+      // Wait longer for session to be fully established
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Redirect to dashboard
+      window.location.href = "/dashboard"
     } catch (error: any) {
       const errorMessage = error?.message || "Login failed. Please try again."
       toast.error(errorMessage)
@@ -53,16 +58,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <Card className="w-full max-w-md shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 via-purple-50 to-fuchsia-50 p-4">
+      <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
         <CardHeader className="space-y-2 text-center">
           <div className="flex justify-center mb-4">
-            <div className="bg-gradient-to-br from-blue-600 to-purple-600 p-3 rounded-lg">
+            <div className="bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 p-3 rounded-lg shadow-lg">
               <Shield className="w-8 h-8 text-white" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
-          <CardDescription>Sign in to your DATAGOD account</CardDescription>
+          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Welcome Back</CardTitle>
+          <CardDescription className="text-gray-600">Sign in to your DATAGOD account</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -97,7 +102,7 @@ export default function LoginPage() {
             {/* Sign In Button */}
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              className="w-full bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
               disabled={isLoading}
             >
               {isLoading ? "Signing in..." : "Sign In"}

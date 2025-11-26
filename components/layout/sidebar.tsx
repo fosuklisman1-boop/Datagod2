@@ -15,6 +15,9 @@ import {
   MessageCircle,
   LogOut,
   Shield,
+  Store,
+  TrendingUp,
+  Settings,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -27,6 +30,11 @@ const menuItems = [
   { href: "/dashboard/transactions", label: "Transactions", icon: History },
   { href: "/dashboard/profile", label: "Profile", icon: User },
   { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle },
+]
+
+const shopItems = [
+  { href: "/dashboard/my-shop", label: "My Shop", icon: Store },
+  { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp },
 ]
 
 export function Sidebar() {
@@ -67,6 +75,46 @@ export function Sidebar() {
             </Link>
           )
         })}
+
+        {/* Shop Section */}
+        <div className="pt-4 mt-4 border-t border-blue-400">
+          <p className="text-xs font-semibold text-blue-100 px-3 mb-2">SHOP</p>
+          {shopItems.map((item) => {
+            const Icon = item.icon
+            const isActive = pathname === item.href
+            return (
+              <Link key={item.href} href={item.href}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
+                    isActive && "bg-blue-500"
+                  )}
+                >
+                  <Icon className="w-5 h-5" />
+                  {item.label}
+                </Button>
+              </Link>
+            )
+          })}
+        </div>
+
+        {/* Admin Section */}
+        <div className="pt-4 mt-4 border-t border-blue-400">
+          <p className="text-xs font-semibold text-blue-100 px-3 mb-2">ADMIN</p>
+          <Link href="/admin">
+            <Button
+              variant="ghost"
+              className={cn(
+                "w-full justify-start gap-3 text-white hover:bg-blue-500",
+                pathname === "/admin" && "bg-blue-500"
+              )}
+            >
+              <Settings className="w-5 h-5" />
+              Admin Panel
+            </Button>
+          </Link>
+        </div>
       </nav>
 
       {/* Community & Logout */}

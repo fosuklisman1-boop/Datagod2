@@ -17,6 +17,7 @@ export default function SignupPage() {
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
+    phoneNumber: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -36,7 +37,7 @@ export default function SignupPage() {
 
     try {
       // Validate form
-      if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
+      if (!formData.firstName || !formData.lastName || !formData.phoneNumber || !formData.email || !formData.password) {
         toast.error("Please fill in all fields")
         setIsLoading(false)
         return
@@ -58,6 +59,7 @@ export default function SignupPage() {
       await authService.signUp(formData.email, formData.password, {
         first_name: formData.firstName,
         last_name: formData.lastName,
+        phone_number: formData.phoneNumber,
       })
 
       toast.success("Account created! Please check your email to verify your account.")
@@ -72,16 +74,16 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <Card className="w-full max-w-md shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 p-4">
+      <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
         <CardHeader className="space-y-2 text-center">
           <div className="flex justify-center mb-4">
-            <div className="bg-gradient-to-br from-blue-600 to-purple-600 p-3 rounded-lg">
+            <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-600 p-3 rounded-lg shadow-lg">
               <Shield className="w-8 h-8 text-white" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Create Account</CardTitle>
-          <CardDescription>Join DATAGOD today</CardDescription>
+          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent">Create Account</CardTitle>
+          <CardDescription className="text-gray-600">Join DATAGOD today</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -108,6 +110,20 @@ export default function SignupPage() {
                 type="text"
                 placeholder="Enter your last name"
                 value={formData.lastName}
+                onChange={handleChange}
+                required
+              />
+            </div>
+
+            {/* Phone Number */}
+            <div className="space-y-2">
+              <Label htmlFor="phoneNumber">Phone Number</Label>
+              <Input
+                id="phoneNumber"
+                name="phoneNumber"
+                type="tel"
+                placeholder="Enter your phone number"
+                value={formData.phoneNumber}
                 onChange={handleChange}
                 required
               />
@@ -158,7 +174,7 @@ export default function SignupPage() {
             {/* Sign Up Button */}
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
               disabled={isLoading}
             >
               {isLoading ? "Creating account..." : "Create Account"}

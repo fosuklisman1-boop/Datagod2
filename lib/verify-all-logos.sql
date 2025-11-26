@@ -1,0 +1,7 @@
+-- Ensure bigtime is in network_logos table with correct URL
+INSERT INTO network_logos (network_name, logo_url) VALUES
+('bigtime', 'https://riijesduargxlzxuperj.supabase.co/storage/v1/object/public/network-logos/bigtime.png')
+ON CONFLICT (network_name) DO UPDATE SET logo_url = EXCLUDED.logo_url;
+
+-- Verify all networks are in the table
+SELECT network_name, logo_url FROM network_logos ORDER BY network_name;

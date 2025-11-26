@@ -78,16 +78,16 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <Card className="w-full max-w-md shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 p-4">
+      <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
         <CardHeader className="space-y-2 text-center">
           <div className="flex justify-center mb-4">
-            <div className="bg-gradient-to-br from-blue-600 to-purple-600 p-3 rounded-lg">
+            <div className="bg-gradient-to-br from-amber-600 via-orange-600 to-rose-600 p-3 rounded-lg shadow-lg">
               <Shield className="w-8 h-8 text-white" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Reset Password</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 bg-clip-text text-transparent">Reset Password</CardTitle>
+          <CardDescription className="text-gray-600">
             {step === "email" && "Enter your email to receive a reset link"}
             {step === "reset" && "Create a new password"}
           </CardDescription>
@@ -109,7 +109,7 @@ export default function ForgotPasswordPage() {
               </div>
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                className="w-full bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-700 hover:via-orange-700 hover:to-rose-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
                 disabled={isLoading}
               >
                 {isLoading ? "Sending..." : "Send Reset Link"}
@@ -144,7 +144,7 @@ export default function ForgotPasswordPage() {
               </div>
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                className="w-full bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-700 hover:via-orange-700 hover:to-rose-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
                 disabled={isLoading}
               >
                 {isLoading ? "Resetting..." : "Reset Password"}

@@ -54,6 +54,7 @@ CREATE TABLE users (
   last_name VARCHAR(255),
   username VARCHAR(255) UNIQUE,
   phone VARCHAR(20),
+  phone_number VARCHAR(20),
   role VARCHAR(50) DEFAULT 'user',
   status VARCHAR(50) DEFAULT 'active',
   created_at TIMESTAMP DEFAULT NOW(),

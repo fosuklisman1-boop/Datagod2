@@ -1,5 +1,4 @@
 import { supabase } from "./supabase"
-import { userService } from "./database"
 
 export const authService = {
   async signUp(email: string, password: string, userData: any) {
@@ -14,15 +13,28 @@ export const authService = {
 
       if (!authData.user) throw new Error("User creation failed")
 
-      // Create user profile
-      const userProfile = await userService.createUser({
-        id: authData.user.id,
-        email,
-        ...userData,
-        created_at: new Date().toISOString(),
+      // Create user profile via API route (server-side)
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          userId: authData.user.id,
+          firstName: userData.first_name,
+          lastName: userData.last_name,
+          phoneNumber: userData.phone_number,
+        }),
       })
 
-      return { user: authData.user, profile: userProfile }
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to create user profile")
+      }
+
+      const profileData = await response.json()
+      return { user: authData.user, profile: profileData.profile }
     } catch (error) {
       console.error("Sign up error:", error)
       throw error

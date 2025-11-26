@@ -1,0 +1,410 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useAuth } from "@/lib/auth-context"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { shopService, shopOrderService, shopProfitService, withdrawalService } from "@/lib/shop-service"
+import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy } from "lucide-react"
+import { toast } from "sonner"
+
+export default function ShopDashboardPage() {
+  const { user } = useAuth()
+  const [shop, setShop] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [profits, setProfits] = useState<any[]>([])
+  const [balance, setBalance] = useState(0)
+  const [totalProfit, setTotalProfit] = useState(0)
+  const [withdrawals, setWithdrawals] = useState<any[]>([])
+  const [orders, setOrders] = useState<any[]>([])
+  const [withdrawalForm, setWithdrawalForm] = useState({
+    amount: "",
+    method: "mobile_money",
+    phone: "",
+  })
+  const [showWithdrawalForm, setShowWithdrawalForm] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    loadDashboardData()
+  }, [user])
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true)
+      if (!user?.id) return
+      const userShop = await shopService.getShop(user.id)
+      
+      if (!userShop) {
+        toast.error("Shop not found")
+        return
+      }
+
+      setShop(userShop)
+
+      // Load all data in parallel
+      const [
+        balance,
+        totalProfit,
+        profitHistory,
+        withdrawalList,
+        orderList
+      ] = await Promise.all([
+        shopProfitService.getShopBalance(userShop.id),
+        shopProfitService.getTotalProfit(userShop.id),
+        shopProfitService.getProfitHistory(userShop.id),
+        withdrawalService.getWithdrawalRequests(user.id),
+        shopOrderService.getShopOrders(userShop.id),
+      ])
+
+      setBalance(balance || 0)
+      setTotalProfit(totalProfit || 0)
+      setProfits(profitHistory || [])
+      setWithdrawals(withdrawalList || [])
+      setOrders(orderList || [])
+    } catch (error) {
+      console.error("Error loading dashboard:", error)
+      toast.error("Failed to load shop dashboard")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleWithdrawal = async () => {
+    const amount = parseFloat(withdrawalForm.amount)
+
+    if (!amount || amount <= 0) {
+      toast.error("Please enter a valid amount")
+      return
+    }
+
+    if (amount > balance) {
+      toast.error("Insufficient balance")
+      return
+    }
+
+    if (withdrawalForm.method === "mobile_money" && !withdrawalForm.phone) {
+      toast.error("Please enter your phone number")
+      return
+    }
+
+    if (!user?.id || !shop?.id) {
+      toast.error("Missing user or shop information")
+      return
+    }
+
+    try {
+      const accountDetails: any = {}
+      if (withdrawalForm.method === "mobile_money") {
+        accountDetails.phone = withdrawalForm.phone
+      }
+
+      await withdrawalService.createWithdrawalRequest(
+        user.id,
+        shop.id,
+        {
+          amount,
+          withdrawal_method: withdrawalForm.method,
+          account_details: accountDetails,
+        }
+      )
+
+      toast.success("Withdrawal request submitted successfully")
+      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "" })
+      setShowWithdrawalForm(false)
+
+      // Reload withdrawals
+      const updated = await withdrawalService.getWithdrawalRequests(user.id)
+      setWithdrawals(updated || [])
+    } catch (error) {
+      console.error("Error creating withdrawal:", error)
+      toast.error("Failed to create withdrawal request")
+    }
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <p className="text-gray-500">Loading dashboard...</p>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!shop) {
+    return (
+      <DashboardLayout>
+        <div className="space-y-6">
+          <Alert className="border-red-300 bg-red-50">
+            <AlertCircle className="h-4 w-4 text-red-600" />
+            <AlertDescription className="text-red-700">
+              Shop not found. Please create a shop first.
+            </AlertDescription>
+          </Alert>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const pendingWithdrawals = withdrawals.filter(w => w.status === "pending")
+  const completedWithdrawals = withdrawals.filter(w => w.status === "completed")
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Shop Dashboard</h1>
+          <p className="text-gray-500 mt-1">Track your profits and manage withdrawals</p>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Available Balance */}
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
+              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-cyan-300/60">
+                <DollarSign className="h-4 w-4 text-cyan-600" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">
+                GHS {balance.toFixed(2)}
+              </div>
+              <p className="text-xs text-gray-500">Ready to withdraw</p>
+            </CardContent>
+          </Card>
+
+          {/* Total Profit */}
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
+              <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-emerald-300/60">
+                <TrendingUp className="h-4 w-4 text-emerald-600" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                GHS {totalProfit.toFixed(2)}
+              </div>
+              <p className="text-xs text-gray-500">All time profit</p>
+            </CardContent>
+          </Card>
+
+          {/* Total Orders */}
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/60 to-orange-50/40 backdrop-blur-xl border border-amber-200/40">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+              <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-amber-300/60">
+                <ShoppingCart className="h-4 w-4 text-amber-600" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
+                {orders.length}
+              </div>
+              <p className="text-xs text-gray-500">All orders</p>
+            </CardContent>
+          </Card>
+
+          {/* Pending Withdrawals */}
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/60 to-pink-50/40 backdrop-blur-xl border border-rose-200/40">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending Withdrawals</CardTitle>
+              <div className="bg-gradient-to-br from-rose-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-rose-300/60">
+                <CreditCard className="h-4 w-4 text-rose-600" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">
+                {pendingWithdrawals.length}
+              </div>
+              <p className="text-xs text-gray-500">Awaiting approval</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Withdraw Button */}
+        {balance > 0 && !showWithdrawalForm && (
+          <Button
+            onClick={() => setShowWithdrawalForm(true)}
+            className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+          >
+            Request Withdrawal
+          </Button>
+        )}
+
+        {/* Withdrawal Form */}
+        {showWithdrawalForm && (
+          <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+            <CardHeader>
+              <CardTitle>Request Withdrawal</CardTitle>
+              <CardDescription>Withdraw your available profits</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label>Amount (GHS) *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={withdrawalForm.amount}
+                  onChange={(e) => setWithdrawalForm({ ...withdrawalForm, amount: e.target.value })}
+                  placeholder="0.00"
+                  max={balance}
+                  className="mt-1"
+                />
+                <p className="text-xs text-gray-600 mt-1">
+                  Available: GHS {balance.toFixed(2)}
+                </p>
+              </div>
+
+              <div>
+                <Label>Withdrawal Method *</Label>
+                <select
+                  value={withdrawalForm.method}
+                  onChange={(e) => setWithdrawalForm({ ...withdrawalForm, method: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                >
+                  <option value="mobile_money">Mobile Money</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                </select>
+              </div>
+
+              {withdrawalForm.method === "mobile_money" && (
+                <div>
+                  <Label>Mobile Number *</Label>
+                  <Input
+                    value={withdrawalForm.phone}
+                    onChange={(e) => setWithdrawalForm({ ...withdrawalForm, phone: e.target.value })}
+                    placeholder="0201234567"
+                    className="mt-1"
+                  />
+                </div>
+              )}
+
+              <Alert className="border-blue-300 bg-blue-50">
+                <AlertCircle className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-xs text-blue-700">
+                  Withdrawal requests are processed within 1-2 business days after approval.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleWithdrawal}
+                  className="flex-1 bg-violet-600 hover:bg-violet-700"
+                >
+                  Submit Request
+                </Button>
+                <Button
+                  onClick={() => setShowWithdrawalForm(false)}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tabs for Orders and Withdrawals */}
+        <Tabs defaultValue="orders" className="space-y-4">
+          <TabsList className="bg-white/40 backdrop-blur border border-white/20">
+            <TabsTrigger value="orders">Recent Orders ({orders.length})</TabsTrigger>
+            <TabsTrigger value="withdrawals">Withdrawals ({withdrawals.length})</TabsTrigger>
+          </TabsList>
+
+          {/* Orders Tab */}
+          <TabsContent value="orders">
+            <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+              <CardHeader>
+                <CardTitle>Recent Orders</CardTitle>
+                <CardDescription>Orders from your shop customers</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {orders.length === 0 ? (
+                  <p className="text-gray-600 text-center py-8">No orders yet. Share your shop link to start receiving orders!</p>
+                ) : (
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {orders.map((order) => (
+                      <div
+                        key={order.id}
+                        className="flex items-center justify-between p-3 bg-white/50 border border-cyan-200/40 rounded-lg hover:bg-white/70"
+                      >
+                        <div className="flex-1">
+                          <p className="font-semibold">{order.customer_name}</p>
+                          <p className="text-sm text-gray-600">{order.network} - {order.volume_gb}GB</p>
+                          <p className="text-xs text-gray-500">{new Date(order.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-cyan-600">+GHS {order.profit_amount.toFixed(2)}</p>
+                          <Badge variant="outline" className={
+                            order.order_status === "completed"
+                              ? "bg-green-100 text-green-700"
+                              : "bg-amber-100 text-amber-700"
+                          }>
+                            {order.order_status}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Withdrawals Tab */}
+          <TabsContent value="withdrawals">
+            <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+              <CardHeader>
+                <CardTitle>Withdrawal History</CardTitle>
+                <CardDescription>Your withdrawal requests and status</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {withdrawals.length === 0 ? (
+                  <p className="text-gray-600 text-center py-8">No withdrawals yet.</p>
+                ) : (
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {withdrawals.map((withdrawal) => (
+                      <div
+                        key={withdrawal.id}
+                        className="flex items-center justify-between p-3 bg-white/50 border border-emerald-200/40 rounded-lg"
+                      >
+                        <div className="flex-1">
+                          <p className="font-semibold">GHS {withdrawal.amount.toFixed(2)}</p>
+                          <p className="text-sm text-gray-600">{withdrawal.withdrawal_method}</p>
+                          <p className="text-xs text-gray-500">{new Date(withdrawal.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <Badge className={
+                          withdrawal.status === "completed"
+                            ? "bg-green-600"
+                            : withdrawal.status === "pending"
+                            ? "bg-amber-600"
+                            : withdrawal.status === "approved"
+                            ? "bg-blue-600"
+                            : "bg-red-600"
+                        }>
+                          {withdrawal.status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </DashboardLayout>
+  )
+}
