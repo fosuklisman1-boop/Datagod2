@@ -41,6 +41,7 @@ export function BulkOrdersForm() {
   const [packages, setPackages] = useState<Array<{ network: string; size: number; price: number }>>([])
   const [networks, setNetworks] = useState<Array<{ id: string; label: string }>>([])
   const [loading, setLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Load packages from database on mount
   useEffect(() => {
@@ -300,6 +301,71 @@ export function BulkOrdersForm() {
     toast.success("Template downloaded")
   }
 
+  const handleSubmitOrders = async () => {
+    if (!validationResults || validationResults.invalid > 0) {
+      toast.error("Please fix validation errors before submitting")
+      return
+    }
+
+    const validOrders = validationResults.orders.filter(o => o.status === "valid")
+    if (validOrders.length === 0) {
+      toast.error("No valid orders to submit")
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      // Get the selected network label
+      const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
+      if (!selectedNetworkLabel) {
+        throw new Error("Invalid network selected")
+      }
+
+      // Get auth token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error("Not authenticated")
+      }
+
+      // Call the bulk create API
+      const response = await fetch("/api/orders/create-bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          orders: validOrders.map(o => ({
+            phone_number: o.phone,
+            volume_gb: o.volume,
+            price: o.price,
+          })),
+          network: selectedNetworkLabel,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to submit orders")
+      }
+
+      toast.success(`Successfully created ${data.count} orders!`)
+      
+      // Reset form
+      setValidationResults(null)
+      setTextInput("")
+      setSelectedNetwork("")
+      
+      console.log("Orders created:", data.orders)
+    } catch (error) {
+      console.error("Error submitting orders:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to submit orders")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <Card className="bg-gradient-to-br from-blue-50/60 to-indigo-50/40 backdrop-blur-xl border border-blue-200/40 hover:border-blue-300/60 hover:shadow-2xl transition-all duration-300">
       <CardHeader>
@@ -515,8 +581,12 @@ export function BulkOrdersForm() {
                   </p>
                 </div>
                 {validationResults.invalid === 0 && (
-                  <Button className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 px-6 shadow-lg hover:shadow-xl transition-all text-white font-semibold">
-                    ✓ SUBMIT ORDER
+                  <Button 
+                    onClick={handleSubmitOrders}
+                    disabled={isSubmitting}
+                    className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 px-6 shadow-lg hover:shadow-xl transition-all text-white font-semibold"
+                  >
+                    {isSubmitting ? "Submitting..." : "✓ SUBMIT ORDER"}
                   </Button>
                 )}
               </div>
