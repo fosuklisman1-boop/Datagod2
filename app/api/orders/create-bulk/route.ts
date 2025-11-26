@@ -61,11 +61,10 @@ export async function POST(request: NextRequest) {
     const ordersToInsert = orders.map((order: BulkOrderData) => ({
       user_id: userId,
       phone_number: order.phone_number,
-      volume_gb: order.volume_gb,
+      size: order.volume_gb.toString(), // Convert to string as per schema
       network: network,
-      total_price: order.price,
-      order_status: "pending",
-      payment_status: "pending",
+      price: order.price,
+      status: "pending", // Use 'status' instead of 'order_status'
       created_at: new Date().toISOString(),
     }))
 
