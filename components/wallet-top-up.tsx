@@ -107,83 +107,74 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         await loadPaystackScript()
       }
 
-      console.log("[WALLET-TOPUP] Paystack library available, opening checkout...")
-
-      // Method 1: Use the authorization URL directly in a popup window
       console.log("[WALLET-TOPUP] Opening Paystack checkout URL:", paymentResult.authorizationUrl)
       
-      // Open in a new window to maintain clean modal experience
+      // Use the authorization URL from backend - this is already initialized
+      // Don't call setup() again as it would try to initialize a NEW transaction
       const checkoutWindow = window.open(
         paymentResult.authorizationUrl,
         'paystackpayment',
         'height=600,width=600,left=' + (screen.width / 2 - 300) + ',top=' + (screen.height / 2 - 300)
       )
 
-      // Poll for payment completion
-      const pollInterval = setInterval(() => {
-        if (checkoutWindow?.closed) {
+      if (!checkoutWindow) {
+        throw new Error("Could not open checkout window. Please check if popups are blocked.")
+      }
+
+      // Monitor for payment completion
+      let pollCount = 0
+      const maxPolls = 300 // 5 minutes with 1-second intervals
+      const pollInterval = setInterval(async () => {
+        pollCount++
+        
+        // If window closed, verify the payment
+        if (checkoutWindow.closed) {
+          clearInterval(pollInterval)
+          console.log("[WALLET-TOPUP] Checkout window closed, verifying payment...")
+          setIsProcessing(true)
+          
+          try {
+            const verificationResult = await verifyPayment({
+              reference: paymentResult.reference,
+            })
+
+            console.log("[WALLET-TOPUP] Verification result:", verificationResult)
+
+            if (verificationResult.status === "success") {
+              setPaymentStatus("success")
+              toast.success(`Payment successful! GHS ${verificationResult.amount} added to wallet.`)
+              setAmount("")
+              
+              // Wait a moment for database to be fully updated
+              await new Promise(resolve => setTimeout(resolve, 1000))
+              
+              if (onSuccess) {
+                console.log("[WALLET-TOPUP] Calling onSuccess callback with amount:", verificationResult.amount)
+                onSuccess(verificationResult.amount)
+              }
+            } else {
+              setPaymentStatus("error")
+              setErrorMessage(`Payment status: ${verificationResult.status}`)
+              toast.error(`Payment ${verificationResult.status}`)
+            }
+          } catch (verifyError) {
+            setPaymentStatus("error")
+            setErrorMessage(verifyError instanceof Error ? verifyError.message : "Verification failed")
+            toast.error("Payment verification failed")
+          } finally {
+            setIsProcessing(false)
+            setIsLoading(false)
+          }
+        }
+        
+        // Stop polling after max time
+        if (pollCount > maxPolls) {
           clearInterval(pollInterval)
           setIsLoading(false)
           setPaymentStatus("idle")
-          console.log("[WALLET-TOPUP] Checkout window closed")
+          console.log("[WALLET-TOPUP] Polling timeout - checkout took too long")
         }
       }, 1000)
-
-      // Also offer alternative: Using PaystackPop setup (v1) if available
-      try {
-        console.log("[WALLET-TOPUP] Setting up PaystackPop modal as fallback...")
-        const handler = window.PaystackPop!.setup({
-          key: paystackPublicKey,
-          email: email,
-          amount: Math.round(parseFloat(amount) * 100), // Must be integer in pesewa/kobo
-          ref: paymentResult.reference,
-          onClose: () => {
-            console.log("[WALLET-TOPUP] PaystackPop modal closed")
-            clearInterval(pollInterval)
-            setIsLoading(false)
-            setPaymentStatus("idle")
-            toast.info("Payment modal closed")
-          },
-          onSuccess: async (response: any) => {
-            console.log("[WALLET-TOPUP] Payment success via PaystackPop, response:", response)
-            clearInterval(pollInterval)
-            setIsProcessing(true)
-            
-            try {
-              // Verify payment
-              const verificationResult = await verifyPayment({
-                reference: paymentResult.reference,
-              })
-
-              if (verificationResult.status === "success") {
-                setPaymentStatus("success")
-                toast.success(`Payment successful! GHS ${verificationResult.amount} added to wallet.`)
-                setAmount("")
-                if (onSuccess) {
-                  onSuccess(verificationResult.amount)
-                }
-              } else {
-                setPaymentStatus("error")
-                setErrorMessage(`Payment status: ${verificationResult.status}`)
-                toast.error(`Payment ${verificationResult.status}`)
-              }
-            } catch (verifyError) {
-              setPaymentStatus("error")
-              setErrorMessage(verifyError instanceof Error ? verifyError.message : "Verification failed")
-              toast.error("Payment verification failed")
-            } finally {
-              setIsProcessing(false)
-              setIsLoading(false)
-            }
-          },
-        })
-
-        console.log("[WALLET-TOPUP] Opening Paystack iframe...")
-        handler.openIframe()
-      } catch (paystackError) {
-        // If PaystackPop modal fails, the window.open URL should still work
-        console.warn("[WALLET-TOPUP] PaystackPop failed, using window.open fallback:", paystackError)
-      }
     } catch (error) {
       console.error("[WALLET-TOPUP] Error:", error)
       setPaymentStatus("error")

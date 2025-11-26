@@ -61,12 +61,16 @@ export async function POST(request: NextRequest) {
 
     console.log("[PAYMENT-INIT] ✓ Payment record created:", paymentData[0].id)
 
-    // Initialize Paystack
+    // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
+    const redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?payment_status=completed`
+    console.log("[PAYMENT-INIT] Redirect URL:", redirectUrl)
+    
     const paymentResult = await initializePayment({
       email,
       amount: parseFloat(amount.toString()),
       reference,
+      redirectUrl,
       metadata: {
         userId,
         shopId: shopId || null,

@@ -116,8 +116,17 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
 
+    // Use balance from wallet table as primary source (updated on payment success)
+    const balanceFromWallet = wallet?.balance || 0
+    const calculatedBalance = totalCredited - totalDebited
+    
+    console.log("[WALLET-BALANCE] User:", userId)
+    console.log("[WALLET-BALANCE] Balance from wallet table:", balanceFromWallet)
+    console.log("[WALLET-BALANCE] Calculated balance (credits - debits):", calculatedBalance)
+    console.log("[WALLET-BALANCE] Total credited:", totalCredited, "Total debited:", totalDebited)
+
     const walletData: WalletData = {
-      balance: wallet?.balance || 0,
+      balance: balanceFromWallet,
       totalCredited,
       totalDebited,
       transactionCount: count || 0,

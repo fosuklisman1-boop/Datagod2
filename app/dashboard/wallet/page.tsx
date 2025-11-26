@@ -113,13 +113,19 @@ export default function WalletPage() {
   }
 
   const handleTopUpSuccess = async (amount: number) => {
+    console.log("[WALLET-PAGE] Top up successful, amount:", amount)
     toast.success(`Wallet topped up by GHS ${amount.toFixed(2)}`)
     setShowTopUp(false)
+    
     if (userId) {
+      console.log("[WALLET-PAGE] Refetching wallet data and transactions...")
+      // Wait a bit more to ensure data is written
+      await new Promise(resolve => setTimeout(resolve, 500))
       await Promise.all([
         fetchWalletData(userId),
         fetchTransactions(userId),
       ])
+      console.log("[WALLET-PAGE] Wallet data refreshed")
     }
   }
 

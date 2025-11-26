@@ -63,35 +63,55 @@ export async function POST(request: NextRequest) {
     if (verificationResult.status === "success") {
       console.log("[PAYMENT-VERIFY] Crediting wallet...")
       const amount = parseFloat(verificationResult.amount.toString())
+      console.log("[PAYMENT-VERIFY] Amount to credit:", amount)
 
-      const { data: wallet } = await supabase
+      const { data: wallet, error: walletFetchError } = await supabase
         .from("user_wallets")
         .select("*")
         .eq("user_id", paymentData.user_id)
         .maybeSingle()
 
+      if (walletFetchError) {
+        console.error("[PAYMENT-VERIFY] Wallet fetch error:", walletFetchError)
+        throw new Error("Failed to fetch wallet")
+      }
+
       if (!wallet) {
-        await supabase.from("user_wallets").insert([{
+        console.log("[PAYMENT-VERIFY] Creating new wallet...")
+        const { error: insertError } = await supabase.from("user_wallets").insert([{
           user_id: paymentData.user_id,
           balance: amount,
-          total_credited: amount,
-          total_debited: 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }])
+        if (insertError) {
+          console.error("[PAYMENT-VERIFY] Wallet creation error:", insertError)
+          throw new Error("Failed to create wallet")
+        }
+        console.log("[PAYMENT-VERIFY] ✓ New wallet created with balance:", amount)
       } else {
-        await supabase
+        console.log("[PAYMENT-VERIFY] Updating existing wallet. Current balance:", wallet.balance, "Adding:", amount)
+        const newBalance = (wallet.balance || 0) + amount
+        console.log("[PAYMENT-VERIFY] New balance will be:", newBalance)
+        
+        const { error: updateError } = await supabase
           .from("user_wallets")
           .update({
-            balance: (wallet.balance || 0) + amount,
-            total_credited: (wallet.total_credited || 0) + amount,
+            balance: newBalance,
             updated_at: new Date().toISOString(),
           })
           .eq("user_id", paymentData.user_id)
+        
+        if (updateError) {
+          console.error("[PAYMENT-VERIFY] Wallet update error:", updateError)
+          throw new Error("Failed to update wallet balance")
+        }
+        console.log("[PAYMENT-VERIFY] ✓ Wallet updated")
       }
 
       // Create transaction
-      await supabase.from("wallet_transactions").insert([{
+      console.log("[PAYMENT-VERIFY] Creating transaction record...")
+      const { error: txError } = await supabase.from("wallet_transactions").insert([{
         user_id: paymentData.user_id,
         type: "credit",
         amount,
@@ -101,6 +121,11 @@ export async function POST(request: NextRequest) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }])
+      
+      if (txError) {
+        console.error("[PAYMENT-VERIFY] Transaction creation error:", txError)
+        throw new Error("Failed to create transaction")
+      }
 
       console.log("[PAYMENT-VERIFY] ✓ Wallet credited:", amount)
     }
