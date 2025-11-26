@@ -11,7 +11,7 @@ interface InitializePaymentParams {
   amount: number // Amount in GHS (will be converted to kobo)
   reference: string
   metadata?: Record<string, any>
-  channels?: string[]
+  channels?: string[] // Payment channels: card, bank, ussd, qr, mobile_money, bank_transfer, eft, apple_pay, google_pay
 }
 
 interface VerifyPaymentParams {
@@ -27,6 +27,7 @@ interface PaymentResponse {
 
 /**
  * Initialize a payment with Paystack
+ * Supports all payment methods: card, bank transfer, USSD, QR code, mobile money, EFT, Apple Pay, Google Pay
  * @param params - Payment initialization parameters
  * @returns Payment authorization URL
  */
@@ -45,7 +46,17 @@ export async function initializePayment(
         amount: params.amount * 100, // Convert GHS to kobo
         reference: params.reference,
         metadata: params.metadata || {},
-        channels: params.channels || ["card", "bank", "ussd", "qr", "mobile_money"],
+        channels: params.channels || [
+          "card",
+          "bank",
+          "ussd",
+          "qr",
+          "mobile_money",
+          "bank_transfer",
+          "eft",
+          "apple_pay",
+          "google_pay",
+        ],
       }),
     })
 
