@@ -27,9 +27,17 @@ export async function GET(request: NextRequest) {
     const token = authHeader.slice(7)
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 
-    if (authError || !user) {
+    if (authError) {
+      console.error("Auth error:", authError)
       return NextResponse.json(
-        { error: "Unauthorized" },
+        { error: "Unauthorized: " + authError.message },
+        { status: 401 }
+      )
+    }
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
         { status: 401 }
       )
     }
@@ -44,6 +52,7 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (walletError) {
+      console.error("Wallet fetch error:", walletError)
       return NextResponse.json(
         { error: "Failed to fetch wallet" },
         { status: 400 }
@@ -58,6 +67,7 @@ export async function GET(request: NextRequest) {
       .eq("type", "credit")
 
     if (creditError) {
+      console.error("Credit error:", creditError)
       return NextResponse.json(
         { error: "Failed to fetch credits" },
         { status: 400 }
@@ -74,6 +84,7 @@ export async function GET(request: NextRequest) {
       .eq("type", "debit")
 
     if (debitError) {
+      console.error("Debit error:", debitError)
       return NextResponse.json(
         { error: "Failed to fetch debits" },
         { status: 400 }
@@ -99,7 +110,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching wallet balance:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Internal server error: " + (error instanceof Error ? error.message : "Unknown error") },
       { status: 500 }
     )
   }

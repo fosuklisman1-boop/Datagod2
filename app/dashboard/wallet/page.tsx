@@ -76,7 +76,10 @@ export default function WalletPage() {
           "Authorization": `Bearer ${session.access_token}`,
         },
       })
-      if (!response.ok) throw new Error("Failed to fetch wallet")
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to fetch wallet")
+      }
 
       const data = await response.json()
       setWalletData(data)
@@ -96,7 +99,10 @@ export default function WalletPage() {
           "Authorization": `Bearer ${session.access_token}`,
         },
       })
-      if (!response.ok) throw new Error("Failed to fetch transactions")
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to fetch transactions")
+      }
 
       const data = await response.json()
       setTransactions(data.transactions || [])

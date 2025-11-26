@@ -45,6 +45,7 @@ export async function initializePayment(
         email: params.email,
         amount: params.amount * 100, // Convert GHS to kobo
         reference: params.reference,
+        currency: "GHS",
         metadata: params.metadata || {},
         channels: params.channels || [
           "card",
