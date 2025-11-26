@@ -321,10 +321,33 @@ export function BulkOrdersForm() {
         throw new Error("Invalid network selected")
       }
 
-      // Get auth token
+      // Get auth token and user
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
+      if (!session?.access_token || !session.user?.id) {
         throw new Error("Not authenticated")
+      }
+
+      // Check wallet balance
+      const { data: wallet, error: walletError } = await supabase
+        .from("wallet")
+        .select("balance")
+        .eq("user_id", session.user.id)
+        .single()
+
+      if (walletError) {
+        throw new Error("Failed to fetch wallet balance")
+      }
+
+      // Calculate total cost
+      const totalCost = validOrders.reduce((sum, order) => sum + order.price, 0)
+
+      // Check if balance is sufficient
+      if (!wallet || wallet.balance < totalCost) {
+        const availableBalance = wallet?.balance || 0
+        toast.error(
+          `Insufficient wallet balance. Required: ₵${totalCost.toFixed(2)}, Available: ₵${availableBalance.toFixed(2)}`
+        )
+        return
       }
 
       // Call the bulk create API

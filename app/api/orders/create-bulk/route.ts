@@ -83,10 +83,30 @@ export async function POST(request: NextRequest) {
 
     console.log(`[BULK-ORDERS] Successfully created ${createdOrders?.length || 0} orders`)
 
+    // Calculate total cost
+    const totalCost = orders.reduce((sum: number, order: BulkOrderData) => sum + order.price, 0)
+
+    // Deduct from wallet
+    const { error: updateError } = await supabase
+      .from("wallet")
+      .update({
+        balance: `balance - ${totalCost}`
+      })
+      .eq("user_id", userId)
+
+    if (updateError) {
+      console.error("[BULK-ORDERS] Wallet update error:", updateError)
+      // Don't fail the order creation if wallet update fails
+      // Just log the error
+    } else {
+      console.log(`[BULK-ORDERS] Deducted ₵${totalCost} from wallet for user ${userId}`)
+    }
+
     return NextResponse.json({
       success: true,
       count: createdOrders?.length || 0,
       orders: createdOrders,
+      totalCost,
     })
   } catch (error) {
     console.error("[BULK-ORDERS] Error:", error)
