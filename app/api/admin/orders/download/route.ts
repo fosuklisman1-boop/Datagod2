@@ -75,23 +75,13 @@ export async function POST(request: NextRequest) {
 
     // Generate CSV
     const csvHeader = [
-      "Order ID",
-      "Customer Phone",
-      "Network",
-      "Package Size (GB)",
-      "Price (NGN)",
-      "Status",
-      "Created Date"
+      "Number",
+      "Size"
     ].join(",")
 
     const csvRows = orders.map((order: any) => [
       `"${order.id}"`,
-      `"${order.phone_number || ""}"`,
-      `"${order.network}"`,
-      order.size,
-      order.price.toFixed(2),
-      order.status,
-      new Date(order.created_at).toISOString().split('T')[0]
+      `${order.size}`
     ].join(","))
 
     const csv = [csvHeader, ...csvRows].join("\n")
