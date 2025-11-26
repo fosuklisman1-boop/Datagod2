@@ -43,9 +43,8 @@ export async function initializePayment(
       },
       body: JSON.stringify({
         email: params.email,
-        amount: params.amount * 100, // Convert GHS to kobo
+        amount: params.amount * 100, // Convert to kobo (smallest unit)
         reference: params.reference,
-        currency: "GHS",
         metadata: params.metadata || {},
         channels: params.channels || [
           "card",
