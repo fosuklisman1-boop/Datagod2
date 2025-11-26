@@ -30,11 +30,38 @@ export default function ShopStorefront() {
     customer_phone: "",
   })
   const [submitting, setSubmitting] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<"wallet" | "card">("card")
+  const [walletBalance, setWalletBalance] = useState<number>(0)
+  const [userId, setUserId] = useState<string | null>(null)
 
   useEffect(() => {
     loadShopData()
     loadNetworkLogos()
+    fetchUserAndWallet()
   }, [shopSlug])
+
+  const fetchUserAndWallet = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.access_token) {
+          const response = await fetch("/api/wallet/balance", {
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+          })
+          if (response.ok) {
+            const data = await response.json()
+            setWalletBalance(data.balance || 0)
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching wallet:", error)
+    }
+  }
 
   const loadShopData = async () => {
     try {
@@ -145,6 +172,18 @@ export default function ShopStorefront() {
       const profitAmount = selectedPackage.profit_margin
       const totalPrice = basePrice + profitAmount
 
+      // Check wallet payment feasibility
+      if (paymentMethod === "wallet") {
+        if (!userId) {
+          toast.error("Please log in to use wallet payment")
+          return
+        }
+        if (walletBalance < totalPrice) {
+          toast.error(`Insufficient wallet balance. You need GHS ${totalPrice.toFixed(2)} but have GHS ${walletBalance.toFixed(2)}`)
+          return
+        }
+      }
+
       // Create order
       const order = await shopOrderService.createShopOrder({
         shop_id: shop.id,
@@ -160,8 +199,41 @@ export default function ShopStorefront() {
         total_price: totalPrice,
       })
 
-      toast.success("Order placed successfully! Processing your request...")
-      
+      // Handle payment
+      if (paymentMethod === "wallet") {
+        // Deduct from wallet
+        try {
+          const response = await fetch("/api/wallet/debit", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+            },
+            body: JSON.stringify({
+              amount: totalPrice,
+              orderId: order.id,
+              description: `Purchase: ${pkg.network} - ${pkg.size}GB`,
+            }),
+          })
+
+          if (!response.ok) {
+            const error = await response.json()
+            throw new Error(error.error || "Failed to process wallet payment")
+          }
+
+          toast.success("Order placed and paid with wallet!")
+          // Update balance
+          await fetchUserAndWallet()
+        } catch (error) {
+          console.error("Wallet payment error:", error)
+          toast.error("Failed to process wallet payment")
+          return
+        }
+      } else {
+        // Use Paystack for card payment
+        toast.info("Redirecting to payment...")
+      }
+
       // Reset form
       setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
       setCheckoutOpen(false)
@@ -384,7 +456,7 @@ export default function ShopStorefront() {
 
               {/* Order Summary */}
               <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
-                <div className="flex justify-between items-end">
+                <div className="flex justify-between items-end mb-3">
                   <span className="font-semibold text-gray-700">Total Amount:</span>
                   <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
                     GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
@@ -392,10 +464,65 @@ export default function ShopStorefront() {
                 </div>
               </div>
 
+              {/* Payment Method Selection */}
+              <div className="space-y-2">
+                <Label className="font-semibold">Payment Method *</Label>
+                <div className="space-y-2">
+                  <div className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${paymentMethod === "wallet" ? "border-violet-600" : "border-gray-200"}`}
+                       onClick={() => setPaymentMethod("wallet")}>
+                    <input 
+                      type="radio" 
+                      id="wallet-payment"
+                      name="paymentMethod" 
+                      value="wallet" 
+                      checked={paymentMethod === "wallet"}
+                      onChange={(e) => setPaymentMethod(e.target.value as "wallet" | "card")}
+                      title="Pay with wallet balance"
+                    />
+                    <label htmlFor="wallet-payment" className="cursor-pointer flex-1">
+                      <p className="font-medium text-sm">Use Wallet Balance</p>
+                      <p className="text-xs text-gray-600">
+                        Available: GHS {walletBalance.toFixed(2)}
+                      </p>
+                    </label>
+                  </div>
+
+                  <div className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${paymentMethod === "card" ? "border-violet-600" : "border-gray-200"}`}
+                       onClick={() => setPaymentMethod("card")}>
+                    <input 
+                      type="radio" 
+                      id="card-payment"
+                      name="paymentMethod" 
+                      value="card" 
+                      checked={paymentMethod === "card"}
+                      onChange={(e) => setPaymentMethod(e.target.value as "wallet" | "card")}
+                      title="Pay with card via Paystack"
+                    />
+                    <label htmlFor="card-payment" className="cursor-pointer flex-1">
+                      <p className="font-medium text-sm">Pay with Card (Paystack)</p>
+                      <p className="text-xs text-gray-600">
+                        Debit/Credit card or Mobile Money
+                      </p>
+                    </label>
+                  </div>
+
+                  {paymentMethod === "wallet" && walletBalance < (selectedPackage.packages.price + selectedPackage.profit_margin) && (
+                    <Alert className="border-amber-300 bg-amber-50">
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription className="text-xs text-amber-700">
+                        Insufficient wallet balance. Please top up or use card payment.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              </div>
+
               <Alert className="border-blue-300 bg-blue-50">
                 <AlertCircle className="h-4 w-4 text-blue-600" />
                 <AlertDescription className="text-xs text-blue-700">
-                  You will be redirected to payment after placing your order.
+                  {paymentMethod === "wallet" 
+                    ? "Payment will be deducted from your wallet balance."
+                    : "You will be redirected to payment after placing your order."}
                 </AlertDescription>
               </Alert>
 
