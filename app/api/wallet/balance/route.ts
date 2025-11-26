@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
       .from("user_wallets")
       .select("balance")
       .eq("user_id", userId)
-      .single()
+      .maybeSingle()
 
     if (walletError) {
       console.error("Wallet fetch error:", walletError)
@@ -57,6 +57,23 @@ export async function GET(request: NextRequest) {
         { error: "Failed to fetch wallet" },
         { status: 400 }
       )
+    }
+
+    // If wallet doesn't exist, create one with 0 balance
+    if (!wallet) {
+      const { data: newWallet, error: createError } = await supabase
+        .from("user_wallets")
+        .insert([{ user_id: userId, balance: 0 }])
+        .select()
+        .single()
+
+      if (createError) {
+        console.error("Wallet creation error:", createError)
+        return NextResponse.json(
+          { error: "Failed to create wallet" },
+          { status: 400 }
+        )
+      }
     }
 
     // Get total credited (sum of credit transactions)
