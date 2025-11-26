@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
+import { supabase } from "@/lib/supabase"
 import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap } from "lucide-react"
 import { toast } from "sonner"
 
