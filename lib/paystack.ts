@@ -5,6 +5,7 @@
 
 const PAYSTACK_BASE_URL = "https://api.paystack.co"
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY
+const PAYSTACK_CURRENCY = process.env.PAYSTACK_CURRENCY || "NGN" // Default to NGN, can be overridden
 
 interface InitializePaymentParams {
   email: string
@@ -45,7 +46,7 @@ export async function initializePayment(
         email: params.email,
         amount: params.amount * 100, // Convert to kobo (smallest unit)
         reference: params.reference,
-        currency: "NGN", // Paystack primary supported currency
+        currency: PAYSTACK_CURRENCY,
         metadata: params.metadata || {},
         channels: params.channels || [
           "card",

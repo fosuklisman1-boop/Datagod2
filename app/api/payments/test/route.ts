@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 const PAYSTACK_BASE_URL = "https://api.paystack.co"
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY
+const PAYSTACK_CURRENCY = process.env.PAYSTACK_CURRENCY || "NGN"
 
 /**
  * Test endpoint to debug Paystack initialization
@@ -9,7 +10,7 @@ const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY
  */
 export async function POST(request: NextRequest) {
   try {
-    const { amount, email } = await request.json()
+    const { amount, email, currency } = await request.json()
 
     if (!amount || !email) {
       return NextResponse.json(
@@ -22,6 +23,7 @@ export async function POST(request: NextRequest) {
       email,
       amount: amount * 100, // in kobo
       reference: `TEST-${Date.now()}`,
+      currency: currency || PAYSTACK_CURRENCY,
       metadata: {
         test: true,
       },
@@ -47,6 +49,7 @@ export async function POST(request: NextRequest) {
       message: data.message,
       fullResponse: data,
       statusCode: response.status,
+      usingCurrency: testPayload.currency,
     })
   } catch (error) {
     console.error("Error testing payment:", error)
