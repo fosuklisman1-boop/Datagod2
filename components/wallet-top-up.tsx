@@ -91,7 +91,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       const handler = window.PaystackPop!.setup({
         key: paystackPublicKey,
         email,
-        amount: parseFloat(amount),
+        amount: Math.round(parseFloat(amount) * 100), // Convert to smallest unit (kobo/pesewa)
         ref: paymentResult.reference,
         onClose: () => {
           setIsLoading(false)
