@@ -18,6 +18,7 @@ import {
   Store,
   TrendingUp,
   Settings,
+  Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -112,6 +113,18 @@ export function Sidebar() {
             >
               <Settings className="w-5 h-5" />
               Admin Panel
+            </Button>
+          </Link>
+          <Link href="/admin/orders">
+            <Button
+              variant="ghost"
+              className={cn(
+                "w-full justify-start gap-3 text-white hover:bg-blue-500",
+                pathname === "/admin/orders" && "bg-blue-500"
+              )}
+            >
+              <Download className="w-5 h-5" />
+              Orders
             </Button>
           </Link>
         </div>

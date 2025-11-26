@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Users, Package, Store, TrendingUp, AlertCircle } from "lucide-react"
+import { Users, Package, Store, TrendingUp, AlertCircle, Download } from "lucide-react"
 import { adminDashboardService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -150,7 +150,7 @@ export default function AdminDashboardPage() {
         )}
 
         {/* Management Sections */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Package Management */}
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40 hover:border-blue-300/60">
             <CardHeader>
@@ -189,6 +189,27 @@ export default function AdminDashboardPage() {
                 className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold"
               >
                 Go to Users
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Order Management */}
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-orange-50/60 to-amber-50/40 backdrop-blur-xl border border-orange-200/40 hover:border-orange-300/60">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-gradient-to-br from-orange-400/30 to-amber-400/20 backdrop-blur p-2 rounded-lg border border-orange-300/60">
+                  <Download className="h-5 w-5 text-orange-600" />
+                </div>
+                <CardTitle>Order Management</CardTitle>
+              </div>
+              <CardDescription>Download and manage orders</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => router.push("/admin/orders")}
+                className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-semibold"
+              >
+                Go to Orders
               </Button>
             </CardContent>
           </Card>
