@@ -75,12 +75,12 @@ export async function POST(request: NextRequest) {
 
     // Generate CSV
     const csvHeader = [
-      "Number",
+      "Phone",
       "Size"
     ].join(",")
 
     const csvRows = orders.map((order: any) => [
-      `"${order.id}"`,
+      `"${order.phone_number}"`,
       `${order.size}`
     ].join(","))
 
