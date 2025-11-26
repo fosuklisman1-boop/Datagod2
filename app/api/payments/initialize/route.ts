@@ -11,6 +11,11 @@ export async function POST(request: NextRequest) {
   try {
     const { amount, email, userId, shopId } = await request.json()
 
+    // Log incoming request
+    console.log("=== PAYMENT INITIALIZATION ===")
+    console.log("Incoming request:", { amount, email, userId, shopId })
+    console.log("PAYSTACK_CURRENCY env:", process.env.PAYSTACK_CURRENCY)
+
     // Validate input
     if (!amount || !email || !userId) {
       return NextResponse.json(
@@ -49,7 +54,10 @@ export async function POST(request: NextRequest) {
       throw new Error(`Failed to create payment record: ${paymentError.message}`)
     }
 
+    console.log("DB: Stored amount (GHS):", amount)
+
     // Initialize Paystack payment
+    console.log("Sending to Paystack with amount (GHS):", amount, "→ kobo:", amount * 100)
     const paymentResult = await initializePayment({
       email,
       amount,
@@ -61,6 +69,12 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    console.log("Paystack response:", {
+      authorizationUrl: paymentResult.authorizationUrl ? "✓" : "✗",
+      accessCode: paymentResult.accessCode,
+      reference: paymentResult.reference,
+    })
+
     return NextResponse.json({
       success: true,
       authorizationUrl: paymentResult.authorizationUrl,
@@ -69,7 +83,7 @@ export async function POST(request: NextRequest) {
       paymentId: paymentData[0].id,
     })
   } catch (error) {
-    console.error("Error initializing payment:", error)
+    console.error("❌ ERROR initializing payment:", error)
     const errorMessage = error instanceof Error ? error.message : "Failed to initialize payment"
     return NextResponse.json(
       {

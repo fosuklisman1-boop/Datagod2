@@ -36,46 +36,61 @@ export async function initializePayment(
   params: InitializePaymentParams
 ): Promise<{ authorizationUrl: string; accessCode: string; reference: string }> {
   try {
+    const amountInKobo = params.amount * 100
+    
+    console.log("=== PAYSTACK LIB: initializePayment ===")
+    console.log("Currency being used:", PAYSTACK_CURRENCY)
+    console.log("Input amount (GHS):", params.amount)
+    console.log("Converted to kobo:", amountInKobo)
+
+    const requestBody = {
+      email: params.email,
+      amount: amountInKobo,
+      reference: params.reference,
+      currency: PAYSTACK_CURRENCY,
+      metadata: params.metadata || {},
+      channels: params.channels || [
+        "card",
+        "bank",
+        "ussd",
+        "qr",
+        "mobile_money",
+        "bank_transfer",
+        "eft",
+        "apple_pay",
+        "google_pay",
+      ],
+    }
+
+    console.log("Sending to Paystack API:", JSON.stringify(requestBody, null, 2))
+
     const response = await fetch(`${PAYSTACK_BASE_URL}/transaction/initialize`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        email: params.email,
-        amount: params.amount * 100, // Convert to kobo (smallest unit)
-        reference: params.reference,
-        currency: PAYSTACK_CURRENCY,
-        metadata: params.metadata || {},
-        channels: params.channels || [
-          "card",
-          "bank",
-          "ussd",
-          "qr",
-          "mobile_money",
-          "bank_transfer",
-          "eft",
-          "apple_pay",
-          "google_pay",
-        ],
-      }),
+      body: JSON.stringify(requestBody),
     })
 
     const data: PaymentResponse = await response.json()
 
+    console.log("Paystack API Status:", response.status)
+    console.log("Paystack API Response:", JSON.stringify(data, null, 2))
+
     if (!data.status) {
-      console.error("Paystack Error Response:", JSON.stringify(data, null, 2))
+      console.error("❌ PAYSTACK ERROR:", data.message)
       throw new Error(data.message || "Failed to initialize payment")
     }
 
+    console.log("✓ Payment initialized successfully")
     return {
       authorizationUrl: data.data.authorization_url,
       accessCode: data.data.access_code,
       reference: data.data.reference,
     }
   } catch (error) {
-    console.error("Error initializing Paystack payment:", error)
+    console.error("❌ Error initializing Paystack payment:", error)
     throw error
   }
 }
@@ -95,6 +110,9 @@ export async function verifyPayment(
   authorization: any
 }> {
   try {
+    console.log("=== PAYSTACK LIB: verifyPayment ===")
+    console.log("Reference:", reference)
+
     const response = await fetch(
       `${PAYSTACK_BASE_URL}/transaction/verify/${reference}`,
       {
@@ -107,20 +125,31 @@ export async function verifyPayment(
 
     const data: PaymentResponse = await response.json()
 
+    console.log("Paystack verification response status:", data.status)
+
     if (!data.status) {
+      console.error("❌ Paystack verification failed:", data.message)
       throw new Error(data.message || "Failed to verify payment")
     }
 
     const transaction = data.data
+    const amountInGHS = transaction.amount / 100 // Convert from kobo
+    
+    console.log("Received from Paystack:")
+    console.log("  - Amount (kobo):", transaction.amount)
+    console.log("  - Amount (GHS):", amountInGHS)
+    console.log("  - Status:", transaction.status)
+    console.log("  - Customer email:", transaction.customer.email)
+
     return {
       status: transaction.status,
-      amount: transaction.amount / 100, // Convert kobo to GHS
+      amount: amountInGHS,
       customer_email: transaction.customer.email,
       reference: transaction.reference,
       authorization: transaction.authorization,
     }
   } catch (error) {
-    console.error("Error verifying Paystack payment:", error)
+    console.error("❌ Error verifying Paystack payment:", error)
     throw error
   }
 }

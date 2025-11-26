@@ -10,6 +10,9 @@ export async function POST(request: NextRequest) {
   try {
     const { reference } = await request.json()
 
+    console.log("=== PAYMENT VERIFICATION ===")
+    console.log("Reference:", reference)
+
     if (!reference) {
       return NextResponse.json(
         { error: "Payment reference is required" },
@@ -18,7 +21,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify payment with Paystack
+    console.log("Calling Paystack verification...")
     const verificationResult = await verifyPayment(reference)
+    console.log("Verification result:", {
+      status: verificationResult.status,
+      amount: verificationResult.amount,
+      amountType: typeof verificationResult.amount,
+    })
 
     // Update payment record in database
     const { data: paymentData, error: fetchError } = await supabase
@@ -34,6 +43,12 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       )
     }
+
+    console.log("Payment record found:", {
+      id: paymentData.id,
+      originalAmount: paymentData.amount,
+      status: paymentData.status,
+    })
 
     // Update payment status
     const paymentStatus =
@@ -52,8 +67,13 @@ export async function POST(request: NextRequest) {
       throw new Error(`Failed to update payment: ${updateError.message}`)
     }
 
+    console.log("Payment status updated to:", paymentStatus)
+
     // If payment was successful, credit the wallet
     if (verificationResult.status === "success") {
+      console.log("Creating wallet transaction for user:", paymentData.user_id)
+      console.log("Amount to credit (GHS):", verificationResult.amount)
+
       const { error: walletError } = await supabase
         .from("user_wallets")
         .update({
@@ -81,9 +101,13 @@ export async function POST(request: NextRequest) {
         ])
 
       if (transactionError) {
-        console.warn("Warning: Failed to create transaction record:", transactionError)
+        console.warn("⚠ Warning: Failed to create transaction record:", transactionError)
+      } else {
+        console.log("✓ Wallet transaction created successfully")
       }
     }
+
+    console.log("✓ Verification completed successfully")
 
     return NextResponse.json({
       success: true,
@@ -96,7 +120,7 @@ export async function POST(request: NextRequest) {
           : `Payment status: ${verificationResult.status}`,
     })
   } catch (error) {
-    console.error("Error verifying payment:", error)
+    console.error("❌ Error verifying payment:", error)
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Failed to verify payment",
