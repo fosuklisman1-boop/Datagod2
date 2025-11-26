@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "sonner"
 import { Download, CheckCircle, AlertCircle } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 
 interface ValidationResult {
   total: number
@@ -37,35 +38,53 @@ export function BulkOrdersForm() {
   const [textInput, setTextInput] = useState("")
   const [isValidating, setIsValidating] = useState(false)
   const [validationResults, setValidationResults] = useState<ValidationResult | null>(null)
+  const [packages, setPackages] = useState<Array<{ network: string; size: number; price: number }>>([])
+  const [networks, setNetworks] = useState<Array<{ id: string; label: string }>>([])
+  const [loading, setLoading] = useState(true)
 
-  // Available packages matching data-packages page
-  const packages = [
-    { network: "AT - iShare", size: 1, price: 4.0 },
-    { network: "AT - iShare", size: 2, price: 7.5 },
-    { network: "AT - iShare", size: 5, price: 15.0 },
-    { network: "TELECEL", size: 5, price: 19.0 },
-    { network: "TELECEL", size: 10, price: 35.0 },
-    { network: "TELECEL", size: 20, price: 65.0 },
-    { network: "MTN", size: 1, price: 4.5 },
-    { network: "MTN", size: 2, price: 8.5 },
-    { network: "MTN", size: 5, price: 19.5 },
-    { network: "AT - BigTime", size: 3, price: 12.0 },
-    { network: "AT - BigTime", size: 10, price: 38.5 },
-  ]
+  // Load packages from database on mount
+  useEffect(() => {
+    loadPackages()
+  }, [])
 
-  const networks = [
-    { id: "mtn", label: "MTN" },
-    { id: "telecel", label: "Telecel" },
-    { id: "atishare", label: "AT - iShare" },
-    { id: "atbigtime", label: "AT - BigTime" },
-  ]
+  const loadPackages = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("packages")
+        .select("*")
+        .eq("active", true)
+        .order("network", { ascending: true })
+        .order("size", { ascending: true })
 
-  // Map form network IDs to display names
-  const networkMap: { [key: string]: string } = {
-    mtn: "MTN",
-    telecel: "TELECEL",
-    atishare: "AT - iShare",
-    atbigtime: "AT - BigTime",
+      if (error) throw error
+
+      if (data) {
+        // Transform data to match our format
+        const transformedPackages = data.map((pkg: any) => ({
+          network: pkg.network,
+          size: parseFloat(pkg.size),
+          price: pkg.price,
+        }))
+
+        setPackages(transformedPackages)
+
+        // Extract unique networks and create network list
+        const uniqueNetworks = [...new Set(data.map((pkg: any) => pkg.network))]
+        const networkList = uniqueNetworks.map((network: string) => ({
+          id: network.toLowerCase().replace(/\s+/g, ""),
+          label: network,
+        }))
+        setNetworks(networkList)
+
+        console.log("Loaded packages from database:", transformedPackages)
+        console.log("Available networks:", networkList)
+      }
+    } catch (error) {
+      console.error("Error loading packages from database:", error)
+      toast.error("Failed to load packages from database")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const parseAndValidate = (input: string) => {
@@ -74,9 +93,16 @@ export function BulkOrdersForm() {
     let valid = 0
     let invalid = 0
 
+    // Get selected network from the networks list
+    const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
+    
+    if (!selectedNetworkLabel) {
+      toast.error("Invalid network selected")
+      return { total: 0, valid: 0, invalid: 0, orders: [] }
+    }
+
     // Get available packages for selected network
-    const displayNetworkName = networkMap[selectedNetwork]
-    const availablePackages = packages.filter(pkg => pkg.network === displayNetworkName)
+    const availablePackages = packages.filter(pkg => pkg.network === selectedNetworkLabel)
     const availableVolumes = availablePackages.map(pkg => pkg.size)
 
     lines.forEach((line, index) => {
@@ -132,11 +158,11 @@ export function BulkOrdersForm() {
         return
       }
 
-      // Get the display network name
-      const displayNetworkName = networkMap[selectedNetwork]
+      // Get the selected network name
+      const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
 
       // Network-specific phone validation
-      if (displayNetworkName === "TELECEL") {
+      if (selectedNetworkLabel === "Telecel" || selectedNetworkLabel === "TELECEL") {
         // Telecel: 020 or 050 (second and third digit must be 2 or 5, followed by 0)
         if (!normalizedPhone.startsWith("020") && !normalizedPhone.startsWith("050")) {
           invalid++
@@ -207,7 +233,7 @@ export function BulkOrdersForm() {
           volume: volumeNum,
           price: 0,
           status: "invalid",
-          reason: `${displayNetworkName} does not offer ${volumeNum}GB packages. Available: ${availableVolumes.join("GB, ")}GB`,
+          reason: `${selectedNetworkLabel} does not offer ${volumeNum}GB packages. Available: ${availableVolumes.join("GB, ")}GB`,
         })
         return
       }
@@ -289,9 +315,9 @@ export function BulkOrdersForm() {
         {/* Network Selection */}
         <div className="space-y-2">
           <Label htmlFor="network">Select Network</Label>
-          <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
+          <Select value={selectedNetwork} onValueChange={setSelectedNetwork} disabled={loading}>
             <SelectTrigger id="network">
-              <SelectValue placeholder="Choose network" />
+              <SelectValue placeholder={loading ? "Loading networks..." : "Choose network"} />
             </SelectTrigger>
             <SelectContent>
               {networks.map((network) => (
@@ -360,10 +386,10 @@ export function BulkOrdersForm() {
         {/* Validate Button */}
         <Button
           onClick={handleValidate}
-          disabled={isValidating || !selectedNetwork}
+          disabled={isValidating || !selectedNetwork || loading}
           className="w-full bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
         >
-          {isValidating ? "Validating..." : "Validate"}
+          {loading ? "Loading..." : isValidating ? "Validating..." : "Validate"}
         </Button>
 
         {/* Validation Results */}
