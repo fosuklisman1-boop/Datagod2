@@ -258,7 +258,7 @@ export default function AdminOrdersPage() {
                             <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
                             <th className="px-4 py-2 text-left font-semibold text-gray-700">Package</th>
                             <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
-                            <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (NGN)</th>
+                            <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
                             <th className="px-4 py-2 text-center font-semibold text-gray-700">Date</th>
                           </tr>
                         </thead>
@@ -330,7 +330,7 @@ export default function AdminOrdersPage() {
                               <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
                               <th className="px-4 py-2 text-left font-semibold text-gray-700">Package</th>
                               <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
-                              <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (NGN)</th>
+                              <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
                               <th className="px-4 py-2 text-center font-semibold text-gray-700">Status</th>
                             </tr>
                           </thead>
@@ -345,7 +345,7 @@ export default function AdminOrdersPage() {
                                 </td>
                                 <td className="px-4 py-3">{order.size}GB</td>
                                 <td className="px-4 py-3 font-mono">{order.phone_number}</td>
-                                <td className="px-4 py-3 text-right font-semibold">₦ {order.price.toFixed(2)}</td>
+                                <td className="px-4 py-3 text-right font-semibold">₵ {order.price.toFixed(2)}</td>
                                 <td className="px-4 py-3 text-center">
                                   <Badge className="bg-blue-100 text-blue-800 border border-blue-200">
                                     Processing
