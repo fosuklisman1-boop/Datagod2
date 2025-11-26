@@ -78,14 +78,17 @@ export default function AdminOrdersPage() {
   const loadPendingOrders = async () => {
     try {
       setLoadingPending(true)
-      const { data, error } = await supabase
-        .from("shop_orders")
-        .select("*")
-        .eq("order_status", "pending")
-        .order("created_at", { ascending: false })
+      console.log("Fetching pending orders from API...")
+      const response = await fetch("/api/admin/orders/pending")
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to load pending orders")
+      }
 
-      if (error) throw error
-      setPendingOrders(data || [])
+      const result = await response.json()
+      console.log("Fetched pending orders:", result.count)
+      setPendingOrders(result.data || [])
     } catch (error) {
       console.error("Error loading pending orders:", error)
       toast.error("Failed to load pending orders")
@@ -97,20 +100,20 @@ export default function AdminOrdersPage() {
   const loadDownloadedOrders = async () => {
     try {
       setLoadingDownloaded(true)
-      const { data, error } = await supabase
-        .from("order_download_batches")
-        .select("*")
-        .order("created_at", { ascending: false })
-
-      if (error) {
-        // Table might not exist yet, return empty
-        console.log("order_download_batches table not found")
-        return
+      console.log("Fetching downloaded batches from API...")
+      const response = await fetch("/api/admin/orders/batches")
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to load downloaded orders")
       }
+
+      const result = await response.json()
+      console.log("Fetched download batches:", result.count)
 
       // Group by batch key (network + download time)
       const grouped: DownloadedOrders = {}
-      data?.forEach((batch: any) => {
+      result.data?.forEach((batch: any) => {
         const key = `${batch.network}-${batch.batch_time}`
         grouped[key] = {
           network: batch.network,
@@ -121,6 +124,7 @@ export default function AdminOrdersPage() {
       setDownloadedOrders(grouped)
     } catch (error) {
       console.error("Error loading downloaded orders:", error)
+      // Don't show error for batches table - it might not exist yet
     } finally {
       setLoadingDownloaded(false)
     }
