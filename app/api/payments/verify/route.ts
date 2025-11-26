@@ -10,8 +10,7 @@ export async function POST(request: NextRequest) {
   try {
     const { reference } = await request.json()
 
-    console.log("=== PAYMENT VERIFICATION ===")
-    console.log("Reference:", reference)
+    console.log("[PAYMENT-VERIFY] Request received:", reference)
 
     if (!reference) {
       return NextResponse.json(
@@ -20,40 +19,32 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify payment with Paystack
-    console.log("Calling Paystack verification...")
-    const verificationResult = await verifyPayment(reference)
-    console.log("Verification result:", {
-      status: verificationResult.status,
-      amount: verificationResult.amount,
-      amountType: typeof verificationResult.amount,
-    })
-
-    // Update payment record in database
+    // Fetch payment record
+    console.log("[PAYMENT-VERIFY] Fetching payment record...")
     const { data: paymentData, error: fetchError } = await supabase
       .from("wallet_payments")
       .select("*")
       .eq("reference", reference)
-      .single()
+      .maybeSingle()
 
-    if (fetchError) {
-      console.error("Error fetching payment record:", fetchError)
+    if (fetchError || !paymentData) {
+      console.warn("[PAYMENT-VERIFY] Payment not found:", reference)
       return NextResponse.json(
         { error: "Payment record not found" },
         { status: 404 }
       )
     }
 
-    console.log("Payment record found:", {
-      id: paymentData.id,
-      originalAmount: paymentData.amount,
-      status: paymentData.status,
-    })
+    console.log("[PAYMENT-VERIFY] ✓ Record found - User:", paymentData.user_id)
+
+    // Verify with Paystack
+    console.log("[PAYMENT-VERIFY] Verifying with Paystack...")
+    const verificationResult = await verifyPayment(reference)
+
+    console.log("[PAYMENT-VERIFY] ✓ Verified - Status:", verificationResult.status)
 
     // Update payment status
-    const paymentStatus =
-      verificationResult.status === "success" ? "completed" : verificationResult.status
-
+    const paymentStatus = verificationResult.status === "success" ? "completed" : verificationResult.status
     const { error: updateError } = await supabase
       .from("wallet_payments")
       .update({
@@ -64,50 +55,57 @@ export async function POST(request: NextRequest) {
       .eq("id", paymentData.id)
 
     if (updateError) {
-      throw new Error(`Failed to update payment: ${updateError.message}`)
+      console.error("[PAYMENT-VERIFY] Failed to update payment:", updateError)
+      throw new Error("Failed to update payment status")
     }
 
-    console.log("Payment status updated to:", paymentStatus)
-
-    // If payment was successful, credit the wallet
+    // Credit wallet if successful
     if (verificationResult.status === "success") {
-      console.log("Creating wallet transaction for user:", paymentData.user_id)
-      console.log("Amount to credit (GHS):", verificationResult.amount)
+      console.log("[PAYMENT-VERIFY] Crediting wallet...")
+      const amount = parseFloat(verificationResult.amount.toString())
 
-      const { error: walletError } = await supabase
+      const { data: wallet } = await supabase
         .from("user_wallets")
-        .update({
-          balance: supabase.rpc("increment_balance", {
-            user_id: paymentData.user_id,
-            amount: verificationResult.amount,
-          }),
-          updated_at: new Date().toISOString(),
-        })
+        .select("*")
         .eq("user_id", paymentData.user_id)
+        .maybeSingle()
 
-      // Create wallet transaction record
-      const { error: transactionError } = await supabase
-        .from("wallet_transactions")
-        .insert([
-          {
-            user_id: paymentData.user_id,
-            type: "credit",
-            amount: verificationResult.amount,
-            reference: reference,
-            description: "Wallet top-up via Paystack",
-            status: "completed",
-            created_at: new Date().toISOString(),
-          },
-        ])
-
-      if (transactionError) {
-        console.warn("⚠ Warning: Failed to create transaction record:", transactionError)
+      if (!wallet) {
+        await supabase.from("user_wallets").insert([{
+          user_id: paymentData.user_id,
+          balance: amount,
+          total_credited: amount,
+          total_debited: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }])
       } else {
-        console.log("✓ Wallet transaction created successfully")
+        await supabase
+          .from("user_wallets")
+          .update({
+            balance: (wallet.balance || 0) + amount,
+            total_credited: (wallet.total_credited || 0) + amount,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", paymentData.user_id)
       }
+
+      // Create transaction
+      await supabase.from("wallet_transactions").insert([{
+        user_id: paymentData.user_id,
+        type: "credit",
+        amount,
+        reference,
+        description: "Wallet top-up via Paystack",
+        status: "completed",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }])
+
+      console.log("[PAYMENT-VERIFY] ✓ Wallet credited:", amount)
     }
 
-    console.log("✓ Verification completed successfully")
+    console.log("[PAYMENT-VERIFY] ✓ Complete")
 
     return NextResponse.json({
       success: true,
@@ -116,15 +114,13 @@ export async function POST(request: NextRequest) {
       reference: verificationResult.reference,
       message:
         verificationResult.status === "success"
-          ? "Payment successful! Wallet has been credited."
-          : `Payment status: ${verificationResult.status}`,
+          ? "Payment successful! Wallet credited."
+          : `Payment ${verificationResult.status}`,
     })
   } catch (error) {
-    console.error("❌ Error verifying payment:", error)
+    console.error("[PAYMENT-VERIFY] ✗ Error:", error)
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to verify payment",
-      },
+      { error: error instanceof Error ? error.message : "Verification failed" },
       { status: 500 }
     )
   }

@@ -5,14 +5,17 @@
 
 const PAYSTACK_BASE_URL = "https://api.paystack.co"
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY
-const PAYSTACK_CURRENCY = process.env.PAYSTACK_CURRENCY || "NGN" // Default to NGN, can be overridden
+
+if (!PAYSTACK_SECRET_KEY) {
+  throw new Error("PAYSTACK_SECRET_KEY is not set in environment variables")
+}
 
 interface InitializePaymentParams {
   email: string
-  amount: number // Amount in GHS (will be converted to kobo)
+  amount: number
   reference: string
   metadata?: Record<string, any>
-  channels?: string[] // Payment channels: card, mobile_money, bank_transfer (per merchant config)
+  channels?: string[]
 }
 
 interface VerifyPaymentParams {
@@ -36,9 +39,18 @@ export async function initializePayment(
   params: InitializePaymentParams
 ): Promise<{ authorizationUrl: string; accessCode: string; reference: string }> {
   try {
-    console.log("=== PAYSTACK LIB: initializePayment ===")
-    console.log("Currency being used:", PAYSTACK_CURRENCY)
-    console.log("Input amount (GHS):", params.amount)
+    if (!params.email || !params.amount || !params.reference) {
+      throw new Error("Missing required fields: email, amount, reference")
+    }
+
+    if (params.amount <= 0) {
+      throw new Error("Amount must be greater than 0")
+    }
+
+    console.log("[PAYSTACK] Initializing payment:")
+    console.log("  Email:", params.email)
+    console.log("  Amount:", params.amount)
+    console.log("  Reference:", params.reference)
 
     const requestBody = {
       email: params.email,
@@ -52,8 +64,6 @@ export async function initializePayment(
       ],
     }
 
-    console.log("Sending to Paystack API:", JSON.stringify(requestBody, null, 2))
-
     const response = await fetch(`${PAYSTACK_BASE_URL}/transaction/initialize`, {
       method: "POST",
       headers: {
@@ -65,22 +75,21 @@ export async function initializePayment(
 
     const data: PaymentResponse = await response.json()
 
-    console.log("Paystack API Status:", response.status)
-    console.log("Paystack API Response:", JSON.stringify(data, null, 2))
-
-    if (!data.status) {
-      console.error("❌ PAYSTACK ERROR:", data.message)
-      throw new Error(data.message || "Failed to initialize payment")
+    if (!response.ok || !data.status) {
+      console.error("[PAYSTACK] Error Response:", data)
+      throw new Error(data.message || `HTTP ${response.status}`)
     }
 
-    console.log("✓ Payment initialized successfully")
+    console.log("[PAYSTACK] ✓ Payment initialized")
+    console.log("  Access Code:", data.data.access_code)
+
     return {
       authorizationUrl: data.data.authorization_url,
       accessCode: data.data.access_code,
       reference: data.data.reference,
     }
   } catch (error) {
-    console.error("❌ Error initializing Paystack payment:", error)
+    console.error("[PAYSTACK] ✗ Error initializing payment:", error)
     throw error
   }
 }
@@ -94,14 +103,17 @@ export async function verifyPayment(
   reference: string
 ): Promise<{
   status: "success" | "failed" | "pending"
-  amount: number // Amount in GHS
+  amount: number
   customer_email: string
   reference: string
   authorization: any
 }> {
   try {
-    console.log("=== PAYSTACK LIB: verifyPayment ===")
-    console.log("Reference:", reference)
+    if (!reference) {
+      throw new Error("Payment reference is required")
+    }
+
+    console.log("[PAYSTACK] Verifying payment:", reference)
 
     const response = await fetch(
       `${PAYSTACK_BASE_URL}/transaction/verify/${reference}`,
@@ -115,19 +127,16 @@ export async function verifyPayment(
 
     const data: PaymentResponse = await response.json()
 
-    console.log("Paystack verification response status:", data.status)
-
-    if (!data.status) {
-      console.error("❌ Paystack verification failed:", data.message)
-      throw new Error(data.message || "Failed to verify payment")
+    if (!response.ok || !data.status) {
+      console.error("[PAYSTACK] Verification failed:", data)
+      throw new Error(data.message || "Payment verification failed")
     }
 
     const transaction = data.data
-    
-    console.log("Received from Paystack:")
-    console.log("  - Amount:", transaction.amount)
-    console.log("  - Status:", transaction.status)
-    console.log("  - Customer email:", transaction.customer.email)
+
+    console.log("[PAYSTACK] ✓ Verified")
+    console.log("  Amount:", transaction.amount)
+    console.log("  Status:", transaction.status)
 
     return {
       status: transaction.status,
@@ -137,7 +146,7 @@ export async function verifyPayment(
       authorization: transaction.authorization,
     }
   } catch (error) {
-    console.error("❌ Error verifying Paystack payment:", error)
+    console.error("[PAYSTACK] ✗ Error verifying:", error)
     throw error
   }
 }
