@@ -5,9 +5,124 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { User, Mail, Phone, Briefcase, Key, LogOut } from "lucide-react"
+import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { supabase } from "@/lib/supabase"
+import { toast } from "sonner"
+
+interface UserProfile {
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string
+  businessName?: string
+  role: string
+  status: string
+  memberSince: string
+}
+
+interface UserStats {
+  totalOrders: number
+  completedOrders: number
+  successRate: number
+  totalSpent: number
+}
 
 export default function ProfilePage() {
+  const [profile, setProfile] = useState<UserProfile>({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    businessName: "",
+    role: "Agent",
+    status: "ACTIVE",
+    memberSince: "",
+  })
+  const [stats, setStats] = useState<UserStats>({
+    totalOrders: 0,
+    completedOrders: 0,
+    successRate: 0,
+    totalSpent: 0,
+  })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchUserProfile()
+  }, [])
+
+  const fetchUserProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+
+      // Get user data from auth
+      const email = user.email || ""
+      const firstName = user.user_metadata?.first_name || email.split("@")[0]
+      const lastName = user.user_metadata?.last_name || ""
+      const phone = user.user_metadata?.phone || ""
+      const businessName = user.user_metadata?.business_name || ""
+
+      // Get created date
+      const createdAt = user.created_at
+      let memberSince = new Date().toLocaleDateString()
+      if (createdAt) {
+        memberSince = new Date(createdAt).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })
+      }
+
+      setProfile({
+        firstName,
+        lastName,
+        email,
+        phone,
+        businessName,
+        role: "Agent",
+        status: "ACTIVE",
+        memberSince,
+      })
+
+      // Fetch user stats from dashboard stats
+      const statsResponse = await fetch("/api/dashboard/stats", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json()
+        if (statsData.stats) {
+          setStats({
+            totalOrders: statsData.stats.totalOrders || 0,
+            completedOrders: statsData.stats.completed || 0,
+            successRate: parseFloat(statsData.stats.successRate || "0"),
+            totalSpent: 0, // Will need a separate endpoint for this
+          })
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching profile:", error)
+      toast.error("Failed to load profile data")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -26,11 +141,11 @@ export default function ProfilePage() {
                   <User className="w-8 h-8 text-blue-600" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold">Fosu Boating Klinsman</h2>
-                  <p className="text-blue-100">fosuklisman1@gmail.com</p>
+                  <h2 className="text-2xl font-bold">{profile.firstName} {profile.lastName}</h2>
+                  <p className="text-blue-100">{profile.email}</p>
                   <div className="flex gap-2 mt-2">
-                    <Badge className="bg-white text-blue-600">Premium agent</Badge>
-                    <Badge className="bg-green-500">ACTIVE</Badge>
+                    <Badge className="bg-white text-blue-600">{profile.role}</Badge>
+                    <Badge className="bg-green-500">{profile.status}</Badge>
                   </div>
                 </div>
               </div>
@@ -56,27 +171,27 @@ export default function ProfilePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700">First Name</label>
-                <Input value="Fosu" readOnly className="mt-1" />
+                <Input value={profile.firstName} readOnly className="mt-1" />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Last Name</label>
-                <Input value="Boating Klinsman" readOnly className="mt-1" />
+                <Input value={profile.lastName} readOnly className="mt-1" />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Email</label>
-                <Input value="fosuklisman1@gmail.com" readOnly className="mt-1" />
+                <Input value={profile.email} readOnly className="mt-1" />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Phone</label>
-                <Input value="0555773910" readOnly className="mt-1" />
+                <Input value={profile.phone || "Not provided"} readOnly className="mt-1" />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">WhatsApp</label>
-                <Input value="0546961942" readOnly className="mt-1" />
+                <Input value={profile.phone || "Not provided"} readOnly className="mt-1" />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Business Name</label>
-                <Input value="Clingsdatahub" readOnly className="mt-1" />
+                <Input value={profile.businessName || "Not provided"} readOnly className="mt-1" />
               </div>
             </div>
           </CardContent>
@@ -92,22 +207,22 @@ export default function ProfilePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700">Username</label>
-                <Input value="clings" readOnly className="mt-1" />
+                <Input value={profile.firstName.toLowerCase()} readOnly className="mt-1" />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Role</label>
-                <Input value="Premium agent" readOnly className="mt-1" />
+                <Input value={profile.role} readOnly className="mt-1" />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Status</label>
                 <div className="mt-1 flex items-center gap-2">
-                  <Input value="ACTIVE" readOnly />
+                  <Input value={profile.status} readOnly />
                   <Badge className="bg-green-100 text-green-800">Active</Badge>
                 </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Member Since</label>
-                <Input value="Aug 4, 2025" readOnly className="mt-1" />
+                <Input value={profile.memberSince} readOnly className="mt-1" />
               </div>
             </div>
           </CardContent>
@@ -123,19 +238,19 @@ export default function ProfilePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-4 bg-blue-50 rounded-lg">
                 <p className="text-sm text-gray-600">Total Orders</p>
-                <p className="text-2xl font-bold text-blue-600">5,002</p>
+                <p className="text-2xl font-bold text-blue-600">{stats.totalOrders.toLocaleString()}</p>
               </div>
               <div className="p-4 bg-green-50 rounded-lg">
                 <p className="text-sm text-gray-600">Completed Orders</p>
-                <p className="text-2xl font-bold text-green-600">4,951</p>
+                <p className="text-2xl font-bold text-green-600">{stats.completedOrders.toLocaleString()}</p>
               </div>
               <div className="p-4 bg-purple-50 rounded-lg">
                 <p className="text-sm text-gray-600">Success Rate</p>
-                <p className="text-2xl font-bold text-purple-600">99%</p>
+                <p className="text-2xl font-bold text-purple-600">{stats.successRate.toFixed(1)}%</p>
               </div>
               <div className="p-4 bg-orange-50 rounded-lg">
                 <p className="text-sm text-gray-600">Lifetime Spent</p>
-                <p className="text-2xl font-bold text-orange-600">GHS 85,911.26</p>
+                <p className="text-2xl font-bold text-orange-600">GHS {stats.totalSpent.toFixed(2)}</p>
               </div>
             </div>
           </CardContent>

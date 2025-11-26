@@ -18,6 +18,14 @@ interface DashboardStats {
   successRate: string
 }
 
+interface RecentActivity {
+  id: string
+  description: string
+  amount: number
+  type: "credit" | "debit"
+  timestamp: string
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [firstName, setFirstName] = useState("")
@@ -31,10 +39,12 @@ export default function DashboardPage() {
     pending: 0,
     successRate: "0%"
   })
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
 
   useEffect(() => {
     fetchUserInfo()
     fetchDashboardStats()
+    fetchRecentActivity()
   }, [])
 
   const fetchUserInfo = async () => {
@@ -88,6 +98,32 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error("Error fetching dashboard stats:", error)
+    }
+  }
+
+  const fetchRecentActivity = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+
+      const response = await fetch("/api/transactions/list?limit=3", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const activities = (data.transactions || []).map((txn: any) => ({
+          id: txn.id,
+          description: txn.description,
+          amount: txn.amount,
+          type: txn.type,
+          timestamp: txn.created_at,
+        }))
+        setRecentActivity(activities)
+      }
+    } catch (error) {
+      console.error("Error fetching recent activity:", error)
     }
   }
 
@@ -251,27 +287,21 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-center justify-between pb-4 border-b hover:bg-white/40 backdrop-blur -mx-4 px-4 py-2 rounded transition-colors duration-200">
-                <div>
-                  <p className="font-medium">Wallet Top Up</p>
-                  <p className="text-sm text-gray-600">Today at 2:30 PM</p>
-                </div>
-                <p className="font-semibold text-green-600">+GHS 1,000.00</p>
-              </div>
-              <div className="flex items-center justify-between pb-4 border-b hover:bg-white/40 backdrop-blur -mx-4 px-4 py-2 rounded transition-colors duration-200">
-                <div>
-                  <p className="font-medium">Data Purchase - MTN 5GB</p>
-                  <p className="text-sm text-gray-600">Yesterday at 10:15 AM</p>
-                </div>
-                <p className="font-semibold text-red-600">-GHS 19.50</p>
-              </div>
-              <div className="flex items-center justify-between hover:bg-white/40 backdrop-blur -mx-4 px-4 py-2 rounded transition-colors duration-200">
-                <div>
-                  <p className="font-medium">Data Purchase - TELECEL 10GB</p>
-                  <p className="text-sm text-gray-600">2 days ago</p>
-                </div>
-                <p className="font-semibold text-red-600">-GHS 45.00</p>
-              </div>
+              {recentActivity.length === 0 ? (
+                <p className="text-sm text-gray-500">No recent activity</p>
+              ) : (
+                recentActivity.map((activity) => (
+                  <div key={activity.id} className="flex items-center justify-between pb-4 border-b hover:bg-white/40 backdrop-blur -mx-4 px-4 py-2 rounded transition-colors duration-200">
+                    <div>
+                      <p className="font-medium">{activity.description}</p>
+                      <p className="text-sm text-gray-600">{new Date(activity.timestamp).toLocaleDateString()} at {new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                    <p className={`font-semibold ${activity.type === "credit" ? "text-green-600" : "text-red-600"}`}>
+                      {activity.type === "credit" ? "+" : "-"}GHS {activity.amount.toFixed(2)}
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
