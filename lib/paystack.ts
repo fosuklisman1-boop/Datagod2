@@ -45,6 +45,7 @@ export async function initializePayment(
         email: params.email,
         amount: params.amount * 100, // Convert to kobo (smallest unit)
         reference: params.reference,
+        currency: "NGN", // Paystack primary supported currency
         metadata: params.metadata || {},
         channels: params.channels || [
           "card",
