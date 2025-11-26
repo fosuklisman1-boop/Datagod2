@@ -19,8 +19,8 @@ export async function POST(request: NextRequest) {
 
     // Fetch all orders
     const { data: orders, error: fetchError } = await supabase
-      .from("shop_orders")
-      .select("*")
+      .from("orders")
+      .select("id, created_at, phone_number, price, status, size, network")
       .in("id", orderIds)
 
     if (fetchError) {
@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
 
     // Update order status to "processing"
     const { error: updateError } = await supabase
-      .from("shop_orders")
-      .update({ order_status: "processing" })
+      .from("orders")
+      .update({ status: "processing" })
       .in("id", orderIds)
 
     if (updateError) {
@@ -75,32 +75,22 @@ export async function POST(request: NextRequest) {
 
     // Generate CSV
     const csvHeader = [
-      "Reference Code",
-      "Customer Name",
-      "Customer Email",
+      "Order ID",
       "Customer Phone",
       "Network",
-      "Volume (GB)",
-      "Base Price (GHS)",
-      "Profit Amount (GHS)",
-      "Total Price (GHS)",
-      "Order Status",
-      "Payment Status",
+      "Package Size (GB)",
+      "Price (NGN)",
+      "Status",
       "Created Date"
     ].join(",")
 
     const csvRows = orders.map((order: any) => [
-      `"${order.reference_code}"`,
-      `"${order.customer_name || ""}"`,
-      `"${order.customer_email || ""}"`,
-      `"${order.customer_phone || ""}"`,
+      `"${order.id}"`,
+      `"${order.phone_number || ""}"`,
       `"${order.network}"`,
-      order.volume_gb,
-      order.base_price.toFixed(2),
-      order.profit_amount.toFixed(2),
-      order.total_price.toFixed(2),
-      order.order_status,
-      order.payment_status,
+      order.size,
+      order.price.toFixed(2),
+      order.status,
       new Date(order.created_at).toISOString().split('T')[0]
     ].join(","))
 

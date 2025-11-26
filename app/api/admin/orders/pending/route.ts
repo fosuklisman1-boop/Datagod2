@@ -11,9 +11,9 @@ export async function GET() {
     console.log("Fetching pending orders from API...")
     
     const { data, error } = await supabase
-      .from("shop_orders")
-      .select("*")
-      .eq("order_status", "pending")
+      .from("orders")
+      .select("id, created_at, phone_number, price, status, size, network")
+      .eq("status", "pending")
       .order("created_at", { ascending: false })
 
     if (error) {
@@ -23,10 +23,18 @@ export async function GET() {
 
     console.log(`Found ${data?.length || 0} pending orders`)
 
+    // Map response fields for compatibility with frontend
+    const mappedData = data?.map((order: any) => ({
+      ...order,
+      order_status: order.status,
+      package_name: order.size,
+      network_name: order.network
+    })) || []
+
     return NextResponse.json({
       success: true,
-      data: data || [],
-      count: data?.length || 0
+      data: mappedData,
+      count: mappedData.length
     })
   } catch (error) {
     console.error("Error fetching pending orders:", error)
