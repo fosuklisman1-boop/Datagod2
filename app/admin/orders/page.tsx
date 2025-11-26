@@ -44,6 +44,7 @@ export default function AdminOrdersPage() {
   const [loadingPending, setLoadingPending] = useState(true)
   const [loadingDownloaded, setLoadingDownloaded] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [updatingBatch, setUpdatingBatch] = useState<string | null>(null)
 
   useEffect(() => {
     checkAdminAccess()
@@ -145,17 +146,16 @@ export default function AdminOrdersPage() {
         throw new Error(errorData.error || "Failed to download orders")
       }
 
-      const result = await response.json()
-
-      // Download CSV file
-      const csv = result.csv
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
       const element = document.createElement("a")
-      element.setAttribute("href", "data:text/csv;charset=utf-8," + encodeURIComponent(csv))
-      element.setAttribute("download", `orders-${new Date().toISOString().split('T')[0]}.csv`)
+      element.setAttribute("href", url)
+      element.setAttribute("download", `orders-${new Date().toISOString().split('T')[0]}.xlsx`)
       element.style.display = "none"
       document.body.appendChild(element)
       element.click()
       document.body.removeChild(element)
+      window.URL.revokeObjectURL(url)
 
       toast.success(`Downloaded ${pendingOrders.length} orders. Status updated to processing.`)
       
@@ -167,6 +167,78 @@ export default function AdminOrdersPage() {
       toast.error(error instanceof Error ? error.message : "Failed to download orders")
     } finally {
       setDownloading(false)
+    }
+  }
+
+  const handleRedownloadBatch = async (batchKey: string) => {
+    const batch = downloadedOrders[batchKey]
+    if (!batch) return
+
+    try {
+      setUpdatingBatch(batchKey)
+
+      const response = await fetch("/api/admin/orders/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: batch.orders.map(o => o.id) })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to redownload orders")
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const element = document.createElement("a")
+      element.setAttribute("href", url)
+      element.setAttribute("download", `orders-${batch.network}-${new Date().toISOString().split('T')[0]}.xlsx`)
+      element.style.display = "none"
+      document.body.appendChild(element)
+      element.click()
+      document.body.removeChild(element)
+      window.URL.revokeObjectURL(url)
+
+      toast.success(`Redownloaded ${batch.orders.length} orders`)
+    } catch (error) {
+      console.error("Error redownloading batch:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to redownload batch")
+    } finally {
+      setUpdatingBatch(null)
+    }
+  }
+
+  const handleBulkStatusUpdate = async (batchKey: string, newStatus: string) => {
+    const batch = downloadedOrders[batchKey]
+    if (!batch) return
+
+    try {
+      setUpdatingBatch(batchKey)
+
+      const response = await fetch("/api/admin/orders/bulk-update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderIds: batch.orders.map(o => o.id),
+          status: newStatus
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update status")
+      }
+
+      toast.success(`Updated ${batch.orders.length} orders to ${newStatus}`)
+      
+      // Reload orders
+      await loadPendingOrders()
+      await loadDownloadedOrders()
+    } catch (error) {
+      console.error("Error updating batch status:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update status")
+    } finally {
+      setUpdatingBatch(null)
     }
   }
 
@@ -310,9 +382,32 @@ export default function AdminOrdersPage() {
                             Downloaded: {new Date(batch.downloadedAt).toLocaleString()}
                           </CardDescription>
                         </div>
-                        <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1">
-                          {batch.orders.length} orders
-                        </Badge>
+                        <div className="flex items-center gap-3">
+                          <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1">
+                            {batch.orders.length} orders
+                          </Badge>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRedownloadBatch(batchKey)}
+                            disabled={updatingBatch === batchKey}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Redownload
+                          </Button>
+                          <select
+                            className="px-3 py-2 border rounded-md text-sm"
+                            onChange={(e) => handleBulkStatusUpdate(batchKey, e.target.value)}
+                            disabled={updatingBatch === batchKey}
+                            defaultValue=""
+                            aria-label="Update batch status"
+                          >
+                            <option value="">Update Status</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="pending">Pending</option>
+                          </select>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent>
