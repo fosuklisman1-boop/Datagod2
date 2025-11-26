@@ -63,6 +63,7 @@ export async function initializePayment(
     const data: PaymentResponse = await response.json()
 
     if (!data.status) {
+      console.error("Paystack Error Response:", JSON.stringify(data, null, 2))
       throw new Error(data.message || "Failed to initialize payment")
     }
 

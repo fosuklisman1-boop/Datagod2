@@ -70,9 +70,11 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error initializing payment:", error)
+    const errorMessage = error instanceof Error ? error.message : "Failed to initialize payment"
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Failed to initialize payment",
+        error: errorMessage,
+        details: error instanceof Error ? error.toString() : "Unknown error",
       },
       { status: 500 }
     )
