@@ -54,7 +54,7 @@ export async function initializePayment(
 
     const requestBody = {
       email: params.email,
-      amount: params.amount,
+      amount: Math.round(params.amount * 100), // Convert to smallest unit (kobo/pesewa)
       reference: params.reference,
       metadata: params.metadata || {},
       channels: params.channels || [
@@ -140,7 +140,7 @@ export async function verifyPayment(
 
     return {
       status: transaction.status,
-      amount: transaction.amount,
+      amount: transaction.amount / 100, // Convert from smallest unit back to GHS
       customer_email: transaction.customer.email,
       reference: transaction.reference,
       authorization: transaction.authorization,
