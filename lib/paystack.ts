@@ -75,8 +75,11 @@ export async function initializePayment(
 
     const data: PaymentResponse = await response.json()
 
+    console.log("[PAYSTACK] Response Status:", response.status)
+    console.log("[PAYSTACK] Response Body:", JSON.stringify(data, null, 2))
+
     if (!response.ok || !data.status) {
-      console.error("[PAYSTACK] Error Response:", data)
+      console.error("[PAYSTACK] ✗ Error Response:", data)
       throw new Error(data.message || `HTTP ${response.status}`)
     }
 

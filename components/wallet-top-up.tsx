@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, AlertCircle, CheckCircle, Zap } from "lucide-react"
+import { Loader2, AlertCircle, CheckCircle, Zap, Bug } from "lucide-react"
 import { initializePayment, verifyPayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -25,6 +25,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     "idle"
   )
   const [errorMessage, setErrorMessage] = useState("")
+  const [debugInfo, setDebugInfo] = useState<any>(null)
+  const [showDebug, setShowDebug] = useState(false)
   const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || ""
 
   // Predefined amounts
@@ -74,6 +76,9 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       setIsLoading(true)
       setPaymentStatus("processing")
       setErrorMessage("")
+      setDebugInfo(null)
+
+      console.log("[WALLET-TOPUP] Starting payment with amount:", amount)
 
       // Initialize payment
       const paymentResult = await initializePayment({
@@ -82,55 +87,105 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         userId,
       })
 
+      console.log("[WALLET-TOPUP] Payment initialized:", paymentResult)
+
+      // Store debug info
+      const debugData = {
+        publicKey: paystackPublicKey,
+        email: email,
+        amount: parseFloat(amount),
+        amountInPesewa: Math.round(parseFloat(amount) * 100),
+        reference: paymentResult.reference,
+        accessCode: paymentResult.accessCode,
+        authorizationUrl: paymentResult.authorizationUrl,
+      }
+      setDebugInfo(debugData)
+
       // Load Paystack script if not already loaded
       if (!window.PaystackPop) {
+        console.log("[WALLET-TOPUP] Loading Paystack script...")
         await loadPaystackScript()
       }
 
-      // Open Paystack modal
-      const handler = window.PaystackPop!.setup({
-        key: paystackPublicKey,
-        email,
-        amount: Math.round(parseFloat(amount) * 100), // Convert to smallest unit (kobo/pesewa)
-        ref: paymentResult.reference,
-        onClose: () => {
+      console.log("[WALLET-TOPUP] Paystack library available, opening checkout...")
+
+      // Method 1: Use the authorization URL directly in a popup window
+      console.log("[WALLET-TOPUP] Opening Paystack checkout URL:", paymentResult.authorizationUrl)
+      
+      // Open in a new window to maintain clean modal experience
+      const checkoutWindow = window.open(
+        paymentResult.authorizationUrl,
+        'paystackpayment',
+        'height=600,width=600,left=' + (screen.width / 2 - 300) + ',top=' + (screen.height / 2 - 300)
+      )
+
+      // Poll for payment completion
+      const pollInterval = setInterval(() => {
+        if (checkoutWindow?.closed) {
+          clearInterval(pollInterval)
           setIsLoading(false)
           setPaymentStatus("idle")
-          toast.info("Payment modal closed")
-        },
-        onSuccess: async () => {
-          setIsProcessing(true)
-          try {
-            // Verify payment
-            const verificationResult = await verifyPayment({
-              reference: paymentResult.reference,
-            })
+          console.log("[WALLET-TOPUP] Checkout window closed")
+        }
+      }, 1000)
 
-            if (verificationResult.status === "success") {
-              setPaymentStatus("success")
-              toast.success(`Payment successful! GHS ${verificationResult.amount} added to wallet.`)
-              setAmount("")
-              if (onSuccess) {
-                onSuccess(verificationResult.amount)
-              }
-            } else {
-              setPaymentStatus("error")
-              setErrorMessage(`Payment status: ${verificationResult.status}`)
-              toast.error(`Payment ${verificationResult.status}`)
-            }
-          } catch (error) {
-            setPaymentStatus("error")
-            setErrorMessage(error instanceof Error ? error.message : "Verification failed")
-            toast.error("Payment verification failed")
-          } finally {
-            setIsProcessing(false)
+      // Also offer alternative: Using PaystackPop setup (v1) if available
+      try {
+        console.log("[WALLET-TOPUP] Setting up PaystackPop modal as fallback...")
+        const handler = window.PaystackPop!.setup({
+          key: paystackPublicKey,
+          email: email,
+          amount: Math.round(parseFloat(amount) * 100), // Must be integer in pesewa/kobo
+          ref: paymentResult.reference,
+          onClose: () => {
+            console.log("[WALLET-TOPUP] PaystackPop modal closed")
+            clearInterval(pollInterval)
             setIsLoading(false)
-          }
-        },
-      })
+            setPaymentStatus("idle")
+            toast.info("Payment modal closed")
+          },
+          onSuccess: async (response: any) => {
+            console.log("[WALLET-TOPUP] Payment success via PaystackPop, response:", response)
+            clearInterval(pollInterval)
+            setIsProcessing(true)
+            
+            try {
+              // Verify payment
+              const verificationResult = await verifyPayment({
+                reference: paymentResult.reference,
+              })
 
-      handler.openIframe()
+              if (verificationResult.status === "success") {
+                setPaymentStatus("success")
+                toast.success(`Payment successful! GHS ${verificationResult.amount} added to wallet.`)
+                setAmount("")
+                if (onSuccess) {
+                  onSuccess(verificationResult.amount)
+                }
+              } else {
+                setPaymentStatus("error")
+                setErrorMessage(`Payment status: ${verificationResult.status}`)
+                toast.error(`Payment ${verificationResult.status}`)
+              }
+            } catch (verifyError) {
+              setPaymentStatus("error")
+              setErrorMessage(verifyError instanceof Error ? verifyError.message : "Verification failed")
+              toast.error("Payment verification failed")
+            } finally {
+              setIsProcessing(false)
+              setIsLoading(false)
+            }
+          },
+        })
+
+        console.log("[WALLET-TOPUP] Opening Paystack iframe...")
+        handler.openIframe()
+      } catch (paystackError) {
+        // If PaystackPop modal fails, the window.open URL should still work
+        console.warn("[WALLET-TOPUP] PaystackPop failed, using window.open fallback:", paystackError)
+      }
     } catch (error) {
+      console.error("[WALLET-TOPUP] Error:", error)
       setPaymentStatus("error")
       setErrorMessage(error instanceof Error ? error.message : "Payment initialization failed")
       toast.error("Payment initialization failed")
@@ -148,8 +203,14 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       const script = document.createElement("script")
       script.id = "paystack-script"
       script.src = "https://js.paystack.co/v1/inline.js"
-      script.onload = () => resolve()
-      script.onerror = () => reject(new Error("Failed to load Paystack script"))
+      script.onload = () => {
+        console.log("[WALLET-TOPUP] Paystack script loaded successfully")
+        resolve()
+      }
+      script.onerror = () => {
+        console.error("[WALLET-TOPUP] Failed to load Paystack script")
+        reject(new Error("Failed to load Paystack script"))
+      }
       document.body.appendChild(script)
     })
   }
@@ -264,6 +325,48 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             </>
           )}
         </Button>
+
+        {/* Debug Panel */}
+        <div className="pt-4 border-t border-gray-200">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowDebug(!showDebug)}
+            className="gap-2"
+          >
+            <Bug className="h-4 w-4" />
+            {showDebug ? "Hide" : "Show"} Debug Info
+          </Button>
+
+          {showDebug && debugInfo && (
+            <div className="mt-4 p-4 bg-slate-900 text-slate-50 rounded-lg font-mono text-xs space-y-2 max-h-48 overflow-auto">
+              <div>
+                <span className="text-cyan-400">publicKey:</span>{" "}
+                <span className="text-slate-300">{debugInfo.publicKey?.slice(0, 20)}...</span>
+              </div>
+              <div>
+                <span className="text-cyan-400">email:</span>{" "}
+                <span className="text-slate-300">{debugInfo.email}</span>
+              </div>
+              <div>
+                <span className="text-cyan-400">amount:</span>{" "}
+                <span className="text-slate-300">{debugInfo.amount} GHS</span>
+              </div>
+              <div>
+                <span className="text-cyan-400">amountInPesewa:</span>{" "}
+                <span className="text-slate-300">{debugInfo.amountInPesewa}</span>
+              </div>
+              <div>
+                <span className="text-cyan-400">reference:</span>{" "}
+                <span className="text-slate-300">{debugInfo.reference}</span>
+              </div>
+              <div>
+                <span className="text-cyan-400">accessCode:</span>{" "}
+                <span className="text-slate-300">{debugInfo.accessCode}</span>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Security Notice */}
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
