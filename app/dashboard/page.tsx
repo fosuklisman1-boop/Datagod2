@@ -9,14 +9,32 @@ import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon } from "lucide
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
 
+interface DashboardStats {
+  totalOrders: number
+  completed: number
+  processing: number
+  failed: number
+  pending: number
+  successRate: string
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
+  const [stats, setStats] = useState<DashboardStats>({
+    totalOrders: 0,
+    completed: 0,
+    processing: 0,
+    failed: 0,
+    pending: 0,
+    successRate: "0%"
+  })
 
   useEffect(() => {
     fetchUserInfo()
+    fetchDashboardStats()
   }, [])
 
   const fetchUserInfo = async () => {
@@ -54,6 +72,22 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error("Error fetching user info:", error)
+    }
+  }
+
+  const fetchDashboardStats = async () => {
+    try {
+      const response = await fetch("/api/dashboard/stats")
+      if (!response.ok) {
+        throw new Error("Failed to fetch stats")
+      }
+      const result = await response.json()
+      if (result.success) {
+        setStats(result.stats)
+        console.log("Dashboard stats loaded:", result.stats)
+      }
+    } catch (error) {
+      console.error("Error fetching dashboard stats:", error)
     }
   }
 
@@ -122,7 +156,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">5,002</div>
+              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">{stats.totalOrders.toLocaleString()}</div>
               <p className="text-xs text-gray-500">All time orders</p>
             </CardContent>
           </Card>
@@ -136,8 +170,8 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">4,951</div>
-              <p className="text-xs text-gray-500">99% success rate</p>
+              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{stats.completed.toLocaleString()}</div>
+              <p className="text-xs text-gray-500">{stats.successRate} success rate</p>
             </CardContent>
           </Card>
 
@@ -150,7 +184,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">46</div>
+              <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">{stats.processing}</div>
               <p className="text-xs text-gray-500">In progress</p>
             </CardContent>
           </Card>
@@ -164,7 +198,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">0</div>
+              <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">{stats.failed}</div>
               <p className="text-xs text-gray-500">No failures</p>
             </CardContent>
           </Card>
