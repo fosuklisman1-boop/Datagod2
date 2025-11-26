@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     const offset = (page - 1) * limit
 
-    // Build the query
+    // Build the query using actual orders table columns
     let query = supabase
       .from("orders")
       .select(
@@ -38,10 +38,12 @@ export async function GET(request: NextRequest) {
         id,
         created_at,
         phone_number,
-        total_price,
-        order_status,
-        packages(name, network),
-        networks(name)
+        price,
+        status,
+        package_id,
+        size,
+        network,
+        packages(size, network)
         `,
         { count: "exact" }
       )
@@ -50,11 +52,12 @@ export async function GET(request: NextRequest) {
 
     // Apply filters
     if (network && network !== "all") {
-      query = query.eq("packages.network", network)
+      // Filter by the orders.network column (packages relation may not exist for all orders)
+      query = query.eq("network", network)
     }
 
     if (status && status !== "all") {
-      query = query.eq("order_status", status)
+      query = query.eq("status", status)
     }
 
     if (dateRange && dateRange !== "all") {
@@ -95,15 +98,15 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Transform the data to flatten nested objects
+    // Transform the data to flatten nested objects and normalize field names for the frontend
     const orders = (ordersData || []).map((order: any) => ({
       id: order.id,
       created_at: order.created_at,
       phone_number: order.phone_number,
-      total_price: order.total_price,
-      order_status: order.order_status,
-      package_name: order.packages?.name || "Unknown",
-      network_name: order.networks?.name || order.packages?.network || "Unknown",
+      total_price: order.price ?? 0,
+      order_status: order.status ?? "pending",
+      package_name: order.packages?.size ? `${order.packages.size}GB` : (order.size ? `${order.size}GB` : "Unknown"),
+      network_name: order.network || order.packages?.network || "Unknown",
     }))
 
     return NextResponse.json({

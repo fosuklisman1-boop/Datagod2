@@ -28,26 +28,26 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
 
-    // Get completed orders
+    // Get completed orders (use 'status' column, not 'order_status')
     const { count: completedCount } = await supabase
       .from("orders")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
-      .eq("order_status", "completed")
+      .eq("status", "completed")
 
     // Get processing orders
     const { count: processingCount } = await supabase
       .from("orders")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
-      .eq("order_status", "processing")
+      .eq("status", "processing")
 
     // Get failed orders
     const { count: failedCount } = await supabase
       .from("orders")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
-      .eq("order_status", "failed")
+      .eq("status", "failed")
 
     const total = totalCount || 0
     const completed = completedCount || 0
