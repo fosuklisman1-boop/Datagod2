@@ -36,18 +36,14 @@ export async function initializePayment(
   params: InitializePaymentParams
 ): Promise<{ authorizationUrl: string; accessCode: string; reference: string }> {
   try {
-    const amountInKobo = params.amount * 100
-    
     console.log("=== PAYSTACK LIB: initializePayment ===")
     console.log("Currency being used:", PAYSTACK_CURRENCY)
     console.log("Input amount (GHS):", params.amount)
-    console.log("Converted to kobo:", amountInKobo)
 
     const requestBody = {
       email: params.email,
-      amount: amountInKobo,
+      amount: params.amount,
       reference: params.reference,
-      currency: PAYSTACK_CURRENCY,
       metadata: params.metadata || {},
       channels: params.channels || [
         "card",
@@ -127,17 +123,15 @@ export async function verifyPayment(
     }
 
     const transaction = data.data
-    const amountInGHS = transaction.amount / 100 // Convert from kobo
     
     console.log("Received from Paystack:")
-    console.log("  - Amount (kobo):", transaction.amount)
-    console.log("  - Amount (GHS):", amountInGHS)
+    console.log("  - Amount:", transaction.amount)
     console.log("  - Status:", transaction.status)
     console.log("  - Customer email:", transaction.customer.email)
 
     return {
       status: transaction.status,
-      amount: amountInGHS,
+      amount: transaction.amount,
       customer_email: transaction.customer.email,
       reference: transaction.reference,
       authorization: transaction.authorization,
@@ -269,7 +263,7 @@ export async function initiateTransfer(
       },
       body: JSON.stringify({
         source: "balance",
-        amount: amount * 100, // Convert to kobo
+        amount: amount,
         recipient,
         reason,
       }),

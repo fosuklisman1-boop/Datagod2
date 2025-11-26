@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     console.log("DB: Stored amount (GHS):", amount)
 
     // Initialize Paystack payment
-    console.log("Sending to Paystack with amount (GHS):", amount, "→ kobo:", amount * 100)
+    console.log("Sending to Paystack with amount (GHS):", amount)
     const paymentResult = await initializePayment({
       email,
       amount,
