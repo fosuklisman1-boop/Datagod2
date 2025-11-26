@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import * as XLSX from "xlsx"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -73,23 +74,29 @@ export async function POST(request: NextRequest) {
       // Continue anyway - batch tracking is optional
     }
 
-    // Generate CSV
-    const csvHeader = [
-      "Phone",
-      "Size"
-    ].join(",")
+    // Generate Excel file
+    const excelData = orders.map((order: any) => ({
+      Phone: order.phone_number,
+      Size: `${order.size}GB`
+    }))
 
-    const csvRows = orders.map((order: any) => [
-      `"${order.phone_number}"`,
-      `${order.size}`
-    ].join(","))
+    const worksheet = XLSX.utils.json_to_sheet(excelData)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Orders")
 
-    const csv = [csvHeader, ...csvRows].join("\n")
+    // Set column widths
+    worksheet["!cols"] = [
+      { wch: 15 }, // Phone column
+      { wch: 10 }  // Size column
+    ]
 
-    return NextResponse.json({
-      success: true,
-      count: orders.length,
-      csv
+    const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" })
+
+    return new NextResponse(excelBuffer, {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="orders-${new Date().toISOString().split('T')[0]}.xlsx"`
+      }
     })
   } catch (error) {
     console.error("Error in download orders:", error)

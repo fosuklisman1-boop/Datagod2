@@ -14,19 +14,13 @@ import { toast } from "sonner"
 
 interface ShopOrder {
   id: string
-  customer_name: string
-  customer_email: string
-  customer_phone: string
+  phone_number: string
   network: string
-  volume_gb: number
-  base_price: number
-  profit_amount: number
-  total_price: number
-  order_status: string
-  payment_status: string
-  reference_code: string
+  size: number
+  price: number
+  status: string
+  order_status?: string
   created_at: string
-  shop_id: string
 }
 
 interface DownloadBatch {
