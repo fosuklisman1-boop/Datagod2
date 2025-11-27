@@ -175,6 +175,8 @@ export default function ShopStorefront() {
           email: orderData.customer_email,
           userId: session?.user?.id || null,
           shopId: shop.id,
+          orderId: order.id,  // Pass order ID for shop order redirect
+          shopSlug: shopSlug,  // Pass shop slug for order confirmation URL
         }),
       })
 

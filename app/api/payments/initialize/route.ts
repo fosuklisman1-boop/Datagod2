@@ -10,12 +10,14 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { amount, email, userId, shopId } = body
+    const { amount, email, userId, shopId, orderId, shopSlug } = body
 
     console.log("[PAYMENT-INIT] Request received:")
     console.log("  User:", userId)
     console.log("  Email:", email)
     console.log("  Amount:", amount)
+    console.log("  Shop ID:", shopId)
+    console.log("  Order ID:", orderId)
 
     // Validate input
     if (!amount || !email || !userId) {
@@ -63,7 +65,10 @@ export async function POST(request: NextRequest) {
 
     // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
-    const redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?payment_status=completed`
+    // For shop orders, redirect to order confirmation; for wallet topup, redirect to wallet page
+    const redirectUrl = shopId && orderId && shopSlug
+      ? `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/order-confirmation/${orderId}`
+      : `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?payment_status=completed`
     console.log("[PAYMENT-INIT] Redirect URL:", redirectUrl)
     
     const paymentResult = await initializePayment({
