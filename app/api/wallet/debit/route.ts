@@ -126,6 +126,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // If this is a shop order payment via wallet, mark it as paid
+    if (orderId) {
+      console.log("[WALLET-DEBIT] Checking if order is a shop order...")
+      const { data: shopOrder, error: shopOrderError } = await supabase
+        .from("shop_orders")
+        .select("id")
+        .eq("id", orderId)
+        .maybeSingle()
+
+      if (!shopOrderError && shopOrder) {
+        console.log("[WALLET-DEBIT] Marking shop order payment as completed...")
+        const { error: updateShopOrderError } = await supabase
+          .from("shop_orders")
+          .update({
+            payment_status: "completed",
+            order_status: "pending", // Keep as pending for admin to process
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", orderId)
+
+        if (updateShopOrderError) {
+          console.error("[WALLET-DEBIT] Failed to update shop order:", updateShopOrderError)
+        } else {
+          console.log("[WALLET-DEBIT] ✓ Shop order payment status updated to completed")
+        }
+      }
+    }
+
     console.log("[WALLET-DEBIT] ✓ Success - New balance:", newBalance)
 
     return NextResponse.json({

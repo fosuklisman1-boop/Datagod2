@@ -128,6 +128,34 @@ export async function POST(request: NextRequest) {
       }
 
       console.log("[PAYMENT-VERIFY] ✓ Wallet credited:", amount)
+
+      // If payment was for a shop order, update its payment status
+      if (paymentData.shop_id) {
+        console.log("[PAYMENT-VERIFY] Payment is for shop order. Updating shop order payment status...")
+        
+        // Find shop order by reference (assuming order reference_code matches payment reference)
+        const { data: shopOrderData, error: shopOrderFetchError } = await supabase
+          .from("shop_orders")
+          .select("id")
+          .eq("reference_code", reference)
+          .single()
+
+        if (!shopOrderFetchError && shopOrderData) {
+          const { error: shopOrderUpdateError } = await supabase
+            .from("shop_orders")
+            .update({
+              payment_status: "completed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", shopOrderData.id)
+
+          if (shopOrderUpdateError) {
+            console.error("[PAYMENT-VERIFY] Failed to update shop order payment status:", shopOrderUpdateError)
+          } else {
+            console.log("[PAYMENT-VERIFY] ✓ Shop order payment status updated to completed")
+          }
+        }
+      }
     }
 
     console.log("[PAYMENT-VERIFY] ✓ Complete")
