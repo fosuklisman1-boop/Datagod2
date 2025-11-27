@@ -129,18 +129,19 @@ export async function POST(request: NextRequest) {
 
       console.log("[PAYMENT-VERIFY] ✓ Wallet credited:", amount)
 
-      // If payment was for a shop order, update its payment status
+      // If payment was for a shop order, update its payment status and create profit record
       if (paymentData.shop_id) {
         console.log("[PAYMENT-VERIFY] Payment is for shop order. Updating shop order payment status...")
         
         // Find shop order by reference (assuming order reference_code matches payment reference)
         const { data: shopOrderData, error: shopOrderFetchError } = await supabase
           .from("shop_orders")
-          .select("id")
+          .select("*")
           .eq("reference_code", reference)
           .single()
 
         if (!shopOrderFetchError && shopOrderData) {
+          // Update payment status
           const { error: shopOrderUpdateError } = await supabase
             .from("shop_orders")
             .update({
@@ -153,6 +154,26 @@ export async function POST(request: NextRequest) {
             console.error("[PAYMENT-VERIFY] Failed to update shop order payment status:", shopOrderUpdateError)
           } else {
             console.log("[PAYMENT-VERIFY] ✓ Shop order payment status updated to completed")
+            
+            // Create profit record for shop owner
+            console.log("[PAYMENT-VERIFY] Creating profit record for shop owner...")
+            const profitAmount = shopOrderData.profit_amount || 0
+            const { error: profitError } = await supabase
+              .from("shop_profits")
+              .insert([{
+                shop_id: paymentData.shop_id,
+                shop_order_id: shopOrderData.id,
+                profit_amount: profitAmount,
+                status: "pending",
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }])
+
+            if (profitError) {
+              console.error("[PAYMENT-VERIFY] Failed to create profit record:", profitError)
+            } else {
+              console.log("[PAYMENT-VERIFY] ✓ Profit record created:", profitAmount)
+            }
           }
         }
       }
