@@ -328,15 +328,17 @@ export function BulkOrdersForm() {
       }
 
       // Check wallet balance
-      const { data: wallet, error: walletError } = await supabase
+      const { data: walletData, error: walletError } = await supabase
         .from("wallet")
         .select("balance")
         .eq("user_id", session.user.id)
-        .single()
 
-      if (walletError) {
+      if (walletError && walletError.code !== "PGRST116") {
+        console.error("Wallet error:", walletError)
         throw new Error("Failed to fetch wallet balance")
       }
+
+      const wallet = walletData && walletData.length > 0 ? walletData[0] : null
 
       // Calculate total cost
       const totalCost = validOrders.reduce((sum, order) => sum + order.price, 0)
