@@ -324,12 +324,16 @@ export function BulkOrdersForm() {
     }
 
     try {
+      console.log("Preparing order submission...")
+      
       // Get auth token and user
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token || !session.user?.id) {
         throw new Error("Not authenticated")
       }
 
+      console.log("Fetching wallet balance for user:", session.user.id)
+      
       // Check wallet balance
       const { data: walletData, error: walletError } = await supabase
         .from("wallet")
@@ -344,9 +348,13 @@ export function BulkOrdersForm() {
       const wallet = walletData && walletData.length > 0 ? walletData[0] : null
       const availableBalance = wallet?.balance || 0
 
+      console.log("Wallet balance found:", availableBalance)
+      
       // Calculate total cost
       const totalCost = validOrders.reduce((sum, order) => sum + order.price, 0)
 
+      console.log("Total cost:", totalCost)
+      
       // Check if balance is sufficient
       if (availableBalance < totalCost) {
         toast.error(
@@ -355,9 +363,12 @@ export function BulkOrdersForm() {
         return
       }
 
+      console.log("Balance sufficient. Showing summary...")
+      
       // Set wallet balance and show summary
       setWalletBalance(availableBalance)
       setShowSummary(true)
+      console.log("Summary should be visible now")
     } catch (error) {
       console.error("Error preparing summary:", error)
       toast.error(error instanceof Error ? error.message : "Failed to prepare summary")
