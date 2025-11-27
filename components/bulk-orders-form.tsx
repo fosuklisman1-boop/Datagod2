@@ -17,6 +17,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "sonner"
 import { Download, CheckCircle, AlertCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 
 interface ValidationResult {
   total: number
@@ -42,6 +50,8 @@ export function BulkOrdersForm() {
   const [networks, setNetworks] = useState<Array<{ id: string; label: string }>>([])
   const [loading, setLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showSummary, setShowSummary] = useState(false)
+  const [walletBalance, setWalletBalance] = useState<number | null>(null)
 
   // Load packages from database on mount
   useEffect(() => {
@@ -313,14 +323,7 @@ export function BulkOrdersForm() {
       return
     }
 
-    setIsSubmitting(true)
     try {
-      // Get the selected network label
-      const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
-      if (!selectedNetworkLabel) {
-        throw new Error("Invalid network selected")
-      }
-
       // Get auth token and user
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token || !session.user?.id) {
@@ -339,17 +342,44 @@ export function BulkOrdersForm() {
       }
 
       const wallet = walletData && walletData.length > 0 ? walletData[0] : null
+      const availableBalance = wallet?.balance || 0
 
       // Calculate total cost
       const totalCost = validOrders.reduce((sum, order) => sum + order.price, 0)
 
       // Check if balance is sufficient
-      if (!wallet || wallet.balance < totalCost) {
-        const availableBalance = wallet?.balance || 0
+      if (availableBalance < totalCost) {
         toast.error(
           `Insufficient wallet balance. Required: ₵${totalCost.toFixed(2)}, Available: ₵${availableBalance.toFixed(2)}`
         )
         return
+      }
+
+      // Set wallet balance and show summary
+      setWalletBalance(availableBalance)
+      setShowSummary(true)
+    } catch (error) {
+      console.error("Error preparing summary:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to prepare summary")
+    }
+  }
+
+  const handleConfirmSubmission = async () => {
+    if (!validationResults) return
+
+    const validOrders = validationResults.orders.filter(o => o.status === "valid")
+    setIsSubmitting(true)
+    try {
+      // Get the selected network label
+      const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
+      if (!selectedNetworkLabel) {
+        throw new Error("Invalid network selected")
+      }
+
+      // Get auth token and user
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token || !session.user?.id) {
+        throw new Error("Not authenticated")
       }
 
       // Call the bulk create API
@@ -377,10 +407,14 @@ export function BulkOrdersForm() {
 
       toast.success(`Successfully created ${data.count} orders!`)
       
+      // Close summary dialog
+      setShowSummary(false)
+      
       // Reset form
       setValidationResults(null)
       setTextInput("")
       setSelectedNetwork("")
+      setWalletBalance(null)
       
       console.log("Orders created:", data.orders)
     } catch (error) {
@@ -618,6 +652,79 @@ export function BulkOrdersForm() {
             </div>
           </div>
         )}
+
+        {/* Summary Dialog */}
+        <Dialog open={showSummary} onOpenChange={setShowSummary}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Order Summary</DialogTitle>
+              <DialogDescription>
+                Please review your order details before confirming submission
+              </DialogDescription>
+            </DialogHeader>
+            
+            {validationResults && (
+              <div className="space-y-4 py-4">
+                <div className="bg-blue-50 p-4 rounded-lg space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Number of Orders:</span>
+                    <span className="font-semibold text-lg">{validationResults.valid}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Network:</span>
+                    <span className="font-semibold">
+                      {networks.find(n => n.id === selectedNetwork)?.label}
+                    </span>
+                  </div>
+                  <div className="border-t pt-2 flex justify-between">
+                    <span className="text-sm text-gray-600">Total Cost:</span>
+                    <span className="font-bold text-lg text-violet-600">
+                      ₵{validationResults.orders
+                        .filter(o => o.status === "valid")
+                        .reduce((sum, o) => sum + o.price, 0)
+                        .toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Available Balance:</span>
+                    <span className="font-bold text-lg text-emerald-600">
+                      ₵{walletBalance?.toFixed(2) || "0.00"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between mt-2">
+                    <span className="text-sm text-gray-600">Balance After:</span>
+                    <span className="font-bold text-lg text-emerald-600">
+                      ₵{(
+                        (walletBalance || 0) -
+                        validationResults.orders.filter(o => o.status === "valid").reduce((sum, o) => sum + o.price, 0)
+                      ).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowSummary(false)}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmSubmission}
+                disabled={isSubmitting}
+                className="bg-gradient-to-r from-violet-600 to-purple-600"
+              >
+                {isSubmitting ? "Processing..." : "Confirm & Submit"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   )
