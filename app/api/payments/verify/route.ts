@@ -130,14 +130,14 @@ export async function POST(request: NextRequest) {
       console.log("[PAYMENT-VERIFY] ✓ Wallet credited:", amount)
 
       // If payment was for a shop order, update its payment status and create profit record
-      if (paymentData.shop_id) {
+      if (paymentData.shop_id && paymentData.order_id) {
         console.log("[PAYMENT-VERIFY] Payment is for shop order. Updating shop order payment status...")
         
-        // Find shop order by reference (assuming order reference_code matches payment reference)
+        // Find shop order by order_id from payment record
         const { data: shopOrderData, error: shopOrderFetchError } = await supabase
           .from("shop_orders")
           .select("*")
-          .eq("reference_code", reference)
+          .eq("id", paymentData.order_id)
           .single()
 
         if (!shopOrderFetchError && shopOrderData) {

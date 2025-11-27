@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
         {
           user_id: userId,
           shop_id: shopId || null,
+          order_id: orderId || null,
           amount: parseFloat(amount.toString()),
           reference,
           status: "pending",
