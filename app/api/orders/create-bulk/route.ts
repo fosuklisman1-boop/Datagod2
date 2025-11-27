@@ -86,11 +86,28 @@ export async function POST(request: NextRequest) {
     // Calculate total cost
     const totalCost = orders.reduce((sum: number, order: BulkOrderData) => sum + order.price, 0)
 
-    // Deduct from wallet
+    // Deduct from wallet - get current balance first
+    const { data: walletData, error: walletFetchError } = await supabase
+      .from("user_wallets")
+      .select("balance")
+      .eq("user_id", userId)
+      .single()
+
+    if (walletFetchError || !walletData) {
+      console.error("[BULK-ORDERS] Failed to fetch wallet:", walletFetchError)
+      return NextResponse.json(
+        { error: "Failed to process wallet deduction" },
+        { status: 500 }
+      )
+    }
+
+    const currentBalance = walletData.balance || 0
+    const newBalance = Math.max(0, currentBalance - totalCost)
+
     const { error: updateError } = await supabase
-      .from("wallet")
+      .from("user_wallets")
       .update({
-        balance: `balance - ${totalCost}`
+        balance: newBalance
       })
       .eq("user_id", userId)
 

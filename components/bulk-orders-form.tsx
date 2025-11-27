@@ -336,7 +336,7 @@ export function BulkOrdersForm() {
       
       // Check wallet balance
       const { data: walletData, error: walletError } = await supabase
-        .from("wallets")
+        .from("user_wallets")
         .select("balance")
         .eq("user_id", session.user.id)
 
