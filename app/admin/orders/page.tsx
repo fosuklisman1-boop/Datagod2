@@ -215,12 +215,17 @@ export default function AdminOrdersPage() {
     try {
       setUpdatingBatch(batchKey)
 
+      // Detect order type from first order in batch
+      const firstOrder = batch.orders[0] as any
+      const orderType = firstOrder?.type || 'bulk'
+
       const response = await fetch("/api/admin/orders/bulk-update-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orderIds: batch.orders.map(o => o.id),
-          status: newStatus
+          status: newStatus,
+          orderType
         })
       })
 
