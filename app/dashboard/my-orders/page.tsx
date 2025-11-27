@@ -14,6 +14,7 @@ interface OrderStats {
   completed: number
   processing: number
   failed: number
+  pending: number
   successRate: number
 }
 
@@ -33,6 +34,7 @@ export default function MyOrdersPage() {
     completed: 0,
     processing: 0,
     failed: 0,
+    pending: 0,
     successRate: 0,
   })
   const [orders, setOrders] = useState<Order[]>([])
@@ -128,7 +130,7 @@ export default function MyOrdersPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
@@ -170,6 +172,17 @@ export default function MyOrdersPage() {
             <CardContent>
               <div className="text-2xl font-bold">{stats.failed}</div>
               <p className="text-xs text-gray-600">No failures</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              <Clock className="h-4 w-4 text-indigo-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.pending}</div>
+              <p className="text-xs text-gray-600">Awaiting processing</p>
             </CardContent>
           </Card>
         </div>
