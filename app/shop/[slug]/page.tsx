@@ -145,6 +145,9 @@ export default function ShopStorefront() {
       const basePrice = pkg.price
       const profitAmount = selectedPackage.profit_margin
       const totalPrice = basePrice + profitAmount
+      
+      // Extract volume as number (e.g., "1GB" -> 1)
+      const volumeGb = parseInt(pkg.size.toString().replace(/[^0-9]/g, "")) || 0
 
       // Create order
       const order = await shopOrderService.createShopOrder({
@@ -155,7 +158,7 @@ export default function ShopStorefront() {
         shop_package_id: selectedPackage.id,
         package_id: pkg.id,
         network: pkg.network,
-        volume_gb: pkg.size,
+        volume_gb: volumeGb,
         base_price: basePrice,
         profit_amount: profitAmount,
         total_price: totalPrice,
