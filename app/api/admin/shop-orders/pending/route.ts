@@ -29,12 +29,7 @@ export async function GET() {
         order_status,
         payment_status,
         reference_code,
-        created_at,
-        shops(
-          shop_name,
-          shop_owner_id,
-          shop_slug
-        )
+        created_at
       `)
       .eq("order_status", "pending")
       .eq("payment_status", "completed")
@@ -51,9 +46,6 @@ export async function GET() {
     const mappedData = data?.map((order: any) => ({
       id: order.id,
       shop_id: order.shop_id,
-      shop_name: order.shops?.shop_name,
-      shop_owner_id: order.shops?.shop_owner_id,
-      shop_slug: order.shops?.shop_slug,
       customer_name: order.customer_name,
       phone_number: order.customer_phone,
       customer_email: order.customer_email,
