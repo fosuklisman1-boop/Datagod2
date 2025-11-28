@@ -1,11 +1,10 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "./use-auth"
-import { Loader2 } from "lucide-react"
-import { DashboardLayout } from "@/components/layout/dashboard-layout"
 
 /**
  * Hook to protect dashboard routes - redirects unauthenticated users to login
+ * This hook does NOT return JSX - components using this should handle their own loading/redirect UI
  */
 export function useProtectedPage() {
   const router = useRouter()
@@ -17,16 +16,6 @@ export function useProtectedPage() {
       router.push("/auth/login")
     }
   }, [user, loading, router])
-
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin" />
-        </div>
-      </DashboardLayout>
-    )
-  }
 
   return { isAuthenticated: !!user, loading }
 }
