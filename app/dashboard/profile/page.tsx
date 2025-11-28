@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -29,6 +31,8 @@ interface UserStats {
 }
 
 export default function ProfilePage() {
+  const router = useRouter()
+  const { user, loading: authLoading } = useAuth()
   const [profile, setProfile] = useState<UserProfile>({
     firstName: "",
     lastName: "",
@@ -47,7 +51,19 @@ export default function ProfilePage() {
   })
   const [loading, setLoading] = useState(true)
 
+  // Auth protection
   useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("[PROFILE] User not authenticated, redirecting to login")
+      router.push("/auth/login")
+    }
+  }, [user, authLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      fetchProfile()
+    }
+  }, [user])
     fetchUserProfile()
   }, [])
 

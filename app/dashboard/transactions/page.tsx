@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { TrendingUp, TrendingDown, DollarSign, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -29,6 +31,8 @@ interface Transaction {
 }
 
 export default function TransactionsPage() {
+  const router = useRouter()
+  const { user, loading: authLoading } = useAuth()
   const [stats, setStats] = useState<TransactionStats>({
     totalTransactions: 0,
     todayIncome: 0,
@@ -45,9 +49,19 @@ export default function TransactionsPage() {
   const [page, setPage] = useState(1)
   const pageSize = 10
 
+  // Auth protection
   useEffect(() => {
-    fetchTransactionData()
-  }, [filters, page])
+    if (!authLoading && !user) {
+      console.log("[TRANSACTIONS] User not authenticated, redirecting to login")
+      router.push("/auth/login")
+    }
+  }, [user, authLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      fetchTransactionData()
+    }
+  }, [filters, page, user])
 
   const fetchTransactionData = async () => {
     try {

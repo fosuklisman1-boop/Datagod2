@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,6 +31,7 @@ interface Transaction {
 
 export default function WalletPage() {
   const router = useRouter()
+  const { user, loading: authLoading } = useAuth()
   const [userId, setUserId] = useState<string | null>(null)
   const [walletData, setWalletData] = useState<WalletData>({
     balance: 0,
@@ -41,9 +43,19 @@ export default function WalletPage() {
   const [loading, setLoading] = useState(true)
   const [showTopUp, setShowTopUp] = useState(false)
 
+  // Auth protection
   useEffect(() => {
-    fetchUserAndWallet()
-  }, [])
+    if (!authLoading && !user) {
+      console.log("[WALLET] User not authenticated, redirecting to login")
+      router.push("/auth/login")
+    }
+  }, [user, authLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      fetchUserAndWallet()
+    }
+  }, [user])
 
   const fetchUserAndWallet = async () => {
     try {

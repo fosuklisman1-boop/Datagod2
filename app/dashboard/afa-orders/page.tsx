@@ -1,12 +1,36 @@
 "use client"
 
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Star, Clock, CheckCircle, AlertCircle, XCircle } from "lucide-react"
+import { Star, Clock, CheckCircle, AlertCircle, XCircle, Loader2 } from "lucide-react"
 
 export default function AFAOrdersPage() {
+  const router = useRouter()
+  const { user, loading: authLoading } = useAuth()
+
+  // Auth protection
+  useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("[AFA-ORDERS] User not authenticated, redirecting to login")
+      router.push("/auth/login")
+    }
+  }, [user, authLoading, router])
+
+  if (authLoading || !user) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">

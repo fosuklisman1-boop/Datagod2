@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ShoppingCart, CheckCircle, Clock, AlertCircle, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -29,6 +31,8 @@ interface Order {
 }
 
 export default function MyOrdersPage() {
+  const router = useRouter()
+  const { user, loading: authLoading } = useAuth()
   const [stats, setStats] = useState<OrderStats>({
     totalOrders: 0,
     completed: 0,
@@ -47,9 +51,19 @@ export default function MyOrdersPage() {
   const [page, setPage] = useState(1)
   const pageSize = 10
 
+  // Auth protection
   useEffect(() => {
-    fetchOrdersData()
-  }, [filters, page])
+    if (!authLoading && !user) {
+      console.log("[MY-ORDERS] User not authenticated, redirecting to login")
+      router.push("/auth/login")
+    }
+  }, [user, authLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      fetchOrdersData()
+    }
+  }, [filters, page, user])
 
   const fetchOrdersData = async () => {
     try {

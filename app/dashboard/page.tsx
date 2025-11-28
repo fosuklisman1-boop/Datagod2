@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
+import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock } from "lucide-react"
+import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2 } from "lucide-react"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
 
@@ -28,6 +29,7 @@ interface RecentActivity {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const { user, loading: authLoading } = useAuth()
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
@@ -41,11 +43,21 @@ export default function DashboardPage() {
   })
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
 
+  // Auth protection - redirect to login if not authenticated
   useEffect(() => {
-    fetchUserInfo()
-    fetchDashboardStats()
-    fetchRecentActivity()
-  }, [])
+    if (!authLoading && !user) {
+      console.log("[DASHBOARD] User not authenticated, redirecting to login")
+      router.push("/auth/login")
+    }
+  }, [user, authLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      fetchUserInfo()
+      fetchDashboardStats()
+      fetchRecentActivity()
+    }
+  }, [user])
 
   const fetchUserInfo = async () => {
     try {
@@ -164,6 +176,29 @@ export default function DashboardPage() {
     if (hour < 18) return "👋"
     return "🌙"
   }
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  // Redirect happens in useEffect, but render nothing while waiting
+  if (!user) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">

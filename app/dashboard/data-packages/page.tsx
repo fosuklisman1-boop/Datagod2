@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -19,6 +21,8 @@ interface Package {
 }
 
 export default function DataPackagesPage() {
+  const router = useRouter()
+  const { user, loading: authLoading } = useAuth()
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [selectedNetwork, setSelectedNetwork] = useState("All")
   const [searchTerm, setSearchTerm] = useState("")
@@ -26,6 +30,20 @@ export default function DataPackagesPage() {
   const [packages, setPackages] = useState<Package[]>([])
   const [networks, setNetworks] = useState<string[]>(["All"])
   const [loading, setLoading] = useState(true)
+
+  // Auth protection
+  useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("[DATA-PACKAGES] User not authenticated, redirecting to login")
+      router.push("/auth/login")
+    }
+  }, [user, authLoading, router])
+
+  useEffect(() => {
+    if (user) {
+      fetchPackages()
+    }
+  }, [user])
 
   useEffect(() => {
     loadNetworkLogos()
