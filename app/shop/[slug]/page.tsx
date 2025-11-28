@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
-import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package } from "lucide-react"
+import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search } from "lucide-react"
 import { toast } from "sonner"
 
 export default function ShopStorefront() {
@@ -282,7 +282,10 @@ export default function ShopStorefront() {
             Buy Packages
           </Button>
           <Button
-            onClick={() => router.push(`/shop/${shopSlug}/order-status`)}
+            onClick={() => {
+              const statusSection = document.querySelector('[data-section="status"]')
+              statusSection?.scrollIntoView({ behavior: 'smooth' })
+            }}
             variant="ghost"
             className="border-b-2 border-transparent rounded-none text-gray-600 hover:text-gray-900 hover:border-gray-300 font-semibold"
           >
@@ -481,6 +484,230 @@ export default function ShopStorefront() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Order Status Search Section */}
+      <div className="py-12 border-t border-gray-200 mt-12" data-section="status">
+        <div className="max-w-2xl mx-auto px-4 space-y-6">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2 mb-2">
+              <Package className="w-6 h-6" />
+              Track Your Orders
+            </h2>
+            <p className="text-gray-600">Enter your phone number to view all your orders from this store</p>
+          </div>
+
+          <OrderStatusSearch shopId={shop?.id} shopName={shop?.shop_name} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: string }) {
+  const [phoneNumber, setPhoneNumber] = useState("")
+  const [orders, setOrders] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searched, setSearched] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const validatePhoneNumber = (phone: string): boolean => {
+    const cleaned = phone.replace(/\D/g, "")
+    let normalized = cleaned
+    
+    if (cleaned.length === 9) {
+      normalized = "0" + cleaned
+    }
+
+    if (normalized.length !== 10 || !normalized.startsWith("0")) {
+      return false
+    }
+
+    const thirdDigit = normalized[2]
+    return ["2", "5"].includes(thirdDigit)
+  }
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!phoneNumber.trim()) {
+      toast.error("Please enter a phone number")
+      return
+    }
+
+    if (!validatePhoneNumber(phoneNumber)) {
+      toast.error("Please enter a valid phone number (starting with 02 or 05)")
+      return
+    }
+
+    try {
+      setSearching(true)
+      setError(null)
+      setOrders([])
+
+      const cleaned = phoneNumber.replace(/\D/g, "")
+      const normalizedPhone = cleaned.length === 9 ? "0" + cleaned : cleaned
+
+      const response = await fetch("/api/shop/orders/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: normalizedPhone,
+          shopId: shopId
+        })
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to search orders")
+      }
+
+      const data = await response.json()
+      setOrders(data.orders || [])
+      setSearched(true)
+
+      if (data.count === 0) {
+        toast.info("No orders found for this phone number")
+      } else {
+        toast.success(`Found ${data.count} order(s)`)
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to search orders"
+      setError(errorMessage)
+      toast.error(errorMessage)
+      console.error("Error searching orders:", err)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "completed":
+        return "bg-green-100 text-green-800 border-green-200"
+      case "processing":
+        return "bg-blue-100 text-blue-800 border-blue-200"
+      case "pending":
+        return "bg-yellow-100 text-yellow-800 border-yellow-200"
+      case "failed":
+      case "cancelled":
+        return "bg-red-100 text-red-800 border-red-200"
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Search Form */}
+      <Card>
+        <CardContent className="pt-6">
+          <form onSubmit={handleSearch} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone Number</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="phone"
+                  placeholder="Enter phone number (e.g., 0201234567)"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  disabled={searching}
+                  className="flex-1"
+                />
+                <Button
+                  type="submit"
+                  disabled={searching}
+                  className="gap-2"
+                >
+                  {searching ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Searching...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4" />
+                      Search
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Results */}
+      {searched && (
+        <>
+          {orders.length === 0 ? (
+            <Card>
+              <CardContent className="pt-8 pb-8">
+                <div className="text-center space-y-4">
+                  <AlertCircle className="w-12 h-12 text-gray-400 mx-auto" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">No orders found</h3>
+                    <p className="text-gray-600">
+                      We couldn't find any orders with phone number: <span className="font-mono font-semibold">{phoneNumber}</span>
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-gray-900">
+                  Found {orders.length} Order{orders.length !== 1 ? "s" : ""}
+                </h3>
+                <Badge variant="outline">{orders.length}</Badge>
+              </div>
+
+              {orders.map((order) => (
+                <Card key={order.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Package className="w-4 h-4 text-blue-600" />
+                          <CardTitle className="text-base">{order.network}</CardTitle>
+                          <Badge className="text-xs" variant="outline">{order.volume_gb}GB</Badge>
+                        </div>
+                        <CardDescription className="text-xs">
+                          Order ID: <span className="font-mono">{order.reference_code}</span>
+                        </CardDescription>
+                      </div>
+                      <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold border ${getStatusColor(order.order_status)}`}>
+                        {order.order_status?.charAt(0).toUpperCase() + order.order_status?.slice(1)}
+                      </div>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-600">Price</p>
+                        <p className="font-semibold text-gray-900">₵ {order.base_price.toFixed(2)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-600">Total</p>
+                        <p className="font-semibold text-gray-900">₵ {order.total_price.toFixed(2)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-600">Customer</p>
+                        <p className="font-semibold text-gray-900">{order.customer_name}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-600">Ordered</p>
+                        <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
