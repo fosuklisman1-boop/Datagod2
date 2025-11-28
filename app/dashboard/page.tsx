@@ -50,11 +50,25 @@ export default function DashboardPage() {
   const fetchUserInfo = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (user?.email) {
-        setUserEmail(user.email)
-        // Use first_name from user metadata, or extract from email if not available
-        const name = user.user_metadata?.first_name || user.email.split("@")[0]
-        setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
+      if (user?.id) {
+        setUserEmail(user.email || "")
+        
+        // Fetch user profile from users table
+        const { data: userProfile, error } = await supabase
+          .from("users")
+          .select("first_name, last_name")
+          .eq("id", user.id)
+          .single()
+
+        if (!error && userProfile) {
+          // Use last_name if available, otherwise use first_name, otherwise use email prefix
+          const name = userProfile.last_name || userProfile.first_name || user.email?.split("@")[0] || "User"
+          setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
+        } else {
+          // Fallback to email prefix if profile not found
+          const name = user.email?.split("@")[0] || "User"
+          setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
+        }
 
         // Get user's creation date
         const createdAt = user.created_at
