@@ -523,8 +523,9 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
       return false
     }
 
-    const secondDigit = normalized[1]
-    return ["2", "5"].includes(secondDigit)
+    // Check for Telecel networks: 020 or 050
+    const prefix = normalized.substring(0, 3)
+    return ["020", "050"].includes(prefix)
   }
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -536,7 +537,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
     }
 
     if (!validatePhoneNumber(phoneNumber)) {
-      toast.error("Please enter a valid phone number (starting with 02 or 05)")
+      toast.error("Please enter a valid Telecel phone number (starting with 020 or 050)")
       return
     }
 
