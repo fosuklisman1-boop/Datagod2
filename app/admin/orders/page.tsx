@@ -104,6 +104,34 @@ export default function AdminOrdersPage() {
           orders: batch.orders || []
         }
       })
+
+      // Fetch current statuses for all orders
+      const allOrderIds = result.data?.flatMap((batch: any) => batch.orders?.map((o: any) => o.id) || []) || []
+      if (allOrderIds.length > 0) {
+        console.log("[LOADED-ORDERS] Fetching current statuses for", allOrderIds.length, "orders")
+        const statusResponse = await fetch("/api/admin/orders/batch-statuses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderIds: allOrderIds })
+        })
+
+        if (statusResponse.ok) {
+          const { statusMap } = await statusResponse.json()
+          console.log("[LOADED-ORDERS] Received status map for", Object.keys(statusMap).length, "orders")
+
+          // Update orders with current statuses
+          Object.keys(grouped).forEach((batchKey) => {
+            grouped[batchKey].orders.forEach((order: any) => {
+              if (statusMap[order.id]) {
+                order.status = statusMap[order.id]
+              }
+            })
+          })
+        } else {
+          console.warn("Failed to fetch order statuses, using cached data")
+        }
+      }
+
       setDownloadedOrders(grouped)
     } catch (error) {
       console.error("Error loading downloaded orders:", error)
@@ -471,8 +499,13 @@ export default function AdminOrdersPage() {
                                 <td className="px-4 py-3 font-mono">{order.phone_number}</td>
                                 <td className="px-4 py-3 text-right font-semibold">₵ {order.price.toFixed(2)}</td>
                                 <td className="px-4 py-3 text-center">
-                                  <Badge className="bg-blue-100 text-blue-800 border border-blue-200">
-                                    Processing
+                                  <Badge className={`border ${
+                                    order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
+                                    order.status === "failed" ? "bg-red-100 text-red-800 border-red-200" :
+                                    order.status === "processing" ? "bg-blue-100 text-blue-800 border-blue-200" :
+                                    "bg-gray-100 text-gray-800 border-gray-200"
+                                  }`}>
+                                    {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Processing"}
                                   </Badge>
                                 </td>
                               </tr>

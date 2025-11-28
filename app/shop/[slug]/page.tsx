@@ -267,8 +267,32 @@ export default function ShopStorefront() {
           </div>
         </div>
 
+        {/* Navigation Tabs */}
+        <div className="flex gap-2 mb-8 border-b border-gray-200">
+          <Button
+            onClick={() => {
+              // Scroll to packages section
+              const packagesSection = document.querySelector('[data-section="packages"]')
+              packagesSection?.scrollIntoView({ behavior: 'smooth' })
+            }}
+            variant="ghost"
+            className="border-b-2 border-violet-600 rounded-none text-violet-600 font-semibold"
+          >
+            <ShoppingCart className="w-4 h-4 mr-2" />
+            Buy Packages
+          </Button>
+          <Button
+            onClick={() => router.push(`/shop/${shopSlug}/order-status`)}
+            variant="ghost"
+            className="border-b-2 border-transparent rounded-none text-gray-600 hover:text-gray-900 hover:border-gray-300 font-semibold"
+          >
+            <Package className="w-4 h-4 mr-2" />
+            Check Order Status
+          </Button>
+        </div>
+
         {/* Network Selection Section */}
-        <div className="py-8">
+        <div className="py-8" data-section="packages">
           <h2 className="text-2xl font-bold mb-6">Select a Network</h2>
 
           {packages.length === 0 ? (
