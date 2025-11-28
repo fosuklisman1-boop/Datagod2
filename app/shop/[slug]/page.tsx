@@ -684,11 +684,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                   </CardHeader>
 
                   <CardContent className="space-y-3">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <p className="text-xs text-gray-600">Price</p>
-                        <p className="font-semibold text-gray-900">₵ {order.base_price.toFixed(2)}</p>
-                      </div>
+                    <div className="grid grid-cols-3 gap-4">
                       <div className="space-y-1">
                         <p className="text-xs text-gray-600">Total</p>
                         <p className="font-semibold text-gray-900">₵ {order.total_price.toFixed(2)}</p>
