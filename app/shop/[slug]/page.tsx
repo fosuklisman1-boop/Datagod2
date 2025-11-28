@@ -702,6 +702,21 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                         <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleTimeString()}</p>
                       </div>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-600">Order Status</p>
+                        <Badge className={`text-xs border ${getStatusColor(order.order_status)}`}>
+                          {order.order_status?.charAt(0).toUpperCase() + order.order_status?.slice(1)}
+                        </Badge>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-600">Payment Status</p>
+                        <Badge className={`text-xs border ${getStatusColor(order.payment_status)}`}>
+                          {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1)}
+                        </Badge>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
