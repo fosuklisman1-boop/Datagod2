@@ -179,7 +179,7 @@ export const adminUserService = {
   // Get user details
   async getUserDetails(userId: string) {
     const { data: user, error: userError } = await supabase
-      .from("auth.users")
+      .from("users")
       .select("*")
       .eq("id", userId)
       .single()
@@ -297,7 +297,7 @@ export const adminDashboardService = {
   async getDashboardStats() {
     // Total users
     const { data: users } = await supabase
-      .from("auth.users")
+      .from("users")
       .select("id")
 
     // Total shops
