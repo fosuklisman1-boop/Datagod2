@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
 // Initialize Supabase with service role key
@@ -6,18 +6,39 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    console.log("Fetching dashboard stats...")
+    // Get user ID from Authorization header
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { error: "Missing or invalid authorization header" },
+        { status: 401 }
+      )
+    }
 
-    // Get all user orders (from regular orders table, not shop_orders)
-    const { data: allOrders, error: ordersError } = await supabase
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    
+    if (authError || !user?.id) {
+      console.error("[DASHBOARD-STATS] Auth error:", authError)
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
+    const userId = user.id
+    console.log("[DASHBOARD-STATS] Fetching stats for user:", userId)
+
+    // Get user's orders (from regular orders table, not shop_orders)
+    const { data: userOrders, error: ordersError } = await supabase
       .from("orders")
       .select("id, status")
+      .eq("user_id", userId)
 
     if (ordersError) {
-      console.warn(`Note: Could not fetch from orders table: ${ordersError.message}`)
-      // Fall back to empty data instead of failing
+      console.warn(`[DASHBOARD-STATS] Could not fetch orders: ${ordersError.message}`)
       const fallbackStats = {
         totalOrders: 0,
         completed: 0,
@@ -26,14 +47,13 @@ export async function GET() {
         pending: 0,
         successRate: "0%"
       }
-      console.log(`Stats: Total=0 (fallback)`)
       return NextResponse.json({
         success: true,
         stats: fallbackStats
       })
     }
 
-    const totalOrders = allOrders?.length || 0
+    const totalOrders = userOrders?.length || 0
 
     // Count by status
     let completed = 0
@@ -41,7 +61,7 @@ export async function GET() {
     let failed = 0
     let pending = 0
 
-    allOrders?.forEach((order: any) => {
+    userOrders?.forEach((order: any) => {
       if (order.status === "completed") completed++
       else if (order.status === "processing") processing++
       else if (order.status === "failed") failed++
@@ -50,7 +70,7 @@ export async function GET() {
 
     const successRate = totalOrders > 0 ? ((completed / totalOrders) * 100).toFixed(0) : 0
 
-    console.log(`Stats: Total=${totalOrders}, Completed=${completed}, Processing=${processing}, Failed=${failed}, Pending=${pending}`)
+    console.log(`[DASHBOARD-STATS] User ${userId}: Total=${totalOrders}, Completed=${completed}, Processing=${processing}, Failed=${failed}, Pending=${pending}`)
 
     return NextResponse.json({
       success: true,
@@ -64,7 +84,7 @@ export async function GET() {
       }
     })
   } catch (error) {
-    console.error("Error fetching dashboard stats:", error)
+    console.error("[DASHBOARD-STATS] Error:", error)
     return NextResponse.json(
       {
         success: false,

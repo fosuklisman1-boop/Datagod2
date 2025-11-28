@@ -101,7 +101,17 @@ export default function DashboardPage() {
 
   const fetchDashboardStats = async () => {
     try {
-      const response = await fetch("/api/dashboard/stats")
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.error("No auth session")
+        return
+      }
+
+      const response = await fetch("/api/dashboard/stats", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
       if (!response.ok) {
         throw new Error("Failed to fetch stats")
       }
