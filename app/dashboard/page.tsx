@@ -52,8 +52,8 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (user?.email) {
         setUserEmail(user.email)
-        // Extract first name from email (part before @)
-        const name = user.email.split("@")[0]
+        // Use first_name from user metadata, or extract from email if not available
+        const name = user.user_metadata?.first_name || user.email.split("@")[0]
         setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
 
         // Get user's creation date
