@@ -684,7 +684,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                   </CardHeader>
 
                   <CardContent className="space-y-3">
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-4 gap-4">
                       <div className="space-y-1">
                         <p className="text-xs text-gray-600">Total</p>
                         <p className="font-semibold text-gray-900">₵ {order.total_price.toFixed(2)}</p>
@@ -694,8 +694,12 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                         <p className="font-semibold text-gray-900">{order.customer_name}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-gray-600">Ordered</p>
+                        <p className="text-xs text-gray-600">Date</p>
                         <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleDateString()}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-600">Time</p>
+                        <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleTimeString()}</p>
                       </div>
                     </div>
                   </CardContent>
