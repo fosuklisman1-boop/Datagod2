@@ -9,8 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Download, CheckCircle, Clock, AlertCircle, Check } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2 } from "lucide-react"
+import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 
 interface ShopOrder {
@@ -36,7 +36,7 @@ interface DownloadedOrders {
 
 export default function AdminOrdersPage() {
   const router = useRouter()
-  const [isAdmin, setIsAdmin] = useState(false)
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [activeTab, setActiveTab] = useState<"pending" | "downloaded">("pending")
   
   const [pendingOrders, setPendingOrders] = useState<ShopOrder[]>([])
@@ -52,28 +52,11 @@ export default function AdminOrdersPage() {
   const allNetworks = ["MTN", "Telecel", "AT", "AT - iShare", "AT - BigTime", "iShare"]
 
   useEffect(() => {
-    checkAdminAccess()
-  }, [])
-
-  const checkAdminAccess = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const role = user?.user_metadata?.role
-
-      if (role !== "admin") {
-        toast.error("Unauthorized access")
-        router.push("/dashboard")
-        return
-      }
-
-      setIsAdmin(true)
-      await loadPendingOrders()
-      await loadDownloadedOrders()
-    } catch (error) {
-      console.error("Error checking admin access:", error)
-      router.push("/dashboard")
+    if (isAdmin && !adminLoading) {
+      loadPendingOrders()
+      loadDownloadedOrders()
     }
-  }
+  }, [isAdmin, adminLoading])
 
   const loadPendingOrders = async () => {
     try {
@@ -294,6 +277,16 @@ export default function AdminOrdersPage() {
       "iShare": "bg-green-100 text-green-800 border-green-200",
     }
     return colors[network] || "bg-gray-100 text-gray-800 border-gray-200"
+  }
+
+  if (adminLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
   }
 
   if (!isAdmin) {

@@ -9,8 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { CheckCircle, XCircle, Clock, AlertCircle, Copy } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { CheckCircle, XCircle, Clock, AlertCircle, Copy, Loader2 } from "lucide-react"
+import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 
 interface WithdrawalRequest {
@@ -33,41 +33,19 @@ interface WithdrawalRequest {
 
 export default function WithdrawalsPage() {
   const router = useRouter()
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([])
   const [loading, setLoading] = useState(true)
-  const [isAdmin, setIsAdmin] = useState(false)
   const [selectedWithdrawal, setSelectedWithdrawal] = useState<WithdrawalRequest | null>(null)
   const [rejectionReason, setRejectionReason] = useState("")
   const [approvalLoading, setApprovalLoading] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>("pending")
 
   useEffect(() => {
-    checkAdminAccess()
-  }, [])
-
-  useEffect(() => {
-    if (isAdmin) {
+    if (isAdmin && !adminLoading) {
       loadWithdrawals()
     }
-  }, [isAdmin, filterStatus])
-
-  const checkAdminAccess = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const role = user?.user_metadata?.role
-
-      if (role !== "admin") {
-        toast.error("Unauthorized access")
-        router.push("/dashboard")
-        return
-      }
-
-      setIsAdmin(true)
-    } catch (error) {
-      console.error("Error checking admin access:", error)
-      router.push("/dashboard")
-    }
-  }
+  }, [isAdmin, adminLoading, filterStatus])
 
   const loadWithdrawals = async () => {
     try {
@@ -182,6 +160,16 @@ export default function WithdrawalsPage() {
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text)
     toast.success(`${label} copied to clipboard`)
+  }
+
+  if (adminLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
   }
 
   if (!isAdmin) {

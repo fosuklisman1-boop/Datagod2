@@ -61,73 +61,12 @@ export async function POST(request: NextRequest) {
 
     // Credit wallet if successful
     if (verificationResult.status === "success") {
-      console.log("[PAYMENT-VERIFY] Crediting wallet...")
-      const amount = parseFloat(verificationResult.amount.toString())
-      console.log("[PAYMENT-VERIFY] Amount to credit:", amount)
+      console.log("[PAYMENT-VERIFY] Payment verified as successful - Wallet will be credited by webhook")
+      console.log("[PAYMENT-VERIFY] Amount to credit:", verificationResult.amount)
 
-      const { data: wallet, error: walletFetchError } = await supabase
-        .from("user_wallets")
-        .select("*")
-        .eq("user_id", paymentData.user_id)
-        .maybeSingle()
-
-      if (walletFetchError) {
-        console.error("[PAYMENT-VERIFY] Wallet fetch error:", walletFetchError)
-        throw new Error("Failed to fetch wallet")
-      }
-
-      if (!wallet) {
-        console.log("[PAYMENT-VERIFY] Creating new wallet...")
-        const { error: insertError } = await supabase.from("user_wallets").insert([{
-          user_id: paymentData.user_id,
-          balance: amount,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }])
-        if (insertError) {
-          console.error("[PAYMENT-VERIFY] Wallet creation error:", insertError)
-          throw new Error("Failed to create wallet")
-        }
-        console.log("[PAYMENT-VERIFY] ✓ New wallet created with balance:", amount)
-      } else {
-        console.log("[PAYMENT-VERIFY] Updating existing wallet. Current balance:", wallet.balance, "Adding:", amount)
-        const newBalance = (wallet.balance || 0) + amount
-        console.log("[PAYMENT-VERIFY] New balance will be:", newBalance)
-        
-        const { error: updateError } = await supabase
-          .from("user_wallets")
-          .update({
-            balance: newBalance,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("user_id", paymentData.user_id)
-        
-        if (updateError) {
-          console.error("[PAYMENT-VERIFY] Wallet update error:", updateError)
-          throw new Error("Failed to update wallet balance")
-        }
-        console.log("[PAYMENT-VERIFY] ✓ Wallet updated")
-      }
-
-      // Create transaction
-      console.log("[PAYMENT-VERIFY] Creating transaction record...")
-      const { error: txError } = await supabase.from("wallet_transactions").insert([{
-        user_id: paymentData.user_id,
-        type: "credit",
-        amount,
-        reference,
-        description: "Wallet top-up via Paystack",
-        status: "completed",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }])
-      
-      if (txError) {
-        console.error("[PAYMENT-VERIFY] Transaction creation error:", txError)
-        throw new Error("Failed to create transaction")
-      }
-
-      console.log("[PAYMENT-VERIFY] ✓ Wallet credited:", amount)
+      // NOTE: Do NOT credit wallet here. The webhook will handle it.
+      // This prevents double-crediting if both verify and webhook execute.
+      // The webhook is the source of truth for wallet crediting.
 
       // If payment was for a shop order, update its payment status and create profit record
       if (paymentData.shop_id && paymentData.order_id) {
@@ -188,7 +127,7 @@ export async function POST(request: NextRequest) {
       reference: verificationResult.reference,
       message:
         verificationResult.status === "success"
-          ? "Payment successful! Wallet credited."
+          ? "Payment verified! Wallet will be credited shortly."
           : `Payment ${verificationResult.status}`,
     })
   } catch (error) {

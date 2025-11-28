@@ -59,7 +59,10 @@ export async function POST(request: NextRequest) {
 
     if (paymentError || !paymentData || paymentData.length === 0) {
       console.error("[PAYMENT-INIT] Database error:", paymentError)
-      throw new Error("Failed to create payment record")
+      console.error("[PAYMENT-INIT] Error code:", paymentError?.code)
+      console.error("[PAYMENT-INIT] Error message:", paymentError?.message)
+      console.error("[PAYMENT-INIT] Error details:", JSON.stringify(paymentError, null, 2))
+      throw new Error(`Failed to create payment record: ${paymentError?.message || "Unknown error"}`)
     }
 
     console.log("[PAYMENT-INIT] ✓ Payment record created:", paymentData[0].id)

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { useIsAdmin } from "@/hooks/use-admin"
 import {
   Home,
   Package,
@@ -40,6 +41,7 @@ const shopItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { isAdmin } = useIsAdmin()
 
   return (
     <div className="w-64 bg-gradient-to-b from-blue-600 to-blue-700 text-white h-screen flex flex-col fixed left-0 top-0">
@@ -101,33 +103,35 @@ export function Sidebar() {
         </div>
 
         {/* Admin Section */}
-        <div className="pt-4 mt-4 border-t border-blue-400">
-          <p className="text-xs font-semibold text-blue-100 px-3 mb-2">ADMIN</p>
-          <Link href="/admin">
-            <Button
-              variant="ghost"
-              className={cn(
-                "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                pathname === "/admin" && "bg-blue-500"
-              )}
-            >
-              <Settings className="w-5 h-5" />
-              Admin Panel
-            </Button>
-          </Link>
-          <Link href="/admin/orders">
-            <Button
-              variant="ghost"
-              className={cn(
-                "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                pathname === "/admin/orders" && "bg-blue-500"
-              )}
-            >
-              <Download className="w-5 h-5" />
-              Orders
-            </Button>
-          </Link>
-        </div>
+        {isAdmin && (
+          <div className="pt-4 mt-4 border-t border-blue-400">
+            <p className="text-xs font-semibold text-blue-100 px-3 mb-2">ADMIN</p>
+            <Link href="/admin">
+              <Button
+                variant="ghost"
+                className={cn(
+                  "w-full justify-start gap-3 text-white hover:bg-blue-500",
+                  pathname === "/admin" && "bg-blue-500"
+                )}
+              >
+                <Settings className="w-5 h-5" />
+                Admin Panel
+              </Button>
+            </Link>
+            <Link href="/admin/orders">
+              <Button
+                variant="ghost"
+                className={cn(
+                  "w-full justify-start gap-3 text-white hover:bg-blue-500",
+                  pathname === "/admin/orders" && "bg-blue-500"
+                )}
+              >
+                <Download className="w-5 h-5" />
+                Orders
+              </Button>
+            </Link>
+          </div>
+        )}
       </nav>
 
       {/* Community & Logout */}

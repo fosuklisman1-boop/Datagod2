@@ -36,21 +36,26 @@ export async function initializePayment(
   params: InitializePaymentRequest
 ): Promise<InitializePaymentResponse> {
   try {
+    console.log("[PAYMENT-SERVICE] Initializing payment with params:", params)
     const response = await fetch("/api/payments/initialize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     })
 
+    console.log("[PAYMENT-SERVICE] Response status:", response.status)
+    
     if (!response.ok) {
       const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to initialize payment")
+      console.error("[PAYMENT-SERVICE] Error response:", errorData)
+      throw new Error(errorData.error || `Failed to initialize payment (${response.status})`)
     }
 
     const data = await response.json()
+    console.log("[PAYMENT-SERVICE] Successfully initialized payment:", data)
     return data
   } catch (error) {
-    console.error("Error initializing payment:", error)
+    console.error("[PAYMENT-SERVICE] Error initializing payment:", error)
     throw error
   }
 }

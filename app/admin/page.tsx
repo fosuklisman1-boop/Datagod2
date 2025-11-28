@@ -6,9 +6,9 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet } from "lucide-react"
+import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loader2 } from "lucide-react"
+import { useAdminProtected } from "@/hooks/use-admin"
 import { adminDashboardService } from "@/lib/admin-service"
-import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
 interface DashboardStats {
@@ -23,32 +23,15 @@ interface DashboardStats {
 
 export default function AdminDashboardPage() {
   const router = useRouter()
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
-  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
-    checkAdminAccess()
-  }, [])
-
-  const checkAdminAccess = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const role = user?.user_metadata?.role
-
-      if (role !== "admin") {
-        toast.error("Unauthorized access")
-        router.push("/dashboard")
-        return
-      }
-
-      setIsAdmin(true)
-      await loadStats()
-    } catch (error) {
-      console.error("Error checking admin access:", error)
-      router.push("/dashboard")
+    if (isAdmin && !adminLoading) {
+      loadStats()
     }
-  }
+  }, [isAdmin, adminLoading])
 
   const loadStats = async () => {
     try {
@@ -60,6 +43,16 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (adminLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
   }
 
   if (!isAdmin) {
