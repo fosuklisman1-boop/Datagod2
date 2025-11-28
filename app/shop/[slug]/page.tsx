@@ -523,8 +523,8 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
       return false
     }
 
-    const thirdDigit = normalized[2]
-    return ["2", "5"].includes(thirdDigit)
+    const secondDigit = normalized[1]
+    return ["2", "5"].includes(secondDigit)
   }
 
   const handleSearch = async (e: React.FormEvent) => {
