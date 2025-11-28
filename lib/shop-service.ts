@@ -209,6 +209,7 @@ export const shopOrderService = {
       .from("shop_orders")
       .select("*")
       .eq("shop_id", shopId)
+      .eq("payment_status", "completed")
 
     if (status) {
       query = query.eq("order_status", status)
@@ -285,20 +286,38 @@ export const shopProfitService = {
 
   // Get shop available balance
   async getShopBalance(shopId: string) {
-    const { data, error } = await supabase
-      .rpc("get_shop_available_balance", { p_shop_id: shopId })
+    // Get pending and credited profits from shop_profits table
+    const { data: profits, error: profitError } = await supabase
+      .from("shop_profits")
+      .select("profit_amount, status")
+      .eq("shop_id", shopId)
 
-    if (error) throw error
-    return data || 0
+    if (profitError) throw profitError
+    
+    // Sum all pending profits (not yet withdrawn)
+    const availableBalance = profits?.reduce((sum, p) => {
+      if (p.status === "pending" || p.status === "credited") {
+        return sum + (p.profit_amount || 0)
+      }
+      return sum
+    }, 0) || 0
+    
+    return Math.max(0, availableBalance)
   },
 
-  // Get total profit (pending + credited)
+  // Get total profit (sum of all profit_amount from completed orders)
   async getTotalProfit(shopId: string) {
     const { data, error } = await supabase
-      .rpc("get_shop_total_profit", { p_shop_id: shopId })
+      .from("shop_orders")
+      .select("profit_amount")
+      .eq("shop_id", shopId)
+      .eq("payment_status", "completed")
 
     if (error) throw error
-    return data || 0
+    
+    // Sum all profit amounts
+    const totalProfit = data?.reduce((sum, order) => sum + (order.profit_amount || 0), 0) || 0
+    return totalProfit
   },
 
   // Get profit history
@@ -323,30 +342,186 @@ export const shopProfitService = {
     return data
   },
 
-  // Credit profits to wallet
-  async creditProfit(profitIds: string[]) {
-    const { data, error } = await supabase
-      .from("shop_profits")
-      .update({
-        status: "credited",
-        credited_at: new Date().toISOString()
-      })
-      .in("id", profitIds)
-      .select()
+  // Sync available balance to shop_available_balance table
+  async syncAvailableBalance(shopId: string) {
+    try {
+      // Get current profits breakdown
+      const { data: profits, error: profitError } = await supabase
+        .from("shop_profits")
+        .select("profit_amount, status")
+        .eq("shop_id", shopId)
 
-    if (error) throw error
-    return data
+      if (profitError) throw profitError
+
+      // Calculate credited profit only
+      const breakdown = {
+        totalProfit: 0,
+        creditedProfit: 0,
+        withdrawnProfit: 0,
+      }
+
+      profits?.forEach((p: any) => {
+        const amount = p.profit_amount || 0
+        breakdown.totalProfit += amount
+        if (p.status === "credited") {
+          breakdown.creditedProfit += amount
+        } else if (p.status === "withdrawn") {
+          breakdown.withdrawnProfit += amount
+        }
+      })
+
+      // Get approved withdrawals to subtract from available balance
+      const { data: approvedWithdrawals, error: withdrawalError } = await supabase
+        .from("withdrawal_requests")
+        .select("amount")
+        .eq("shop_id", shopId)
+        .eq("status", "approved")
+
+      let totalApprovedWithdrawals = 0
+      if (!withdrawalError && approvedWithdrawals) {
+        totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+      }
+
+      // Available balance = credited profit - approved withdrawals
+      const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+
+      // Delete existing record and insert fresh (more reliable than upsert)
+      const deleteResult = await supabase
+        .from("shop_available_balance")
+        .delete()
+        .eq("shop_id", shopId)
+
+      if (deleteResult.error) {
+        console.warn("Warning deleting old balance:", deleteResult.error)
+      }
+
+      const { error: insertError } = await supabase
+        .from("shop_available_balance")
+        .insert([
+          {
+            shop_id: shopId,
+            available_balance: availableBalance,
+            total_profit: breakdown.totalProfit,
+            withdrawn_amount: breakdown.withdrawnProfit,
+            credited_profit: breakdown.creditedProfit,
+            withdrawn_profit: breakdown.withdrawnProfit,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }
+        ])
+
+      if (insertError) {
+        console.error("Error syncing available balance:", insertError)
+        // Don't throw - this is just a sync, shouldn't block main operations
+      }
+    } catch (error) {
+      console.error("Error in syncAvailableBalance:", error)
+    }
+  },
+
+  // Get shop available balance from table (faster query)
+  async getShopBalanceFromTable(shopId: string) {
+    try {
+      const { data, error } = await supabase
+        .from("shop_available_balance")
+        .select("available_balance, pending_profit, credited_profit, withdrawn_profit, total_profit")
+        .eq("shop_id", shopId)
+
+      // Return null if table doesn't exist or no data found
+      if (error) {
+        console.warn("shop_available_balance table query error:", error.code)
+        return null
+      }
+
+      // Return first record if exists, otherwise null
+      return data && data.length > 0 ? data[0] : null
+    } catch (error) {
+      console.error("Error fetching balance from table:", error)
+      return null
+    }
   },
 }
 
 // Withdrawal operations
 export const withdrawalService = {
-  // Create withdrawal request
+  // Create withdrawal request and sync balance
   async createWithdrawalRequest(userId: string, shopId: string, withdrawalData: {
     amount: number
     withdrawal_method: string
     account_details: any
   }) {
+    // Validate withdrawal amount is positive
+    if (!withdrawalData.amount || withdrawalData.amount <= 0) {
+      throw new Error("Invalid withdrawal amount")
+    }
+
+    // Check if there's already a pending withdrawal request
+    try {
+      const { data: pendingRequests, error: pendingError } = await supabase
+        .from("withdrawal_requests")
+        .select("id, amount")
+        .eq("shop_id", shopId)
+        .eq("status", "pending")
+
+      if (!pendingError && pendingRequests && pendingRequests.length > 0) {
+        const totalPending = pendingRequests.reduce((sum, w) => sum + (w.amount || 0), 0)
+        throw new Error(`You already have a pending withdrawal request for GHS ${totalPending.toFixed(2)}. Please wait for it to be approved or rejected before requesting another.`)
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pending withdrawal")) {
+        throw error
+      }
+      console.warn(`[WITHDRAWAL-CREATE] Warning checking pending requests:`, error)
+    }
+
+    // Check current available balance before creating withdrawal
+    try {
+      const { data: profits, error: profitError } = await supabase
+        .from("shop_profits")
+        .select("profit_amount, status")
+        .eq("shop_id", shopId)
+
+      if (profitError) throw profitError
+
+      // Calculate credited profit only
+      const breakdown = {
+        creditedProfit: 0,
+      }
+
+      profits?.forEach((p: any) => {
+        const amount = p.profit_amount || 0
+        if (p.status === "credited") {
+          breakdown.creditedProfit += amount
+        }
+      })
+
+      // Get approved withdrawals to calculate current available balance
+      const { data: approvedWithdrawals, error: withdrawalError } = await supabase
+        .from("withdrawal_requests")
+        .select("amount")
+        .eq("shop_id", shopId)
+        .eq("status", "approved")
+
+      let totalApprovedWithdrawals = 0
+      if (!withdrawalError && approvedWithdrawals) {
+        totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+      }
+
+      // Current available balance = credited profit - approved withdrawals
+      const currentAvailableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+
+      // Check if requested withdrawal amount exceeds available balance
+      if (withdrawalData.amount > currentAvailableBalance) {
+        throw new Error(`Insufficient balance. Available: GHS ${currentAvailableBalance.toFixed(2)}, Requested: GHS ${withdrawalData.amount.toFixed(2)}`)
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Insufficient balance")) {
+        throw error
+      }
+      // Log other errors but allow withdrawal creation if balance check fails
+      console.warn(`[WITHDRAWAL-CREATE] Warning checking balance:`, error)
+    }
+
     const { data, error } = await supabase
       .from("withdrawal_requests")
       .insert([{
@@ -359,6 +534,17 @@ export const withdrawalService = {
       .select()
 
     if (error) throw error
+    
+    // Sync available balance after creating withdrawal request
+    // This reduces available balance by the withdrawal amount
+    try {
+      await shopProfitService.syncAvailableBalance(shopId)
+      console.log(`[WITHDRAWAL-CREATE] Balance synced for shop ${shopId} after withdrawal request of GHS ${withdrawalData.amount}`)
+    } catch (syncError) {
+      console.warn(`[WITHDRAWAL-CREATE] Warning syncing balance:`, syncError)
+      // Don't throw - withdrawal was created successfully
+    }
+    
     return data[0]
   },
 
@@ -405,6 +591,65 @@ export const withdrawalService = {
       .select()
 
     if (error) throw error
+    
+    // If withdrawal is completed, mark profits as withdrawn
+    if (status === "completed" && data[0]) {
+      const withdrawal = data[0]
+      
+      // Get pending profits for this shop and mark them as withdrawn
+      // Order by created_at to mark oldest profits first
+      const { data: profits, error: profitFetchError } = await supabase
+        .from("shop_profits")
+        .select("id, profit_amount")
+        .eq("shop_id", withdrawal.shop_id)
+        .in("status", ["pending", "credited"])
+        .order("created_at", { ascending: true })
+
+      if (!profitFetchError && profits) {
+        let remainingAmount = withdrawal.amount
+        const profitsToUpdate = []
+
+        for (const profit of profits) {
+          if (remainingAmount <= 0) break
+          
+          if (profit.profit_amount <= remainingAmount) {
+            profitsToUpdate.push(profit.id)
+            remainingAmount -= profit.profit_amount
+          } else {
+            break
+          }
+        }
+
+        // Mark matched profits as withdrawn
+        if (profitsToUpdate.length > 0) {
+          const updatePayload: any = {
+            status: "withdrawn"
+          }
+          
+          // Only update withdrawn_at if the column exists
+          try {
+            await supabase
+              .from("shop_profits")
+              .update({
+                ...updatePayload,
+                withdrawn_at: new Date().toISOString()
+              })
+              .in("id", profitsToUpdate)
+          } catch (error) {
+            // If withdrawn_at column doesn't exist, just update status
+            console.warn("Could not update withdrawn_at, updating status only:", error)
+            await supabase
+              .from("shop_profits")
+              .update(updatePayload)
+              .in("id", profitsToUpdate)
+          }
+          
+          // Sync available balance after marking profits as withdrawn
+          await shopProfitService.syncAvailableBalance(withdrawal.shop_id)
+        }
+      }
+    }
+    
     return data[0]
   },
 

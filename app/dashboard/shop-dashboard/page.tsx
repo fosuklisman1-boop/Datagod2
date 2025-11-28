@@ -27,6 +27,9 @@ export default function ShopDashboardPage() {
     amount: "",
     method: "mobile_money",
     phone: "",
+    accountName: "",
+    bankName: "",
+    accountNumber: "",
   })
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false)
 
@@ -48,22 +51,25 @@ export default function ShopDashboardPage() {
 
       setShop(userShop)
 
-      // Load all data in parallel
+      // Load all data in parallel with error handling
       const [
-        balance,
+        balanceData,
         totalProfit,
         profitHistory,
         withdrawalList,
         orderList
       ] = await Promise.all([
-        shopProfitService.getShopBalance(userShop.id),
-        shopProfitService.getTotalProfit(userShop.id),
-        shopProfitService.getProfitHistory(userShop.id),
-        withdrawalService.getWithdrawalRequests(user.id),
-        shopOrderService.getShopOrders(userShop.id),
+        shopProfitService.getShopBalanceFromTable(userShop.id).catch(() => null),
+        shopProfitService.getTotalProfit(userShop.id).catch(() => 0),
+        shopProfitService.getProfitHistory(userShop.id).catch(() => []),
+        withdrawalService.getWithdrawalRequests(user.id).catch(() => []),
+        shopOrderService.getShopOrders(userShop.id).catch(() => []),
       ])
 
-      setBalance(balance || 0)
+      // Use balance from table (should always exist now)
+      const finalBalance = balanceData?.available_balance || 0
+      
+      setBalance(finalBalance)
       setTotalProfit(totalProfit || 0)
       setProfits(profitHistory || [])
       setWithdrawals(withdrawalList || [])
@@ -89,9 +95,25 @@ export default function ShopDashboardPage() {
       return
     }
 
+    if (!withdrawalForm.accountName.trim()) {
+      toast.error("Please enter the account name")
+      return
+    }
+
     if (withdrawalForm.method === "mobile_money" && !withdrawalForm.phone) {
       toast.error("Please enter your phone number")
       return
+    }
+
+    if (withdrawalForm.method === "bank_transfer") {
+      if (!withdrawalForm.bankName.trim()) {
+        toast.error("Please enter the bank name")
+        return
+      }
+      if (!withdrawalForm.accountNumber.trim()) {
+        toast.error("Please enter the account number")
+        return
+      }
     }
 
     if (!user?.id || !shop?.id) {
@@ -103,6 +125,11 @@ export default function ShopDashboardPage() {
       const accountDetails: any = {}
       if (withdrawalForm.method === "mobile_money") {
         accountDetails.phone = withdrawalForm.phone
+        accountDetails.account_name = withdrawalForm.accountName
+      } else if (withdrawalForm.method === "bank_transfer") {
+        accountDetails.bank_name = withdrawalForm.bankName
+        accountDetails.account_number = withdrawalForm.accountNumber
+        accountDetails.account_name = withdrawalForm.accountName
       }
 
       await withdrawalService.createWithdrawalRequest(
@@ -116,7 +143,7 @@ export default function ShopDashboardPage() {
       )
 
       toast.success("Withdrawal request submitted successfully")
-      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "" })
+      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", accountNumber: "" })
       setShowWithdrawalForm(false)
 
       // Reload withdrawals
@@ -267,6 +294,16 @@ export default function ShopDashboardPage() {
               </div>
 
               <div>
+                <Label>Account Name (Full Name) *</Label>
+                <Input
+                  value={withdrawalForm.accountName}
+                  onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountName: e.target.value })}
+                  placeholder="John Doe"
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
                 <Label>Withdrawal Method *</Label>
                 <select
                   value={withdrawalForm.method}
@@ -288,6 +325,29 @@ export default function ShopDashboardPage() {
                     className="mt-1"
                   />
                 </div>
+              )}
+
+              {withdrawalForm.method === "bank_transfer" && (
+                <>
+                  <div>
+                    <Label>Bank Name *</Label>
+                    <Input
+                      value={withdrawalForm.bankName}
+                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, bankName: e.target.value })}
+                      placeholder="e.g., GCB, Zenith Bank"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label>Account Number *</Label>
+                    <Input
+                      value={withdrawalForm.accountNumber}
+                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountNumber: e.target.value })}
+                      placeholder="1234567890"
+                      className="mt-1"
+                    />
+                  </div>
+                </>
               )}
 
               <Alert className="border-blue-300 bg-blue-50">
@@ -316,10 +376,11 @@ export default function ShopDashboardPage() {
           </Card>
         )}
 
-        {/* Tabs for Orders and Withdrawals */}
+        {/* Tabs for Orders, Profits, and Withdrawals */}
         <Tabs defaultValue="orders" className="space-y-4">
           <TabsList className="bg-white/40 backdrop-blur border border-white/20">
             <TabsTrigger value="orders">Recent Orders ({orders.length})</TabsTrigger>
+            <TabsTrigger value="profits">Profit History ({profits.length})</TabsTrigger>
             <TabsTrigger value="withdrawals">Withdrawals ({withdrawals.length})</TabsTrigger>
           </TabsList>
 
@@ -357,6 +418,44 @@ export default function ShopDashboardPage() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Profit History Tab */}
+          <TabsContent value="profits">
+            <Card className="bg-gradient-to-br from-amber-50/60 to-yellow-50/40 backdrop-blur-xl border border-amber-200/40">
+              <CardHeader>
+                <CardTitle>Profit History</CardTitle>
+                <CardDescription>Detailed breakdown of your profits by transaction</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {profits.length === 0 ? (
+                  <p className="text-gray-600 text-center py-8">No profit history yet. Complete orders to start earning!</p>
+                ) : (
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {profits.map((profit: any) => {
+                      const profitAmount = profit.profit_amount || profit.amount || 0
+                      return (
+                      <div
+                        key={profit.id}
+                        className="flex items-center justify-between p-3 bg-white/50 border border-amber-200/40 rounded-lg hover:bg-white/70"
+                      >
+                        <div className="flex-1">
+                          <p className="font-semibold">GHS {profitAmount.toFixed(2)}</p>
+                          <p className="text-sm text-gray-600">{profit.profit_type || "Order Profit"}</p>
+                          <p className="text-xs text-gray-500">{new Date(profit.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div className="text-right">
+                          <Badge className="bg-emerald-600">
+                            {profit.status || "Completed"}
+                          </Badge>
+                        </div>
+                      </div>
+                    )
+                    })}
                   </div>
                 )}
               </CardContent>

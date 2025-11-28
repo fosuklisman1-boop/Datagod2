@@ -6,6 +6,21 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// Normalize network names to title case
+function normalizeNetwork(network: string): string {
+  if (!network) return network
+  const networkMap: { [key: string]: string } = {
+    "mtn": "MTN",
+    "telecel": "Telecel",
+    "at": "AT",
+    "at - ishare": "AT - iShare",
+    "at - bigtime": "AT - BigTime",
+    "ishare": "iShare",
+  }
+  const lower = network.toLowerCase().trim()
+  return networkMap[lower] || network.toUpperCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
 export async function GET() {
   try {
     console.log("Fetching pending orders (bulk + shop orders)...")
@@ -23,8 +38,11 @@ export async function GET() {
     }
 
     console.log(`Found ${bulkOrders?.length || 0} pending bulk orders`)
+    if (bulkOrders && bulkOrders.length > 0) {
+      console.log("Bulk orders networks:", bulkOrders.map(o => o.network))
+    }
 
-    // Fetch shop orders (with confirmed payment)
+    // Fetch shop orders (with confirmed payment only - exclude null payment_status)
     const { data: shopOrders, error: shopError } = await supabase
       .from("shop_orders")
       .select(`
@@ -45,6 +63,7 @@ export async function GET() {
       `)
       .eq("order_status", "pending")
       .eq("payment_status", "completed")
+      .not("payment_status", "is", null)
       .order("created_at", { ascending: false })
 
     if (shopError) {
@@ -53,13 +72,20 @@ export async function GET() {
     }
 
     console.log(`Found ${shopOrders?.length || 0} pending shop orders with confirmed payment`)
+    if (shopOrders && shopOrders.length > 0) {
+      console.log("Shop orders networks:", shopOrders.map(o => o.network))
+    }
 
     // Map bulk orders
     const mappedBulkOrders = bulkOrders?.map((order: any) => ({
-      ...order,
+      id: order.id,
+      phone_number: order.phone_number,
+      network: normalizeNetwork(order.network),
+      size: order.size,
+      price: order.price,
+      status: order.status,
       order_status: order.status,
-      package_name: order.size,
-      network_name: order.network,
+      created_at: order.created_at,
       type: "bulk"
     })) || []
 
@@ -71,7 +97,7 @@ export async function GET() {
       customer_name: order.customer_name,
       phone_number: order.customer_phone,
       customer_email: order.customer_email,
-      network: order.network,
+      network: normalizeNetwork(order.network),
       size: order.volume_gb,
       price: order.total_price,
       base_price: order.base_price,
@@ -86,6 +112,12 @@ export async function GET() {
     // Combine both orders
     const allOrders = [...mappedBulkOrders, ...mappedShopOrders]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+    console.log("All pending orders by network:", allOrders.reduce((acc: any, o: any) => {
+      if (!acc[o.network]) acc[o.network] = 0
+      acc[o.network]++
+      return acc
+    }, {}))
 
     return NextResponse.json({
       success: true,

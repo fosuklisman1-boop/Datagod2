@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Download, CheckCircle, Clock, AlertCircle } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Download, CheckCircle, Clock, AlertCircle, Check } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -45,6 +46,10 @@ export default function AdminOrdersPage() {
   const [loadingDownloaded, setLoadingDownloaded] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [updatingBatch, setUpdatingBatch] = useState<string | null>(null)
+  
+  const [showNetworkSelection, setShowNetworkSelection] = useState(false)
+  const [selectedNetworks, setSelectedNetworks] = useState<string[]>([])
+  const allNetworks = ["MTN", "Telecel", "AT", "AT - iShare", "AT - BigTime", "iShare"]
 
   useEffect(() => {
     checkAdminAccess()
@@ -131,35 +136,67 @@ export default function AdminOrdersPage() {
       return
     }
 
+    // Reload pending orders to ensure fresh data
+    await loadPendingOrders()
+    
+    // Open network selection dialog
+    setSelectedNetworks([]) // Reset selection
+    setShowNetworkSelection(true)
+  }
+
+  const handleConfirmDownload = async () => {
+    if (selectedNetworks.length === 0) {
+      toast.error("Please select at least one network")
+      return
+    }
+
     try {
       setDownloading(true)
+
+      // Filter orders by selected networks
+      const filteredOrders = pendingOrders.filter(o => selectedNetworks.includes(o.network))
+      
+      if (filteredOrders.length === 0) {
+        toast.error("No orders found for selected networks")
+        return
+      }
 
       // Call API endpoint to download orders
       const response = await fetch("/api/admin/orders/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: pendingOrders.map(o => o.id) })
+        body: JSON.stringify({ 
+          orderIds: filteredOrders.map(o => o.id)
+        })
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to download orders")
+        let errorMessage = "Failed to download orders"
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch (e) {
+          // If response isn't JSON, use status text
+          errorMessage = response.statusText || errorMessage
+        }
+        throw new Error(errorMessage)
       }
 
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const element = document.createElement("a")
       element.setAttribute("href", url)
-      element.setAttribute("download", `orders-${new Date().toISOString().split('T')[0]}.xlsx`)
+      element.setAttribute("download", `orders-${selectedNetworks.join('-')}-${new Date().toISOString().split('T')[0]}.xlsx`)
       element.style.display = "none"
       document.body.appendChild(element)
       element.click()
       document.body.removeChild(element)
       window.URL.revokeObjectURL(url)
 
-      toast.success(`Downloaded ${pendingOrders.length} orders. Status updated to processing.`)
+      toast.success(`Downloaded ${filteredOrders.length} orders from ${selectedNetworks.join(', ')}. Status updated to processing.`)
       
-      // Reload orders
+      // Close dialog and reload orders
+      setShowNetworkSelection(false)
       await loadPendingOrders()
       await loadDownloadedOrders()
     } catch (error) {
@@ -457,6 +494,85 @@ export default function AdminOrdersPage() {
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Network Selection Dialog */}
+        <Dialog open={showNetworkSelection} onOpenChange={setShowNetworkSelection}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Select Networks to Download</DialogTitle>
+              <DialogDescription>
+                Choose which networks you want to download orders for. 
+                {pendingOrders.length > 0 && (
+                  <span className="block mt-2 text-sm">
+                    Available orders: {pendingOrders.length}
+                  </span>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-2">
+              {allNetworks.map((network) => {
+                const networkOrders = pendingOrders.filter(o => o.network === network)
+                const networkOrderCount = networkOrders.length
+                const isSelected = selectedNetworks.includes(network)
+                const isDisabled = networkOrderCount === 0
+                
+                return (
+                  <button
+                    key={network}
+                    type="button"
+                    onClick={() => {
+                      if (!isDisabled) {
+                        if (isSelected) {
+                          setSelectedNetworks(selectedNetworks.filter(n => n !== network))
+                        } else {
+                          setSelectedNetworks([...selectedNetworks, network])
+                        }
+                      }
+                    }}
+                    disabled={isDisabled}
+                    className={`w-full flex items-center gap-3 p-3 rounded border-2 transition-all ${
+                      isSelected 
+                        ? 'bg-blue-50 border-blue-500' 
+                        : 'bg-white border-gray-200 hover:border-gray-300'
+                    } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <div className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${
+                      isSelected 
+                        ? 'bg-blue-500 border-blue-500' 
+                        : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && <Check className="w-4 h-4 text-white" />}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <span className="font-medium text-gray-900">{network}</span>
+                      <span className="text-sm text-gray-500 ml-2">
+                        ({networkOrderCount} order{networkOrderCount !== 1 ? 's' : ''})
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            <DialogFooter className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowNetworkSelection(false)}
+                disabled={downloading}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmDownload}
+                disabled={downloading || selectedNetworks.length === 0}
+                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
+              >
+                {downloading ? "Downloading..." : "Download Selected"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   )

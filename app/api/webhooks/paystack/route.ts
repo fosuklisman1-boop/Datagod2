@@ -76,59 +76,206 @@ export async function POST(request: NextRequest) {
         throw updateError
       }
 
-      // Credit the wallet
-      const amountInGHS = amount / 100
+      // If this is a shop order payment, update shop_orders payment status and create profit record
+      if (paymentData.order_id && paymentData.shop_id) {
+        console.log(`[WEBHOOK] Updating shop order payment status for order: ${paymentData.order_id}`)
+        
+        // Get shop order details to create profit record
+        const { data: shopOrderData, error: orderFetchError } = await supabase
+          .from("shop_orders")
+          .select("id, shop_id, profit_amount")
+          .eq("id", paymentData.order_id)
+          .single()
 
-      // Get current wallet balance
-      const { data: walletData, error: walletFetchError } = await supabase
-        .from("user_wallets")
-        .select("balance")
-        .eq("user_id", paymentData.user_id)
-        .single()
+        if (orderFetchError) {
+          console.error("Error fetching shop order:", orderFetchError)
+        } else {
+          // Update shop order payment status
+          const { error: shopOrderError } = await supabase
+            .from("shop_orders")
+            .update({
+              payment_status: "completed",
+              transaction_id: event.data.id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", paymentData.order_id)
 
-      if (walletFetchError && walletFetchError.code !== "PGRST116") {
-        console.error("Error fetching wallet:", walletFetchError)
-        throw walletFetchError
+          if (shopOrderError) {
+            console.error("Error updating shop order payment status:", shopOrderError)
+          } else {
+            console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} payment status updated to completed`)
+          }
+
+          // Create shop profit record
+          if (shopOrderData?.profit_amount > 0) {
+            const { error: profitError } = await supabase
+              .from("shop_profits")
+              .insert([
+                {
+                  shop_id: paymentData.shop_id,
+                  shop_order_id: paymentData.order_id,
+                  profit_amount: shopOrderData.profit_amount,
+                  status: "credited",
+                  created_at: new Date().toISOString(),
+                }
+              ])
+
+            if (profitError) {
+              console.error("Error creating shop profit record:", profitError)
+            } else {
+              console.log(`[WEBHOOK] ✓ Shop profit record created: GHS ${shopOrderData.profit_amount.toFixed(2)}`)
+              
+              // Sync available balance after creating profit
+              try {
+                // Get all profits to calculate available balance
+                const { data: profits, error: profitFetchError } = await supabase
+                  .from("shop_profits")
+                  .select("profit_amount, status")
+                  .eq("shop_id", paymentData.shop_id)
+
+                if (!profitFetchError && profits) {
+                  // Calculate totals by status
+                  const breakdown = {
+                    totalProfit: 0,
+                    creditedProfit: 0,
+                    withdrawnProfit: 0,
+                  }
+
+                  profits.forEach((p: any) => {
+                    const amount = p.profit_amount || 0
+                    breakdown.totalProfit += amount
+
+                    if (p.status === "credited") {
+                      breakdown.creditedProfit += amount
+                    } else if (p.status === "withdrawn") {
+                      breakdown.withdrawnProfit += amount
+                    }
+                  })
+
+                  // Get approved withdrawals to subtract from available balance
+                  const { data: approvedWithdrawals, error: withdrawalError } = await supabase
+                    .from("withdrawal_requests")
+                    .select("amount")
+                    .eq("shop_id", paymentData.shop_id)
+                    .eq("status", "approved")
+
+                  let totalApprovedWithdrawals = 0
+                  if (!withdrawalError && approvedWithdrawals) {
+                    totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+                  }
+
+                  // Available balance = credited profit - approved withdrawals
+                  const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+                  
+                  console.log(`[WEBHOOK-BALANCE] Shop ${paymentData.shop_id}:`, {
+                    creditedProfit: breakdown.creditedProfit,
+                    totalApprovedWithdrawals,
+                    calculation: `${breakdown.creditedProfit} - ${totalApprovedWithdrawals}`,
+                    availableBalance,
+                  })
+
+                  // Delete existing record and insert fresh (more reliable than upsert)
+                  const deleteResult = await supabase
+                    .from("shop_available_balance")
+                    .delete()
+                    .eq("shop_id", paymentData.shop_id)
+                  
+                  if (deleteResult.error) {
+                    console.warn(`[WEBHOOK] Warning deleting old balance:`, deleteResult.error)
+                  }
+
+                  const { data, error: insertError } = await supabase
+                    .from("shop_available_balance")
+                    .insert([
+                      {
+                        shop_id: paymentData.shop_id,
+                        available_balance: availableBalance,
+                        total_profit: breakdown.totalProfit,
+                        withdrawn_amount: breakdown.withdrawnProfit,
+                        credited_profit: breakdown.creditedProfit,
+                        withdrawn_profit: breakdown.withdrawnProfit,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      }
+                    ])
+
+                  if (insertError) {
+                    console.error(`[WEBHOOK] Error syncing balance for shop ${paymentData.shop_id}:`, insertError)
+                  } else {
+                    console.log(`[WEBHOOK] ✓ Available balance synced for shop: ${paymentData.shop_id} - Available: GHS ${availableBalance.toFixed(2)}`)
+                  }
+                }
+              } catch (syncError) {
+                console.error("Error syncing available balance:", syncError)
+                // Don't throw - profit record was already created
+              }
+            }
+          }
+        }
       }
 
-      const currentBalance = walletData?.balance || 0
-      const newBalance = currentBalance + amountInGHS
+      // Credit the wallet ONLY if this is a wallet top-up (not a shop order payment)
+      // Shop orders go to shop profits, not user wallet
+      const isShopOrderPayment = paymentData.order_id && paymentData.shop_id
+      
+      if (!isShopOrderPayment) {
+        const amountInGHS = amount / 100
 
-      // Update wallet balance
-      const { error: walletUpdateError } = await supabase
-        .from("user_wallets")
-        .upsert(
-          {
-            user_id: paymentData.user_id,
-            balance: newBalance,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "user_id" }
-        )
+        // Get current wallet balance
+        const { data: walletData, error: walletFetchError } = await supabase
+          .from("user_wallets")
+          .select("balance")
+          .eq("user_id", paymentData.user_id)
+          .single()
 
-      if (walletUpdateError) {
-        console.error("Error updating wallet:", walletUpdateError)
-        throw walletUpdateError
-      }
+        if (walletFetchError && walletFetchError.code !== "PGRST116") {
+          console.error("Error fetching wallet:", walletFetchError)
+          throw walletFetchError
+        }
 
-      // Create transaction record
-      const { error: transactionError } = await supabase
-        .from("wallet_transactions")
-        .insert([
-          {
-            user_id: paymentData.user_id,
-            type: "credit",
-            amount: amountInGHS,
-            reference: reference,
-            description: "Wallet top-up via Paystack",
-            status: "completed",
-            created_at: new Date().toISOString(),
-          },
-        ])
+        const currentBalance = walletData?.balance || 0
+        const newBalance = currentBalance + amountInGHS
 
-      if (transactionError) {
-        console.error("Error creating transaction record:", transactionError)
-        // Don't throw - transaction was already applied to wallet
+        // Update wallet balance
+        const { error: walletUpdateError } = await supabase
+          .from("user_wallets")
+          .upsert(
+            {
+              user_id: paymentData.user_id,
+              balance: newBalance,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id" }
+          )
+
+        if (walletUpdateError) {
+          console.error("Error updating wallet:", walletUpdateError)
+          throw walletUpdateError
+        }
+
+        // Create transaction record
+        const { error: transactionError } = await supabase
+          .from("wallet_transactions")
+          .insert([
+            {
+              user_id: paymentData.user_id,
+              type: "credit",
+              amount: amountInGHS,
+              reference: reference,
+              description: "Wallet top-up via Paystack",
+              status: "completed",
+              created_at: new Date().toISOString(),
+            },
+          ])
+
+        if (transactionError) {
+          console.error("Error creating transaction record:", transactionError)
+          // Don't throw - transaction was already applied to wallet
+        }
+
+        console.log(`[WEBHOOK] ✓ Wallet credited for user ${paymentData.user_id}: GHS ${amountInGHS.toFixed(2)}`)
+      } else {
+        console.log(`[WEBHOOK] ✓ Shop order payment - NOT credited to wallet (profit goes to shop instead)`)
       }
 
       console.log(`Payment processed successfully: ${reference}`)

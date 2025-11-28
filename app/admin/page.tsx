@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Users, Package, Store, TrendingUp, AlertCircle, Download } from "lucide-react"
+import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet } from "lucide-react"
 import { adminDashboardService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -231,6 +231,27 @@ export default function AdminDashboardPage() {
                 className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold"
               >
                 Go to Shops
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Withdrawal Approvals */}
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-amber-50/60 to-yellow-50/40 backdrop-blur-xl border border-amber-200/40 hover:border-amber-300/60">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-gradient-to-br from-amber-400/30 to-yellow-400/20 backdrop-blur p-2 rounded-lg border border-amber-300/60">
+                  <Wallet className="h-5 w-5 text-amber-600" />
+                </div>
+                <CardTitle>Withdrawal Approvals</CardTitle>
+              </div>
+              <CardDescription>Review and approve shop withdrawals</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => router.push("/admin/withdrawals")}
+                className="w-full bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white font-semibold"
+              >
+                Go to Withdrawals
               </Button>
             </CardContent>
           </Card>
