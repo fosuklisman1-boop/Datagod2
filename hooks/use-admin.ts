@@ -6,7 +6,7 @@ import { toast } from "sonner"
 
 /**
  * Hook to check if current user is an admin
- * Admins are defined by having role = "admin" in user_metadata
+ * Admins are defined by having role = "admin" in user_metadata OR users table
  */
 export function useIsAdmin() {
   const { user } = useAuth()
@@ -22,7 +22,7 @@ export function useIsAdmin() {
     }
 
     checkAdminStatus()
-  }, [user?.id, user?.user_metadata, user?.id])
+  }, [user?.id, user?.user_metadata])
 
   const checkAdminStatus = async () => {
     try {
@@ -32,25 +32,34 @@ export function useIsAdmin() {
         return
       }
 
-      // First, try to get the latest user session directly from Supabase
-      try {
-        const { data: { user: sessionUser }, error } = await supabase.auth.getUser()
-        
-        if (sessionUser?.user_metadata?.role === "admin") {
-          console.log("[USE-ADMIN] User:", user.email, "Is Admin: true (from auth.getUser)")
-          setIsAdmin(true)
-          setLoading(false)
-          return
-        }
-      } catch (error) {
-        console.log("[USE-ADMIN] Could not fetch user from auth service, checking current session")
+      console.log("[USE-ADMIN] Checking admin status for user:", user.email)
+      console.log("[USE-ADMIN] user_metadata:", user.user_metadata)
+
+      // First check: user_metadata role
+      if (user.user_metadata?.role === "admin") {
+        console.log("[USE-ADMIN] User is admin (from user_metadata)")
+        setIsAdmin(true)
+        setLoading(false)
+        return
       }
 
-      // Fallback: Check current session metadata
-      const isAdminUser = user.user_metadata?.role === "admin"
-      setIsAdmin(isAdminUser)
+      // Second check: Query users table for role
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", user.id)
+        .single()
 
-      console.log("[USE-ADMIN] User:", user.email, "Is Admin:", isAdminUser)
+      if (userError) {
+        console.log("[USE-ADMIN] Error fetching user from table:", userError)
+        setIsAdmin(false)
+        setLoading(false)
+        return
+      }
+
+      const isAdminUser = userData?.role === "admin"
+      console.log("[USE-ADMIN] User role from users table:", userData?.role, "Is Admin:", isAdminUser)
+      setIsAdmin(isAdminUser)
     } catch (error) {
       console.error("[USE-ADMIN] Error:", error)
       setIsAdmin(false)
@@ -70,14 +79,16 @@ export function useAdminProtected() {
   const { isAdmin, loading } = useIsAdmin()
 
   useEffect(() => {
+    console.log("[ADMIN-PROTECTED] isAdmin:", isAdmin, "loading:", loading)
+    
     // Only redirect if we've finished checking and user is not admin
     if (!loading && !isAdmin) {
       console.log("[ADMIN-PROTECTED] Non-admin attempting access, redirecting...")
       // Small delay to ensure UI updates before redirect
       const timer = setTimeout(() => {
-        toast.error("Unauthorized access")
+        toast.error("Unauthorized access - Admin role not found")
         router.push("/dashboard")
-      }, 100)
+      }, 500)
       
       return () => clearTimeout(timer)
     }

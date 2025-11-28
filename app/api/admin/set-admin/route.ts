@@ -21,19 +21,34 @@ export async function POST(req: NextRequest) {
     })
 
     // Update user metadata to add admin role
-    const { data, error } = await adminClient.auth.admin.updateUserById(userId, {
+    const { data: authData, error: authError } = await adminClient.auth.admin.updateUserById(userId, {
       user_metadata: { role: "admin" },
     })
 
-    if (error) {
-      console.error("Error updating user:", error)
-      return NextResponse.json({ error: error.message }, { status: 400 })
+    if (authError) {
+      console.error("Error updating user metadata:", authError)
+      return NextResponse.json({ error: authError.message }, { status: 400 })
     }
+
+    // Also update the users table role column
+    const { data: userData, error: userError } = await adminClient
+      .from("users")
+      .update({ role: "admin" })
+      .eq("id", userId)
+      .select()
+
+    if (userError) {
+      console.error("Error updating users table:", userError)
+      // Don't fail - metadata was already updated
+    }
+
+    console.log("[SET-ADMIN] User", userId, "has been granted admin role")
 
     return NextResponse.json({ 
       success: true, 
       message: "Admin role granted",
-      user: data.user 
+      user: authData.user,
+      updated: userData
     })
   } catch (error: any) {
     console.error("API error:", error)
