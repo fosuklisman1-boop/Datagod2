@@ -22,7 +22,7 @@ export function useIsAdmin() {
     }
 
     checkAdminStatus()
-  }, [user?.id, user?.user_metadata])
+  }, [user?.id, user?.user_metadata, user?.id])
 
   const checkAdminStatus = async () => {
     try {
@@ -32,7 +32,21 @@ export function useIsAdmin() {
         return
       }
 
-      // Check if user has admin role in metadata
+      // First, try to get the latest user session directly from Supabase
+      try {
+        const { data: { user: sessionUser }, error } = await supabase.auth.getUser()
+        
+        if (sessionUser?.user_metadata?.role === "admin") {
+          console.log("[USE-ADMIN] User:", user.email, "Is Admin: true (from auth.getUser)")
+          setIsAdmin(true)
+          setLoading(false)
+          return
+        }
+      } catch (error) {
+        console.log("[USE-ADMIN] Could not fetch user from auth service, checking current session")
+      }
+
+      // Fallback: Check current session metadata
       const isAdminUser = user.user_metadata?.role === "admin"
       setIsAdmin(isAdminUser)
 
@@ -56,10 +70,16 @@ export function useAdminProtected() {
   const { isAdmin, loading } = useIsAdmin()
 
   useEffect(() => {
+    // Only redirect if we've finished checking and user is not admin
     if (!loading && !isAdmin) {
       console.log("[ADMIN-PROTECTED] Non-admin attempting access, redirecting...")
-      toast.error("Unauthorized access")
-      router.push("/dashboard")
+      // Small delay to ensure UI updates before redirect
+      const timer = setTimeout(() => {
+        toast.error("Unauthorized access")
+        router.push("/dashboard")
+      }, 100)
+      
+      return () => clearTimeout(timer)
     }
   }, [isAdmin, loading, router])
 
