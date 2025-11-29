@@ -8,9 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Grid3x3, List, Search } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Grid3x3, List, Search, Loader2 } from "lucide-react"
+import { PhoneNumberModal } from "@/components/phone-number-modal"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
+import { toast } from "sonner"
 
 interface Package {
   id: string
@@ -30,6 +33,10 @@ export default function DataPackagesPage() {
   const [packages, setPackages] = useState<Package[]>([])
   const [networks, setNetworks] = useState<string[]>(["All"])
   const [loading, setLoading] = useState(true)
+  const [purchasing, setPurchasing] = useState<string | null>(null)
+  const [wallet, setWallet] = useState<{ balance: number } | null>(null)
+  const [phoneModalOpen, setPhoneModalOpen] = useState(false)
+  const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
 
   // Auth protection
   useEffect(() => {
@@ -41,7 +48,8 @@ export default function DataPackagesPage() {
 
   useEffect(() => {
     if (user) {
-      fetchPackages()
+      loadPackages()
+      loadWallet()
     }
   }, [user])
 
@@ -49,6 +57,58 @@ export default function DataPackagesPage() {
     loadNetworkLogos()
     loadPackages()
   }, [])
+
+  const loadWallet = async () => {
+    if (!user?.id) return
+
+    try {
+      const { data, error } = await supabase
+        .from("wallets")
+        .select("balance")
+        .eq("user_id", user.id)
+        .single()
+
+      if (error && error.code === "PGRST116") {
+        // No wallet found, create one via API
+        console.log("[DATA-PACKAGES] Wallet not found, creating new wallet via API")
+        const session = await supabase.auth.getSession()
+        if (!session.data.session?.access_token) {
+          console.error("[DATA-PACKAGES] No auth token available")
+          setWallet({ balance: 0 })
+          return
+        }
+
+        const response = await fetch("/api/wallet/create", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${session.data.session.access_token}`,
+            "Content-Type": "application/json",
+          },
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          console.error("[DATA-PACKAGES] Error creating wallet:", errorData)
+          setWallet({ balance: 0 })
+          return
+        }
+
+        const result = await response.json()
+        console.log("[DATA-PACKAGES] Wallet created:", result.wallet)
+        setWallet({ balance: result.wallet.balance })
+      } else if (error) {
+        console.error("[DATA-PACKAGES] Error loading wallet:", error)
+        setWallet({ balance: 0 })
+        return
+      }
+
+      console.log("[DATA-PACKAGES] Wallet loaded:", data)
+      setWallet(data)
+    } catch (error) {
+      console.error("[DATA-PACKAGES] Error loading wallet:", error)
+      setWallet({ balance: 0 })
+    }
+  }
 
   const loadNetworkLogos = async () => {
     try {
@@ -99,6 +159,87 @@ export default function DataPackagesPage() {
     return ""
   }
 
+  const handlePurchase = async (pkg: Package) => {
+    if (!user) {
+      toast.error("Please login first")
+      return
+    }
+
+    if (!wallet) {
+      toast.error("Failed to load wallet")
+      return
+    }
+
+    if (wallet.balance < pkg.price) {
+      toast.error(`Insufficient balance. You need GHS ${pkg.price.toFixed(2)} but have GHS ${wallet.balance.toFixed(2)}`)
+      return
+    }
+
+    // Show phone number modal instead of purchasing directly
+    setSelectedPackageForPurchase(pkg)
+    setPhoneModalOpen(true)
+  }
+
+  const handlePhoneNumberSubmit = async (phoneNumber: string) => {
+    if (!selectedPackageForPurchase || !user) {
+      toast.error("Error: Missing package or user information")
+      return
+    }
+
+    try {
+      setPurchasing(selectedPackageForPurchase.id)
+      setPhoneModalOpen(false)
+
+      // Get auth token
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        toast.error("Session expired, please login again")
+        return
+      }
+
+      const response = await fetch("/api/orders/purchase", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          packageId: selectedPackageForPurchase.id,
+          network: selectedPackageForPurchase.network,
+          size: selectedPackageForPurchase.size,
+          price: selectedPackageForPurchase.price,
+          phoneNumber,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || "Purchase failed")
+        return
+      }
+
+      // Update wallet balance
+      setWallet({ balance: data.newBalance })
+
+      toast.success(`Successfully purchased ${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}!`)
+
+      // Optionally redirect to orders page
+      setTimeout(() => {
+        router.push("/dashboard/my-orders")
+      }, 1500)
+    } catch (error) {
+      console.error("Purchase error:", error)
+      toast.error("An error occurred during purchase")
+    } finally {
+      setPurchasing(null)
+      setSelectedPackageForPurchase(null)
+    }
+  }
+
   // Filter packages
   const filteredPackages = packages.filter((pkg) => {
     const networkMatch = selectedNetwork === "All" || pkg.network === selectedNetwork
@@ -111,9 +252,21 @@ export default function DataPackagesPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 bg-clip-text text-transparent">Data Packages</h1>
-          <p className="text-gray-500 mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 bg-clip-text text-transparent">Data Packages</h1>
+            <p className="text-gray-500 mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
+          </div>
+          {wallet && (
+            <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+              <CardContent className="pt-6">
+                <p className="text-sm text-gray-600">Wallet Balance</p>
+                <p className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                  GHS {wallet.balance.toFixed(2)}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Search and Filters */}
@@ -214,8 +367,21 @@ export default function DataPackagesPage() {
                       Instant delivery
                     </div>
                   </div>
-                  <Button className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 hover:from-cyan-700 hover:via-blue-700 hover:to-violet-700 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white">
-                    Buy Now
+                  <Button 
+                    onClick={() => handlePurchase(pkg)}
+                    disabled={purchasing === pkg.id || (wallet && wallet.balance < pkg.price)}
+                    className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 hover:from-cyan-700 hover:via-blue-700 hover:to-violet-700 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {purchasing === pkg.id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : wallet && wallet.balance < pkg.price ? (
+                      "Insufficient Balance"
+                    ) : (
+                      "Buy Now"
+                    )}
                   </Button>
                 </CardContent>
               </Card>
@@ -253,8 +419,22 @@ export default function DataPackagesPage() {
                         <td className="px-6 py-4 text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">GHS {pkg.price.toFixed(2)}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
                         <td className="px-6 py-4 text-sm">
-                          <Button size="sm" className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 shadow-md hover:shadow-lg transition-all font-semibold text-white">
-                            Buy
+                          <Button 
+                            size="sm" 
+                            onClick={() => handlePurchase(pkg)}
+                            disabled={purchasing === pkg.id || (wallet && wallet.balance < pkg.price)}
+                            className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {purchasing === pkg.id ? (
+                              <>
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                Processing...
+                              </>
+                            ) : wallet && wallet.balance < pkg.price ? (
+                              "No Balance"
+                            ) : (
+                              "Buy"
+                            )}
                           </Button>
                         </td>
                       </tr>
@@ -270,6 +450,15 @@ export default function DataPackagesPage() {
         <p className="text-sm text-gray-600">
           Showing {filteredPackages.length} of {packages.length} packages
         </p>
+
+        {/* Phone Number Modal */}
+        <PhoneNumberModal
+          open={phoneModalOpen}
+          onOpenChange={setPhoneModalOpen}
+          onSubmit={handlePhoneNumberSubmit}
+          isLoading={purchasing !== null}
+          packageName={selectedPackageForPurchase ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}` : "Data Package"}
+        />
       </div>
     </DashboardLayout>
   )

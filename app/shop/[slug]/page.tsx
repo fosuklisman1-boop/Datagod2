@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,7 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
-import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search } from "lucide-react"
+import { useShopSettings } from "@/hooks/use-shop-settings"
+import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X } from "lucide-react"
 import { toast } from "sonner"
 
 export default function ShopStorefront() {
@@ -25,17 +27,31 @@ export default function ShopStorefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
+  const [activeTab, setActiveTab] = useState<"products" | "about" | "track-order">("products")
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
     customer_name: "",
     customer_email: "",
     customer_phone: "",
   })
   const [submitting, setSubmitting] = useState(false)
+  const packagesRef = useRef<HTMLDivElement>(null)
+
+  const { settings: shopSettings } = useShopSettings(shop?.id)
 
   useEffect(() => {
     loadShopData()
     loadNetworkLogos()
   }, [shopSlug])
+
+  useEffect(() => {
+    // Scroll to packages when network is selected
+    if (selectedNetwork && packagesRef.current) {
+      setTimeout(() => {
+        packagesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      }, 100)
+    }
+  }, [selectedNetwork])
 
   const loadShopData = async () => {
     try {
@@ -108,14 +124,8 @@ export default function ShopStorefront() {
       normalized = "0" + cleaned
     }
 
-    // Check if it's 10 digits and starts with 0
-    if (normalized.length !== 10 || !normalized.startsWith("0")) {
-      return false
-    }
-
-    // Check third digit for network-specific validation
-    const thirdDigit = normalized[2]
-    return ["2", "5"].includes(thirdDigit)
+    // Check if it's exactly 10 digits
+    return normalized.length === 10
   }
 
   const handleSubmitOrder = async () => {
@@ -130,7 +140,7 @@ export default function ShopStorefront() {
     }
 
     if (!validatePhoneNumber(orderData.customer_phone)) {
-      toast.error("Please enter a valid phone number (starting with 02 or 05)")
+      toast.error("Please enter a valid 10-digit phone number")
       return
     }
 
@@ -190,8 +200,13 @@ export default function ShopStorefront() {
 
       const paymentData = await paymentResponse.json()
       
-      // Redirect to Paystack
+      // Redirect to Paystack (handles popup blocker scenarios)
       if (paymentData.authorizationUrl) {
+        // Store payment reference in sessionStorage for verification after redirect
+        sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
+        
+        // Directly redirect to payment URL instead of using window.open
+        // This works even if popups are blocked
         window.location.href = paymentData.authorizationUrl
         return
       }
@@ -237,11 +252,80 @@ export default function ShopStorefront() {
     )
   }
 
+  // Tab navigation items
+  const tabs: Array<{ id: "products" | "about" | "track-order", label: string, icon: React.ReactNode }> = [
+    { id: "products", label: "Products", icon: <ShoppingCart className="w-4 h-4" /> },
+    { id: "track-order", label: "Track Order", icon: <Package className="w-4 h-4" /> },
+    { id: "about", label: "About", icon: <AlertCircle className="w-4 h-4" /> },
+  ]
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Shop Header */}
+      {/* Navigation Bar */}
+      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors lg:hidden"
+            >
+              {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+            <div className="flex items-center gap-3">
+              <Store className="w-6 h-6 text-violet-600" />
+              <h1 className="text-2xl font-bold text-gray-900">{shop.shop_name || shop.name || "Store"}</h1>
+            </div>
+          </div>
+          {shop.logo_url && (
+            <img
+              src={shop.logo_url}
+              alt={shop.shop_name || "Shop"}
+              className="w-12 h-12 rounded-lg object-cover border-2 border-gray-200"
+            />
+          )}
+        </div>
+      </nav>
+
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 lg:hidden z-30"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Collapsible Sidebar */}
+      <aside className={`fixed lg:static left-0 top-0 h-screen lg:h-auto bg-white border-r border-gray-200 w-64 lg:w-48 transform transition-transform duration-300 ease-in-out z-30 pt-20 lg:pt-0 ${
+        sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+      }`}>
+        <div className="sticky top-20 lg:top-4 lg:p-0">
+          <Card className="border-0 shadow-md lg:shadow-none lg:border lg:border-gray-200 rounded-none lg:rounded-lg">
+            <CardContent className="p-4">
+              <nav className="space-y-2">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setActiveTab(tab.id)
+                      setSidebarOpen(false)
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${
+                      activeTab === tab.id
+                        ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600"
+                        : "text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+            </CardContent>
+          </Card>
+        </div>
+      </aside>
       {shop.banner_url && (
-        <div className="h-48 relative overflow-hidden">
+        <div className="h-40 relative overflow-hidden">
           <img
             src={shop.banner_url}
             alt={shop.shop_name}
@@ -251,154 +335,198 @@ export default function ShopStorefront() {
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-4">
-        {/* Shop Info */}
-        <div className="flex items-end gap-4 -mt-12 relative z-10 mb-8">
-          {shop.logo_url && (
-            <img
-              src={shop.logo_url}
-              alt={shop.shop_name}
-              className="w-24 h-24 rounded-lg object-cover border-4 border-white shadow-lg"
-            />
-          )}
-          <div className="pb-2 flex-1">
-            <h1 className="text-4xl font-bold text-gray-900">{shop.shop_name}</h1>
-            <p className="text-gray-600 mt-1">{shop.description || "Welcome to our store"}</p>
+      <div className="max-w-7xl mx-auto px-4">
+        {/* Shop Description Section */}
+        <div className="py-8 mb-8 text-center">
+          <p className="text-gray-600 break-words text-lg">{shop.description || "Welcome to our store"}</p>
+          <div className="flex flex-wrap gap-3 mt-4 justify-center">
+            {shopSettings?.whatsapp_link && (
+              <a
+                href={shopSettings.whatsapp_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Contact on WhatsApp
+              </a>
+            )}
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex gap-2 mb-8 border-b border-gray-200">
-          <Button
-            onClick={() => {
-              // Scroll to packages section
-              const packagesSection = document.querySelector('[data-section="packages"]')
-              packagesSection?.scrollIntoView({ behavior: 'smooth' })
-            }}
-            variant="ghost"
-            className="border-b-2 border-violet-600 rounded-none text-violet-600 font-semibold"
-          >
-            <ShoppingCart className="w-4 h-4 mr-2" />
-            Buy Packages
-          </Button>
-          <Button
-            onClick={() => {
-              const statusSection = document.querySelector('[data-section="status"]')
-              statusSection?.scrollIntoView({ behavior: 'smooth' })
-            }}
-            variant="ghost"
-            className="border-b-2 border-transparent rounded-none text-gray-600 hover:text-gray-900 hover:border-gray-300 font-semibold"
-          >
-            <Package className="w-4 h-4 mr-2" />
-            Check Order Status
-          </Button>
-        </div>
+        {/* Main Content Layout */}
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Main Content */}
+          <div className="flex-1 min-w-0">
+            {/* Products Tab */}
+            {activeTab === "products" && (
+              <div className="space-y-8">
+                {/* Network Selection Section */}
+                <div>
+                  <h2 className="text-2xl font-bold mb-6">Select a Network</h2>
 
-        {/* Network Selection Section */}
-        <div className="py-8" data-section="packages">
-          <h2 className="text-2xl font-bold mb-6">Select a Network</h2>
+                  {packages.length === 0 ? (
+                    <Card className="bg-white border-2 border-dashed border-gray-300">
+                      <CardContent className="pt-12 pb-12 text-center">
+                        <Store className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                        <p className="text-gray-600">No packages available at the moment</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
+                        {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
+                          const networkPackages = packages.filter(p => p.packages.network === network)
+                          const availableCount = networkPackages.filter(p => p.is_available).length
 
-          {packages.length === 0 ? (
-            <Card className="bg-white border-2 border-dashed border-gray-300">
-              <CardContent className="pt-12 pb-12 text-center">
-                <Store className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                <p className="text-gray-600">No packages available at the moment</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-                {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
-                  const networkPackages = packages.filter(p => p.packages.network === network)
-                  const availableCount = networkPackages.filter(p => p.is_available).length
+                          return (
+                            <Card
+                              key={network}
+                              onClick={() => setSelectedNetwork(network as string)}
+                              className={`cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden ${
+                                selectedNetwork === network
+                                  ? "ring-2 ring-violet-600"
+                                  : "hover:shadow-lg"
+                              }`}
+                            >
+                              <div className="flex flex-col h-full relative">
+                                <div className="h-20 w-full flex items-center justify-center bg-gray-100 relative overflow-hidden">
+                                  <img 
+                                    src={getNetworkLogo(network as string)} 
+                                    alt={network}
+                                    className="h-16 w-16 object-contain"
+                                  />
+                                </div>
+                                
+                                <div className="flex-1 p-2 bg-white flex flex-col justify-between">
+                                  <div>
+                                    <h3 className="text-sm font-bold text-gray-900 uppercase">{network}</h3>
+                                    <p className="text-xs text-gray-600 mt-1">{availableCount} plans</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </Card>
+                          )
+                        })}
+                      </div>
 
-                  return (
-                    <Card
-                      key={network}
-                      onClick={() => setSelectedNetwork(network as string)}
-                      className={`cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden ${
-                        selectedNetwork === network
-                          ? "ring-2 ring-violet-600"
-                          : "hover:shadow-lg"
-                      }`}
-                    >
-                      <div className="flex flex-col h-full relative">
-                        {/* Logo Section - Larger */}
-                        <div className="h-48 w-full flex items-center justify-center bg-gray-100 relative overflow-hidden">
-                          <img 
-                            src={getNetworkLogo(network as string)} 
-                            alt={network}
-                            className="h-40 w-40 object-contain"
-                          />
-                        </div>
-                        
-                        {/* Info Section */}
-                        <div className="flex-1 p-4 bg-white flex flex-col justify-between">
-                          <div>
-                            <h3 className="text-lg font-bold text-gray-900 uppercase">{network}</h3>
-                            <p className="text-xs text-gray-600 mt-2">Choose the plan that's right for you</p>
+                      {selectedNetwork && (
+                        <div ref={packagesRef} className="py-8 border-t border-gray-200">
+                          <h2 className="text-2xl font-bold mb-6">{selectedNetwork} Packages</h2>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {packages
+                              .filter(p => p.packages.network === selectedNetwork)
+                              .sort((a, b) => {
+                                // Extract volume as number from size string (e.g., "1GB" -> 1)
+                                const sizeA = parseInt(a.packages.size.toString().replace(/[^0-9]/g, "")) || 0
+                                const sizeB = parseInt(b.packages.size.toString().replace(/[^0-9]/g, "")) || 0
+                                return sizeA - sizeB
+                              })
+                              .map((shopPkg) => {
+                                const pkg = shopPkg.packages
+                                const totalPrice = pkg.price + shopPkg.profit_margin
+
+                                return (
+                                  <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+                                    <CardHeader>
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                          <CardTitle className="text-lg">{pkg.size}GB</CardTitle>
+                                          <CardDescription className="text-sm">{pkg.description}</CardDescription>
+                                        </div>
+                                        <Badge className="bg-gradient-to-r from-violet-600 to-purple-600">
+                                          {shopPkg.is_available ? "Available" : "Unavailable"}
+                                        </Badge>
+                                      </div>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                      <div className="flex justify-between items-end pt-4 border-t border-white/20">
+                                        <span className="font-semibold text-gray-700">Price:</span>
+                                        <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+                                          GHS {totalPrice.toFixed(2)}
+                                        </span>
+                                      </div>
+
+                                      <Button
+                                        onClick={() => handleBuyNow(shopPkg)}
+                                        disabled={!shopPkg.is_available}
+                                        className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-50"
+                                      >
+                                        <ShoppingCart className="w-4 h-4 mr-2" />
+                                        Buy Now
+                                      </Button>
+                                    </CardContent>
+                                  </Card>
+                                )
+                              })}
                           </div>
                         </div>
-                      </div>
-                    </Card>
-                  )
-                })}
-              </div>
-
-              {/* Packages Section */}
-              {selectedNetwork && (
-                <div className="py-8 border-t border-gray-200">
-                  <h2 className="text-2xl font-bold mb-6">{selectedNetwork} Packages</h2>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {packages
-                      .filter(p => p.packages.network === selectedNetwork)
-                      .map((shopPkg) => {
-                        const pkg = shopPkg.packages
-                        const totalPrice = pkg.price + shopPkg.profit_margin
-
-                        return (
-                          <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
-                            <CardHeader>
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <CardTitle className="text-lg">{pkg.size}GB</CardTitle>
-                                  <CardDescription className="text-sm">{pkg.description}</CardDescription>
-                                </div>
-                                <Badge className="bg-gradient-to-r from-violet-600 to-purple-600">
-                                  {shopPkg.is_available ? "Available" : "Unavailable"}
-                                </Badge>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                              <div className="flex justify-between items-end pt-4 border-t border-white/20">
-                                <span className="font-semibold text-gray-700">Price:</span>
-                                <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
-                                  GHS {totalPrice.toFixed(2)}
-                                </span>
-                              </div>
-
-                              <Button
-                                onClick={() => handleBuyNow(shopPkg)}
-                                disabled={!shopPkg.is_available}
-                                className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-50"
-                              >
-                                <ShoppingCart className="w-4 h-4 mr-2" />
-                                Buy Now
-                              </Button>
-                            </CardContent>
-                          </Card>
-                        )
-                      })}
-                  </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              )}
-            </>
-          )}
+              </div>
+            )}
+
+            {/* About Tab */}
+            {activeTab === "about" && (
+              <div className="space-y-6">
+                <Card className="border-0 shadow-md">
+                  <CardHeader className="pb-3">
+                    <CardTitle>Shop Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {shop.phone && (
+                      <div className="flex items-start gap-2">
+                        <MessageCircle className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-semibold text-gray-900">Phone</p>
+                          <span className="text-gray-700">{shop.phone}</span>
+                        </div>
+                      </div>
+                    )}
+                    {shop.location && (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-semibold text-gray-900">Location</p>
+                          <span className="text-gray-700">{shop.location}</span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-start gap-2 pt-2 border-t">
+                      <Clock className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold text-gray-900">Support</p>
+                        <p className="text-gray-700">24/7 Support Available</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Track Order Tab */}
+            {activeTab === "track-order" && (
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Package className="w-5 h-5" />
+                      Track Your Order
+                    </CardTitle>
+                    <CardDescription>Enter your phone number to check order status</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <OrderStatusSearch shopId={shop?.id} shopName={shop?.shop_name} />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* Checkout Modal */}
       {checkoutOpen && selectedPackage && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <Card className="w-full max-w-md bg-white">
@@ -486,20 +614,18 @@ export default function ShopStorefront() {
         </div>
       )}
 
-      {/* Order Status Search Section */}
-      <div className="py-12 border-t border-gray-200 mt-12" data-section="status">
-        <div className="max-w-2xl mx-auto px-4 space-y-6">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2 mb-2">
-              <Package className="w-6 h-6" />
-              Track Your Orders
-            </h2>
-            <p className="text-gray-600">Enter your phone number to view all your orders from this store</p>
-          </div>
-
-          <OrderStatusSearch shopId={shop?.id} shopName={shop?.shop_name} />
-        </div>
-      </div>
+      {/* Floating WhatsApp Icon */}
+      {shopSettings?.whatsapp_link && (
+        <a
+          href={shopSettings.whatsapp_link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-6 right-6 p-4 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 z-50 flex items-center justify-center"
+          title="Contact on WhatsApp"
+        >
+          <MessageCircle className="w-6 h-6" />
+        </a>
+      )}
     </div>
   )
 }
@@ -717,6 +843,19 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                           {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1)}
                         </Badge>
                       </div>
+                    </div>
+
+                    <div className="pt-4 border-t">
+                      <Link href={`/dashboard/complaints?orderId=${order.id}&orderRef=${order.reference_code}`}>
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          size="sm"
+                        >
+                          <AlertCircle className="w-4 h-4 mr-2" />
+                          File a Complaint
+                        </Button>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>

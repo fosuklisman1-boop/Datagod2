@@ -9,9 +9,28 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify user is authenticated and is an admin
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized: Missing auth token" }, { status: 401 })
+    }
+
+    const token = authHeader.slice(7)
+    const { data: { user: callerUser }, error: callerError } = await supabase.auth.getUser(token)
+
+    if (callerError || !callerUser) {
+      return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
+    }
+
+    // Check if caller is admin
+    if (callerUser.user_metadata?.role !== "admin") {
+      console.warn(`[DOWNLOAD] Unauthorized attempt by user ${callerUser.id}. Not an admin.`)
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
     const { orderIds, orderType } = await request.json()
 
-    console.log("[DOWNLOAD] Received request with orderIds:", orderIds, "orderType:", orderType)
+    console.log("[DOWNLOAD] Admin", callerUser.id, "downloading orders:", orderIds, "orderType:", orderType)
 
     if (!orderIds || orderIds.length === 0) {
       return NextResponse.json(
@@ -179,7 +198,7 @@ export async function POST(request: NextRequest) {
     // Generate Excel file
     const excelData = orders.map((order: any) => ({
       Phone: order.phone_number,
-      Size: `${order.size}GB`
+      Size: order.size
     }))
 
     const worksheet = XLSX.utils.json_to_sheet(excelData)
@@ -194,10 +213,15 @@ export async function POST(request: NextRequest) {
 
     const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" })
 
+    // Generate filename with date and time
+    const now = new Date()
+    const dateTime = now.toISOString().replace(/[:.]/g, '-').split('Z')[0] // Converts to YYYY-MM-DDTHH-mm-ss format
+    const fileName = `orders-${dateTime}.xlsx`
+
     return new NextResponse(excelBuffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="orders-${new Date().toISOString().split('T')[0]}.xlsx"`
+        "Content-Disposition": `attachment; filename="${fileName}"`
       }
     })
   } catch (error) {

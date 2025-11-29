@@ -12,8 +12,9 @@ interface WalletTransaction {
   amount: number
   type: "credit" | "debit"
   description: string
-  reference?: string
+  reference_id?: string
   created_at: string
+  source?: string
 }
 
 export async function GET(request: NextRequest) {
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch transactions
     const { data: transactions, error, count } = await supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .select("*", { count: "exact" })
       .eq("user_id", userId)
       .order("created_at", { ascending: false })

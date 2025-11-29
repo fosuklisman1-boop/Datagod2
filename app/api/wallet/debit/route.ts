@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     // Get wallet
     console.log("[WALLET-DEBIT] Fetching wallet...")
     const { data: wallet, error: walletError } = await supabase
-      .from("user_wallets")
+      .from("wallets")
       .select("*")
       .eq("user_id", user.id)
       .maybeSingle()
@@ -84,13 +84,13 @@ export async function POST(request: NextRequest) {
     // Deduct from wallet
     console.log("[WALLET-DEBIT] Deducting amount...")
     const newBalance = currentBalance - amount
-    const newTotalDebited = (wallet.total_debited || 0) + amount
+    const newTotalSpent = (wallet.total_spent || 0) + amount
 
     const { error: updateError } = await supabase
-      .from("user_wallets")
+      .from("wallets")
       .update({
         balance: newBalance,
-        total_debited: newTotalDebited,
+        total_spent: newTotalSpent,
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", user.id)
@@ -106,16 +106,18 @@ export async function POST(request: NextRequest) {
     // Create debit transaction
     console.log("[WALLET-DEBIT] Creating transaction...")
     const { error: txError } = await supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .insert([{
         user_id: user.id,
         type: "debit",
         amount,
-        reference: orderId,
+        reference_id: orderId,
         description: description || "Order payment",
+        source: "wallet_debit",
         status: "completed",
+        balance_before: currentBalance,
+        balance_after: newBalance,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       }])
 
     if (txError) {

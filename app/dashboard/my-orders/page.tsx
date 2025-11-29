@@ -4,12 +4,15 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ShoppingCart, CheckCircle, Clock, AlertCircle, Loader2 } from "lucide-react"
+import { ShoppingCart, CheckCircle, Clock, AlertCircle, Loader2, MessageSquare } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { ComplaintModal } from "@/components/complaint-modal"
+import { Input } from "@/components/ui/input"
+import { Search } from "lucide-react"
 
 interface OrderStats {
   totalOrders: number
@@ -43,12 +46,15 @@ export default function MyOrdersPage() {
   })
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchPhone, setSearchPhone] = useState("")
   const [filters, setFilters] = useState({
     network: "all",
     status: "all",
     dateRange: "all",
   })
   const [page, setPage] = useState(1)
+  const [complaintModalOpen, setComplaintModalOpen] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const pageSize = 10
 
   // Auth protection
@@ -134,6 +140,12 @@ export default function MyOrdersPage() {
     }
   }
 
+  // Filter orders based on search criteria
+  const filteredOrders = orders.filter((order) => {
+    if (searchPhone.trim() === "") return true
+    return order.phone_number && order.phone_number.includes(searchPhone.trim())
+  })
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -144,7 +156,7 @@ export default function MyOrdersPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
@@ -204,10 +216,26 @@ export default function MyOrdersPage() {
         {/* Filters Card */}
         <Card>
           <CardHeader>
-            <CardTitle>Filters</CardTitle>
+            <CardTitle>Filters & Search</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Search by Phone Number */}
+            <div>
+              <label htmlFor="searchPhone" className="text-sm font-medium text-gray-700">Search by Phone Number</label>
+              <div className="relative mt-1">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Input
+                  id="searchPhone"
+                  type="text"
+                  placeholder="Enter phone number (e.g., 0201234567)"
+                  value={searchPhone}
+                  onChange={(e) => setSearchPhone(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
               <div>
                 <label htmlFor="network" className="text-sm font-medium text-gray-700">Network</label>
                 <select 
@@ -260,7 +288,7 @@ export default function MyOrdersPage() {
         <Card>
           <CardHeader>
             <CardTitle>Orders List</CardTitle>
-            <CardDescription>{orders.length === 0 ? "No orders found" : `Showing ${orders.length} order(s)`}</CardDescription>
+            <CardDescription>{filteredOrders.length === 0 ? "No orders found" : `Showing ${filteredOrders.length} order(s)`}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -276,14 +304,14 @@ export default function MyOrdersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.length === 0 ? (
+                  {filteredOrders.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                        No orders found. Start by purchasing a data package!
+                        {searchPhone.trim() ? "No orders found matching your search." : "No orders found. Start by purchasing a data package!"}
                       </td>
                     </tr>
                   ) : (
-                    orders.map((order) => (
+                    filteredOrders.map((order) => (
                       <tr key={order.id} className="hover:bg-gray-50 border-b">
                         <td className="px-6 py-4 text-sm">
                           <div>
@@ -300,7 +328,22 @@ export default function MyOrdersPage() {
                           </Badge>
                         </td>
                         <td className="px-6 py-4 text-sm">
-                          <Button size="sm" variant="outline">View</Button>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline">View</Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedOrder(order)
+                                setComplaintModalOpen(true)
+                              }}
+                              className="gap-1"
+                              title="File a complaint for this order"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                              Complain
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -309,7 +352,7 @@ export default function MyOrdersPage() {
               </table>
             </div>
             <div className="mt-4 flex justify-between items-center">
-              <p className="text-sm text-gray-600">Showing {orders.length} result(s)</p>
+              <p className="text-sm text-gray-600">Showing {filteredOrders.length} result(s)</p>
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 
@@ -321,7 +364,7 @@ export default function MyOrdersPage() {
                 <Button 
                   variant="outline"
                   onClick={() => setPage(page + 1)}
-                  disabled={orders.length < pageSize}
+                  disabled={filteredOrders.length < pageSize}
                 >
                   Next
                 </Button>
@@ -330,6 +373,25 @@ export default function MyOrdersPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Complaint Modal */}
+      {selectedOrder && (
+        <ComplaintModal
+          isOpen={complaintModalOpen}
+          onClose={() => {
+            setComplaintModalOpen(false)
+            setSelectedOrder(null)
+          }}
+          orderId={selectedOrder.id}
+          orderDetails={{
+            networkName: selectedOrder.network_name,
+            packageName: selectedOrder.package_name,
+            phoneNumber: selectedOrder.phone_number,
+            totalPrice: selectedOrder.total_price,
+            createdAt: selectedOrder.created_at,
+          }}
+        />
+      )}
     </DashboardLayout>
   )
 }

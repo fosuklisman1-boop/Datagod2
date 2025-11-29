@@ -221,6 +221,22 @@ export const complaintService = {
     return data
   },
 
+  async getAllComplaints() {
+    const { data, error } = await supabase
+      .from("complaints")
+      .select(`
+        *,
+        user:user_id (
+          id,
+          email
+        )
+      `)
+      .order("created_at", { ascending: false })
+
+    if (error) throw error
+    return data
+  },
+
   async createComplaint(complaintData: any) {
     const { data, error } = await supabase
       .from("complaints")
@@ -232,13 +248,20 @@ export const complaintService = {
   },
 
   async updateComplaint(complaintId: string, updates: any) {
+    console.log(`[Database] Updating complaint ${complaintId} with:`, updates)
+    
     const { data, error } = await supabase
       .from("complaints")
       .update(updates)
       .eq("id", complaintId)
       .select()
 
-    if (error) throw error
+    if (error) {
+      console.error(`[Database] Error updating complaint:`, error)
+      throw error
+    }
+    
+    console.log(`[Database] Update successful, returned:`, data)
     return data[0]
   },
 }

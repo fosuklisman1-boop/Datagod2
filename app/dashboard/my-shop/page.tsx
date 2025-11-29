@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
-import { AlertCircle, Check, Copy, ExternalLink, Store, Package, Plus } from "lucide-react"
+import { AlertCircle, Check, Copy, ExternalLink, Store, Package, Plus, MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
 
@@ -32,8 +32,12 @@ export default function MyShopPage() {
   const [addingPackage, setAddingPackage] = useState(false)
   const [selectedPackage, setSelectedPackage] = useState<string>("")
   const [profitMargin, setProfitMargin] = useState<string>("")
+  const [editingShopPackage, setEditingShopPackage] = useState<any>(null)
+  const [packageAvailable, setPackageAvailable] = useState(true)
   const [dbError, setDbError] = useState<string | null>(null)
   const [selectedNetwork, setSelectedNetwork] = useState<string>("All")
+  const [whatsappLink, setWhatsappLink] = useState("")
+  const [savingWhatsapp, setSavingWhatsapp] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -62,6 +66,17 @@ export default function MyShopPage() {
           description: userShop.description || "",
           logo_url: userShop.logo_url || "",
         })
+
+        // Load WhatsApp settings
+        try {
+          const settingsResponse = await fetch(`/api/shop/settings/${userShop.id}`)
+          const settingsData = await settingsResponse.json()
+          if (settingsData.whatsapp_link) {
+            setWhatsappLink(settingsData.whatsapp_link)
+          }
+        } catch (settingsError) {
+          console.error("Error loading shop settings:", settingsError)
+        }
       }
 
       try {
@@ -104,6 +119,40 @@ export default function MyShopPage() {
     }
   }
 
+  const handleSaveWhatsappLink = async () => {
+    if (!shop || !whatsappLink.trim()) {
+      toast.error("Please enter a WhatsApp link")
+      return
+    }
+
+    try {
+      setSavingWhatsapp(true)
+      const response = await fetch(`/api/shop/settings/${shop.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          whatsapp_link: whatsappLink,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        toast.error(result.error || "Failed to save WhatsApp link")
+        return
+      }
+
+      toast.success("WhatsApp link saved successfully!")
+    } catch (error) {
+      console.error("Error saving WhatsApp link:", error)
+      toast.error("Failed to save WhatsApp link")
+    } finally {
+      setSavingWhatsapp(false)
+    }
+  }
+
   const handleAddPackage = async () => {
     if (!selectedPackage || !profitMargin) {
       toast.error("Please select package and enter selling price")
@@ -122,11 +171,25 @@ export default function MyShopPage() {
         return
       }
       
-      const addedPkg = await shopPackageService.addPackageToShop(
-        shop.id,
-        selectedPackage,
-        calculatedProfit
-      )
+      // Check if package already exists
+      const existingPkg = packages.find(p => p.package_id === selectedPackage)
+      
+      if (existingPkg) {
+        // Update existing package
+        await shopPackageService.updatePackageProfitMargin(
+          existingPkg.id,
+          calculatedProfit
+        )
+        toast.success("Package updated successfully!")
+      } else {
+        // Add new package
+        await shopPackageService.addPackageToShop(
+          shop.id,
+          selectedPackage,
+          calculatedProfit
+        )
+        toast.success("Package added to shop!")
+      }
       
       const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
       setPackages(updatedPkgs)
@@ -134,10 +197,9 @@ export default function MyShopPage() {
       // Clear only the form, stay on the adding page
       setSelectedPackage("")
       setProfitMargin("")
-      toast.success("Package added to shop!")
     } catch (error: any) {
-      console.error("Error adding package:", error)
-      const errorMsg = error?.message || "Failed to add package"
+      console.error("Error adding/updating package:", error)
+      const errorMsg = error?.message || "Failed to add/update package"
       toast.error(errorMsg)
     }
   }
@@ -146,6 +208,18 @@ export default function MyShopPage() {
     const link = `${window.location.origin}/shop/${shop.shop_slug}`
     navigator.clipboard.writeText(link)
     toast.success("Shop link copied to clipboard")
+  }
+
+  const handleToggleAvailability = async (shopPackageId: string, currentStatus: boolean) => {
+    try {
+      await shopPackageService.togglePackageAvailability(shopPackageId, !currentStatus)
+      const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
+      setPackages(updatedPkgs)
+      toast.success(`Package marked as ${!currentStatus ? "available" : "unavailable"}`)
+    } catch (error: any) {
+      console.error("Error toggling availability:", error)
+      toast.error("Failed to update availability")
+    }
   }
 
   const getPackageDetails = (packageId: string) => {
@@ -373,12 +447,11 @@ export default function MyShopPage() {
             ) : (
               <div className="space-y-4 pt-4 border-t border-white/20">
                 <div>
-                  <Label>Shop Name</Label>
-                  <Input
-                    value={formData.shop_name}
-                    onChange={(e) => setFormData({ ...formData, shop_name: e.target.value })}
-                    className="mt-1"
-                  />
+                  <Label htmlFor="shop-name-display">Shop Name</Label>
+                  <div className="mt-1 p-3 bg-gray-100 rounded-md border border-gray-300">
+                    <p className="font-semibold text-gray-900">{formData.shop_name}</p>
+                    <p className="text-xs text-gray-500 mt-1">Shop name cannot be changed</p>
+                  </div>
                 </div>
                 <div>
                   <Label>Description</Label>
@@ -437,8 +510,83 @@ export default function MyShopPage() {
           </CardContent>
         </Card>
 
-        {/* Tabs */}
-        <Tabs defaultValue="products" className="space-y-4">
+        {/* WhatsApp Configuration Card */}
+        <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="w-5 h-5 text-green-600" />
+              WhatsApp Link
+            </CardTitle>
+            <CardDescription>Configure WhatsApp contact link for your customers</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="whatsapp-link" className="text-sm font-medium">
+                WhatsApp Contact Link
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                This link will appear as a floating button on your storefront
+              </p>
+              <Input
+                id="whatsapp-link"
+                type="url"
+                placeholder="https://wa.me/1234567890"
+                value={whatsappLink}
+                onChange={(e) => setWhatsappLink(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+              <p className="font-semibold mb-2">How to get your WhatsApp link:</p>
+              <ol className="list-decimal list-inside space-y-1 text-xs">
+                <li>Open WhatsApp and go to your profile</li>
+                <li>Go to Settings → Business tools → Business links</li>
+                <li>Create a new link or copy existing one</li>
+                <li>Or use: https://wa.me/YOUR_PHONE_NUMBER (with country code)</li>
+              </ol>
+            </div>
+
+            {whatsappLink && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-700">
+                  <span className="font-semibold">Preview:</span>{" "}
+                  <a
+                    href={whatsappLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-green-600 hover:underline break-all"
+                  >
+                    {whatsappLink}
+                  </a>
+                </p>
+              </div>
+            )}
+
+            <Button
+              onClick={handleSaveWhatsappLink}
+              disabled={savingWhatsapp || !whatsappLink.trim()}
+              className="w-full bg-green-600 hover:bg-green-700"
+            >
+              {savingWhatsapp ? "Saving..." : "Save WhatsApp Link"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Packages Section */}
+      <div className="space-y-6 mt-8">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-violet-600" />
+              Manage Packages
+            </CardTitle>
+            <CardDescription>Add data packages to your shop</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Tabs */}
+            <Tabs defaultValue="products" className="space-y-4">
           <TabsList className="bg-white/40 backdrop-blur border border-white/20">
             <TabsTrigger value="products" className="data-[state=active]:bg-white/60">
               <Package className="w-4 h-4 mr-2" />
@@ -636,6 +784,9 @@ export default function MyShopPage() {
                               {shopPkg.is_available && (
                                 <Badge className="bg-green-100 text-green-700">Available</Badge>
                               )}
+                              {!shopPkg.is_available && (
+                                <Badge className="bg-gray-100 text-gray-700">Unavailable</Badge>
+                              )}
                             </div>
                             <p className="text-sm text-gray-600">
                               Base: GHS {pkg?.price} | Your Price: GHS {sellingPrice.toFixed(2)}
@@ -644,9 +795,29 @@ export default function MyShopPage() {
                               Your Profit: GHS {shopPkg.profit_margin.toFixed(2)}
                             </p>
                           </div>
-                          <Button variant="outline" size="sm">
-                            Manage
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={() => handleToggleAvailability(shopPkg.id, shopPkg.is_available)}
+                              variant={shopPkg.is_available ? "outline" : "default"}
+                              size="sm"
+                              className={!shopPkg.is_available ? "bg-green-600 hover:bg-green-700" : ""}
+                            >
+                              {shopPkg.is_available ? "Unavailable" : "Available"}
+                            </Button>
+                            <Button 
+                              onClick={() => {
+                                setEditingShopPackage(shopPkg)
+                                setSelectedPackage(shopPkg.package_id)
+                                setProfitMargin(sellingPrice.toFixed(2))
+                                setPackageAvailable(shopPkg.is_available)
+                                setAddingPackage(true)
+                              }}
+                              variant="outline" 
+                              size="sm"
+                            >
+                              Edit Price
+                            </Button>
+                          </div>
                         </div>
                       )
                     })}
@@ -674,6 +845,8 @@ export default function MyShopPage() {
             </Card>
           </TabsContent>
         </Tabs>
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   )

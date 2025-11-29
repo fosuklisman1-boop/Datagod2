@@ -226,6 +226,22 @@ CREATE POLICY "Users can read their own complaints" ON complaints
 -- Users can create complaints
 CREATE POLICY "Users can create complaints" ON complaints
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Admins can read all complaints
+CREATE POLICY "Admins can read all complaints" ON complaints
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role = 'admin'
+    )
+  );
+
+-- Admins can update all complaints
+CREATE POLICY "Admins can update all complaints" ON complaints
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role = 'admin'
+    )
+  );
 ```
 
 ## Step 5: Create Storage Buckets (Optional)

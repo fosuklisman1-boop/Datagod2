@@ -76,6 +76,15 @@ export async function POST(request: NextRequest) {
         throw updateError
       }
 
+      // IMPORTANT: Check if payment was already processed to prevent double crediting
+      // If status was already "completed" before this webhook, skip crediting
+      const wasAlreadyCompleted = paymentData.status === "completed"
+      
+      if (wasAlreadyCompleted) {
+        console.log(`[WEBHOOK] ⚠️ Payment already processed (status was: ${paymentData.status}). Skipping duplicate credit.`)
+        return NextResponse.json({ received: true, skipped: "already_processed" })
+      }
+
       // If this is a shop order payment, update shop_orders payment status and create profit record
       if (paymentData.order_id && paymentData.shop_id) {
         console.log(`[WEBHOOK] Updating shop order payment status for order: ${paymentData.order_id}`)
@@ -223,54 +232,80 @@ export async function POST(request: NextRequest) {
 
         // Get current wallet balance
         const { data: walletData, error: walletFetchError } = await supabase
-          .from("user_wallets")
-          .select("balance")
+          .from("wallets")
+          .select("balance, total_credited")
           .eq("user_id", paymentData.user_id)
           .single()
 
         if (walletFetchError && walletFetchError.code !== "PGRST116") {
-          console.error("Error fetching wallet:", walletFetchError)
+          console.error("[WEBHOOK] Error fetching wallet:", walletFetchError)
           throw walletFetchError
         }
 
         const currentBalance = walletData?.balance || 0
+        const currentTotalCredited = walletData?.total_credited || 0
+        
+        // Check if this reference was already used to credit the wallet (idempotency check)
+        const { data: existingTransaction } = await supabase
+          .from("transactions")
+          .select("id")
+          .eq("reference_id", reference)
+          .eq("user_id", paymentData.user_id)
+          .eq("type", "credit")
+          .maybeSingle()
+
+        if (existingTransaction) {
+          console.log(`[WEBHOOK] ✓ Reference ${reference} already credited. Skipping duplicate credit.`)
+          return NextResponse.json({ received: true, skipped: "already_credited" })
+        }
+
         const newBalance = currentBalance + amountInGHS
+        const newTotalCredited = currentTotalCredited + amountInGHS
 
         // Update wallet balance
         const { error: walletUpdateError } = await supabase
-          .from("user_wallets")
+          .from("wallets")
           .upsert(
             {
               user_id: paymentData.user_id,
               balance: newBalance,
+              total_credited: newTotalCredited,
               updated_at: new Date().toISOString(),
             },
             { onConflict: "user_id" }
           )
 
         if (walletUpdateError) {
-          console.error("Error updating wallet:", walletUpdateError)
+          console.error("[WEBHOOK] Error updating wallet:", walletUpdateError)
           throw walletUpdateError
         }
 
         // Create transaction record
         const { error: transactionError } = await supabase
-          .from("wallet_transactions")
+          .from("transactions")
           .insert([
             {
               user_id: paymentData.user_id,
               type: "credit",
               amount: amountInGHS,
-              reference: reference,
+              reference_id: reference,
+              source: "wallet_topup",
               description: "Wallet top-up via Paystack",
               status: "completed",
+              balance_before: currentBalance,
+              balance_after: newBalance,
               created_at: new Date().toISOString(),
             },
           ])
 
         if (transactionError) {
-          console.error("Error creating transaction record:", transactionError)
-          // Don't throw - transaction was already applied to wallet
+          // Check if error is duplicate key (transaction already exists)
+          if (transactionError.code === "23505") {
+            console.warn(`[WEBHOOK] Transaction record already exists for reference ${reference}. Skipping duplicate.`)
+          } else {
+            console.error("[WEBHOOK] Error creating transaction record:", transactionError)
+            // Don't throw - transaction was already applied to wallet
+          }
         }
 
         console.log(`[WEBHOOK] ✓ Wallet credited for user ${paymentData.user_id}: GHS ${amountInGHS.toFixed(2)}`)

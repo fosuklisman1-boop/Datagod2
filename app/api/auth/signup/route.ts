@@ -40,6 +40,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Create wallet for the user
+    const { error: walletError } = await supabaseServiceRole
+      .from("wallets")
+      .insert([
+        {
+          user_id: userId,
+          balance: 0,
+          total_credited: 0,
+          total_spent: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ])
+
+    if (walletError) {
+      console.error("Wallet creation error:", walletError)
+      // Don't fail signup if wallet creation fails, but log it
+    }
+
     return NextResponse.json(
       { profile: data?.[0] },
       { status: 201 }

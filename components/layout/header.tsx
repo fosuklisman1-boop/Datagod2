@@ -1,9 +1,10 @@
 "use client"
 
-import { Bell, Moon, Sun, ShoppingCart, User, LogOut } from "lucide-react"
+import { Moon, Sun, ShoppingCart, User, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
 import { Badge } from "@/components/ui/badge"
+import { NotificationCenter } from "@/components/notification-center"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,10 +14,22 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/hooks/use-auth"
 import { toast } from "sonner"
+import { useState, useEffect } from "react"
 
 export function Header() {
   const { theme, setTheme } = useTheme()
   const { user, logout } = useAuth()
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+
+    handleResize()
+    window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  }, [])
 
   const handleLogout = async () => {
     try {
@@ -28,17 +41,14 @@ export function Header() {
   }
 
   return (
-    <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 fixed right-0 top-0 left-64 z-40">
+    <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 fixed right-0 top-0 md:left-64 left-20 z-30 transition-all duration-300">
       {/* Left side - empty for now */}
       <div></div>
 
       {/* Right side - icons and user menu */}
-      <div className="flex items-center gap-4">
-        {/* Notification Bell */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="w-5 h-5" />
-          <Badge className="absolute -top-1 -right-1 bg-red-500 text-white text-xs">3</Badge>
-        </Button>
+      <div className="flex items-center gap-2 md:gap-4">
+        {/* Notification Center */}
+        <NotificationCenter />
 
         {/* Theme Toggle */}
         <Button
@@ -49,8 +59,8 @@ export function Header() {
           {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </Button>
 
-        {/* Shopping Cart */}
-        <Button variant="ghost" size="icon" className="relative">
+        {/* Shopping Cart - hidden on mobile */}
+        <Button variant="ghost" size="icon" className="relative hidden sm:inline-flex">
           <ShoppingCart className="w-5 h-5" />
           <Badge className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs">0</Badge>
         </Button>
@@ -66,7 +76,7 @@ export function Header() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5 text-sm">
-              <p className="font-semibold">{user?.email}</p>
+              <p className="font-semibold text-sm line-clamp-1">{user?.email}</p>
               <p className="text-xs text-gray-500">Account</p>
             </div>
             <DropdownMenuSeparator />

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, AlertCircle, CheckCircle, Zap, Bug } from "lucide-react"
+import { Loader2, AlertCircle, CheckCircle, Zap, Bug, ExternalLink } from "lucide-react"
 import { initializePayment, verifyPayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -118,8 +118,31 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       )
 
       if (!checkoutWindow) {
-        throw new Error("Could not open checkout window. Please check if popups are blocked.")
+        // Popup was blocked - offer user a fallback option
+        console.warn("[WALLET-TOPUP] Popup blocked, offering fallback redirect option")
+        
+        // Store the payment reference in sessionStorage for later verification
+        sessionStorage.setItem('lastPaymentReference', paymentResult.reference)
+        
+        setPaymentStatus("processing")
+        
+        // Show a dialog for user to choose redirect or try again
+        const userChoice = window.confirm(
+          "Popups are blocked on your browser. Would you like to proceed to payment in a new tab? Click 'OK' to continue or 'Cancel' to try again with popups enabled."
+        )
+        
+        if (userChoice) {
+          // Redirect to payment URL
+          window.location.href = paymentResult.authorizationUrl
+        } else {
+          setPaymentStatus("idle")
+          toast.error("Please enable popups in your browser settings to use the popup checkout.")
+        }
+        return
       }
+
+      // Popup opened successfully
+      setPaymentStatus("processing")
 
       // Monitor for payment completion
       let pollCount = 0
@@ -254,7 +277,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         {/* Quick Amount Buttons */}
         <div className="space-y-2">
           <p className="text-sm font-medium text-gray-700">Quick amounts</p>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 sm:gap-2">
             {quickAmounts.map((quickAmount) => (
               <Button
                 key={quickAmount}

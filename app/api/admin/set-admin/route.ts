@@ -6,6 +6,26 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(req: NextRequest) {
   try {
+    // Verify user is authenticated and is already an admin
+    const authHeader = req.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized: Missing auth token" }, { status: 401 })
+    }
+
+    const token = authHeader.slice(7)
+    const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
+    const { data: { user: callerUser }, error: callerError } = await supabaseClient.auth.getUser(token)
+
+    if (callerError || !callerUser) {
+      return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
+    }
+
+    // Check if caller is admin
+    if (callerUser.user_metadata?.role !== "admin") {
+      console.warn(`[SET-ADMIN] Unauthorized attempt by user ${callerUser.id}. Not an admin.`)
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
     const { userId } = await req.json()
 
     if (!userId) {

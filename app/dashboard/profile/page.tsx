@@ -61,11 +61,9 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (user) {
-      fetchProfile()
+      fetchUserProfile()
     }
   }, [user])
-    fetchUserProfile()
-  }, [])
 
   const fetchUserProfile = async () => {
     try {

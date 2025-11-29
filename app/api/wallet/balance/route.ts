@@ -44,10 +44,10 @@ export async function GET(request: NextRequest) {
 
     const userId = user.id
 
-    // Get wallet data
+    // Get wallet data from wallets table
     const { data: wallet, error: walletError } = await supabase
-      .from("user_wallets")
-      .select("balance")
+      .from("wallets")
+      .select("balance, total_credited, total_spent")
       .eq("user_id", userId)
       .maybeSingle()
 
@@ -62,8 +62,15 @@ export async function GET(request: NextRequest) {
     // If wallet doesn't exist, create one with 0 balance
     if (!wallet) {
       const { data: newWallet, error: createError } = await supabase
-        .from("user_wallets")
-        .insert([{ user_id: userId, balance: 0 }])
+        .from("wallets")
+        .insert([{
+          user_id: userId,
+          balance: 0,
+          total_credited: 0,
+          total_spent: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }])
         .select()
         .single()
 
@@ -74,63 +81,29 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         )
       }
+
+      return NextResponse.json({
+        balance: 0,
+        totalCredited: 0,
+        totalDebited: 0,
+        transactionCount: 0,
+      })
     }
-
-    // Get total credited (sum of credit transactions)
-    const { data: creditData, error: creditError } = await supabase
-      .from("wallet_transactions")
-      .select("amount")
-      .eq("user_id", userId)
-      .eq("type", "credit")
-
-    if (creditError) {
-      console.error("Credit error:", creditError)
-      return NextResponse.json(
-        { error: "Failed to fetch credits" },
-        { status: 400 }
-      )
-    }
-
-    const totalCredited = creditData?.reduce((sum, t) => sum + t.amount, 0) || 0
-
-    // Get total debited (sum of debit transactions)
-    const { data: debitData, error: debitError } = await supabase
-      .from("wallet_transactions")
-      .select("amount")
-      .eq("user_id", userId)
-      .eq("type", "debit")
-
-    if (debitError) {
-      console.error("Debit error:", debitError)
-      return NextResponse.json(
-        { error: "Failed to fetch debits" },
-        { status: 400 }
-      )
-    }
-
-    const totalDebited = debitData?.reduce((sum, t) => sum + t.amount, 0) || 0
 
     // Get transaction count
     const { count } = await supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
 
-    // Use balance from wallet table as primary source (updated on payment success)
-    const balanceFromWallet = wallet?.balance || 0
-    const calculatedBalance = totalCredited - totalDebited
-    
-    console.log("[WALLET-BALANCE] User:", userId)
-    console.log("[WALLET-BALANCE] Balance from wallet table:", balanceFromWallet)
-    console.log("[WALLET-BALANCE] Calculated balance (credits - debits):", calculatedBalance)
-    console.log("[WALLET-BALANCE] Total credited:", totalCredited, "Total debited:", totalDebited)
-
     const walletData: WalletData = {
-      balance: balanceFromWallet,
-      totalCredited,
-      totalDebited,
+      balance: wallet.balance || 0,
+      totalCredited: wallet.total_credited || 0,
+      totalDebited: wallet.total_spent || 0,
       transactionCount: count || 0,
     }
+
+    console.log("[WALLET-BALANCE] User:", userId, "Wallet data:", walletData)
 
     return NextResponse.json(walletData)
   } catch (error) {

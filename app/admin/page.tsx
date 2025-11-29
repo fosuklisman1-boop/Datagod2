@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loader2 } from "lucide-react"
+import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loader2, MessageSquare } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { adminDashboardService } from "@/lib/admin-service"
 import { toast } from "sonner"
@@ -70,7 +70,7 @@ export default function AdminDashboardPage() {
 
         {/* Stats Cards */}
         {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
             {/* Total Users */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -143,7 +143,7 @@ export default function AdminDashboardPage() {
         )}
 
         {/* Management Sections */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
           {/* Package Management */}
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40 hover:border-blue-300/60">
             <CardHeader>
@@ -245,6 +245,27 @@ export default function AdminDashboardPage() {
                 className="w-full bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white font-semibold"
               >
                 Go to Withdrawals
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Complaints Management */}
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-red-50/60 to-pink-50/40 backdrop-blur-xl border border-red-200/40 hover:border-red-300/60">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-gradient-to-br from-red-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-red-300/60">
+                  <MessageSquare className="h-5 w-5 text-red-600" />
+                </div>
+                <CardTitle>Customer Complaints</CardTitle>
+              </div>
+              <CardDescription>View and resolve customer complaints</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => router.push("/admin/complaints")}
+                className="w-full bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-semibold"
+              >
+                Go to Complaints
               </Button>
             </CardContent>
           </Card>
