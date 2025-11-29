@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { refreshUserSession } from "./session-refresh"
 
 // Admin Package Management
 export const adminPackageService = {
@@ -90,7 +91,17 @@ export const adminUserService = {
   // Get all users with their shop and balance info
   async getAllUsers() {
     try {
-      const response = await fetch("/api/admin/users")
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/users", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
       if (!response.ok) {
         throw new Error("Failed to fetch users")
       }
@@ -104,12 +115,39 @@ export const adminUserService = {
 
   // Update user role
   async updateUserRole(userId: string, role: string) {
-    const { data, error } = await supabase.auth.admin.updateUserById(userId, {
-      user_metadata: { role },
-    })
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
 
-    if (error) throw error
-    return data
+      const endpoint = role === "admin" ? "/api/admin/set-admin" : "/api/admin/remove-admin"
+      
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to update user role to ${role}`)
+      }
+
+      // Add note to response that user needs to refresh their session
+      data.requiresSessionRefresh = true
+      data.sessionRefreshMessage = `The user's role has been updated to "${role}". They will need to log out and log back in to access the new permissions.`
+
+      return data
+    } catch (error: any) {
+      console.error("Error updating user role:", error)
+      throw error
+    }
   },
 
   // Update user balance (credit/debit)
@@ -209,84 +247,124 @@ export const adminUserService = {
       profits: profits || [],
     }
   },
+
+  // Change user password (admin only)
+  async changeUserPassword(
+    userId: string,
+    newPassword: string,
+    session: any
+  ) {
+    const response = await fetch("/api/admin/change-user-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        userId,
+        newPassword,
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || "Failed to change user password")
+    }
+
+    return await response.json()
+  },
 }
 
 // Admin Shop Management
 export const adminShopService = {
   // Get all shops with approval status
   async getAllShops() {
-    const { data, error } = await supabase
-      .from("user_shops")
-      .select(`
-        *,
-        user_id
-      `)
-      .order("created_at", { ascending: false })
-
-    if (error) throw error
-    return data
+    try {
+      const response = await fetch("/api/admin/shops")
+      if (!response.ok) {
+        throw new Error("Failed to fetch shops")
+      }
+      const result = await response.json()
+      return result.data || []
+    } catch (error: any) {
+      console.error("Error fetching shops:", error)
+      throw error
+    }
   },
 
   // Get pending shop approvals
   async getPendingShops() {
-    const { data, error } = await supabase
-      .from("user_shops")
-      .select("*")
-      .eq("is_active", false)
-      .order("created_at", { ascending: false })
-
-    if (error) throw error
-    return data
+    try {
+      const response = await fetch("/api/admin/shops")
+      if (!response.ok) {
+        throw new Error("Failed to fetch shops")
+      }
+      const result = await response.json()
+      return result.data?.filter((shop: any) => shop.is_active === false) || []
+    } catch (error: any) {
+      console.error("Error fetching pending shops:", error)
+      throw error
+    }
   },
 
   // Approve shop
   async approveShop(shopId: string) {
-    const { data, error } = await supabase
-      .from("user_shops")
-      .update({ is_active: true, updated_at: new Date().toISOString() })
-      .eq("id", shopId)
-      .select()
+    try {
+      const response = await fetch("/api/admin/shops/approve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ shopId }),
+      })
 
-    if (error) throw error
-    return data[0]
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to approve shop")
+      }
+
+      return await response.json()
+    } catch (error: any) {
+      console.error("Error approving shop:", error)
+      throw error
+    }
   },
 
   // Reject/Deactivate shop
   async rejectShop(shopId: string) {
-    const { data, error } = await supabase
-      .from("user_shops")
-      .update({ is_active: false, updated_at: new Date().toISOString() })
-      .eq("id", shopId)
-      .select()
+    try {
+      const response = await fetch("/api/admin/shops/reject", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ shopId }),
+      })
 
-    if (error) throw error
-    return data[0]
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to reject shop")
+      }
+
+      return await response.json()
+    } catch (error: any) {
+      console.error("Error rejecting shop:", error)
+      throw error
+    }
   },
 
   // Get shop details with orders
   async getShopDetails(shopId: string) {
-    const { data: shop, error: shopError } = await supabase
-      .from("user_shops")
-      .select("*")
-      .eq("id", shopId)
-      .single()
-
-    if (shopError) throw shopError
-
-    const { data: orders } = await supabase
-      .from("shop_orders")
-      .select("*")
-      .eq("shop_id", shopId)
-
-    const { data: profits } = await supabase
-      .from("shop_profits")
-      .select("*")
-      .eq("shop_id", shopId)
-
-    return {
-      shop,
-      orders: orders || [],
-      profits: profits || [],
+    try {
+      const response = await fetch(`/api/admin/shops/${shopId}`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch shop details")
+      }
+      const result = await response.json()
+      return result.data || { shop: null, orders: [], profits: [] }
+    } catch (error: any) {
+      console.error("Error fetching shop details:", error)
+      throw error
     }
   },
 }

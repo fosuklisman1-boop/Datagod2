@@ -1,170 +1,100 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { toast } from "sonner"
-import { Shield, ArrowLeft } from "lucide-react"
-import { authService } from "@/lib/auth"
+import { Button } from "@/components/ui/button"
+import { Shield, ArrowLeft, Mail, MessageCircle } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { supportSettingsService } from "@/lib/support-settings-service"
 
 export default function ForgotPasswordPage() {
-  const [step, setStep] = useState<"email" | "reset">("email")
-  const [email, setEmail] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const [supportSettings, setSupportSettings] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
 
-  const handleEmailSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setIsLoading(true)
+  useEffect(() => {
+    loadSupportSettings()
+  }, [])
 
+  const loadSupportSettings = async () => {
     try {
-      if (!email) {
-        toast.error("Please enter your email")
-        setIsLoading(false)
-        return
-      }
-
-      await authService.resetPassword(email)
-      toast.success("Password reset link sent to your email")
-      setStep("reset")
-    } catch (error: any) {
-      const errorMessage = error?.message || "Failed to send reset email"
-      toast.error(errorMessage)
-      console.error("Reset password error:", error)
+      const settings = await supportSettingsService.getSupportSettings()
+      setSupportSettings(settings)
+    } catch (error) {
+      console.error("Error loading support settings:", error)
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
   }
 
-  const handleResetSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setIsLoading(true)
-
-    try {
-      if (!newPassword || !confirmPassword) {
-        toast.error("Please fill in all fields")
-        setIsLoading(false)
-        return
-      }
-
-      if (newPassword !== confirmPassword) {
-        toast.error("Passwords do not match")
-        setIsLoading(false)
-        return
-      }
-
-      if (newPassword.length < 6) {
-        toast.error("Password must be at least 6 characters")
-        setIsLoading(false)
-        return
-      }
-
-      await authService.updatePassword(newPassword)
-      toast.success("Password reset successfully!")
-      setTimeout(() => {
-        window.location.href = "/auth/login"
-      }, 2000)
-    } catch (error: any) {
-      const errorMessage = error?.message || "Failed to reset password"
-      toast.error(errorMessage)
-      console.error("Update password error:", error)
-    } finally {
-      setIsLoading(false)
-    }
+  const handleWhatsAppContact = () => {
+    if (!supportSettings?.support_whatsapp) return
+    const message = "Hi, I need help resetting my password."
+    const url = supportSettingsService.formatWhatsAppURL(
+      supportSettings.support_whatsapp,
+      message
+    )
+    window.open(url, "_blank")
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 p-4">
-      <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
-        <CardHeader className="space-y-2 text-center">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-lg">
+        <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-4">
-            <div className="bg-gradient-to-br from-amber-600 via-orange-600 to-rose-600 p-3 rounded-lg shadow-lg">
-              <Shield className="w-8 h-8 text-white" />
+            <div className="bg-indigo-100 p-3 rounded-full">
+              <Shield className="w-6 h-6 text-indigo-600" />
             </div>
           </div>
-          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 bg-clip-text text-transparent">Reset Password</CardTitle>
-          <CardDescription className="text-gray-600">
-            {step === "email" && "Enter your email to receive a reset link"}
-            {step === "reset" && "Create a new password"}
+          <CardTitle>Password Reset</CardTitle>
+          <CardDescription>
+            Contact our support team to reset your password
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          {/* Email Step */}
-          {step === "email" && (
-            <form onSubmit={handleEmailSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
+        <CardContent className="space-y-4">
+          {!loading && supportSettings && (
+            <>
+              <Alert className="border-green-300 bg-green-50">
+                <MessageCircle className="h-4 w-4 text-green-600" />
+                <AlertDescription className="text-sm text-green-700 mt-2">
+                  <p className="font-semibold mb-3">Contact us via WhatsApp:</p>
+                  <Button
+                    onClick={handleWhatsAppContact}
+                    className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Chat on WhatsApp
+                  </Button>
+                  <p className="text-xs mt-3">
+                    Our support team will verify your identity and reset your password.
+                  </p>
+                </AlertDescription>
+              </Alert>
+
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h3 className="font-semibold text-gray-900 mb-2">What to tell our support team:</h3>
+                <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+                  <li>Your registered email address</li>
+                  <li>Your full name</li>
+                  <li>Subject: "Password Reset Request"</li>
+                </ul>
               </div>
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-700 hover:via-orange-700 hover:to-rose-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
-                disabled={isLoading}
-              >
-                {isLoading ? "Sending..." : "Send Reset Link"}
-              </Button>
-            </form>
+
+              {supportSettings.support_email && (
+                <Alert className="border-blue-300 bg-blue-50">
+                  <Mail className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-xs text-blue-700 mt-2">
+                    <p className="font-semibold mb-1">Prefer email?</p>
+                    <p>Email: <a href={`mailto:${supportSettings.support_email}`} className="underline font-semibold hover:no-underline">{supportSettings.support_email}</a></p>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </>
           )}
 
-          {/* Reset Password Step */}
-          {step === "reset" && (
-            <form onSubmit={handleResetSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">New Password</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  placeholder="Enter new password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder="Confirm new password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                />
-              </div>
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-700 hover:via-orange-700 hover:to-rose-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
-                disabled={isLoading}
-              >
-                {isLoading ? "Resetting..." : "Reset Password"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => setStep("email")}
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
-            </form>
-          )}
-
-          {/* Back to Login Link */}
-          <div className="text-center mt-4">
-            <Link href="/auth/login" className="text-sm text-gray-600 hover:underline">
-              Back to Login
+          <div className="text-center">
+            <Link href="/auth/login" className="text-sm text-indigo-600 hover:underline flex items-center justify-center gap-1">
+              <ArrowLeft className="w-3 h-3" /> Back to Login
             </Link>
           </div>
         </CardContent>

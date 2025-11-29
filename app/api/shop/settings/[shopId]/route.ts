@@ -44,10 +44,12 @@ export async function GET(request: NextRequest, { params }: { params: { shopId: 
 export async function PUT(request: NextRequest, { params }: { params: { shopId: string } }) {
   try {
     const { shopId } = params
+    console.log(`[SHOP-SETTINGS] PUT request for shop ${shopId}`)
 
     // Verify user is authenticated
     const authHeader = request.headers.get("authorization")
     if (!authHeader?.startsWith("Bearer ")) {
+      console.log("[SHOP-SETTINGS] Missing authorization header")
       return NextResponse.json(
         { error: "No authorization token" },
         { status: 401 }
@@ -60,20 +62,28 @@ export async function PUT(request: NextRequest, { params }: { params: { shopId: 
     const { data: { user }, error: userError } = await supabase.auth.getUser(token)
 
     if (userError || !user) {
+      console.log("[SHOP-SETTINGS] Invalid token:", userError)
       return NextResponse.json(
         { error: "Invalid token" },
         { status: 401 }
       )
     }
 
+    console.log(`[SHOP-SETTINGS] User ${user.id} updating shop ${shopId}`)
+
     // Check if user owns this shop
-    const { data: shopData } = await supabase
-      .from("shops")
+    const { data: shopData, error: shopError } = await supabase
+      .from("user_shops")
       .select("user_id")
       .eq("id", shopId)
       .single()
 
+    if (shopError) {
+      console.log("[SHOP-SETTINGS] Shop lookup error:", shopError)
+    }
+
     if (!shopData || shopData.user_id !== user.id) {
+      console.log(`[SHOP-SETTINGS] Permission denied. Shop owner: ${shopData?.user_id}, User: ${user.id}`)
       return NextResponse.json(
         { error: "You don't have permission to update this shop" },
         { status: 403 }
@@ -83,21 +93,24 @@ export async function PUT(request: NextRequest, { params }: { params: { shopId: 
     const body = await request.json()
     const { whatsapp_link } = body
 
-    if (!whatsapp_link) {
+    console.log(`[SHOP-SETTINGS] Received whatsapp_link: ${whatsapp_link}`)
+
+    if (!whatsapp_link || whatsapp_link.trim() === "") {
+      console.log("[SHOP-SETTINGS] Empty whatsapp_link")
       return NextResponse.json(
         { error: "whatsapp_link is required" },
         { status: 400 }
       )
     }
 
-    // Validate URL format
-    try {
-      new URL(whatsapp_link)
-    } catch {
+    // Validate URL format - be lenient with WhatsApp links
+    if (!whatsapp_link.includes("whatsapp.com") && !whatsapp_link.startsWith("https://wa.me")) {
+      console.log("[SHOP-SETTINGS] Invalid URL format for WhatsApp")
       return NextResponse.json(
-        { error: "Invalid URL format" },
+        { error: "Invalid WhatsApp URL format" },
         { status: 400 }
       )
+    }
     }
 
     // Get existing settings

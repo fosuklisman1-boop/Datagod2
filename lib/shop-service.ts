@@ -12,7 +12,7 @@ export const shopService = {
   }) {
     const { data, error } = await supabase
       .from("user_shops")
-      .insert([{ user_id: userId, ...shopData, is_active: true }])
+      .insert([{ user_id: userId, ...shopData, is_active: false }])
       .select()
 
     if (error) {

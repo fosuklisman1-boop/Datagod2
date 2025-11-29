@@ -34,6 +34,10 @@ export default function AdminUsersPage() {
   const [balanceAction, setBalanceAction] = useState<"credit" | "debit">("credit")
   const [balanceAmount, setBalanceAmount] = useState("")
   const [newRole, setNewRole] = useState("")
+  const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false)
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
 
   useEffect(() => {
     checkAdminAccess()
@@ -78,7 +82,7 @@ export default function AdminUsersPage() {
 
     try {
       await adminUserService.updateUserRole(selectedUser.id, newRole)
-      toast.success("User role updated successfully")
+      toast.success(`User role updated to ${newRole}. They will need to log out and log back in to access the new permissions.`)
       setNewRole("")
       await loadUsers()
       setShowDetailsDialog(false)
@@ -113,6 +117,49 @@ export default function AdminUsersPage() {
     } catch (error: any) {
       console.error("Error updating balance:", error)
       toast.error(error.message || "Failed to update balance")
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (!selectedUser || !newPassword) {
+      toast.error("Please enter a new password")
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match")
+      return
+    }
+
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters")
+      return
+    }
+
+    setIsChangingPassword(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        toast.error("Session expired. Please refresh the page.")
+        setIsChangingPassword(false)
+        return
+      }
+
+      await adminUserService.changeUserPassword(
+        selectedUser.id,
+        newPassword,
+        session
+      )
+
+      toast.success("Password changed successfully")
+      setNewPassword("")
+      setConfirmPassword("")
+      setShowChangePasswordDialog(false)
+    } catch (error: any) {
+      console.error("Error changing password:", error)
+      toast.error(error.message || "Failed to change password")
+    } finally {
+      setIsChangingPassword(false)
     }
   }
 
@@ -252,6 +299,17 @@ export default function AdminUsersPage() {
                 >
                   Update Role
                 </Button>
+                <Button
+                  onClick={() => {
+                    setNewPassword("")
+                    setConfirmPassword("")
+                    setShowChangePasswordDialog(true)
+                  }}
+                  variant="outline"
+                  className="w-full"
+                >
+                  Change Password
+                </Button>
               </div>
             )}
           </DialogContent>
@@ -303,6 +361,53 @@ export default function AdminUsersPage() {
                   className={`w-full ${balanceAction === "credit" ? "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700" : "bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700"}`}
                 >
                   {balanceAction === "credit" ? "Credit" : "Debit"} Amount
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Change Password Dialog */}
+        <Dialog open={showChangePasswordDialog} onOpenChange={setShowChangePasswordDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Change User Password</DialogTitle>
+              <DialogDescription>
+                Set a new password for {selectedUser?.email}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedUser && (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="newPassword" className="text-xs">New Password</Label>
+                  <Input
+                    id="newPassword"
+                    type="password"
+                    placeholder="••••••••"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    disabled={isChangingPassword}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="confirmPassword" className="text-xs">Confirm Password</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    disabled={isChangingPassword}
+                    className="mt-1"
+                  />
+                </div>
+                <Button
+                  onClick={handleChangePassword}
+                  disabled={isChangingPassword}
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                >
+                  {isChangingPassword ? "Changing..." : "Change Password"}
                 </Button>
               </div>
             )}

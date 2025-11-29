@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!isAdmin) {
-      console.warn(`[SET-ADMIN] Unauthorized attempt by user ${callerUser.id}. Not an admin.`)
+      console.warn(`[REMOVE-ADMIN] Unauthorized attempt by user ${callerUser.id}. Not an admin.`)
       return NextResponse.json({ error: "User not allowed to perform this action" }, { status: 403 })
     }
 
@@ -55,9 +55,9 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Update user metadata to add admin role
+    // Update user metadata to remove admin role
     const { data: authData, error: authError } = await adminClient.auth.admin.updateUserById(userId, {
-      user_metadata: { role: "admin" },
+      user_metadata: { role: "user" },
     })
 
     if (authError) {
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     // Also update the users table role column
     const { data: userData, error: userError } = await adminClient
       .from("users")
-      .update({ role: "admin" })
+      .update({ role: "user" })
       .eq("id", userId)
       .select()
 
@@ -77,11 +77,11 @@ export async function POST(req: NextRequest) {
       // Don't fail - metadata was already updated
     }
 
-    console.log("[SET-ADMIN] User", userId, "has been granted admin role")
+    console.log("[REMOVE-ADMIN] Admin role removed from user", userId)
 
     return NextResponse.json({ 
       success: true, 
-      message: "Admin role granted",
+      message: "Admin role removed",
       user: authData.user,
       updated: userData
     })

@@ -5,12 +5,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { authService } from "@/lib/auth"
 
 interface UserProfile {
   firstName: string
@@ -50,6 +52,13 @@ export default function ProfilePage() {
     totalSpent: 0,
   })
   const [loading, setLoading] = useState(true)
+  const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  })
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
 
   // Auth protection
   useEffect(() => {
@@ -127,6 +136,71 @@ export default function ProfilePage() {
     }
   }
 
+  const handleChangePassword = async () => {
+    // Validation
+    if (!passwordForm.currentPassword) {
+      toast.error("Please enter your current password")
+      return
+    }
+
+    if (!passwordForm.newPassword) {
+      toast.error("Please enter a new password")
+      return
+    }
+
+    if (passwordForm.newPassword.length < 6) {
+      toast.error("New password must be at least 6 characters")
+      return
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast.error("Passwords do not match")
+      return
+    }
+
+    if (passwordForm.currentPassword === passwordForm.newPassword) {
+      toast.error("New password must be different from current password")
+      return
+    }
+
+    setIsChangingPassword(true)
+    try {
+      // First, verify the current password by trying to sign in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: profile.email,
+        password: passwordForm.currentPassword,
+      })
+
+      if (signInError) {
+        toast.error("Current password is incorrect")
+        setIsChangingPassword(false)
+        return
+      }
+
+      // Update the password
+      const { error } = await supabase.auth.updateUser({
+        password: passwordForm.newPassword,
+      })
+
+      if (error) {
+        toast.error(error.message || "Failed to change password")
+      } else {
+        toast.success("Password changed successfully")
+        setPasswordForm({
+          currentPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        })
+        setShowChangePasswordDialog(false)
+      }
+    } catch (error) {
+      console.error("Error changing password:", error)
+      toast.error("An error occurred while changing password")
+    } finally {
+      setIsChangingPassword(false)
+    }
+  }
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -167,7 +241,11 @@ export default function ProfilePage() {
                 <Button className="bg-white text-blue-600 hover:bg-gray-100">
                   Edit Profile
                 </Button>
-                <Button variant="outline" className="border-white text-white hover:bg-white/20">
+                <Button 
+                  variant="outline" 
+                  className="border-white text-white hover:bg-white/20"
+                  onClick={() => setShowChangePasswordDialog(true)}
+                >
                   Change Password
                 </Button>
               </div>
@@ -336,6 +414,85 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Change Password Dialog */}
+      <Dialog open={showChangePasswordDialog} onOpenChange={setShowChangePasswordDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>
+              Enter your current password and a new password
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Current Password</label>
+              <Input
+                type="password"
+                placeholder="Enter your current password"
+                value={passwordForm.currentPassword}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    currentPassword: e.target.value,
+                  })
+                }
+                disabled={isChangingPassword}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">New Password</label>
+              <Input
+                type="password"
+                placeholder="Enter your new password"
+                value={passwordForm.newPassword}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    newPassword: e.target.value,
+                  })
+                }
+                disabled={isChangingPassword}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Confirm Password</label>
+              <Input
+                type="password"
+                placeholder="Confirm your new password"
+                value={passwordForm.confirmPassword}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    confirmPassword: e.target.value,
+                  })
+                }
+                disabled={isChangingPassword}
+                className="mt-1"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setShowChangePasswordDialog(false)}
+                disabled={isChangingPassword}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleChangePassword}
+                disabled={isChangingPassword}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isChangingPassword && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {isChangingPassword ? "Changing..." : "Change Password"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   )
 }

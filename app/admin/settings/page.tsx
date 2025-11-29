@@ -1,29 +1,26 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useAdminProtected } from "@/hooks/use-admin"
 import { useAuth } from "@/lib/auth-context"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, ExternalLink } from "lucide-react"
+import { Loader2, Save, ExternalLink, MessageCircle } from "lucide-react"
+import { supportSettingsService } from "@/lib/support-settings-service"
 
 export default function AdminSettingsPage() {
-  const { user, isAdmin, loading: authLoading } = useAuth()
-  const router = useRouter()
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
+  const { user } = useAuth()
   const [joinCommunityLink, setJoinCommunityLink] = useState("")
+  const [whatsappNumber, setWhatsappNumber] = useState("")
+  const [supportEmail, setSupportEmail] = useState("")
+  const [supportPhone, setSupportPhone] = useState("")
+  const [previewWhatsappUrl, setPreviewWhatsappUrl] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-
-  // Redirect if not admin
-  useEffect(() => {
-    if (!authLoading && (!user || !isAdmin)) {
-      router.push("/auth/login")
-      return
-    }
-  }, [user, isAdmin, authLoading, router])
 
   // Fetch settings
   useEffect(() => {
@@ -37,6 +34,19 @@ export default function AdminSettingsPage() {
         if (data.join_community_link) {
           setJoinCommunityLink(data.join_community_link)
         }
+
+        // Load support settings
+        const supportSettings = await supportSettingsService.getSupportSettings()
+        setWhatsappNumber(supportSettings?.support_whatsapp || "")
+        setSupportEmail(supportSettings?.support_email || "")
+        setSupportPhone(supportSettings?.support_phone || "")
+        if (supportSettings?.support_whatsapp) {
+          const url = supportSettingsService.formatWhatsAppURL(
+            supportSettings.support_whatsapp,
+            "Hi, I need help resetting my password."
+          )
+          setPreviewWhatsappUrl(url)
+        }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
         toast.error("Failed to load settings")
@@ -48,17 +58,32 @@ export default function AdminSettingsPage() {
     fetchSettings()
   }, [user])
 
+  const handleWhatsappChange = (value: string) => {
+    setWhatsappNumber(value)
+    if (value) {
+      const url = supportSettingsService.formatWhatsAppURL(value, "Hi, I need help resetting my password.")
+      setPreviewWhatsappUrl(url)
+    } else {
+      setPreviewWhatsappUrl("")
+    }
+  }
+
   const handleSave = async () => {
     if (!joinCommunityLink.trim()) {
       toast.error("Please enter a join community link")
       return
     }
 
-    // Validate URL
+    if (!whatsappNumber.trim()) {
+      toast.error("Please enter a WhatsApp number")
+      return
+    }
+
+    // Validate URLs
     try {
       new URL(joinCommunityLink)
     } catch {
-      toast.error("Please enter a valid URL")
+      toast.error("Please enter a valid community link URL")
       return
     }
 
@@ -88,6 +113,13 @@ export default function AdminSettingsPage() {
         return
       }
 
+      // Save support settings
+      await supportSettingsService.updateSupportSettings(
+        whatsappNumber,
+        supportEmail,
+        supportPhone
+      )
+
       toast.success("Settings saved successfully!")
     } catch (error) {
       console.error("[SETTINGS] Error saving settings:", error)
@@ -97,7 +129,7 @@ export default function AdminSettingsPage() {
     }
   }
 
-  if (authLoading || loading) {
+  if (adminLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
@@ -174,6 +206,81 @@ export default function AdminSettingsPage() {
                   </>
                 )}
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="w-5 h-5 text-green-600" />
+              Support Contact Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="whatsapp" className="text-sm font-medium">
+                WhatsApp Number (Required)
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                Used for password reset requests. Format: international without + (e.g., 233501234567)
+              </p>
+              <Input
+                id="whatsapp"
+                type="tel"
+                placeholder="233501234567"
+                value={whatsappNumber}
+                onChange={(e) => handleWhatsappChange(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            {previewWhatsappUrl && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-xs font-semibold text-green-900 mb-2">WhatsApp Link Preview:</p>
+                <a
+                  href={previewWhatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-green-600 hover:text-green-700 hover:underline break-all"
+                >
+                  Open WhatsApp Chat
+                </a>
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="supportEmail" className="text-sm font-medium">
+                Support Email (Optional)
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                Shown as alternative contact method
+              </p>
+              <Input
+                id="supportEmail"
+                type="email"
+                placeholder="support@example.com"
+                value={supportEmail}
+                onChange={(e) => setSupportEmail(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="supportPhone" className="text-sm font-medium">
+                Support Phone (Optional)
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                Local phone number format
+              </p>
+              <Input
+                id="supportPhone"
+                type="tel"
+                placeholder="0501234567"
+                value={supportPhone}
+                onChange={(e) => setSupportPhone(e.target.value)}
+                className="w-full"
+              />
             </div>
           </CardContent>
         </Card>

@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS user_shops (
   description TEXT,
   logo_url VARCHAR(500),
   banner_url VARCHAR(500),
-  is_active BOOLEAN DEFAULT true,
+  is_active BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(user_id) -- One shop per user

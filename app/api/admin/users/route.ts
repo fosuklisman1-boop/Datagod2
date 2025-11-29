@@ -20,10 +20,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
     }
 
-    // Check if caller is admin
-    if (callerUser.user_metadata?.role !== "admin") {
+    // Check if caller is admin - check both user_metadata and the users table
+    let isAdmin = callerUser.user_metadata?.role === "admin"
+    
+    if (!isAdmin) {
+      // Also check the users table as a fallback
+      const { data: userData, error: userError } = await supabaseClient
+        .from("users")
+        .select("role")
+        .eq("id", callerUser.id)
+        .single()
+      
+      if (!userError && userData?.role === "admin") {
+        isAdmin = true
+      }
+    }
+
+    if (!isAdmin) {
       console.warn(`[USERS] Unauthorized attempt by user ${callerUser.id}. Not an admin.`)
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
     // Create admin client with service role
@@ -55,7 +70,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: shopsError.message }, { status: 400 })
     }
 
-    // Combine user and shop data with balance calculation
+    // Combine user and shop data with balance from shop_available_balance table
     const usersWithInfo = await Promise.all(
       users.map(async (authUser: any) => {
         const shop = shops?.find((s: any) => s.user_id === authUser.id)
@@ -71,15 +86,14 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        // Get profits for balance calculation
-        const { data: profits } = await adminClient
-          .from("shop_profits")
-          .select("profit_amount, status")
+        // Get available balance from shop_available_balance table (same as shop dashboard)
+        const { data: balanceData } = await adminClient
+          .from("shop_available_balance")
+          .select("available_balance")
           .eq("shop_id", shop.id)
+          .single()
 
-        const balance = profits?.reduce((sum: number, p: any) => {
-          return p.status === "pending" ? sum + p.profit_amount : sum
-        }, 0) || 0
+        const balance = balanceData?.available_balance || 0
 
         return {
           id: authUser.id,

@@ -11,11 +11,13 @@ CREATE TABLE IF NOT EXISTS shop_settings (
 ALTER TABLE shop_settings ENABLE ROW LEVEL SECURITY;
 
 -- Anyone can view shop settings (public storefront)
+DROP POLICY IF EXISTS "Anyone can view shop settings" ON shop_settings;
 CREATE POLICY "Anyone can view shop settings" ON shop_settings
   FOR SELECT
   USING (true);
 
 -- Only shop owner can update
+DROP POLICY IF EXISTS "Shop owner can update settings" ON shop_settings;
 CREATE POLICY "Shop owner can update settings" ON shop_settings
   FOR UPDATE
   USING (
@@ -25,6 +27,7 @@ CREATE POLICY "Shop owner can update settings" ON shop_settings
   );
 
 -- Only shop owner can insert
+DROP POLICY IF EXISTS "Shop owner can insert settings" ON shop_settings;
 CREATE POLICY "Shop owner can insert settings" ON shop_settings
   FOR INSERT
   WITH CHECK (

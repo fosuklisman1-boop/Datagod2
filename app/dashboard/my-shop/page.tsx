@@ -11,8 +11,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { shopService, shopPackageService } from "@/lib/shop-service"
+import { shopService, shopPackageService, shopOrderService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
+import { supabase } from "@/lib/supabase"
 import { AlertCircle, Check, Copy, ExternalLink, Store, Package, Plus, MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
@@ -38,6 +39,14 @@ export default function MyShopPage() {
   const [selectedNetwork, setSelectedNetwork] = useState<string>("All")
   const [whatsappLink, setWhatsappLink] = useState("")
   const [savingWhatsapp, setSavingWhatsapp] = useState(false)
+  const [shopOrders, setShopOrders] = useState<any[]>([])
+  const [orderStats, setOrderStats] = useState({
+    total: 0,
+    completed: 0,
+    pending: 0,
+    failed: 0,
+    totalRevenue: 0,
+  })
 
   useEffect(() => {
     if (!user) return
@@ -86,6 +95,27 @@ export default function MyShopPage() {
         console.error("Error loading all packages:", allPkgError)
         setAllPackages([])
       }
+
+      // Load orders and calculate stats
+      if (userShop) {
+        try {
+          const orders = await shopOrderService.getShopOrders(userShop.id)
+          setShopOrders(orders || [])
+
+          // Calculate stats
+          const stats = {
+            total: orders?.length || 0,
+            completed: orders?.filter((o: any) => o.order_status === "completed").length || 0,
+            pending: orders?.filter((o: any) => o.order_status === "pending").length || 0,
+            failed: orders?.filter((o: any) => o.order_status === "failed").length || 0,
+            totalRevenue: orders?.reduce((sum: number, o: any) => sum + (o.profit_amount || 0), 0) || 0,
+          }
+          setOrderStats(stats)
+        } catch (ordersError: any) {
+          console.error("Error loading orders:", ordersError)
+          setShopOrders([])
+        }
+      }
     } catch (error: any) {
       console.error("Error loading shop:", error)
       if (error.message?.includes("relation") || error.message?.includes("not found")) {
@@ -127,10 +157,21 @@ export default function MyShopPage() {
 
     try {
       setSavingWhatsapp(true)
+      
+      // Get auth token from session
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      if (!token) {
+        toast.error("Not authenticated")
+        return
+      }
+
       const response = await fetch(`/api/shop/settings/${shop.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
         },
         body: JSON.stringify({
           whatsapp_link: whatsappLink,
@@ -429,13 +470,24 @@ export default function MyShopPage() {
               </div>
               <div className="p-3 bg-white/40 rounded-lg border border-white/20">
                 <p className="text-xs text-gray-600">Shop Status</p>
-                <p className="text-sm font-semibold text-green-600">Online</p>
+                <Badge className={shop?.is_active ? "bg-green-600" : "bg-orange-600"}>
+                  {shop?.is_active ? "Active" : "Pending Approval"}
+                </Badge>
               </div>
               <div className="p-3 bg-white/40 rounded-lg border border-white/20">
                 <p className="text-xs text-gray-600">Slug</p>
                 <p className="text-sm font-mono font-semibold">{shop.shop_slug}</p>
               </div>
             </div>
+
+            {!shop?.is_active && (
+              <Alert className="border-orange-300 bg-orange-50">
+                <AlertCircle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-xs text-orange-700">
+                  Your shop is pending admin approval. Once approved, you'll be able to accept customer orders and process payments.
+                </AlertDescription>
+              </Alert>
+            )}
 
             {!editingShop ? (
               <Button
@@ -829,20 +881,125 @@ export default function MyShopPage() {
 
           {/* Orders Tab */}
           <TabsContent value="orders">
-            <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
-              <CardHeader>
-                <CardTitle>Store Overview</CardTitle>
-                <CardDescription>Coming soon: Order management and analytics</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Alert className="border-blue-300 bg-blue-50">
-                  <AlertCircle className="h-4 w-4 text-blue-600" />
-                  <AlertDescription className="text-blue-700">
-                    Order analytics and management will be available once your first customer makes a purchase.
-                  </AlertDescription>
-                </Alert>
-              </CardContent>
-            </Card>
+            <div className="space-y-6">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-blue-600">{orderStats.total}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Completed</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-green-600">{orderStats.completed}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-yellow-50/60 to-orange-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Pending</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-orange-600">{orderStats.pending}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-red-50/60 to-pink-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Failed</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-red-600">{orderStats.failed}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-purple-50/60 to-violet-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Total Revenue</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-purple-600">GHS {orderStats.totalRevenue.toFixed(2)}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Orders Table */}
+              <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+                <CardHeader>
+                  <CardTitle>Recent Orders</CardTitle>
+                  <CardDescription>
+                    {shopOrders.length === 0 
+                      ? "No orders yet. Your first customer purchase will appear here."
+                      : `Showing ${shopOrders.length} order${shopOrders.length !== 1 ? 's' : ''}`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {shopOrders.length === 0 ? (
+                    <Alert className="border-blue-300 bg-blue-50">
+                      <AlertCircle className="h-4 w-4 text-blue-600" />
+                      <AlertDescription className="text-blue-700">
+                        Order analytics and management will show here once your first customer makes a purchase.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="border-b border-cyan-200/40">
+                          <tr>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Order ID</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Network</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Volume</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Profit</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-cyan-100/40">
+                          {shopOrders.map((order: any) => (
+                            <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">
+                              <td className="py-3 px-4 font-mono text-xs text-gray-600">{order.reference_code}</td>
+                              <td className="py-3 px-4">
+                                <div>
+                                  <p className="font-medium text-gray-900">{order.customer_name || "N/A"}</p>
+                                  <p className="text-xs text-gray-500">{order.customer_phone}</p>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <Badge variant="outline">{order.network}</Badge>
+                              </td>
+                              <td className="py-3 px-4 text-gray-900">{order.volume_gb} GB</td>
+                              <td className="py-3 px-4">
+                                <Badge className={
+                                  order.order_status === "completed" ? "bg-green-600" :
+                                  order.order_status === "pending" ? "bg-orange-600" :
+                                  "bg-red-600"
+                                }>
+                                  {order.order_status}
+                                </Badge>
+                              </td>
+                              <td className="py-3 px-4 text-right font-semibold text-purple-600">
+                                GHS {(order.profit_amount || 0).toFixed(2)}
+                              </td>
+                              <td className="py-3 px-4 text-xs text-gray-500">
+                                {new Date(order.created_at).toLocaleDateString()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
           </CardContent>
