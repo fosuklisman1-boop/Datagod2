@@ -75,14 +75,9 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    // Check if user is admin
-    const { data: adminData } = await supabase
-      .from("admins")
-      .select("id")
-      .eq("user_id", user.id)
-      .single()
-
-    if (!adminData) {
+    // Check if user is admin via user_metadata
+    const role = user.user_metadata?.role
+    if (role !== "admin") {
       return NextResponse.json(
         { error: "User is not an admin" },
         { status: 403 }
