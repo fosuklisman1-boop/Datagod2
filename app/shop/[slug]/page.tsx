@@ -264,23 +264,36 @@ export default function ShopStorefront() {
       {/* Navigation Bar */}
       <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 flex-1">
+            {/* Mobile Sidebar Toggle Button */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors lg:hidden"
+              className="lg:hidden p-2 hover:bg-violet-50 text-gray-700 hover:text-violet-600 rounded-lg transition-all duration-200 hover:shadow-md"
+              aria-label="Toggle navigation menu"
+              aria-expanded={sidebarOpen}
             >
-              {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              {sidebarOpen ? (
+                <X className="w-6 h-6" />
+              ) : (
+                <Menu className="w-6 h-6" />
+              )}
             </button>
+            
+            {/* Shop Info */}
             <div className="flex items-center gap-3">
-              <Store className="w-6 h-6 text-violet-600" />
-              <h1 className="text-2xl font-bold text-gray-900">{shop.shop_name || shop.name || "Store"}</h1>
+              <Store className="w-6 h-6 text-violet-600 hidden sm:block" />
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">
+                {shop.shop_name || shop.name || "Store"}
+              </h1>
             </div>
           </div>
+          
+          {/* Shop Logo */}
           {shop.logo_url && (
             <img
               src={shop.logo_url}
               alt={shop.shop_name || "Shop"}
-              className="w-12 h-12 rounded-lg object-cover border-2 border-gray-200"
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover border-2 border-gray-200 flex-shrink-0"
             />
           )}
         </div>
@@ -289,19 +302,22 @@ export default function ShopStorefront() {
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 lg:hidden z-30"
+          className="fixed inset-0 bg-black/40 lg:hidden z-20 transition-opacity duration-200"
           onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
 
       {/* Collapsible Sidebar */}
-      <aside className={`fixed lg:static left-0 top-0 h-screen lg:h-auto bg-white border-r border-gray-200 w-64 lg:w-48 transform transition-transform duration-300 ease-in-out z-30 pt-20 lg:pt-0 ${
-        sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-      }`}>
-        <div className="sticky top-20 lg:top-4 lg:p-0">
-          <Card className="border-0 shadow-md lg:shadow-none lg:border lg:border-gray-200 rounded-none lg:rounded-lg">
+      <aside
+        className={`fixed lg:static left-0 top-16 h-[calc(100vh-64px)] lg:h-auto bg-white border-r border-gray-200 w-64 lg:w-48 transform transition-all duration-300 ease-in-out z-20 lg:border-r-0 ${
+          sidebarOpen ? "translate-x-0 shadow-lg" : "-translate-x-full lg:translate-x-0 lg:shadow-none"
+        }`}
+      >
+        <div className="sticky top-0 lg:top-4 lg:p-0">
+          <Card className="border-0 shadow-none lg:shadow-none lg:border lg:border-gray-200 rounded-none lg:rounded-lg">
             <CardContent className="p-4">
-              <nav className="space-y-2">
+              <nav className="space-y-1">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -309,14 +325,14 @@ export default function ShopStorefront() {
                       setActiveTab(tab.id)
                       setSidebarOpen(false)
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
                       activeTab === tab.id
-                        ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600"
-                        : "text-gray-700 hover:bg-gray-100"
+                        ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600 shadow-sm"
+                        : "text-gray-700 hover:bg-gray-50 border-l-4 border-l-transparent"
                     }`}
                   >
                     {tab.icon}
-                    {tab.label}
+                    <span>{tab.label}</span>
                   </button>
                 ))}
               </nav>
