@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { supabase } from "@/lib/supabase"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
 import { useAuth } from "@/hooks/use-auth"
@@ -72,7 +73,17 @@ export function Sidebar() {
           ? '/api/admin/orders/pending-count'
           : '/api/orders/pending-count'
         
-        const response = await fetch(endpoint)
+        const headers: HeadersInit = {}
+        
+        // Add authorization header for admin endpoint
+        if (isAdmin) {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.access_token) {
+            headers['Authorization'] = `Bearer ${session.access_token}`
+          }
+        }
+        
+        const response = await fetch(endpoint, { headers })
         if (response.ok) {
           const data = await response.json()
           setPendingOrderCount(data.count || 0)
