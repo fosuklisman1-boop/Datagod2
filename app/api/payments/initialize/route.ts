@@ -39,7 +39,17 @@ export async function POST(request: NextRequest) {
     // Generate unique reference
     const reference = `WALLET-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
 
-    // Store payment record
+    // Calculate 3% Paystack fee
+    const paystackFeePercentage = 0.03
+    const paystackFee = Math.round(amount * paystackFeePercentage * 100) / 100
+    const totalAmount = amount + paystackFee
+
+    console.log("[PAYMENT-INIT] Fee Calculation:")
+    console.log("  Original Amount:", amount)
+    console.log("  Paystack Fee (3%):", paystackFee)
+    console.log("  Total Amount:", totalAmount)
+
+    // Store payment record with total amount (including fee)
     console.log("[PAYMENT-INIT] Creating payment record...")
     const { data: paymentData, error: paymentError } = await supabase
       .from("wallet_payments")
@@ -48,7 +58,8 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           shop_id: shopId || null,
           order_id: orderId || null,
-          amount: parseFloat(amount.toString()),
+          amount: parseFloat(totalAmount.toString()),
+          fee: parseFloat(paystackFee.toString()),
           reference,
           status: "pending",
           payment_method: "paystack",
@@ -77,13 +88,15 @@ export async function POST(request: NextRequest) {
     
     const paymentResult = await initializePayment({
       email,
-      amount: parseFloat(amount.toString()),
+      amount: totalAmount,
       reference,
       redirectUrl,
       metadata: {
         userId,
         shopId: shopId || null,
         type: "wallet_topup",
+        originalAmount: amount,
+        paystackFee: paystackFee,
       },
       channels: ["card", "mobile_money", "bank_transfer"],
     })

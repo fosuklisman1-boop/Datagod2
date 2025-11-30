@@ -300,6 +300,28 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           </div>
         </div>
 
+        {/* Fee Breakdown */}
+        {amount && parseFloat(amount) > 0 && (
+          <div className="p-4 bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200/50 rounded-lg space-y-2">
+            <p className="text-sm font-medium text-gray-700">Payment Summary</p>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between text-gray-600">
+                <span>Wallet Top Up:</span>
+                <span>GHS {parseFloat(amount || "0").toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-orange-600">
+                <span>Paystack Fee (3%):</span>
+                <span>GHS {(parseFloat(amount || "0") * 0.03).toFixed(2)}</span>
+              </div>
+              <div className="pt-1 border-t border-orange-200 flex justify-between font-semibold text-gray-900">
+                <span>Total Amount:</span>
+                <span>GHS {(parseFloat(amount || "0") * 1.03).toFixed(2)}</span>
+              </div>
+            </div>
+            <p className="text-xs text-orange-700 mt-2">The 3% fee is charged by Paystack for payment processing.</p>
+          </div>
+        )}
+
         {/* Payment Status Badge */}
         {paymentStatus !== "idle" && (
           <div className="flex items-center gap-2">
@@ -335,7 +357,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           ) : (
             <>
               <Zap className="h-4 w-4 mr-2" />
-              Top Up Wallet - GHS {parseFloat(amount || "0").toFixed(2)}
+              Pay GHS {(parseFloat(amount || "0") * 1.03).toFixed(2)}
             </>
           )}
         </Button>
