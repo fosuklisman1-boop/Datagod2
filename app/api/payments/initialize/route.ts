@@ -59,7 +59,6 @@ export async function POST(request: NextRequest) {
           shop_id: shopId || null,
           order_id: orderId || null,
           amount: parseFloat(totalAmount.toString()),
-          fee: parseFloat(paystackFee.toString()),
           reference,
           status: "pending",
           payment_method: "paystack",
@@ -77,6 +76,10 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[PAYMENT-INIT] ✓ Payment record created:", paymentData[0].id)
+
+    // Store fee information in metadata or handle in webhook
+    // TODO: Add fee column to wallet_payments table and update this code to store fee directly
+    console.log("[PAYMENT-INIT] Fee Info - Original:", amount, "Fee:", paystackFee, "Total:", totalAmount)
 
     // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
