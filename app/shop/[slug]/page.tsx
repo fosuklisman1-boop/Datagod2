@@ -349,8 +349,8 @@ export default function ShopStorefront() {
 
       <div className="max-w-7xl mx-auto px-4">
         {/* Shop Description Section */}
-        <div className="py-8 mb-8 text-center">
-          <p className="text-gray-600 break-words text-lg">{shop.description || "Welcome to our store"}</p>
+        <div className="py-8 mb-8 text-center px-2">
+          <p className="text-gray-600 break-words text-sm sm:text-base md:text-lg">{shop.description || "Welcome to our store"}</p>
           <div className="flex flex-wrap gap-3 mt-4 justify-center">
             {shopSettings?.whatsapp_link && (
               <a
@@ -795,8 +795,8 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
             </Card>
           ) : (
             <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-gray-900">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base sm:text-lg font-bold text-gray-900">
                   Found {orders.length} Order{orders.length !== 1 ? "s" : ""}
                 </h3>
                 <Badge variant="outline">{orders.length}</Badge>
