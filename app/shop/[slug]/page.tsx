@@ -13,6 +13,7 @@ import { shopService, shopPackageService, shopOrderService, networkLogoService }
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
+import { redirectToPayment } from "@/lib/payment-redirect"
 import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft, AlignJustify } from "lucide-react"
 import { toast } from "sonner"
 
@@ -200,12 +201,15 @@ export default function ShopStorefront() {
         // Store payment reference in sessionStorage for verification after redirect
         sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
         
-        // Directly redirect to payment URL instead of using window.open
-        // This works even if popups are blocked
-        // Add small delay to ensure redirect is properly handled, especially in Safari
-        setTimeout(() => {
-          window.location.href = paymentData.authorizationUrl
-        }, 300)
+        // Use utility function for Safari-compatible payment redirect
+        redirectToPayment({
+          url: paymentData.authorizationUrl,
+          delayMs: 300,
+          onError: (error: Error) => {
+            console.error("Payment redirect failed:", error)
+            toast.error("Payment redirect failed. Please try again.")
+          }
+        })
         return
       }
 
