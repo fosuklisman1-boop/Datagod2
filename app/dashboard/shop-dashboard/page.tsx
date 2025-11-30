@@ -32,6 +32,7 @@ export default function ShopDashboardPage() {
     accountNumber: "",
   })
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -121,6 +122,7 @@ export default function ShopDashboardPage() {
       return
     }
 
+    setIsSubmitting(true)
     try {
       const accountDetails: any = {}
       if (withdrawalForm.method === "mobile_money") {
@@ -152,6 +154,8 @@ export default function ShopDashboardPage() {
     } catch (error) {
       console.error("Error creating withdrawal:", error)
       toast.error("Failed to create withdrawal request")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -360,14 +364,23 @@ export default function ShopDashboardPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={handleWithdrawal}
+                  disabled={isSubmitting}
                   className="flex-1 bg-violet-600 hover:bg-violet-700"
                 >
-                  Submit Request
+                  {isSubmitting ? (
+                    <>
+                      <span className="animate-spin mr-2">⏳</span>
+                      Submitting...
+                    </>
+                  ) : (
+                    "Submit Request"
+                  )}
                 </Button>
                 <Button
                   onClick={() => setShowWithdrawalForm(false)}
                   variant="outline"
                   className="flex-1"
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </Button>

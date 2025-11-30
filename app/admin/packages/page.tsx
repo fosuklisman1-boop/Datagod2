@@ -36,6 +36,8 @@ export default function AdminPackagesPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     network: "",
     size: "",
@@ -84,6 +86,7 @@ export default function AdminPackagesPage() {
       return
     }
 
+    setIsSubmitting(true)
     try {
       if (editingId) {
         await adminPackageService.updatePackage(editingId, {
@@ -108,6 +111,8 @@ export default function AdminPackagesPage() {
     } catch (error: any) {
       console.error("Error saving package:", error)
       toast.error(error.message || "Failed to save package")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -125,6 +130,7 @@ export default function AdminPackagesPage() {
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this package?")) return
 
+    setIsDeletingId(id)
     try {
       await adminPackageService.deletePackage(id)
       toast.success("Package deleted successfully")
@@ -132,6 +138,8 @@ export default function AdminPackagesPage() {
     } catch (error: any) {
       console.error("Error deleting package:", error)
       toast.error(error.message || "Failed to delete package")
+    } finally {
+      setIsDeletingId(null)
     }
   }
 
@@ -226,14 +234,23 @@ export default function AdminPackagesPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={handleSubmit}
+                  disabled={isSubmitting}
                   className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
                 >
-                  {editingId ? "Update" : "Create"} Package
+                  {isSubmitting ? (
+                    <>
+                      <span className="animate-spin mr-2">⟳</span>
+                      Saving...
+                    </>
+                  ) : (
+                    <>{editingId ? "Update" : "Create"} Package</>
+                  )}
                 </Button>
                 <Button
                   onClick={resetForm}
                   variant="outline"
                   className="flex-1"
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </Button>
@@ -279,9 +296,14 @@ export default function AdminPackagesPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleDelete(pkg.id)}
+                          disabled={isDeletingId === pkg.id}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {isDeletingId === pkg.id ? (
+                            <span className="animate-spin">⏳</span>
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
                         </Button>
                       </td>
                     </tr>
