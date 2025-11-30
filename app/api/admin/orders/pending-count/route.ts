@@ -34,16 +34,28 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get all pending orders (admin can see all orders from orders table)
-    const { data: orders, error } = await supabase
+    // Get pending orders from both tables
+    // 1. Regular user orders (orders table with status='pending')
+    const { data: userOrders, error: userOrdersError } = await supabase
       .from("orders")
       .select("id")
       .eq("status", "pending")
 
-    if (error) throw error
+    if (userOrdersError) throw userOrdersError
+
+    // 2. Shop orders (shop_orders table with order_status='pending')
+    const { data: shopOrders, error: shopOrdersError } = await supabase
+      .from("shop_orders")
+      .select("id")
+      .eq("order_status", "pending")
+
+    if (shopOrdersError) throw shopOrdersError
+
+    // Total pending orders = user orders + shop orders
+    const totalPendingCount = (userOrders?.length || 0) + (shopOrders?.length || 0)
 
     return NextResponse.json({
-      count: orders?.length || 0
+      count: totalPendingCount
     })
   } catch (error) {
     console.error("Error fetching admin pending orders count:", error)
