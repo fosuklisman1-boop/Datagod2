@@ -477,7 +477,6 @@ export default function AdminOrdersPage() {
                             <option value="">Update Status</option>
                             <option value="completed">Completed</option>
                             <option value="failed">Failed</option>
-                            <option value="pending">Pending</option>
                           </select>
                         </div>
                       </div>
