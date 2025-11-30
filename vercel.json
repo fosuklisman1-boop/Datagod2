@@ -1,9 +1,13 @@
-module.exports = {
-  regions: ["iad1"],
-  functions: {
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "functions": {
     "api/**/*.ts": {
-      maxDuration: 30,
-      memory: 1024,
-    },
-  },
-};
+      "maxDuration": 30,
+      "memory": 1024
+    }
+  }
+}
