@@ -67,7 +67,12 @@ export function Sidebar() {
 
     const fetchPendingOrders = async () => {
       try {
-        const response = await fetch('/api/orders/pending-count')
+        // Determine which endpoint to use based on user role
+        const endpoint = isAdmin 
+          ? '/api/admin/orders/pending-count'
+          : '/api/orders/pending-count'
+        
+        const response = await fetch(endpoint)
         if (response.ok) {
           const data = await response.json()
           setPendingOrderCount(data.count || 0)
@@ -78,7 +83,7 @@ export function Sidebar() {
     }
 
     fetchPendingOrders()
-  }, [user])
+  }, [user, isAdmin])
 
   // Handle mobile responsiveness
   useEffect(() => {
@@ -306,7 +311,16 @@ export function Sidebar() {
                   ) : (
                     <Download className="w-5 h-5 flex-shrink-0" />
                   )}
-                  {isOpen && "Orders"}
+                  {isOpen && (
+                    <div className="flex items-center justify-between flex-1">
+                      <span>Orders</span>
+                      {pendingOrderCount > 0 && (
+                        <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs ml-2">
+                          {pendingOrderCount}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
                 </Button>
               </Link>
             </div>
