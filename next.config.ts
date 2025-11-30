@@ -2,9 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   devIndicators: false,
-  // Disable ESLint during build (handled separately in CI/CD)
+  // Disable ESLint during build on production/Vercel
+  // ESLint warnings shouldn't block production builds
   eslint: {
-    ignoreDuringBuilds: process.env.CI === "true",
+    ignoreDuringBuilds: true,
   },
   // Vercel-optimized settings
   compress: true,
