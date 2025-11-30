@@ -30,16 +30,6 @@ export default function AdminSettingsPage() {
     { name: "Sign Up", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/auth/signup` },
   ])
 
-  const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`
-  
-  const webhookUrls = [
-    { 
-      name: "Paystack Webhook", 
-      url: webhookUrl,
-      description: "Configure this in Paystack Dashboard → Settings → Webhooks"
-    },
-  ]
-
   // Fetch settings
   useEffect(() => {
     if (!user) return
@@ -361,36 +351,37 @@ export default function AdminSettingsPage() {
               Configure these webhook URLs in your payment provider settings for real-time transaction updates.
             </p>
             <div className="space-y-3">
-              {webhookUrls.map((item) => (
-                <div
-                  key={item.url}
-                  className="p-4 border border-purple-200 bg-purple-50 rounded-lg space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-gray-900">{item.name}</p>
-                      <p className="text-xs text-gray-600 mt-1">{item.description}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => copyToClipboard(item.url)}
-                      className="flex-shrink-0 ml-2"
-                    >
-                      {copiedUrl === item.url ? (
-                        <Check className="w-4 h-4" />
-                      ) : (
-                        <Copy className="w-4 h-4" />
-                      )}
-                    </Button>
+              <div className="p-4 border border-purple-200 bg-purple-50 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-900">Paystack Webhook</p>
+                    <p className="text-xs text-gray-600 mt-1">Configure this in Paystack Dashboard → Settings → Webhooks</p>
                   </div>
-                  <div className="p-2 bg-white rounded border border-purple-200">
-                    <p className="text-xs text-gray-700 font-mono break-all">{item.url}</p>
-                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => copyToClipboard(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`)}
+                    className="flex-shrink-0 ml-2"
+                  >
+                    {copiedUrl === `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack` ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </Button>
                 </div>
-              ))}
+                <div className="p-2 bg-white rounded border border-purple-200">
+                  <p className="text-xs text-gray-700 font-mono break-all">{`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`}</p>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Settings Information</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-gray-700">
             <p>
               The join community link will be available to:
             </p>
