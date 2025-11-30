@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, AlertCircle, CheckCircle, Zap, Bug, ExternalLink } from "lucide-react"
-import { initializePayment, verifyPayment } from "@/lib/payment-service"
+import { Loader2, AlertCircle, CheckCircle, Zap, Bug } from "lucide-react"
+import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
@@ -20,13 +20,10 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [email, setEmail] = useState("")
   const [userId, setUserId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isProcessing, setIsProcessing] = useState(false)
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "success" | "error">(
     "idle"
   )
   const [errorMessage, setErrorMessage] = useState("")
-  const [debugInfo, setDebugInfo] = useState<any>(null)
-  const [showDebug, setShowDebug] = useState(false)
   const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || ""
 
   // Predefined amounts
@@ -89,115 +86,18 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
       console.log("[WALLET-TOPUP] Payment initialized:", paymentResult)
 
-      // Store debug info
-      const debugData = {
-        publicKey: paystackPublicKey,
-        email: email,
-        amount: parseFloat(amount),
-        amountInPesewa: Math.round(parseFloat(amount) * 100),
-        reference: paymentResult.reference,
-        accessCode: paymentResult.accessCode,
-        authorizationUrl: paymentResult.authorizationUrl,
-      }
-      setDebugInfo(debugData)
-
-      // Load Paystack script if not already loaded
-      if (!window.PaystackPop) {
-        console.log("[WALLET-TOPUP] Loading Paystack script...")
-        await loadPaystackScript()
-      }
-
-      console.log("[WALLET-TOPUP] Opening Paystack checkout URL:", paymentResult.authorizationUrl)
+      console.log("[WALLET-TOPUP] Redirecting to Paystack checkout URL:", paymentResult.authorizationUrl)
       
-      // Use the authorization URL from backend - this is already initialized
-      // Don't call setup() again as it would try to initialize a NEW transaction
-      const checkoutWindow = window.open(
-        paymentResult.authorizationUrl,
-        'paystackpayment',
-        'height=600,width=600,left=' + (screen.width / 2 - 300) + ',top=' + (screen.height / 2 - 300)
-      )
-
-      if (!checkoutWindow) {
-        // Popup was blocked - offer user a fallback option
-        console.warn("[WALLET-TOPUP] Popup blocked, offering fallback redirect option")
-        
-        // Store the payment reference in sessionStorage for later verification
-        sessionStorage.setItem('lastPaymentReference', paymentResult.reference)
-        
-        setPaymentStatus("processing")
-        
-        // Show a dialog for user to choose redirect or try again
-        const userChoice = window.confirm(
-          "Popups are blocked on your browser. Would you like to proceed to payment in a new tab? Click 'OK' to continue or 'Cancel' to try again with popups enabled."
-        )
-        
-        if (userChoice) {
-          // Redirect to payment URL
-          window.location.href = paymentResult.authorizationUrl
-        } else {
-          setPaymentStatus("idle")
-          toast.error("Please enable popups in your browser settings to use the popup checkout.")
-        }
-        return
-      }
-
-      // Popup opened successfully
+      // Store the payment reference in sessionStorage for verification after redirect
+      sessionStorage.setItem('lastPaymentReference', paymentResult.reference)
+      
       setPaymentStatus("processing")
-
-      // Monitor for payment completion
-      let pollCount = 0
-      const maxPolls = 300 // 5 minutes with 1-second intervals
-      const pollInterval = setInterval(async () => {
-        pollCount++
-        
-        // If window closed, verify the payment
-        if (checkoutWindow.closed) {
-          clearInterval(pollInterval)
-          console.log("[WALLET-TOPUP] Checkout window closed, verifying payment...")
-          setIsProcessing(true)
-          
-          try {
-            const verificationResult = await verifyPayment({
-              reference: paymentResult.reference,
-            })
-
-            console.log("[WALLET-TOPUP] Verification result:", verificationResult)
-
-            if (verificationResult.status === "success") {
-              setPaymentStatus("success")
-              toast.success(`Payment successful! GHS ${verificationResult.amount} added to wallet.`)
-              setAmount("")
-              
-              // Wait a moment for database to be fully updated
-              await new Promise(resolve => setTimeout(resolve, 1000))
-              
-              if (onSuccess) {
-                console.log("[WALLET-TOPUP] Calling onSuccess callback with amount:", verificationResult.amount)
-                onSuccess(verificationResult.amount)
-              }
-            } else {
-              setPaymentStatus("error")
-              setErrorMessage(`Payment status: ${verificationResult.status}`)
-              toast.error(`Payment ${verificationResult.status}`)
-            }
-          } catch (verifyError) {
-            setPaymentStatus("error")
-            setErrorMessage(verifyError instanceof Error ? verifyError.message : "Verification failed")
-            toast.error("Payment verification failed")
-          } finally {
-            setIsProcessing(false)
-            setIsLoading(false)
-          }
-        }
-        
-        // Stop polling after max time
-        if (pollCount > maxPolls) {
-          clearInterval(pollInterval)
-          setIsLoading(false)
-          setPaymentStatus("idle")
-          console.log("[WALLET-TOPUP] Polling timeout - checkout took too long")
-        }
-      }, 1000)
+      
+      // Use direct redirect instead of popup (works better cross-browser, especially Safari)
+      // Paystack will redirect back to our redirect URL after payment
+      setTimeout(() => {
+        window.location.href = paymentResult.authorizationUrl
+      }, 500)
     } catch (error) {
       console.error("[WALLET-TOPUP] Error:", error)
       setPaymentStatus("error")
@@ -205,28 +105,6 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       toast.error("Payment initialization failed")
       setIsLoading(false)
     }
-  }
-
-  const loadPaystackScript = (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if (document.getElementById("paystack-script")) {
-        resolve()
-        return
-      }
-
-      const script = document.createElement("script")
-      script.id = "paystack-script"
-      script.src = "https://js.paystack.co/v1/inline.js"
-      script.onload = () => {
-        console.log("[WALLET-TOPUP] Paystack script loaded successfully")
-        resolve()
-      }
-      script.onerror = () => {
-        console.error("[WALLET-TOPUP] Failed to load Paystack script")
-        reject(new Error("Failed to load Paystack script"))
-      }
-      document.body.appendChild(script)
-    })
   }
 
   return (
@@ -352,7 +230,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           {isLoading || isProcessing ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              {isProcessing ? "Processing..." : "Initializing Payment..."}
+              Redirecting to Payment...
             </>
           ) : (
             <>
@@ -374,31 +252,19 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             {showDebug ? "Hide" : "Show"} Debug Info
           </Button>
 
-          {showDebug && debugInfo && (
-            <div className="mt-4 p-4 bg-slate-900 text-slate-50 rounded-lg font-mono text-xs space-y-2 max-h-48 overflow-auto">
+          {showDebug && paymentStatus === "processing" && (
+            <div className="mt-4 p-4 bg-slate-900 text-slate-50 rounded-lg font-mono text-xs space-y-2">
               <div>
-                <span className="text-cyan-400">publicKey:</span>{" "}
-                <span className="text-slate-300">{debugInfo.publicKey?.slice(0, 20)}...</span>
+                <span className="text-cyan-400">status:</span>{" "}
+                <span className="text-slate-300">Redirecting to Paystack...</span>
               </div>
               <div>
                 <span className="text-cyan-400">email:</span>{" "}
-                <span className="text-slate-300">{debugInfo.email}</span>
+                <span className="text-slate-300">{email}</span>
               </div>
               <div>
                 <span className="text-cyan-400">amount:</span>{" "}
-                <span className="text-slate-300">{debugInfo.amount} GHS</span>
-              </div>
-              <div>
-                <span className="text-cyan-400">amountInPesewa:</span>{" "}
-                <span className="text-slate-300">{debugInfo.amountInPesewa}</span>
-              </div>
-              <div>
-                <span className="text-cyan-400">reference:</span>{" "}
-                <span className="text-slate-300">{debugInfo.reference}</span>
-              </div>
-              <div>
-                <span className="text-cyan-400">accessCode:</span>{" "}
-                <span className="text-slate-300">{debugInfo.accessCode}</span>
+                <span className="text-slate-300">{amount} GHS (total with 3% fee)</span>
               </div>
             </div>
           )}
