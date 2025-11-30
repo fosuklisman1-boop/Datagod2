@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
-import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft } from "lucide-react"
+import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft, AlignJustify } from "lucide-react"
 import { toast } from "sonner"
 
 export default function ShopStorefront() {
@@ -29,7 +29,6 @@ export default function ShopStorefront() {
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [activeTab, setActiveTab] = useState<"products" | "about" | "track-order">("products")
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [orderData, setOrderData] = useState({
     customer_name: "",
     customer_email: "",
@@ -266,18 +265,14 @@ export default function ShopStorefront() {
       <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
-            {/* Mobile Sidebar Toggle Button */}
+            {/* 3-Line Hamburger Button */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden p-2 hover:bg-violet-50 text-gray-700 hover:text-violet-600 rounded-lg transition-all duration-200 hover:shadow-md"
+              className="p-2 hover:bg-violet-50 text-gray-700 hover:text-violet-600 rounded-lg transition-all duration-200 hover:shadow-md"
               aria-label="Toggle navigation menu"
               aria-expanded={sidebarOpen}
             >
-              {sidebarOpen ? (
-                <X className="w-6 h-6" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
+              <AlignJustify className="w-6 h-6" />
             </button>
             
             {/* Shop Info */}
@@ -303,7 +298,7 @@ export default function ShopStorefront() {
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/40 lg:hidden z-20 transition-opacity duration-200"
+          className="fixed inset-0 bg-black/40 z-20 transition-opacity duration-200"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -311,22 +306,13 @@ export default function ShopStorefront() {
 
       {/* Collapsible Sidebar */}
       <aside
-        className={`fixed lg:static left-0 top-16 h-[calc(100vh-64px)] lg:h-auto bg-white border-r border-gray-200 transform transition-all duration-300 ease-in-out z-20 lg:border-r-0 ${
-          sidebarOpen ? "translate-x-0 shadow-lg w-64" : "-translate-x-full lg:translate-x-0 lg:shadow-none"
-        } ${sidebarCollapsed ? "lg:w-20" : "lg:w-48"}`}
+        className={`fixed left-0 top-16 h-[calc(100vh-64px)] bg-white border-r border-gray-200 w-64 transform transition-all duration-300 ease-in-out z-30 shadow-lg ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
       >
-        <div className="sticky top-0 lg:top-4 lg:p-0 h-full overflow-y-auto">
-          <Card className="border-0 shadow-none lg:shadow-none lg:border lg:border-gray-200 rounded-none lg:rounded-lg h-full">
+        <div className="sticky top-0 overflow-y-auto h-full">
+          <Card className="border-0 shadow-none rounded-none h-full">
             <CardContent className="p-4">
-              {/* Desktop Collapse Button */}
-              <button
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="hidden lg:flex w-full items-center justify-end mb-4 p-1 hover:bg-gray-100 rounded-lg transition-colors"
-                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              >
-                <ChevronLeft className={`w-5 h-5 text-gray-600 transition-transform duration-300 ${sidebarCollapsed ? "rotate-180" : ""}`} />
-              </button>
-              
               <nav className="space-y-1">
                 {tabs.map((tab) => (
                   <button
@@ -339,11 +325,10 @@ export default function ShopStorefront() {
                       activeTab === tab.id
                         ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600 shadow-sm"
                         : "text-gray-700 hover:bg-gray-50 border-l-4 border-l-transparent"
-                    } ${sidebarCollapsed ? "lg:justify-center lg:px-2" : ""}`}
-                    title={sidebarCollapsed ? tab.label : ""}
+                    }`}
                   >
                     {tab.icon}
-                    <span className={`${sidebarCollapsed ? "lg:hidden" : ""}`}>{tab.label}</span>
+                    <span>{tab.label}</span>
                   </button>
                 ))}
               </nav>
