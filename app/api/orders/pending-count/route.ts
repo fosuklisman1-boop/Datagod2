@@ -6,28 +6,10 @@ export async function GET(request: NextRequest) {
     // Get the user from the auth header
     const authHeader = request.headers.get("authorization")
     if (!authHeader?.startsWith("Bearer ")) {
-      // If no auth header, try to get session from Supabase
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session?.user) {
-        return NextResponse.json(
-          { error: "Unauthorized" },
-          { status: 401 }
-        )
-      }
-
-      // Get pending orders for this user
-      const { data: orders, error } = await supabase
-        .from("shop_orders")
-        .select("id")
-        .eq("user_id", session.user.id)
-        .eq("order_status", "pending")
-
-      if (error) throw error
-
-      return NextResponse.json({
-        count: orders?.length || 0
-      })
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
     }
 
     // Extract token from Bearer header
@@ -43,11 +25,26 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get pending orders for this user
+    // Get pending orders for this user from orders table (user dashboard orders)
     const { data: orders, error } = await supabase
-      .from("shop_orders")
+      .from("orders")
       .select("id")
       .eq("user_id", user.id)
+      .eq("status", "pending")
+
+    if (error) throw error
+
+    return NextResponse.json({
+      count: orders?.length || 0
+    })
+  } catch (error) {
+    console.error("Error fetching pending orders count:", error)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}
       .eq("order_status", "pending")
 
     if (error) throw error

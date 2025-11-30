@@ -34,11 +34,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get all pending orders (admin can see all)
+    // Get all pending orders (admin can see all orders from orders table)
     const { data: orders, error } = await supabase
-      .from("shop_orders")
+      .from("orders")
       .select("id")
-      .eq("order_status", "pending")
+      .eq("status", "pending")
 
     if (error) throw error
 
