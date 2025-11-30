@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle, Loader2 } from "lucide-react"
+import { validatePhoneNumber } from "@/lib/phone-validation"
 
 interface PhoneNumberModalProps {
   open: boolean
@@ -21,6 +22,7 @@ interface PhoneNumberModalProps {
   onSubmit: (phoneNumber: string) => void
   isLoading?: boolean
   packageName?: string
+  network?: string
 }
 
 export function PhoneNumberModal({
@@ -29,43 +31,20 @@ export function PhoneNumberModal({
   onSubmit,
   isLoading = false,
   packageName = "Data Package",
+  network,
 }: PhoneNumberModalProps) {
   const [phoneNumber, setPhoneNumber] = useState("")
   const [error, setError] = useState<string | null>(null)
 
-  const validatePhoneNumber = (phone: string): string | null => {
-    if (!phone.trim()) {
-      return "Phone number is required"
-    }
-
-    const cleaned = phone.replace(/\D/g, "")
-
-    if (cleaned.length !== 10) {
-      return "Phone number must be exactly 10 digits"
-    }
-
-    if (!cleaned.startsWith("0")) {
-      return "Phone number must start with 0"
-    }
-
-    if (!["2", "5"].includes(cleaned[1])) {
-      return "Phone number must start with 02 or 05"
-    }
-
-    return null
-  }
-
   const handleSubmit = () => {
-    const validationError = validatePhoneNumber(phoneNumber)
-    if (validationError) {
-      setError(validationError)
+    const result = validatePhoneNumber(phoneNumber, network)
+    if (!result.isValid) {
+      setError(result.error || "Invalid phone number")
       return
     }
 
     setError(null)
-    // Use the phone number as-is (already validated to be 10 digits)
-    const cleaned = phoneNumber.replace(/\D/g, "")
-    onSubmit(cleaned)
+    onSubmit(result.normalized)
     setPhoneNumber("")
   }
 
@@ -109,7 +88,7 @@ export function PhoneNumberModal({
               type="tel"
             />
             <p className="text-xs text-gray-600">
-              Format: 10 digits starting with 02 or 05
+              Format: 9 or 10 digits starting with 02 or 05
             </p>
           </div>
         </div>

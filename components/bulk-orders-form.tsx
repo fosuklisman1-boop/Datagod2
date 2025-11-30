@@ -17,6 +17,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "sonner"
 import { Download, CheckCircle, AlertCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { validatePhoneNumber } from "@/lib/phone-validation"
 import {
   Dialog,
   DialogContent,
@@ -138,8 +139,9 @@ export function BulkOrdersForm() {
 
       const [phone, volume] = parts
 
-      // Validate phone is numeric
-      if (!/^\d+$/.test(phone)) {
+      // Validate phone using shared utility
+      const phoneResult = validatePhoneNumber(phone, selectedNetworkLabel)
+      if (!phoneResult.isValid) {
         invalid++
         orders.push({
           id,
@@ -147,75 +149,12 @@ export function BulkOrdersForm() {
           volume: 0,
           price: 0,
           status: "invalid",
-          reason: "Phone number must contain only digits",
+          reason: phoneResult.error || "Invalid phone number",
         })
         return
       }
 
-      // If phone is 9 digits, prepend 0 to make it 10 digits
-      let normalizedPhone = phone
-      if (phone.length === 9) {
-        normalizedPhone = "0" + phone
-      } else if (phone.length !== 10) {
-        invalid++
-        orders.push({
-          id,
-          phone,
-          volume: 0,
-          price: 0,
-          status: "invalid",
-          reason: "Phone number must be 9 or 10 digits",
-        })
-        return
-      }
-
-      // Get the selected network name
-      const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
-
-      // Network-specific phone validation
-      if (selectedNetworkLabel === "Telecel" || selectedNetworkLabel === "TELECEL") {
-        // Telecel: 020 or 050 (second and third digit must be 2 or 5, followed by 0)
-        if (!normalizedPhone.startsWith("020") && !normalizedPhone.startsWith("050")) {
-          invalid++
-          orders.push({
-            id,
-            phone,
-            volume: 0,
-            price: 0,
-            status: "invalid",
-            reason: "Telecel requires phone numbers starting with 020 or 050",
-          })
-          return
-        }
-      } else {
-        // Other networks: must start with 02 or 05 (second digit must be 2 or 5)
-        if (!normalizedPhone.startsWith("0")) {
-          invalid++
-          orders.push({
-            id,
-            phone,
-            volume: 0,
-            price: 0,
-            status: "invalid",
-            reason: "Phone number must start with 0",
-          })
-          return
-        }
-
-        const secondDigit = normalizedPhone.charAt(1)
-        if (secondDigit !== "2" && secondDigit !== "5") {
-          invalid++
-          orders.push({
-            id,
-            phone,
-            volume: 0,
-            price: 0,
-            status: "invalid",
-            reason: "Invalid phone format. After 0, only 2 or 5 are allowed (e.g., 02... or 05...)",
-          })
-          return
-        }
-      }
+      const normalizedPhone = phoneResult.normalized
 
       const volumeNum = parseFloat(volume)
       

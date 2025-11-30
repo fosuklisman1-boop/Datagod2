@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
+import { validatePhoneNumber } from "@/lib/phone-validation"
 import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft, AlignJustify } from "lucide-react"
 import { toast } from "sonner"
 
@@ -114,18 +115,9 @@ export default function ShopStorefront() {
     return ""
   }
 
-  const validatePhoneNumber = (phone: string): boolean => {
-    // Remove all non-digit characters
-    const cleaned = phone.replace(/\D/g, "")
-    
-    // Normalize: if 9 digits, prepend 0
-    let normalized = cleaned
-    if (cleaned.length === 9) {
-      normalized = "0" + cleaned
-    }
-
-    // Check if it's exactly 10 digits
-    return normalized.length === 10
+  const validatePhoneNumberField = (phone: string, network?: string): boolean => {
+    const result = validatePhoneNumber(phone, network)
+    return result.isValid
   }
 
   const handleSubmitOrder = async () => {
@@ -139,17 +131,20 @@ export default function ShopStorefront() {
       return
     }
 
-    if (!validatePhoneNumber(orderData.customer_phone)) {
-      toast.error("Please enter a valid 10-digit phone number")
+    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.network)) {
+      toast.error("Please enter a valid phone number")
       return
     }
 
     try {
       setSubmitting(true)
 
-      // Normalize phone number
-      const cleaned = orderData.customer_phone.replace(/\D/g, "")
-      const normalizedPhone = cleaned.length === 9 ? "0" + cleaned : cleaned
+      // Normalize phone number using shared utility
+      const phoneResult = validatePhoneNumber(orderData.customer_phone, selectedPackage.network)
+      if (!phoneResult.isValid) {
+        throw new Error(phoneResult.error || "Invalid phone number")
+      }
+      const normalizedPhone = phoneResult.normalized
 
       const pkg = selectedPackage.packages
       const basePrice = pkg.price
