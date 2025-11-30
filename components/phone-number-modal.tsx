@@ -39,17 +39,16 @@ export function PhoneNumberModal({
     }
 
     const cleaned = phone.replace(/\D/g, "")
-    const normalized = cleaned.length === 9 ? "0" + cleaned : cleaned
 
-    if (normalized.length !== 10) {
-      return "Phone number must be 10 digits"
+    if (cleaned.length !== 10) {
+      return "Phone number must be exactly 10 digits"
     }
 
-    if (!normalized.startsWith("0")) {
+    if (!cleaned.startsWith("0")) {
       return "Phone number must start with 0"
     }
 
-    if (!["2", "5"].includes(normalized[2])) {
+    if (!["2", "5"].includes(cleaned[1])) {
       return "Phone number must start with 02 or 05"
     }
 
@@ -64,10 +63,9 @@ export function PhoneNumberModal({
     }
 
     setError(null)
-    // Normalize phone number before submitting
+    // Use the phone number as-is (already validated to be 10 digits)
     const cleaned = phoneNumber.replace(/\D/g, "")
-    const normalized = cleaned.length === 9 ? "0" + cleaned : cleaned
-    onSubmit(normalized)
+    onSubmit(cleaned)
     setPhoneNumber("")
   }
 
