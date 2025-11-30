@@ -229,6 +229,16 @@ export async function POST(request: NextRequest) {
       
       if (!isShopOrderPayment) {
         const amountInGHS = amount / 100
+        
+        // Calculate the actual credit amount (excluding the 3% fee)
+        // Fee is stored in the payment record
+        const feeAmount = paymentData.fee || 0
+        const creditAmount = amountInGHS - feeAmount
+
+        console.log(`[WEBHOOK] Credit calculation:`)
+        console.log(`  Total paid: GHS ${amountInGHS.toFixed(2)}`)
+        console.log(`  Fee (3%): GHS ${feeAmount.toFixed(2)}`)
+        console.log(`  Credit amount: GHS ${creditAmount.toFixed(2)}`)
 
         // Get current wallet balance
         const { data: walletData, error: walletFetchError } = await supabase
@@ -259,8 +269,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true, skipped: "already_credited" })
         }
 
-        const newBalance = currentBalance + amountInGHS
-        const newTotalCredited = currentTotalCredited + amountInGHS
+        const newBalance = currentBalance + creditAmount
+        const newTotalCredited = currentTotalCredited + creditAmount
 
         // Update wallet balance
         const { error: walletUpdateError } = await supabase
@@ -287,7 +297,7 @@ export async function POST(request: NextRequest) {
             {
               user_id: paymentData.user_id,
               type: "credit",
-              amount: amountInGHS,
+              amount: creditAmount,
               reference_id: reference,
               source: "wallet_topup",
               description: "Wallet top-up via Paystack",
@@ -308,7 +318,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        console.log(`[WEBHOOK] ✓ Wallet credited for user ${paymentData.user_id}: GHS ${amountInGHS.toFixed(2)}`)
+        console.log(`[WEBHOOK] ✓ Wallet credited for user ${paymentData.user_id}: GHS ${creditAmount.toFixed(2)} (after GHS ${feeAmount.toFixed(2)} fee)`)
       } else {
         console.log(`[WEBHOOK] ✓ Shop order payment - NOT credited to wallet (profit goes to shop instead)`)
       }
