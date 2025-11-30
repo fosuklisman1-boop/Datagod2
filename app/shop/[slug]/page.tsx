@@ -856,19 +856,6 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                         </Badge>
                       </div>
                     </div>
-
-                    <div className="pt-4 border-t">
-                      <Link href={`/dashboard/complaints?orderId=${order.id}&orderRef=${order.reference_code}`}>
-                        <Button
-                          variant="outline"
-                          className="w-full"
-                          size="sm"
-                        >
-                          <AlertCircle className="w-4 h-4 mr-2" />
-                          File a Complaint
-                        </Button>
-                      </Link>
-                    </div>
                   </CardContent>
                 </Card>
               ))}
