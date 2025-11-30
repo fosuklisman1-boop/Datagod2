@@ -46,18 +46,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-      .eq("order_status", "pending")
-
-    if (error) throw error
-
-    return NextResponse.json({
-      count: orders?.length || 0
-    })
-  } catch (error) {
-    console.error("Error fetching pending orders count:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
-  }
-}
