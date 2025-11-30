@@ -202,7 +202,10 @@ export default function ShopStorefront() {
         
         // Directly redirect to payment URL instead of using window.open
         // This works even if popups are blocked
-        window.location.href = paymentData.authorizationUrl
+        // Add small delay to ensure redirect is properly handled, especially in Safari
+        setTimeout(() => {
+          window.location.href = paymentData.authorizationUrl
+        }, 300)
         return
       }
 
