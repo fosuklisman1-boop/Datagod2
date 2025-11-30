@@ -247,7 +247,8 @@ export default function MyOrdersPage() {
                   <option value="all">All Networks</option>
                   <option value="MTN">MTN</option>
                   <option value="Telecel">Telecel</option>
-                  <option value="AT">AT - iShare</option>
+                  <option value="AT - iShare">AT - iShare</option>
+                  <option value="AT - BigTime">AT - BigTime</option>
                 </select>
               </div>
               <div>

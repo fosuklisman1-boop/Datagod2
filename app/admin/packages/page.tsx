@@ -25,10 +25,8 @@ interface Package {
 const AVAILABLE_NETWORKS = [
   "MTN",
   "Telecel",
-  "AT",
   "AT - iShare",
   "AT - BigTime",
-  "iShare",
 ]
 
 export default function AdminPackagesPage() {

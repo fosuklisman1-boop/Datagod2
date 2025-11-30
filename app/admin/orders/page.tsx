@@ -50,7 +50,7 @@ export default function AdminOrdersPage() {
   
   const [showNetworkSelection, setShowNetworkSelection] = useState(false)
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([])
-  const allNetworks = ["MTN", "Telecel", "AT", "AT - iShare", "AT - BigTime", "iShare"]
+  const allNetworks = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -310,10 +310,8 @@ export default function AdminOrdersPage() {
     const colors: { [key: string]: string } = {
       "MTN": "bg-orange-100 text-orange-800 border-orange-200",
       "Telecel": "bg-red-100 text-red-800 border-red-200",
-      "AT": "bg-blue-100 text-blue-800 border-blue-200",
       "AT - iShare": "bg-indigo-100 text-indigo-800 border-indigo-200",
       "AT - BigTime": "bg-purple-100 text-purple-800 border-purple-200",
-      "iShare": "bg-green-100 text-green-800 border-green-200",
     }
     return colors[network] || "bg-gray-100 text-gray-800 border-gray-200"
   }
