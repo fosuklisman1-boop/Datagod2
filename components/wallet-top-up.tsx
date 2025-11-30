@@ -145,7 +145,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             placeholder="Enter amount"
             min="1"
             step="0.01"
-            disabled={isLoading || isProcessing}
+            disabled={isLoading}
             className="text-lg"
           />
           <p className="text-xs text-gray-500">Minimum: GHS 1.00</p>
@@ -160,7 +160,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 key={quickAmount}
                 variant="outline"
                 onClick={() => handleQuickAmount(quickAmount)}
-                disabled={isLoading || isProcessing}
+                disabled={isLoading}
                 className="text-sm font-semibold hover:bg-cyan-100 hover:border-cyan-400"
               >
                 GHS {quickAmount}
@@ -223,10 +223,10 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         {/* Top Up Button */}
         <Button
           onClick={handleTopUp}
-          disabled={isLoading || isProcessing || !amount}
+          disabled={isLoading || !amount}
           className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-semibold py-6 text-lg"
         >
-          {isLoading || isProcessing ? (
+          {isLoading ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               Redirecting to Payment...
