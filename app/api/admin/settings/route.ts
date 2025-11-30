@@ -18,14 +18,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
-    // Return default settings if none exist
+    // If no settings exist, create default row
     if (!settings) {
-      return NextResponse.json({
-        id: null,
-        join_community_link: "",
-        created_at: null,
-        updated_at: null,
-      })
+      const { data: newSettings, error: insertError } = await supabase
+        .from("app_settings")
+        .insert([{
+          join_community_link: ""
+        }])
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error("Error creating app_settings:", insertError)
+        // Return default if creation fails
+        return NextResponse.json({
+          id: null,
+          join_community_link: "",
+          created_at: null,
+          updated_at: null,
+        })
+      }
+
+      return NextResponse.json(newSettings)
     }
 
     return NextResponse.json(settings)

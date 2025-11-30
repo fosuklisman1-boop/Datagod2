@@ -87,11 +87,31 @@ export async function GET(req: NextRequest) {
         }
 
         // Get available balance from shop_available_balance table (same as shop dashboard)
-        const { data: balanceData } = await adminClient
+        let { data: balanceData, error: balanceError } = await adminClient
           .from("shop_available_balance")
           .select("available_balance")
           .eq("shop_id", shop.id)
           .single()
+
+        // If no balance record exists, create one with zero balance
+        if (balanceError?.code === "PGRST116" || !balanceData) {
+          const { data: newBalanceData, error: insertError } = await adminClient
+            .from("shop_available_balance")
+            .insert([{
+              shop_id: shop.id,
+              available_balance: 0,
+              pending_profit: 0,
+              credited_profit: 0,
+              withdrawn_profit: 0,
+              total_profit: 0
+            }])
+            .select("available_balance")
+            .single()
+
+          if (!insertError && newBalanceData) {
+            balanceData = newBalanceData
+          }
+        }
 
         const balance = balanceData?.available_balance || 0
 

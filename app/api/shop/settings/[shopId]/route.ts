@@ -111,7 +111,6 @@ export async function PUT(request: NextRequest, { params }: { params: { shopId: 
         { status: 400 }
       )
     }
-    }
 
     // Get existing settings
     const { data: existingSettings } = await supabase

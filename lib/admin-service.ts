@@ -280,7 +280,14 @@ export const adminShopService = {
   // Get all shops with approval status
   async getAllShops() {
     try {
-      const response = await fetch("/api/admin/shops")
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      const headers: HeadersInit = {}
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`
+      }
+
+      const response = await fetch("/api/admin/shops", { headers })
       if (!response.ok) {
         throw new Error("Failed to fetch shops")
       }
@@ -295,12 +302,19 @@ export const adminShopService = {
   // Get pending shop approvals
   async getPendingShops() {
     try {
-      const response = await fetch("/api/admin/shops")
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      const headers: HeadersInit = {}
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`
+      }
+
+      const response = await fetch("/api/admin/shops?status=pending", { headers })
       if (!response.ok) {
         throw new Error("Failed to fetch shops")
       }
       const result = await response.json()
-      return result.data?.filter((shop: any) => shop.is_active === false) || []
+      return result.data || []
     } catch (error: any) {
       console.error("Error fetching pending shops:", error)
       throw error
