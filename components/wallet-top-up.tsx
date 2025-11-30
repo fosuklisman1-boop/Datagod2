@@ -73,7 +73,6 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       setIsLoading(true)
       setPaymentStatus("processing")
       setErrorMessage("")
-      setDebugInfo(null)
 
       console.log("[WALLET-TOPUP] Starting payment with amount:", amount)
 
