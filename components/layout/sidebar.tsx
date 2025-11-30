@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
+import { useAuth } from "@/lib/auth-context"
 import {
   Home,
   Package,
@@ -49,9 +50,14 @@ export function Sidebar() {
   const pathname = usePathname()
   const { isAdmin } = useIsAdmin()
   const { joinCommunityLink } = useAppSettings()
+  const { logout } = useAuth()
   const [isOpen, setIsOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
+
+  const handleLogout = async () => {
+    await logout()
+  }
 
   // Handle mobile responsiveness
   useEffect(() => {
@@ -299,6 +305,7 @@ export function Sidebar() {
               "w-full justify-start gap-3 text-white hover:bg-red-600",
               !isOpen && "justify-center"
             )}
+            onClick={handleLogout}
             title={!isOpen ? "Logout" : undefined}
           >
             <LogOut className="w-5 h-5 flex-shrink-0" />
