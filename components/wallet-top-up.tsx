@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, AlertCircle, CheckCircle, Zap, Bug } from "lucide-react"
+import { Loader2, AlertCircle, CheckCircle, Zap } from "lucide-react"
 import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -238,36 +238,6 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             </>
           )}
         </Button>
-
-        {/* Debug Panel */}
-        <div className="pt-4 border-t border-gray-200">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowDebug(!showDebug)}
-            className="gap-2"
-          >
-            <Bug className="h-4 w-4" />
-            {showDebug ? "Hide" : "Show"} Debug Info
-          </Button>
-
-          {showDebug && paymentStatus === "processing" && (
-            <div className="mt-4 p-4 bg-slate-900 text-slate-50 rounded-lg font-mono text-xs space-y-2">
-              <div>
-                <span className="text-cyan-400">status:</span>{" "}
-                <span className="text-slate-300">Redirecting to Paystack...</span>
-              </div>
-              <div>
-                <span className="text-cyan-400">email:</span>{" "}
-                <span className="text-slate-300">{email}</span>
-              </div>
-              <div>
-                <span className="text-cyan-400">amount:</span>{" "}
-                <span className="text-slate-300">{amount} GHS (total with 3% fee)</span>
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* Security Notice */}
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
