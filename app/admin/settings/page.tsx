@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { useAuth } from "@/lib/auth-context"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -104,17 +105,20 @@ export default function AdminSettingsPage() {
 
     setSaving(true)
     try {
-      const { data: { session } } = await (async () => {
-        // Get session from Supabase
-        const response = await fetch("/api/auth/session")
-        return response.json()
-      })().catch(() => ({ data: { session: null } }))
+      // Get session directly from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        toast.error("Authentication required. Please log in again.")
+        setSaving(false)
+        return
+      }
 
       const response = await fetch("/api/admin/settings", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token || ""}`,
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           join_community_link: joinCommunityLink,
