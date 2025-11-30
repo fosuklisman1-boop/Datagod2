@@ -117,6 +117,29 @@ export async function POST(request: NextRequest) {
       // Just log the error
     } else {
       console.log(`[BULK-ORDERS] Deducted ₵${totalCost} from wallet for user ${userId}`)
+
+      // Create debit transaction record
+      const { error: txError } = await supabase
+        .from("transactions")
+        .insert([{
+          user_id: userId,
+          type: "debit",
+          amount: totalCost,
+          reference_id: `BULK-${Date.now()}`,
+          description: `Bulk order - ${orders.length} order(s) for ${network}`,
+          source: "bulk_order",
+          status: "completed",
+          balance_before: currentBalance,
+          balance_after: newBalance,
+          created_at: new Date().toISOString(),
+        }])
+
+      if (txError) {
+        console.error("[BULK-ORDERS] Transaction creation error:", txError)
+        // Log but don't fail - transaction record is secondary
+      } else {
+        console.log(`[BULK-ORDERS] ✓ Transaction record created for ₵${totalCost}`)
+      }
     }
 
     return NextResponse.json({
