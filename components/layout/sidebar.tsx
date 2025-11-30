@@ -29,6 +29,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
+import { Badge } from "@/components/ui/badge"
 
 const menuItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
@@ -50,14 +51,34 @@ export function Sidebar() {
   const pathname = usePathname()
   const { isAdmin } = useIsAdmin()
   const { joinCommunityLink } = useAppSettings()
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const [isOpen, setIsOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
+  const [pendingOrderCount, setPendingOrderCount] = useState(0)
 
   const handleLogout = async () => {
     await logout()
   }
+
+  // Fetch pending orders count
+  useEffect(() => {
+    if (!user) return
+
+    const fetchPendingOrders = async () => {
+      try {
+        const response = await fetch('/api/orders/pending-count')
+        if (response.ok) {
+          const data = await response.json()
+          setPendingOrderCount(data.count || 0)
+        }
+      } catch (error) {
+        console.error('Error fetching pending orders:', error)
+      }
+    }
+
+    fetchPendingOrders()
+  }, [user])
 
   // Handle mobile responsiveness
   useEffect(() => {
@@ -153,6 +174,8 @@ export function Sidebar() {
             const Icon = item.icon
             const isActive = pathname === item.href
             const isLoading = loadingPath === item.href
+            const showBadge = item.label === "My Orders" && pendingOrderCount > 0
+            
             return (
               <Link key={item.href} href={item.href} onClick={() => handleNavigation(item.href)}>
                 <Button
@@ -171,7 +194,16 @@ export function Sidebar() {
                   ) : (
                     <Icon className="w-5 h-5 flex-shrink-0" />
                   )}
-                  {isOpen && item.label}
+                  {isOpen && (
+                    <div className="flex items-center justify-between flex-1">
+                      <span>{item.label}</span>
+                      {showBadge && (
+                        <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs ml-2">
+                          {pendingOrderCount}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
                 </Button>
               </Link>
             )
