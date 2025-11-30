@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
+import { supabase } from "@/lib/supabase"
 
 interface ShopOrder {
   id: string
@@ -173,16 +174,18 @@ export default function AdminOrdersPage() {
       }
 
       // Call API endpoint to download orders
-      const { data: { session } } = await (async () => {
-        const response = await fetch("/api/auth/session")
-        return response.json()
-      })().catch(() => ({ data: { session: null } }))
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        toast.error("Authentication required. Please log in again.")
+        return
+      }
 
       const response = await fetch("/api/admin/orders/download", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token || ""}`,
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ 
           orderIds: filteredOrders.map(o => o.id)
