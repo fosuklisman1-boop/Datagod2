@@ -230,18 +230,9 @@ export async function POST(request: NextRequest) {
       if (!isShopOrderPayment) {
         const amountInGHS = amount / 100
         
-        // Calculate the fee based on the total amount
-        // If fee column exists in payment record, use it; otherwise recalculate
-        let feeAmount = paymentData.fee || 0
-        if (feeAmount === 0) {
-          // Fee not stored, need to recalculate from total amount
-          // The amount stored is: original + (original * 0.03)
-          // So: original = amount / 1.03, fee = original * 0.03
-          const originalAmount = amountInGHS / 1.03
-          feeAmount = amountInGHS - originalAmount
-          feeAmount = Math.round(feeAmount * 100) / 100
-        }
-        
+        // Calculate the actual credit amount (excluding the 3% fee)
+        // Fee is stored in the payment record
+        const feeAmount = paymentData.fee || 0
         const creditAmount = amountInGHS - feeAmount
 
         console.log(`[WEBHOOK] Credit calculation:`)
