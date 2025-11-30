@@ -173,9 +173,17 @@ export default function AdminOrdersPage() {
       }
 
       // Call API endpoint to download orders
+      const { data: { session } } = await (async () => {
+        const response = await fetch("/api/auth/session")
+        return response.json()
+      })().catch(() => ({ data: { session: null } }))
+
       const response = await fetch("/api/admin/orders/download", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || ""}`,
+        },
         body: JSON.stringify({ 
           orderIds: filteredOrders.map(o => o.id)
         })
