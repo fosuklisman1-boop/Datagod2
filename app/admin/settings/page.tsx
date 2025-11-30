@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, ExternalLink, MessageCircle } from "lucide-react"
+import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon } from "lucide-react"
 import { supportSettingsService } from "@/lib/support-settings-service"
 
 export default function AdminSettingsPage() {
@@ -21,6 +21,24 @@ export default function AdminSettingsPage() {
   const [previewWhatsappUrl, setPreviewWhatsappUrl] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
+  const [domainUrls] = useState([
+    { name: "Main App", url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000" },
+    { name: "Admin Dashboard", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin` },
+    { name: "Dashboard", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard` },
+    { name: "Login", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/auth/login` },
+    { name: "Sign Up", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/auth/signup` },
+  ])
+
+  const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`
+  
+  const webhookUrls = [
+    { 
+      name: "Paystack Webhook", 
+      url: webhookUrl,
+      description: "Configure this in Paystack Dashboard → Settings → Webhooks"
+    },
+  ]
 
   // Fetch settings
   useEffect(() => {
@@ -66,6 +84,13 @@ export default function AdminSettingsPage() {
     } else {
       setPreviewWhatsappUrl("")
     }
+  }
+
+  const copyToClipboard = (url: string) => {
+    navigator.clipboard.writeText(url)
+    setCopiedUrl(url)
+    toast.success("URL copied to clipboard!")
+    setTimeout(() => setCopiedUrl(null), 2000)
   }
 
   const handleSave = async () => {
@@ -287,9 +312,85 @@ export default function AdminSettingsPage() {
 
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Settings Information</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <LinkIcon className="w-5 h-5 text-blue-600" />
+              Quick URL Copy
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-gray-700">
+          <CardContent className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Quick access to important application URLs. Click to copy any URL to clipboard.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {domainUrls.map((item) => (
+                <div
+                  key={item.url}
+                  className="flex items-center justify-between gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900">{item.name}</p>
+                    <p className="text-xs text-gray-500 truncate">{item.url}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => copyToClipboard(item.url)}
+                    className="flex-shrink-0"
+                  >
+                    {copiedUrl === item.url ? (
+                      <Check className="w-4 h-4 text-green-600" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <LinkIcon className="w-5 h-5 text-purple-600" />
+              Webhook URLs
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Configure these webhook URLs in your payment provider settings for real-time transaction updates.
+            </p>
+            <div className="space-y-3">
+              {webhookUrls.map((item) => (
+                <div
+                  key={item.url}
+                  className="p-4 border border-purple-200 bg-purple-50 rounded-lg space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-gray-900">{item.name}</p>
+                      <p className="text-xs text-gray-600 mt-1">{item.description}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => copyToClipboard(item.url)}
+                      className="flex-shrink-0 ml-2"
+                    >
+                      {copiedUrl === item.url ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                  <div className="p-2 bg-white rounded border border-purple-200">
+                    <p className="text-xs text-gray-700 font-mono break-all">{item.url}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
             <p>
               The join community link will be available to:
             </p>
