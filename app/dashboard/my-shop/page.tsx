@@ -40,6 +40,8 @@ export default function MyShopPage() {
   const [whatsappLink, setWhatsappLink] = useState("")
   const [savingWhatsapp, setSavingWhatsapp] = useState(false)
   const [shopOrders, setShopOrders] = useState<any[]>([])
+  const [updatingShop, setUpdatingShop] = useState(false)
+  const [togglingPackageId, setTogglingPackageId] = useState<string | null>(null)
   const [orderStats, setOrderStats] = useState({
     total: 0,
     completed: 0,
@@ -134,6 +136,7 @@ export default function MyShopPage() {
       return
     }
 
+    setUpdatingShop(true)
     try {
       const updated = await shopService.updateShop(shop.id, {
         shop_name: formData.shop_name,
@@ -146,6 +149,8 @@ export default function MyShopPage() {
     } catch (error) {
       console.error("Error updating shop:", error)
       toast.error("Failed to update shop")
+    } finally {
+      setUpdatingShop(false)
     }
   }
 
@@ -252,6 +257,7 @@ export default function MyShopPage() {
   }
 
   const handleToggleAvailability = async (shopPackageId: string, currentStatus: boolean) => {
+    setTogglingPackageId(shopPackageId)
     try {
       await shopPackageService.togglePackageAvailability(shopPackageId, !currentStatus)
       const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
@@ -260,6 +266,8 @@ export default function MyShopPage() {
     } catch (error: any) {
       console.error("Error toggling availability:", error)
       toast.error("Failed to update availability")
+    } finally {
+      setTogglingPackageId(null)
     }
   }
 
@@ -545,14 +553,23 @@ export default function MyShopPage() {
                 <div className="flex gap-2">
                   <Button
                     onClick={handleUpdateShop}
+                    disabled={updatingShop}
                     className="flex-1 bg-green-600 hover:bg-green-700"
                   >
-                    Save Changes
+                    {updatingShop ? (
+                      <>
+                        <span className="animate-spin mr-2">⏳</span>
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Changes"
+                    )}
                   </Button>
                   <Button
                     onClick={() => setEditingShop(false)}
                     variant="outline"
                     className="flex-1"
+                    disabled={updatingShop}
                   >
                     Cancel
                   </Button>
@@ -850,11 +867,16 @@ export default function MyShopPage() {
                           <div className="flex gap-2">
                             <Button
                               onClick={() => handleToggleAvailability(shopPkg.id, shopPkg.is_available)}
+                              disabled={togglingPackageId === shopPkg.id}
                               variant={shopPkg.is_available ? "outline" : "default"}
                               size="sm"
                               className={!shopPkg.is_available ? "bg-green-600 hover:bg-green-700" : ""}
                             >
-                              {shopPkg.is_available ? "Unavailable" : "Available"}
+                              {togglingPackageId === shopPkg.id ? (
+                                <span className="animate-spin">⏳</span>
+                              ) : (
+                                shopPkg.is_available ? "Unavailable" : "Available"
+                              )}
                             </Button>
                             <Button 
                               onClick={() => {
