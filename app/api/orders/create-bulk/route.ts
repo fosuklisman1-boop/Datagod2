@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
 
     // Deduct from wallet - get current balance first
     const { data: walletData, error: walletFetchError } = await supabase
-      .from("user_wallets")
+      .from("wallets")
       .select("balance")
       .eq("user_id", userId)
       .single()
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
     const newBalance = Math.max(0, currentBalance - totalCost)
 
     const { error: updateError } = await supabase
-      .from("user_wallets")
+      .from("wallets")
       .update({
         balance: newBalance
       })
