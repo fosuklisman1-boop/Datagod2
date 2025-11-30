@@ -41,12 +41,12 @@ export function Header() {
   }
 
   return (
-    <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 fixed right-0 top-0 md:left-64 left-20 z-30 transition-all duration-300">
+    <div className="h-14 md:h-16 bg-white border-b border-gray-200 flex items-center justify-between px-2 sm:px-3 md:px-4 lg:px-6 fixed right-0 top-0 md:left-0 left-0 z-30 transition-all duration-300 w-full md:w-auto">
       {/* Left side - empty for now */}
       <div></div>
 
       {/* Right side - icons and user menu */}
-      <div className="flex items-center gap-2 md:gap-4">
+      <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
         {/* Notification Center */}
         <NotificationCenter />
 
@@ -55,41 +55,42 @@ export function Header() {
           variant="ghost"
           size="icon"
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          className="h-8 w-8 md:h-10 md:w-10"
         >
-          {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          {theme === "dark" ? <Sun className="w-4 h-4 md:w-5 md:h-5" /> : <Moon className="w-4 h-4 md:w-5 md:h-5" />}
         </Button>
 
         {/* Shopping Cart - hidden on mobile */}
-        <Button variant="ghost" size="icon" className="relative hidden sm:inline-flex">
-          <ShoppingCart className="w-5 h-5" />
+        <Button variant="ghost" size="icon" className="relative hidden sm:inline-flex h-8 w-8 md:h-10 md:w-10">
+          <ShoppingCart className="w-4 h-4 md:w-5 md:h-5" />
           <Badge className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs">0</Badge>
         </Button>
 
         {/* User Profile Dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
-                <User className="w-4 h-4 text-white" />
+            <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10">
+              <div className="w-7 h-7 md:w-8 md:h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
+                <User className="w-3 h-3 md:w-4 md:h-4 text-white" />
               </div>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-48 sm:w-56">
             <div className="px-2 py-1.5 text-sm">
-              <p className="font-semibold text-sm line-clamp-1">{user?.email}</p>
+              <p className="font-semibold text-xs sm:text-sm line-clamp-1">{user?.email}</p>
               <p className="text-xs text-gray-500">Account</p>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <User className="w-4 h-4 mr-2" />
+            <DropdownMenuItem className="text-xs sm:text-sm">
+              <User className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
               <span>Profile Settings</span>
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem className="text-xs sm:text-sm">
               <span>API Keys</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout} className="text-red-600">
-              <LogOut className="w-4 h-4 mr-2" />
+            <DropdownMenuItem onClick={handleLogout} className="text-red-600 text-xs sm:text-sm">
+              <LogOut className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
               <span>Logout</span>
             </DropdownMenuItem>
           </DropdownMenuContent>

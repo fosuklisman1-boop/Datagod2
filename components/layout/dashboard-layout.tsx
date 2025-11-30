@@ -18,18 +18,20 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Sidebar */}
       <Sidebar />
 
       {/* Main Content */}
-      <div className="flex-1 md:ml-64 flex flex-col transition-all duration-300">
+      <div className="flex-1 flex flex-col overflow-hidden transition-all duration-300">
         {/* Header */}
         <Header />
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto pt-16 p-4 md:p-6">
-          {children}
+        <main className="flex-1 overflow-auto md:overflow-y-auto md:overflow-x-hidden pt-16 md:pt-0 p-2 sm:p-3 md:p-4 lg:p-6">
+          <div className="w-full max-w-7xl mx-auto">
+            {children}
+          </div>
         </main>
       </div>
     </div>
