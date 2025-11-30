@@ -34,8 +34,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get pending orders from both tables
-    // 1. Regular user orders (orders table with status='pending')
+    // Get pending orders from both tables with payment verified
+    // 1. Bulk user orders (orders table with status='pending')
+    // Note: All pending bulk orders are already paid (wallet was deducted at creation)
     const { data: userOrders, error: userOrdersError } = await supabase
       .from("orders")
       .select("id")
@@ -43,15 +44,16 @@ export async function GET(request: NextRequest) {
 
     if (userOrdersError) throw userOrdersError
 
-    // 2. Shop orders (shop_orders table with order_status='pending')
+    // 2. Shop orders (shop_orders table with order_status='pending' AND payment_status='completed')
     const { data: shopOrders, error: shopOrdersError } = await supabase
       .from("shop_orders")
       .select("id")
       .eq("order_status", "pending")
+      .eq("payment_status", "completed")
 
     if (shopOrdersError) throw shopOrdersError
 
-    // Total pending orders = user orders + shop orders
+    // Total pending orders = user orders + shop orders (both with payment confirmed)
     const totalPendingCount = (userOrders?.length || 0) + (shopOrders?.length || 0)
 
     return NextResponse.json({

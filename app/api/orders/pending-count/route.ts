@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get pending orders for this user from orders table (user dashboard orders)
+    // Note: All pending bulk orders are already paid (wallet was deducted at creation)
     const { data: orders, error } = await supabase
       .from("orders")
       .select("id")
