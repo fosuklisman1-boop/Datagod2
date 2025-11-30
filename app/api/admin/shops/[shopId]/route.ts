@@ -7,10 +7,10 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { shopId: string } }
+  { params }: { params: Promise<{ shopId: string }> }
 ) {
   try {
-    const shopId = params.shopId
+    const { shopId } = await params
 
     if (!shopId) {
       return NextResponse.json(

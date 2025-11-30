@@ -7,9 +7,9 @@ const supabase = createClient(
 )
 
 // GET shop settings
-export async function GET(request: NextRequest, { params }: { params: { shopId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ shopId: string }> }) {
   try {
-    const { shopId } = params
+    const { shopId } = await params
 
     const { data: settings, error } = await supabase
       .from("shop_settings")
@@ -41,9 +41,9 @@ export async function GET(request: NextRequest, { params }: { params: { shopId: 
 }
 
 // UPDATE shop settings
-export async function PUT(request: NextRequest, { params }: { params: { shopId: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ shopId: string }> }) {
   try {
-    const { shopId } = params
+    const { shopId } = await params
     console.log(`[SHOP-SETTINGS] PUT request for shop ${shopId}`)
 
     // Verify user is authenticated

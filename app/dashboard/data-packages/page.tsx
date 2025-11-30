@@ -369,7 +369,7 @@ export default function DataPackagesPage() {
                   </div>
                   <Button 
                     onClick={() => handlePurchase(pkg)}
-                    disabled={purchasing === pkg.id || (wallet && wallet.balance < pkg.price)}
+                    disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price}
                     className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 hover:from-cyan-700 hover:via-blue-700 hover:to-violet-700 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {purchasing === pkg.id ? (
@@ -377,7 +377,7 @@ export default function DataPackagesPage() {
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         Processing...
                       </>
-                    ) : wallet && wallet.balance < pkg.price ? (
+                    ) : !wallet || wallet.balance < pkg.price ? (
                       "Insufficient Balance"
                     ) : (
                       "Buy Now"
@@ -422,7 +422,7 @@ export default function DataPackagesPage() {
                           <Button 
                             size="sm" 
                             onClick={() => handlePurchase(pkg)}
-                            disabled={purchasing === pkg.id || (wallet && wallet.balance < pkg.price)}
+                            disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price}
                             className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {purchasing === pkg.id ? (
@@ -430,7 +430,7 @@ export default function DataPackagesPage() {
                                 <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                                 Processing...
                               </>
-                            ) : wallet && wallet.balance < pkg.price ? (
+                            ) : !wallet || wallet.balance < pkg.price ? (
                               "No Balance"
                             ) : (
                               "Buy"
