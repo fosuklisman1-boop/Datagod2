@@ -26,9 +26,9 @@ const AVAILABLE_NETWORKS = [
   "MTN",
   "Telecel",
   "AT",
-  "iShare",
   "AT - iShare",
   "AT - BigTime",
+  "iShare",
 ]
 
 export default function AdminPackagesPage() {
