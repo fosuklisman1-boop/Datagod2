@@ -196,6 +196,7 @@ export default function ShopStorefront() {
       const paymentData = await paymentResponse.json()
       
       // Use Paystack Inline popup instead of redirect
+      // Note: NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY is intentionally public (pk_*) and safe to expose
       const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY
       
       if (!paystackPublicKey) {
@@ -206,6 +207,9 @@ export default function ShopStorefront() {
         throw new Error("Paystack script not loaded. Please refresh the page and try again.")
       }
 
+      // Helper to reset loading state on payment completion/failure
+      const resetLoadingState = () => setSubmitting(false)
+
       // Open Paystack inline popup
       const handler = window.PaystackPop.setup({
         key: paystackPublicKey,
@@ -214,7 +218,7 @@ export default function ShopStorefront() {
         ref: paymentData.reference,
         onClose: () => {
           toast.info("Payment cancelled")
-          setSubmitting(false)
+          resetLoadingState()
         },
         onSuccess: async (response: { reference: string; status: string }) => {
           try {
@@ -235,12 +239,12 @@ export default function ShopStorefront() {
               router.push(`/shop/${shopSlug}/order-confirmation/${order.id}`)
             } else {
               toast.error("Payment verification failed. Please contact support.")
-              setSubmitting(false)
+              resetLoadingState()
             }
           } catch (verifyError) {
             console.error("Payment verification error:", verifyError)
             toast.error("Payment verification failed. Please contact support.")
-            setSubmitting(false)
+            resetLoadingState()
           }
         },
       })
