@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import crypto from "crypto"
 
 /**
  * Debug endpoint to help diagnose Paystack integration issues
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
       email: email,
       amount: Math.round(parseFloat(amount) * 100),
       currency: "GHS", // Explicitly set currency to Ghana Cedis
-      reference: `DEBUG-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      reference: `DEBUG-${Date.now()}-${crypto.randomBytes(8).toString("hex").toUpperCase()}`,
       metadata: {
         type: "wallet_topup",
         test: true,
