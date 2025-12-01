@@ -12,13 +12,6 @@ import Link from "next/link"
 import { toast } from "sonner"
 import { openPaystackModal } from "@/lib/payment-service"
 
-// Add Paystack types to window
-declare global {
-  interface Window {
-    PaystackPop: any
-  }
-}
-
 export default function OrderConfirmation() {
   const params = useParams()
   const router = useRouter()
