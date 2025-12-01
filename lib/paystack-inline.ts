@@ -6,6 +6,7 @@
 interface PaystackInlineOptions {
   key: string
   email: string
+  /** Amount in kobo/pesewa (smallest currency unit). Caller should convert: amount * 100 */
   amount: number
   reference: string
   onSuccess: (response: PaystackPaymentResponse) => void
