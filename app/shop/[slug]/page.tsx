@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
-import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,8 +12,8 @@ import { shopService, shopPackageService, shopOrderService, networkLogoService }
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
-import { redirectToPayment } from "@/lib/payment-redirect"
-import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft, AlignJustify } from "lucide-react"
+import { verifyPayment } from "@/lib/payment-service"
+import { AlertCircle, Store, ShoppingCart, ArrowRight, Package, Loader2, Search, MessageCircle, MapPin, Clock, AlignJustify } from "lucide-react"
 import { toast } from "sonner"
 
 export default function ShopStorefront() {
@@ -171,7 +170,7 @@ export default function ShopStorefront() {
       })
 
       // Initialize Paystack payment
-      toast.info("Redirecting to payment...")
+      toast.info("Initializing payment...")
       const { data: { session } } = await supabase.auth.getSession()
       
       const paymentResponse = await fetch("/api/payments/initialize", {
@@ -184,8 +183,8 @@ export default function ShopStorefront() {
           email: orderData.customer_email,
           userId: session?.user?.id || null,
           shopId: shop.id,
-          orderId: order.id,  // Pass order ID for shop order redirect
-          shopSlug: shopSlug,  // Pass shop slug for order confirmation URL
+          orderId: order.id,
+          shopSlug: shopSlug,
         }),
       })
 
@@ -196,34 +195,61 @@ export default function ShopStorefront() {
 
       const paymentData = await paymentResponse.json()
       
-      // Redirect to Paystack (handles popup blocker scenarios)
-      if (paymentData.authorizationUrl) {
-        // Store payment reference in sessionStorage for verification after redirect
-        sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
-        
-        // Use utility function for Safari-compatible payment redirect
-        redirectToPayment({
-          url: paymentData.authorizationUrl,
-          delayMs: 300,
-          onError: (error: Error) => {
-            console.error("Payment redirect failed:", error)
-            toast.error("Payment redirect failed. Please try again.")
-          }
-        })
-        return
+      // Use Paystack Inline popup instead of redirect
+      const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY
+      
+      if (!paystackPublicKey) {
+        throw new Error("Paystack public key not configured")
       }
 
-      // Reset form
-      setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
-      setCheckoutOpen(false)
-      setSelectedPackage(null)
+      if (!window.PaystackPop) {
+        throw new Error("Paystack script not loaded. Please refresh the page and try again.")
+      }
 
-      // Redirect to confirmation page
-      router.push(`/shop/${shopSlug}/order-confirmation/${order.id}`)
+      // Open Paystack inline popup
+      const handler = window.PaystackPop.setup({
+        key: paystackPublicKey,
+        email: orderData.customer_email,
+        amount: Math.round(totalPrice * 100), // Convert to pesewas (smallest currency unit)
+        ref: paymentData.reference,
+        onClose: () => {
+          toast.info("Payment cancelled")
+          setSubmitting(false)
+        },
+        onSuccess: async (response: { reference: string; status: string }) => {
+          try {
+            toast.info("Verifying payment...")
+            
+            // Verify the payment
+            const verificationResult = await verifyPayment({ reference: response.reference })
+            
+            if (verificationResult.status === "success") {
+              toast.success("Payment successful!")
+              
+              // Reset form
+              setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+              setCheckoutOpen(false)
+              setSelectedPackage(null)
+              
+              // Redirect to order confirmation page
+              router.push(`/shop/${shopSlug}/order-confirmation/${order.id}`)
+            } else {
+              toast.error("Payment verification failed. Please contact support.")
+              setSubmitting(false)
+            }
+          } catch (verifyError) {
+            console.error("Payment verification error:", verifyError)
+            toast.error("Payment verification failed. Please contact support.")
+            setSubmitting(false)
+          }
+        },
+      })
+
+      handler.openIframe()
+      // Note: Don't reset submitting state here; the onSuccess/onClose callbacks will handle it
     } catch (error) {
       console.error("Error submitting order:", error)
       toast.error("Failed to place order. Please try again.")
-    } finally {
       setSubmitting(false)
     }
   }
@@ -598,7 +624,7 @@ export default function ShopStorefront() {
               <Alert className="border-blue-300 bg-blue-50">
                 <AlertCircle className="h-4 w-4 text-blue-600" />
                 <AlertDescription className="text-xs text-blue-700">
-                  You will be redirected to Paystack to complete your payment.
+                  A secure Paystack payment popup will open to complete your payment.
                 </AlertDescription>
               </Alert>
 
