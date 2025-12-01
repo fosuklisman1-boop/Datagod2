@@ -42,6 +42,7 @@ export async function initializePaystackInline(options: PaystackInlineOptions): 
     key,
     email,
     amount,
+    currency: "GHS", // Explicitly set currency to Ghana Cedis
     ref: reference,
     onClose: () => {
       console.log("[PAYSTACK-INLINE] Payment modal closed by user")
