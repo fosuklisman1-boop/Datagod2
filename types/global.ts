@@ -14,6 +14,7 @@ interface PaystackConfig {
   key: string
   email: string
   amount: number
+  currency?: string
   ref: string
   onClose?: () => void
   onSuccess?: (response: PaystackSuccessResponse) => void

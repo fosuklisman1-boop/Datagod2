@@ -56,6 +56,7 @@ export async function initializePayment(
     const requestBody = {
       email: params.email,
       amount: Math.round(params.amount * 100), // Convert to smallest unit (kobo/pesewa)
+      currency: "GHS", // Explicitly set currency to Ghana Cedis
       reference: params.reference,
       redirect_url: params.redirectUrl || undefined,
       metadata: params.metadata || {},

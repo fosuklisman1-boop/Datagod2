@@ -107,6 +107,7 @@ export function openPaystackModal(config: {
       key: config.key,
       email: config.email,
       amount: config.amount * 100, // Convert to kobo
+      currency: "GHS", // Explicitly set currency to Ghana Cedis
       ref: config.reference,
       onClose: () => {
         if (config.onClose) config.onClose()

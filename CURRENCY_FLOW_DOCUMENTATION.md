@@ -63,21 +63,22 @@ This document explains how currency (GHS - Ghanaian Cedis) flows through the wal
 
 ## Currency Configuration
 
-- **Merchant Currency**: Uses Paystack account's configured default currency
-- **No explicit currency parameter**: Removed `currency: "GHS"` to avoid conflicts with merchant account settings
-- **All amounts in code**: Treated as GHS unless explicitly in kobo for Paystack API calls
+- **Explicit Currency Parameter**: `currency: "GHS"` is explicitly set in all Paystack API calls
+- **Why explicit currency**: Prevents "currency not supported" errors when merchant account has different default currency
+- **All amounts in code**: Treated as GHS unless explicitly in kobo/pesewa for Paystack API calls
 
 ## Key Points
 
 ✅ **CORRECT** - All flows are consistent
 - Frontend: Treats all amounts as GHS
 - Backend: Stores all amounts as GHS (base currency)
-- Only converts to kobo when calling Paystack API (line 43 in `lib/paystack.ts`)
-- Converts back from kobo when receiving from Paystack (line 76 in `lib/paystack.ts`)
+- Only converts to kobo/pesewa when calling Paystack API (line 43 in `lib/paystack.ts`)
+- Currency is explicitly set to "GHS" in all Paystack API calls
+- Converts back from kobo/pesewa when receiving from Paystack (line 76 in `lib/paystack.ts`)
 
 ✅ **NO MISMATCH** - Frontend and backend use same currency units
 - Frontend sends GHS → Backend receives GHS → Stored as GHS
-- Kobo conversion only happens at Paystack API boundary
+- Kobo/pesewa conversion only happens at Paystack API boundary
 
 ## Testing
 
@@ -92,11 +93,15 @@ To verify the flow works correctly:
 ## Troubleshooting
 
 If you see "Currency not supported by merchant":
-- Check Paystack merchant account currency settings
-- Verify test keys are for the correct environment
-- Ensure payment method supports merchant's currency
+- Ensure `currency: "GHS"` is explicitly set in all Paystack API calls (this is now the default)
+- Check that the following files include the currency parameter:
+  - `lib/paystack.ts` - Server-side API calls
+  - `lib/paystack-inline.ts` - Client-side inline payment
+  - `lib/payment-service.ts` - Client-side payment modal
+- Verify test keys are for the correct environment (test vs live)
+- Ensure Paystack merchant account supports GHS currency
 
 If amounts don't match:
 - Check `lib/paystack.ts` lines 43 and 76 for conversion logic
-- Verify database stores amounts without kobo multiplier
+- Verify database stores amounts without kobo/pesewa multiplier
 - Check frontend display uses `verificationResult.amount` not a recalculated value
