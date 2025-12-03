@@ -78,11 +78,6 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderDetails }: Compl
       return
     }
 
-    if (!momoReceiptImage) {
-      toast.error("Please upload MoMo receipt evidence")
-      return
-    }
-
     if (description.trim().length < 10) {
       toast.error("Complaint description must be at least 10 characters")
       return
@@ -98,7 +93,9 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderDetails }: Compl
       formData.append("description", description)
       formData.append("priority", selectedPriority)
       formData.append("balanceImage", balanceImage.file)
-      formData.append("momoReceiptImage", momoReceiptImage.file)
+      if (momoReceiptImage) {
+        formData.append("momoReceiptImage", momoReceiptImage.file)
+      }
 
       // Add order details as JSON
       formData.append("orderDetails", JSON.stringify(orderDetails))
@@ -266,7 +263,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderDetails }: Compl
             {/* MoMo Receipt Evidence */}
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
               <Label className="text-sm font-semibold mb-3 block">
-                MoMo Receipt / Payment Evidence *
+                MoMo Receipt / Payment Evidence (Optional)
               </Label>
               <p className="text-xs text-gray-600 mb-3">
                 Screenshot of your Mobile Money receipt showing the transaction

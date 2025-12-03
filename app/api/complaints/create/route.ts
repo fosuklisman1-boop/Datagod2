@@ -15,10 +15,10 @@ export async function POST(request: NextRequest) {
     const orderDetailsStr = formData.get("orderDetails") as string
     const userId = formData.get("userId") as string
     const balanceImage = formData.get("balanceImage") as File
-    const momoReceiptImage = formData.get("momoReceiptImage") as File
+    const momoReceiptImage = formData.get("momoReceiptImage") as File | null
 
-    // Validate required fields
-    if (!orderId || !description || !priority || !orderDetailsStr || !userId || !balanceImage || !momoReceiptImage) {
+    // Validate required fields (momoReceiptImage is optional)
+    if (!orderId || !description || !priority || !orderDetailsStr || !userId || !balanceImage) {
       return NextResponse.json(
         { message: "Missing required fields" },
         { status: 400 }
@@ -46,33 +46,39 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Upload MoMo receipt image
-    const momoFileName = `${userId}/${orderId}/receipt-${Date.now()}.${momoReceiptImage.name.split(".").pop()}`
-    const momoBuffer = await momoReceiptImage.arrayBuffer()
+    // Upload MoMo receipt image (optional)
+    let momoFileName = ""
+    let momoUrlData: any = null
     
-    const { error: momoUploadError } = await supabase.storage
-      .from("complaint-evidence")
-      .upload(momoFileName, momoBuffer, {
-        contentType: momoReceiptImage.type,
-        upsert: false,
-      })
+    if (momoReceiptImage && momoReceiptImage.size > 0) {
+      momoFileName = `${userId}/${orderId}/receipt-${Date.now()}.${momoReceiptImage.name.split(".").pop()}`
+      const momoBuffer = await momoReceiptImage.arrayBuffer()
+      
+      const { error: momoUploadError } = await supabase.storage
+        .from("complaint-evidence")
+        .upload(momoFileName, momoBuffer, {
+          contentType: momoReceiptImage.type,
+          upsert: false,
+        })
 
-    if (momoUploadError) {
-      console.error("MoMo receipt upload error:", momoUploadError)
-      return NextResponse.json(
-        { message: "Failed to upload receipt image" },
-        { status: 500 }
-      )
+      if (momoUploadError) {
+        console.error("MoMo receipt upload error:", momoUploadError)
+        return NextResponse.json(
+          { message: "Failed to upload receipt image" },
+          { status: 500 }
+        )
+      }
+
+      // Get public URL for MoMo receipt
+      momoUrlData = supabase.storage
+        .from("complaint-evidence")
+        .getPublicUrl(momoFileName)
     }
 
     // Get public URLs
     const { data: balanceUrlData } = supabase.storage
       .from("complaint-evidence")
       .getPublicUrl(balanceFileName)
-
-    const { data: momoUrlData } = supabase.storage
-      .from("complaint-evidence")
-      .getPublicUrl(momoFileName)
 
     // Create complaint record
     const { data: complaint, error: complaintError } = await supabase
@@ -94,9 +100,9 @@ export async function POST(request: NextRequest) {
           },
           evidence: {
             balance_image_url: balanceUrlData.publicUrl,
-            momo_receipt_url: momoUrlData.publicUrl,
+            momo_receipt_url: momoUrlData?.data?.publicUrl || null,
             balance_image_path: balanceFileName,
-            momo_receipt_path: momoFileName,
+            momo_receipt_path: momoFileName || null,
           },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
