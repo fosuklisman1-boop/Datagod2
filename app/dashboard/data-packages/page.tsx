@@ -161,14 +161,17 @@ export default function DataPackagesPage() {
 
   // Helper function to extract numeric value from size string for sorting
   const extractSizeValue = (size: string): number => {
+    // Remove any whitespace and convert to uppercase for consistency
+    const normalized = size.trim().toUpperCase()
+    
     // Extract the numeric part and unit (MB or GB)
-    const match = size.match(/(\d+(?:\.\d+)?)\s*(MB|GB)/i)
+    const match = normalized.match(/(\d+(?:\.\d+)?)\s*(MB|GB)/)
     if (!match) return 0
 
     const value = parseFloat(match[1])
-    const unit = match[2].toUpperCase()
+    const unit = match[2]
 
-    // Convert to MB for consistent comparison
+    // Convert to MB for consistent comparison (GB * 1024)
     return unit === "GB" ? value * 1024 : value
   }
 
