@@ -159,6 +159,19 @@ export default function DataPackagesPage() {
     return ""
   }
 
+  // Helper function to extract numeric value from size string for sorting
+  const extractSizeValue = (size: string): number => {
+    // Extract the numeric part and unit (MB or GB)
+    const match = size.match(/(\d+(?:\.\d+)?)\s*(MB|GB)/i)
+    if (!match) return 0
+
+    const value = parseFloat(match[1])
+    const unit = match[2].toUpperCase()
+
+    // Convert to MB for consistent comparison
+    return unit === "GB" ? value * 1024 : value
+  }
+
   const handlePurchase = async (pkg: Package) => {
     if (!user) {
       toast.error("Please login first")
@@ -246,6 +259,9 @@ export default function DataPackagesPage() {
     const searchMatch = pkg.size.toLowerCase().includes(searchTerm.toLowerCase()) ||
       pkg.network.toLowerCase().includes(searchTerm.toLowerCase())
     return networkMatch && searchMatch
+  }).sort((a, b) => {
+    // Sort by data size (ascending)
+    return extractSizeValue(a.size) - extractSizeValue(b.size)
   })
 
   return (
