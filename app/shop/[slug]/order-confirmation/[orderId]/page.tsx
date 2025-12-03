@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopOrderService } from "@/lib/shop-service"
-import { CheckCircle, Copy, ArrowRight } from "lucide-react"
+import { CheckCircle, Copy, ArrowRight, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
+import { openPaystackModal } from "@/lib/payment-service"
 
 export default function OrderConfirmation() {
   const params = useParams()
@@ -19,6 +20,7 @@ export default function OrderConfirmation() {
 
   const [order, setOrder] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false)
 
   useEffect(() => {
     loadOrder()
@@ -40,6 +42,98 @@ export default function OrderConfirmation() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
     toast.success("Copied to clipboard")
+  }
+
+  const handlePayment = async () => {
+    if (!order) return
+
+    setIsProcessingPayment(true)
+    try {
+      console.log("[ORDER-PAYMENT] Initializing payment for order:", orderId)
+
+      // Initialize payment
+      const response = await fetch("/api/payments/initialize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: order.total_price,
+          email: order.customer_email,
+          userId: order.id, // Using order ID as user identifier for shop orders
+          shopId: order.shop_id,
+          orderId: order.id,
+          shopSlug: shopSlug,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to initialize payment")
+      }
+
+      const paymentData = await response.json()
+      console.log("[ORDER-PAYMENT] Payment initialized:", paymentData)
+
+      // Get Paystack public key from environment
+      const paystackKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY
+
+      if (!paystackKey) {
+        throw new Error("Paystack public key not configured")
+      }
+
+      // Open Paystack inline modal
+      console.log("[ORDER-PAYMENT] Opening Paystack inline modal")
+      const result = await openPaystackModal({
+        key: paystackKey,
+        email: order.customer_email,
+        amount: order.total_price,
+        reference: paymentData.reference,
+        channels: ["card", "mobile_money", "bank_transfer"],
+        metadata: {
+          orderId: order.id,
+          shopId: order.shop_id,
+          shopSlug: shopSlug,
+          customerName: order.customer_name,
+          customerPhone: order.customer_phone,
+        },
+        onSuccess: async (reference) => {
+          console.log("[ORDER-PAYMENT] Payment successful:", reference)
+          toast.success("Payment successful! Redirecting...")
+          
+          // Verify payment
+          try {
+            const verifyResponse = await fetch("/api/payments/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reference }),
+            })
+
+            if (verifyResponse.ok) {
+              // Redirect to order status page
+              router.push(`/shop/${shopSlug}/order-status/${orderId}?payment=success`)
+            } else {
+              console.warn("[ORDER-PAYMENT] Verification failed, redirecting anyway")
+              router.push(`/shop/${shopSlug}/order-status/${orderId}`)
+            }
+          } catch (error) {
+            console.error("[ORDER-PAYMENT] Verification error:", error)
+            router.push(`/shop/${shopSlug}/order-status/${orderId}`)
+          }
+        },
+        onClose: () => {
+          console.log("[ORDER-PAYMENT] Payment modal closed")
+          setIsProcessingPayment(false)
+        },
+      })
+
+      if (!result) {
+        console.log("[ORDER-PAYMENT] Payment cancelled by user")
+        toast.info("Payment cancelled")
+      }
+    } catch (error) {
+      console.error("[ORDER-PAYMENT] Error:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to process payment")
+      setIsProcessingPayment(false)
+    }
   }
 
   if (loading) {
@@ -199,13 +293,28 @@ export default function OrderConfirmation() {
             {/* Action Buttons */}
             <div className="flex gap-3 pt-4">
               <Link href={`/shop/${shopSlug}`} className="flex-1">
-                <Button variant="outline" className="w-full">
+                <Button variant="outline" className="w-full" disabled={isProcessingPayment}>
                   Continue Shopping
                 </Button>
               </Link>
-              <Button className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700">
-                Proceed to Payment
-                <ArrowRight className="w-4 h-4 ml-2" />
+              <Button 
+                className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                onClick={handlePayment}
+                disabled={isProcessingPayment || order.payment_status === "completed"}
+              >
+                {isProcessingPayment ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : order.payment_status === "completed" ? (
+                  "Payment Completed"
+                ) : (
+                  <>
+                    Proceed to Payment
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>

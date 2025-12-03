@@ -87,7 +87,7 @@ export async function verifyPayment(
 }
 
 /**
- * Open Paystack payment modal
+ * Open Paystack payment modal (inline)
  */
 export function openPaystackModal(config: {
   key: string
@@ -96,8 +96,15 @@ export function openPaystackModal(config: {
   reference: string
   onClose?: () => void
   onSuccess?: (reference: string) => void
+  channels?: string[]
+  metadata?: Record<string, any>
 }) {
   return new Promise((resolve, reject) => {
+    if (typeof window === "undefined") {
+      reject(new Error("Window not available"))
+      return
+    }
+
     if (!window.PaystackPop) {
       reject(new Error("Paystack script not loaded"))
       return
@@ -106,13 +113,17 @@ export function openPaystackModal(config: {
     const handler = window.PaystackPop.setup({
       key: config.key,
       email: config.email,
-      amount: config.amount * 100, // Convert to kobo
+      amount: Math.round(config.amount * 100), // Convert to kobo/pesewa
       ref: config.reference,
+      channels: config.channels || ["card", "mobile_money", "bank_transfer"],
+      metadata: config.metadata || {},
       onClose: () => {
+        console.log("[PAYSTACK-INLINE] Payment modal closed")
         if (config.onClose) config.onClose()
         resolve(false)
       },
-      onSuccess: (response: any) => {
+      callback: (response: any) => {
+        console.log("[PAYSTACK-INLINE] Payment successful:", response.reference)
         if (config.onSuccess) config.onSuccess(response.reference)
         resolve(true)
       },
@@ -122,8 +133,49 @@ export function openPaystackModal(config: {
   })
 }
 
+/**
+ * Initialize payment for shop order and return payment config for inline
+ */
+export async function initializeShopPayment(params: {
+  orderId: string
+  shopId: string
+  shopSlug: string
+  amount: number
+  email: string
+  customerName: string
+  customerPhone: string
+}): Promise<{
+  success: boolean
+  reference: string
+  accessCode: string
+  paymentId: string
+}> {
+  try {
+    console.log("[PAYMENT-SERVICE] Initializing shop payment:", params)
+    
+    const response = await fetch("/api/payments/shop/initialize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to initialize payment")
+    }
+
+    const data = await response.json()
+    console.log("[PAYMENT-SERVICE] Shop payment initialized:", data)
+    return data
+  } catch (error) {
+    console.error("[PAYMENT-SERVICE] Error initializing shop payment:", error)
+    throw error
+  }
+}
+
 export default {
   initializePayment,
   verifyPayment,
   openPaystackModal,
+  initializeShopPayment,
 }
