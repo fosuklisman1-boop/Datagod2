@@ -103,14 +103,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       )
     }
 
-    // Validate URL format - be lenient with WhatsApp links
-    if (!whatsapp_link.includes("whatsapp.com") && !whatsapp_link.startsWith("https://wa.me")) {
-      console.log("[SHOP-SETTINGS] Invalid URL format for WhatsApp")
-      return NextResponse.json(
-        { error: "Invalid WhatsApp URL format" },
-        { status: 400 }
-      )
-    }
+    // Accept any format for WhatsApp link (phone number, URL, etc.)
+    console.log("[SHOP-SETTINGS] WhatsApp link validated (any format accepted)")
 
     // Get existing settings
     const { data: existingSettings } = await supabase
