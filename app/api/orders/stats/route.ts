@@ -49,6 +49,13 @@ export async function GET(request: NextRequest) {
       .eq("user_id", userId)
       .eq("status", "failed")
 
+    // Get pending orders
+    const { count: pendingCount } = await supabase
+      .from("orders")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "placed")
+
     const total = totalCount || 0
     const completed = completedCount || 0
     const successRate = total > 0 ? (completed / total) * 100 : 0
@@ -58,6 +65,7 @@ export async function GET(request: NextRequest) {
       completed,
       processing: processingCount || 0,
       failed: failedCount || 0,
+      pending: pendingCount || 0,
       successRate,
     })
   } catch (error) {
