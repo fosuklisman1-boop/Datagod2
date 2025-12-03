@@ -51,9 +51,16 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
   const handleTopUp = async () => {
     // Validation
-    if (!amount || parseFloat(amount) <= 0) {
+    const amountValue = parseFloat(amount)
+    if (!amount || amountValue <= 0) {
       setErrorMessage("Please enter a valid amount")
       toast.error("Invalid amount")
+      return
+    }
+
+    if (amountValue < 5) {
+      setErrorMessage("Minimum top-up amount is 5 cedis")
+      toast.error("Minimum top-up amount is 5 cedis")
       return
     }
 
@@ -143,12 +150,12 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="Enter amount"
-            min="1"
+            min="5"
             step="0.01"
             disabled={isLoading}
             className="text-lg"
           />
-          <p className="text-xs text-gray-500">Minimum: GHS 1.00</p>
+          <p className="text-xs text-gray-500">Minimum: GHS 5.00</p>
         </div>
 
         {/* Quick Amount Buttons */}
