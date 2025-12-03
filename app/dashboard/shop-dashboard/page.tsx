@@ -417,7 +417,9 @@ export default function ShopDashboardPage() {
                         <div className="flex-1">
                           <p className="font-semibold">{order.customer_name}</p>
                           <p className="text-sm text-gray-600">{order.network} - {order.volume_gb}GB</p>
-                          <p className="text-xs text-gray-500">{new Date(order.created_at).toLocaleDateString()}</p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(order.created_at).toLocaleDateString()} {new Date(order.created_at).toLocaleTimeString()}
+                          </p>
                         </div>
                         <div className="text-right">
                           <p className="font-semibold text-cyan-600">+GHS {order.profit_amount.toFixed(2)}</p>

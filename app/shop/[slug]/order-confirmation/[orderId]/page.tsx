@@ -123,6 +123,9 @@ export default function OrderConfirmation() {
                 <p className="font-semibold text-sm mt-1">
                   {new Date(order.created_at).toLocaleDateString()}
                 </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {new Date(order.created_at).toLocaleTimeString()}
+                </p>
               </div>
             </div>
 

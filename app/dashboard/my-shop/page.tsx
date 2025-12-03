@@ -1011,7 +1011,8 @@ export default function MyShopPage() {
                                 GHS {(order.profit_amount || 0).toFixed(2)}
                               </td>
                               <td className="py-3 px-4 text-xs text-gray-500">
-                                {new Date(order.created_at).toLocaleDateString()}
+                                <div>{new Date(order.created_at).toLocaleDateString()}</div>
+                                <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
                               </td>
                             </tr>
                           ))}
