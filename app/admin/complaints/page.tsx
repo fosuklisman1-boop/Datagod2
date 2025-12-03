@@ -31,6 +31,12 @@ interface Complaint {
     phoneNumber?: string
     packageName?: string
   }
+  evidence?: {
+    balance_image_url?: string
+    momo_receipt_url?: string
+    balance_image_path?: string
+    momo_receipt_path?: string
+  }
   user?: {
     email: string
     id: string
@@ -535,6 +541,52 @@ export default function AdminComplaintsPage() {
                       <p className="text-sm mt-1">
                         <span className="text-gray-600">{selectedComplaint.user.email || 'N/A'}</span>
                       </p>
+                    </div>
+                  )}
+
+                  {/* Evidence Images */}
+                  {selectedComplaint?.evidence && (
+                    <div className="border-t pt-4">
+                      <Label className="text-sm font-semibold mb-3 block">
+                        Evidence Attachments
+                      </Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {selectedComplaint.evidence.balance_image_url && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-gray-600">Balance Screenshot</p>
+                            <a 
+                              href={selectedComplaint.evidence.balance_image_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="block"
+                            >
+                              <img 
+                                src={selectedComplaint.evidence.balance_image_url} 
+                                alt="Balance Screenshot" 
+                                className="w-full h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
+                              />
+                            </a>
+                          </div>
+                        )}
+                        {selectedComplaint.evidence.momo_receipt_url && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-gray-600">MoMo Receipt</p>
+                            <a 
+                              href={selectedComplaint.evidence.momo_receipt_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="block"
+                            >
+                              <img 
+                                src={selectedComplaint.evidence.momo_receipt_url} 
+                                alt="MoMo Receipt" 
+                                className="w-full h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
+                              />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">Click images to view full size</p>
                     </div>
                   )}
                 </div>
