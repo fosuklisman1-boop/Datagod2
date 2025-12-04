@@ -411,8 +411,8 @@ export default function AdminSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex-1">
                 <p className="font-medium text-gray-900">Enable Announcement</p>
                 <p className="text-sm text-gray-600">Show a modal to users upon sign in</p>
               </div>
@@ -422,7 +422,7 @@ export default function AdminSettingsPage() {
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="announcementTitle" className="text-sm font-medium">
                 Announcement Title
               </Label>
@@ -432,12 +432,12 @@ export default function AdminSettingsPage() {
                 placeholder="Important Announcement"
                 value={announcementTitle}
                 onChange={(e) => setAnnouncementTitle(e.target.value)}
-                className="w-full mt-2"
+                className="w-full"
                 disabled={!announcementEnabled}
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="announcementMessage" className="text-sm font-medium">
                 Announcement Message
               </Label>
@@ -446,24 +446,24 @@ export default function AdminSettingsPage() {
                 placeholder="Enter your announcement message here..."
                 value={announcementMessage}
                 onChange={(e) => setAnnouncementMessage(e.target.value)}
-                className="w-full mt-2 min-h-[120px]"
+                className="w-full min-h-[120px] resize-y"
                 disabled={!announcementEnabled}
               />
             </div>
 
             {announcementEnabled && announcementTitle && announcementMessage && (
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-700">
+              <div className="p-3 sm:p-4 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-xs sm:text-sm text-green-700">
                   <span className="font-semibold">✓ Active:</span> This announcement will be shown to users upon sign in.
                 </p>
               </div>
             )}
 
-            <div className="flex gap-3 pt-4">
+            <div className="flex flex-col sm:flex-row gap-3 pt-4">
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700"
               >
                 {saving ? (
                   <>
