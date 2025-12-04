@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { notificationService, notificationTemplates } from "@/lib/notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -39,6 +40,34 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[WITHDRAWAL-REJECT] Withdrawal ${withdrawalId} rejected - Amount: GHS ${withdrawal.amount}`)
+
+    // Send notification to shop owner
+    try {
+      // Get shop owner user_id
+      const { data: shop, error: shopError } = await supabase
+        .from("user_shops")
+        .select("user_id")
+        .eq("id", withdrawal.shop_id)
+        .single()
+
+      if (!shopError && shop) {
+        const notificationData = notificationTemplates.withdrawalRejected(withdrawalId, reason || "No reason provided")
+        await notificationService.createNotification(
+          shop.user_id,
+          notificationData.title,
+          notificationData.message,
+          notificationData.type,
+          {
+            reference_id: notificationData.reference_id,
+            action_url: `/dashboard/shop-dashboard`,
+          }
+        )
+        console.log(`[NOTIFICATION] Withdrawal rejection notification sent to user ${shop.user_id}`)
+      }
+    } catch (notifError) {
+      console.warn("[NOTIFICATION] Failed to send notification:", notifError)
+      // Don't fail the rejection if notification fails
+    }
 
     // Sync available balance after rejection (restores the balance since withdrawal is no longer pending)
     try {

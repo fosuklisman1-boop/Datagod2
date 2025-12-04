@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { notificationService, notificationTemplates } from "@/lib/notification-service"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -41,6 +42,53 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[BULK-UPDATE] ✓ Updated ${orderIds.length} bulk orders to status: ${status}`)
+
+      // Send notifications for completed or failed orders
+      if (status === "completed" || status === "failed") {
+        try {
+          // Get order details to send notifications
+          const { data: orders, error: ordersError } = await supabase
+            .from("orders")
+            .select("id, user_id, network, size")
+            .in("id", orderIds)
+
+          if (!ordersError && orders) {
+            for (const order of orders) {
+              try {
+                if (status === "completed") {
+                  const notificationData = notificationTemplates.orderCompleted(order.id, "")
+                  await notificationService.createNotification(
+                    order.user_id,
+                    notificationData.title,
+                    `Your ${order.network} ${order.size} data order has been completed.`,
+                    notificationData.type,
+                    {
+                      reference_id: order.id,
+                      action_url: `/dashboard/my-orders`,
+                    }
+                  )
+                } else if (status === "failed") {
+                  await notificationService.createNotification(
+                    order.user_id,
+                    "Order Failed",
+                    `Your ${order.network} ${order.size} data order has failed. Please contact support.`,
+                    "order_update",
+                    {
+                      reference_id: order.id,
+                      action_url: `/dashboard/my-orders`,
+                    }
+                  )
+                }
+              } catch (notifError) {
+                console.warn(`[NOTIFICATION] Failed to send notification for order ${order.id}:`, notifError)
+              }
+            }
+            console.log(`[NOTIFICATION] Sent ${orders.length} order status notifications`)
+          }
+        } catch (error) {
+          console.warn("[NOTIFICATION] Error sending bulk notifications:", error)
+        }
+      }
     } else {
       // Update shop orders and credit profits if completing
       const { error: updateError } = await supabase
@@ -54,6 +102,53 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[BULK-UPDATE] ✓ Updated ${orderIds.length} shop orders to status: ${status}`)
+
+      // Send notifications for completed or failed shop orders
+      if (status === "completed" || status === "failed") {
+        try {
+          // Get shop order details to send notifications
+          const { data: shopOrders, error: ordersError } = await supabase
+            .from("shop_orders")
+            .select("id, user_id, network_name, package_name")
+            .in("id", orderIds)
+
+          if (!ordersError && shopOrders) {
+            for (const order of shopOrders) {
+              try {
+                if (status === "completed") {
+                  const notificationData = notificationTemplates.orderCompleted(order.id, "")
+                  await notificationService.createNotification(
+                    order.user_id,
+                    notificationData.title,
+                    `Your ${order.network_name} ${order.package_name} order has been completed.`,
+                    notificationData.type,
+                    {
+                      reference_id: order.id,
+                      action_url: `/dashboard/my-orders`,
+                    }
+                  )
+                } else if (status === "failed") {
+                  await notificationService.createNotification(
+                    order.user_id,
+                    "Order Failed",
+                    `Your ${order.network_name} ${order.package_name} order has failed. Please contact support.`,
+                    "order_update",
+                    {
+                      reference_id: order.id,
+                      action_url: `/dashboard/my-orders`,
+                    }
+                  )
+                }
+              } catch (notifError) {
+                console.warn(`[NOTIFICATION] Failed to send notification for shop order ${order.id}:`, notifError)
+              }
+            }
+            console.log(`[NOTIFICATION] Sent ${shopOrders.length} shop order status notifications`)
+          }
+        } catch (error) {
+          console.warn("[NOTIFICATION] Error sending shop order notifications:", error)
+        }
+      }
 
       // If status is "completed", credit the associated profits
       if (status === "completed") {
