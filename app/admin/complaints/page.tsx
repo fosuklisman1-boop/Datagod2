@@ -137,14 +137,35 @@ export default function AdminComplaintsPage() {
       setResolvingId(complaint.id)
       const data = await complaintService.updateComplaint(complaint.id, {
         status: "rejected",
+        resolution_notes: "This complaint has been rejected by the administrator.",
         updated_at: new Date().toISOString(),
       })
+
+      // Send notification to user
+      try {
+        await notificationService.createNotification(
+          complaint.user_id,
+          "Complaint Rejected",
+          `Your complaint regarding "${complaint.title}" has been rejected.`,
+          "admin_action",
+          {
+            reference_id: complaint.id,
+            action_url: `/dashboard/complaints?id=${complaint.id}`,
+          }
+        )
+        console.log("[NOTIFICATION] Complaint rejection notification sent to user", complaint.user_id)
+      } catch (notifError) {
+        console.warn("[NOTIFICATION] Failed to send notification:", notifError)
+        // Don't fail the rejection if notification fails
+      }
 
       setComplaints(
         complaints.map((c) => (c.id === complaint.id ? data : c))
       )
       setStatusFilter("all")
       setShowModal(false)
+      setSelectedComplaint(null)
+      setResolutionNotes("")
       toast.success("Complaint rejected")
     } catch (error) {
       console.error("Error rejecting complaint:", error)
@@ -612,6 +633,26 @@ export default function AdminComplaintsPage() {
                   >
                     Cancel
                   </Button>
+                  {selectedComplaint?.status === "pending" && (
+                    <Button
+                      onClick={() => selectedComplaint && handleReject(selectedComplaint)}
+                      disabled={resolvingId === selectedComplaint?.id}
+                      variant="destructive"
+                      className="gap-2"
+                    >
+                      {resolvingId === selectedComplaint?.id ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Rejecting...
+                        </>
+                      ) : (
+                        <>
+                          <X className="w-4 h-4" />
+                          Reject Complaint
+                        </>
+                      )}
+                    </Button>
+                  )}
                   <Button
                     onClick={() => selectedComplaint && handleResolve(selectedComplaint)}
                     disabled={resolvingId === selectedComplaint?.id}
