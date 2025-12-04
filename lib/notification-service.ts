@@ -233,4 +233,19 @@ export const notificationTemplates = {
     message: `Your wallet balance has been updated to GHS ${newBalance.toFixed(2)}.`,
     type: "balance_updated" as NotificationType,
   }),
+
+  shopApproved: (shopName: string, shopId: string) => ({
+    title: "Shop Approved",
+    message: `Congratulations! Your shop "${shopName}" has been approved and is now active.`,
+    type: "admin_action" as NotificationType,
+    reference_id: shopId,
+  }),
+
+  shopRejected: (shopName: string, shopId: string, reason?: string) => ({
+    title: "Shop Rejected",
+    message: `Your shop "${shopName}" has been rejected. ${reason ? `Reason: ${reason}` : "Please contact support for more information."}`,
+    type: "admin_action" as NotificationType,
+    reference_id: shopId,
+  }),
 }
+
