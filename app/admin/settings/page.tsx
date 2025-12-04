@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon } from "lucide-react"
+import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell } from "lucide-react"
 import { supportSettingsService } from "@/lib/support-settings-service"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 
 export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -23,6 +25,12 @@ export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
+  
+  // Announcement settings
+  const [announcementEnabled, setAnnouncementEnabled] = useState(false)
+  const [announcementTitle, setAnnouncementTitle] = useState("")
+  const [announcementMessage, setAnnouncementMessage] = useState("")
+  
   const [domainUrls] = useState([
     { name: "Main App", url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000" },
     { name: "Admin Dashboard", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin` },
@@ -55,6 +63,17 @@ export default function AdminSettingsPage() {
             "Hi, I need help resetting my password."
           )
           setPreviewWhatsappUrl(url)
+        }
+
+        // Load announcement settings
+        if (data.announcement_enabled !== undefined) {
+          setAnnouncementEnabled(data.announcement_enabled)
+        }
+        if (data.announcement_title) {
+          setAnnouncementTitle(data.announcement_title)
+        }
+        if (data.announcement_message) {
+          setAnnouncementMessage(data.announcement_message)
         }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
@@ -122,6 +141,9 @@ export default function AdminSettingsPage() {
         },
         body: JSON.stringify({
           join_community_link: joinCommunityLink,
+          announcement_enabled: announcementEnabled,
+          announcement_title: announcementTitle,
+          announcement_message: announcementMessage,
         }),
       })
 
@@ -377,6 +399,84 @@ export default function AdminSettingsPage() {
                   <p className="text-xs text-gray-700 font-mono break-all">{`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`}</p>
                 </div>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-blue-600" />
+              Login Announcement
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div>
+                <p className="font-medium text-gray-900">Enable Announcement</p>
+                <p className="text-sm text-gray-600">Show a modal to users upon sign in</p>
+              </div>
+              <Switch
+                checked={announcementEnabled}
+                onCheckedChange={setAnnouncementEnabled}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="announcementTitle" className="text-sm font-medium">
+                Announcement Title
+              </Label>
+              <Input
+                id="announcementTitle"
+                type="text"
+                placeholder="Important Announcement"
+                value={announcementTitle}
+                onChange={(e) => setAnnouncementTitle(e.target.value)}
+                className="w-full mt-2"
+                disabled={!announcementEnabled}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="announcementMessage" className="text-sm font-medium">
+                Announcement Message
+              </Label>
+              <Textarea
+                id="announcementMessage"
+                placeholder="Enter your announcement message here..."
+                value={announcementMessage}
+                onChange={(e) => setAnnouncementMessage(e.target.value)}
+                className="w-full mt-2 min-h-[120px]"
+                disabled={!announcementEnabled}
+              />
+            </div>
+
+            {announcementEnabled && announcementTitle && announcementMessage && (
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-700">
+                  <span className="font-semibold">✓ Active:</span> This announcement will be shown to users upon sign in.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save Settings
+                  </>
+                )}
+              </Button>
             </div>
           </CardContent>
         </Card>

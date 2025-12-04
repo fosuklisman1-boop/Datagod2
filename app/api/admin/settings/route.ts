@@ -23,7 +23,10 @@ export async function GET(request: NextRequest) {
       const { data: newSettings, error: insertError } = await supabase
         .from("app_settings")
         .insert([{
-          join_community_link: ""
+          join_community_link: "",
+          announcement_enabled: false,
+          announcement_title: "",
+          announcement_message: ""
         }])
         .select()
         .single()
@@ -85,7 +88,12 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { join_community_link } = body
+    const { 
+      join_community_link, 
+      announcement_enabled, 
+      announcement_title, 
+      announcement_message 
+    } = body
 
     if (!join_community_link) {
       return NextResponse.json(
@@ -118,6 +126,9 @@ export async function PUT(request: NextRequest) {
         .from("app_settings")
         .update({
           join_community_link,
+          announcement_enabled: announcement_enabled ?? false,
+          announcement_title: announcement_title ?? "",
+          announcement_message: announcement_message ?? "",
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingSettings.id)
@@ -136,6 +147,9 @@ export async function PUT(request: NextRequest) {
         .insert([
           {
             join_community_link,
+            announcement_enabled: announcement_enabled ?? false,
+            announcement_title: announcement_title ?? "",
+            announcement_message: announcement_message ?? "",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },
