@@ -446,7 +446,7 @@ export default function ShopStorefront() {
                                     <CardHeader>
                                       <div className="flex items-start justify-between">
                                         <div className="flex-1">
-                                          <CardTitle className="text-lg">{pkg.size}</CardTitle>
+                                          <CardTitle className="text-lg">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                                           <CardDescription className="text-sm">{pkg.description}</CardDescription>
                                         </div>
                                         <Badge className="bg-gradient-to-r from-violet-600 to-purple-600">

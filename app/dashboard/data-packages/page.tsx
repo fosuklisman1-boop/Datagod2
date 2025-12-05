@@ -364,7 +364,7 @@ export default function DataPackagesPage() {
                   <div className="flex justify-between items-start">
                     <div>
                       <Badge className="mb-2 bg-gradient-to-r from-cyan-400/40 to-blue-400/30 backdrop-blur text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-blue-600 group-hover:text-white transition-all border border-cyan-300/60">{pkg.network}</Badge>
-                      <CardTitle className="text-2xl group-hover:text-cyan-600 transition-colors">{pkg.size}GB</CardTitle>
+                      <CardTitle className="text-2xl group-hover:text-cyan-600 transition-colors">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                     </div>
                     <div className="text-right">
                       <p className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent group-hover:from-violet-600 group-hover:to-fuchsia-600 transition-colors">GHS {pkg.price.toFixed(2)}</p>
@@ -435,7 +435,7 @@ export default function DataPackagesPage() {
                           )}
                         </td>
                         <td className="px-6 py-4 text-sm font-medium text-gray-900">{pkg.network}</td>
-                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">{pkg.size}GB</td>
+                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
                         <td className="px-6 py-4 text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">GHS {pkg.price.toFixed(2)}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
                         <td className="px-6 py-4 text-sm">
