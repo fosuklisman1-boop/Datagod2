@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
+import { notificationService, notificationTemplates } from "@/lib/notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -319,6 +320,21 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[WEBHOOK] ✓ Wallet credited for user ${paymentData.user_id}: GHS ${creditAmount.toFixed(2)} (after GHS ${feeAmount.toFixed(2)} fee)`)
+        
+        // Send notification to user about wallet top-up
+        try {
+          const notificationData = notificationTemplates.balanceUpdated(newBalance)
+          await notificationService.createNotification(
+            paymentData.user_id,
+            notificationData.title,
+            `${notificationData.message} Credited amount: GHS ${creditAmount.toFixed(2)}.`,
+            notificationData.type
+          )
+          console.log(`[NOTIFICATION] Wallet top-up notification sent to user ${paymentData.user_id}`)
+        } catch (notifError) {
+          console.warn("[NOTIFICATION] Failed to send wallet top-up notification:", notifError)
+          // Don't fail the webhook if notification fails
+        }
       } else {
         console.log(`[WEBHOOK] ✓ Shop order payment - NOT credited to wallet (profit goes to shop instead)`)
       }

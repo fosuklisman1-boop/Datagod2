@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { notificationService, notificationTemplates } from "@/lib/notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -126,6 +127,25 @@ export async function POST(request: NextRequest) {
 
     if (transactionError) {
       console.error("Failed to create transaction record:", transactionError)
+    }
+
+    // Send notification about successful purchase
+    try {
+      const notificationData = notificationTemplates.paymentSuccess(price, order[0].id)
+      await notificationService.createNotification(
+        userId,
+        notificationData.title,
+        `${notificationData.message} Order: ${network} - ${size}GB. Order Code: ${order[0].order_code}`,
+        notificationData.type,
+        {
+          reference_id: notificationData.reference_id,
+          action_url: `/dashboard/my-orders?orderId=${order[0].id}`,
+        }
+      )
+      console.log(`[NOTIFICATION] Purchase success notification sent to user ${userId}`)
+    } catch (notifError) {
+      console.warn("[NOTIFICATION] Failed to send purchase notification:", notifError)
+      // Don't fail the purchase if notification fails
     }
 
     return NextResponse.json({

@@ -186,13 +186,14 @@ export default function AdminComplaintsPage() {
 
       // Send notification to user
       try {
+        const notificationData = notificationTemplates.complaintRejected(complaint.id, complaint.title)
         await notificationService.createNotification(
           complaint.user_id,
-          "Complaint Rejected",
-          `Your complaint regarding "${complaint.title}" has been rejected.`,
-          "admin_action",
+          notificationData.title,
+          notificationData.message,
+          notificationData.type,
           {
-            reference_id: complaint.id,
+            reference_id: notificationData.reference_id,
             action_url: `/dashboard/complaints?id=${complaint.id}`,
           }
         )

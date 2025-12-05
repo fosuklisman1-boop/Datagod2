@@ -207,6 +207,20 @@ export const notificationTemplates = {
     reference_id: complaintId,
   }),
 
+  complaintSubmitted: (complaintId: string, title: string) => ({
+    title: "Complaint Submitted",
+    message: `Your complaint "${title}" has been received and is under review. We'll get back to you soon.`,
+    type: "admin_action" as NotificationType,
+    reference_id: complaintId,
+  }),
+
+  complaintRejected: (complaintId: string, title: string) => ({
+    title: "Complaint Rejected",
+    message: `Your complaint "${title}" has been reviewed and rejected. Please contact support if you believe this is an error.`,
+    type: "admin_action" as NotificationType,
+    reference_id: complaintId,
+  }),
+
   paymentSuccess: (amount: number, orderId: string) => ({
     title: "Payment Successful",
     message: `Payment of GHS ${amount.toFixed(2)} has been successfully processed.`,
