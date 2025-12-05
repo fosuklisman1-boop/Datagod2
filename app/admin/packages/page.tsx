@@ -89,10 +89,13 @@ export default function AdminPackagesPage() {
 
     setIsSubmitting(true)
     try {
+      // Clean size by removing "GB" suffix if present
+      const cleanSize = formData.size.toString().toUpperCase().replace(/\s*GB\s*$/, "")
+      
       if (editingId) {
         await adminPackageService.updatePackage(editingId, {
           network: formData.network,
-          size: formData.size,
+          size: cleanSize,
           price: parseFloat(formData.price),
           description: formData.description,
         })
@@ -100,7 +103,7 @@ export default function AdminPackagesPage() {
       } else {
         await adminPackageService.createPackage({
           network: formData.network,
-          size: formData.size,
+          size: cleanSize,
           price: parseFloat(formData.price),
           description: formData.description,
         })

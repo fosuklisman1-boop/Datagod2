@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
     // Generate Excel file
     const excelData = orders.map((order: any) => ({
       Phone: order.phone_number,
-      Size: order.size
+      Size: order.size?.toString().replace(/[^0-9]/g, "") || order.size // Remove "GB" or any non-numeric characters
     }))
 
     const worksheet = XLSX.utils.json_to_sheet(excelData)
