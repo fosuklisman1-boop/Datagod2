@@ -50,6 +50,7 @@ export default function AdminOrdersPage() {
   
   const [showNetworkSelection, setShowNetworkSelection] = useState(false)
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([])
+  const [downloadedBatchFilter, setDownloadedBatchFilter] = useState("all")
   const allNetworks = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
 
   useEffect(() => {
@@ -333,6 +334,36 @@ export default function AdminOrdersPage() {
     return colors[network] || "bg-gray-100 text-gray-800 border-gray-200"
   }
 
+  const getFilteredDownloadedOrders = () => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
+    const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate())
+
+    return Object.entries(downloadedOrders).filter(([, batch]) => {
+      const batchDate = new Date(batch.downloadedAt)
+      const batchDateOnly = new Date(batchDate.getFullYear(), batchDate.getMonth(), batchDate.getDate())
+
+      switch (downloadedBatchFilter) {
+        case "today":
+          return batchDateOnly.getTime() === today.getTime()
+        case "yesterday":
+          return batchDateOnly.getTime() === yesterday.getTime()
+        case "this-week":
+          return batchDateOnly >= weekAgo && batchDateOnly <= today
+        case "this-month":
+          return batchDate >= monthAgo && batchDate <= now
+        case "this-quarter":
+          return batchDate >= threeMonthsAgo && batchDate <= now
+        case "all":
+        default:
+          return true
+      }
+    })
+  }
+
   if (adminLoading) {
     return (
       <DashboardLayout>
@@ -446,6 +477,61 @@ export default function AdminOrdersPage() {
 
           {/* Downloaded Orders Tab */}
           <TabsContent value="downloaded" className="space-y-4">
+            {/* Filter Section */}
+            {Object.keys(downloadedOrders).length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Filter Downloaded Batches</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant={downloadedBatchFilter === "all" ? "default" : "outline"}
+                      onClick={() => setDownloadedBatchFilter("all")}
+                      size="sm"
+                    >
+                      All
+                    </Button>
+                    <Button
+                      variant={downloadedBatchFilter === "today" ? "default" : "outline"}
+                      onClick={() => setDownloadedBatchFilter("today")}
+                      size="sm"
+                    >
+                      Today
+                    </Button>
+                    <Button
+                      variant={downloadedBatchFilter === "yesterday" ? "default" : "outline"}
+                      onClick={() => setDownloadedBatchFilter("yesterday")}
+                      size="sm"
+                    >
+                      Yesterday
+                    </Button>
+                    <Button
+                      variant={downloadedBatchFilter === "this-week" ? "default" : "outline"}
+                      onClick={() => setDownloadedBatchFilter("this-week")}
+                      size="sm"
+                    >
+                      This Week
+                    </Button>
+                    <Button
+                      variant={downloadedBatchFilter === "this-month" ? "default" : "outline"}
+                      onClick={() => setDownloadedBatchFilter("this-month")}
+                      size="sm"
+                    >
+                      This Month
+                    </Button>
+                    <Button
+                      variant={downloadedBatchFilter === "this-quarter" ? "default" : "outline"}
+                      onClick={() => setDownloadedBatchFilter("this-quarter")}
+                      size="sm"
+                    >
+                      This Quarter
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {Object.keys(downloadedOrders).length === 0 ? (
               <Card>
                 <CardContent className="pt-6">
@@ -457,7 +543,17 @@ export default function AdminOrdersPage() {
               </Card>
             ) : (
               <div className="space-y-6">
-                {Object.entries(downloadedOrders).map(([batchKey, batch]) => (
+                {getFilteredDownloadedOrders().length === 0 ? (
+                  <Card>
+                    <CardContent className="pt-6">
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>No downloaded batches found for the selected date range</AlertDescription>
+                      </Alert>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  getFilteredDownloadedOrders().map(([batchKey, batch]) => (
                   <Card key={batchKey} className="border-l-4 border-l-emerald-500">
                     <CardHeader>
                       <div className="flex items-center justify-between">
@@ -541,7 +637,8 @@ export default function AdminOrdersPage() {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  ))
+                )}
               </div>
             )}
           </TabsContent>
