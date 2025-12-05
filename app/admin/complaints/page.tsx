@@ -28,8 +28,13 @@ interface Complaint {
   updated_at: string
   order_id?: string
   order_details?: {
+    phone?: string
     phoneNumber?: string
+    package?: string
     packageName?: string
+    network?: string
+    amount?: number
+    date?: string
   }
   evidence?: {
     balance_image_url?: string
@@ -526,13 +531,13 @@ export default function AdminComplaintsPage() {
                         </Label>
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded">
-                            {selectedComplaint.order_details.phoneNumber}
+                            {selectedComplaint.order_details.phone || selectedComplaint.order_details.phoneNumber || 'N/A'}
                           </p>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => {
-                              navigator.clipboard.writeText(selectedComplaint.order_details?.phoneNumber || '')
+                              navigator.clipboard.writeText(selectedComplaint.order_details?.phone || selectedComplaint.order_details?.phoneNumber || '')
                               toast.success("Phone number copied!")
                             }}
                           >
@@ -546,13 +551,13 @@ export default function AdminComplaintsPage() {
                         </Label>
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded">
-                            {selectedComplaint.order_details.packageName}
+                            {selectedComplaint.order_details.package || selectedComplaint.order_details.packageName || 'N/A'}
                           </p>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => {
-                              navigator.clipboard.writeText(selectedComplaint.order_details?.packageName || '')
+                              navigator.clipboard.writeText(selectedComplaint.order_details?.package || selectedComplaint.order_details?.packageName || '')
                               toast.success("Data size copied!")
                             }}
                           >
