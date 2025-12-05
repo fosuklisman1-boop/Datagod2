@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       .from("orders")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
-      .eq("status", "placed")
+      .eq("status", "pending")
 
     const total = totalCount || 0
     const completed = completedCount || 0
