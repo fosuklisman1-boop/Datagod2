@@ -124,6 +124,7 @@ export default function DataPackagesPage() {
       const { data, error } = await supabase
         .from("packages")
         .select("*")
+        .eq("is_available", true)
         .order("network, size")
 
       if (error) {

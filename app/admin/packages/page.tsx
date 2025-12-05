@@ -12,6 +12,7 @@ import { Trash2, Edit, Plus } from "lucide-react"
 import { adminPackageService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { Switch } from "@/components/ui/switch"
 
 interface Package {
   id: string
@@ -19,6 +20,7 @@ interface Package {
   size: string
   price: number
   description?: string
+  is_available?: boolean
   created_at?: string
 }
 
@@ -140,6 +142,38 @@ export default function AdminPackagesPage() {
       toast.error(error.message || "Failed to delete package")
     } finally {
       setIsDeletingId(null)
+    }
+  }
+
+  const toggleAvailability = async (packageId: string, currentStatus: boolean) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/packages/toggle-availability", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          packageId,
+          isAvailable: !currentStatus,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update availability")
+      }
+
+      toast.success(`Package ${!currentStatus ? "enabled" : "disabled"} successfully`)
+      await loadPackages()
+    } catch (error: any) {
+      console.error("Error toggling availability:", error)
+      toast.error(error.message || "Failed to update package availability")
     }
   }
 
@@ -273,6 +307,7 @@ export default function AdminPackagesPage() {
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Size</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Price</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Description</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Available</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
                   </tr>
                 </thead>
@@ -283,6 +318,17 @@ export default function AdminPackagesPage() {
                       <td className="px-6 py-4 text-gray-900">{pkg.size}</td>
                       <td className="px-6 py-4 font-semibold text-blue-600">GHS {pkg.price.toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={pkg.is_available !== false}
+                            onCheckedChange={() => toggleAvailability(pkg.id, pkg.is_available !== false)}
+                          />
+                          <span className={`text-xs font-medium ${pkg.is_available !== false ? 'text-green-600' : 'text-gray-400'}`}>
+                            {pkg.is_available !== false ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                      </td>
                       <td className="px-6 py-4 flex gap-2">
                         <Button
                           size="sm"
