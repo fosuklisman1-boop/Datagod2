@@ -8,11 +8,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Edit, Plus } from "lucide-react"
+import { Trash2, Edit, Plus, Power } from "lucide-react"
 import { adminPackageService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Switch } from "@/components/ui/switch"
 
 interface Package {
   id: string
@@ -319,15 +318,18 @@ export default function AdminPackagesPage() {
                       <td className="px-6 py-4 font-semibold text-blue-600">GHS {pkg.price.toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            checked={pkg.is_available !== false}
-                            onCheckedChange={() => toggleAvailability(pkg.id, pkg.is_available !== false)}
-                          />
-                          <span className={`text-xs font-medium ${pkg.is_available !== false ? 'text-green-600' : 'text-gray-400'}`}>
-                            {pkg.is_available !== false ? 'Yes' : 'No'}
-                          </span>
-                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => toggleAvailability(pkg.id, pkg.is_available !== false)}
+                          className={`${
+                            pkg.is_available !== false
+                              ? "bg-green-600 hover:bg-green-700"
+                              : "bg-gray-400 hover:bg-gray-500"
+                          } text-white`}
+                        >
+                          <Power className="w-4 h-4 mr-1" />
+                          {pkg.is_available !== false ? "Enabled" : "Disabled"}
+                        </Button>
                       </td>
                       <td className="px-6 py-4 flex gap-2">
                         <Button
