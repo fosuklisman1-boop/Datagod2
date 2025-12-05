@@ -299,9 +299,22 @@ export default function AdminOrdersPage() {
 
       toast.success(`Updated ${batch.orders.length} orders to ${newStatus}`)
       
-      // Reload orders
+      // Update the batch orders in state with new status immediately
+      const updatedBatch = {
+        ...batch,
+        orders: batch.orders.map(order => ({
+          ...order,
+          status: newStatus
+        }))
+      }
+      
+      setDownloadedOrders(prev => ({
+        ...prev,
+        [batchKey]: updatedBatch
+      }))
+      
+      // Reload pending orders to update counts
       await loadPendingOrders()
-      await loadDownloadedOrders()
     } catch (error) {
       console.error("Error updating batch status:", error)
       toast.error(error instanceof Error ? error.message : "Failed to update status")
