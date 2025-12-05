@@ -57,6 +57,7 @@ export function Sidebar() {
   const [isMobile, setIsMobile] = useState(false)
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
   const [pendingOrderCount, setPendingOrderCount] = useState(0)
+  const [hasFetchedOnce, setHasFetchedOnce] = useState(false)
 
   const handleLogout = async () => {
     await logout()
@@ -65,7 +66,8 @@ export function Sidebar() {
   // Fetch pending orders count
   useEffect(() => {
     if (!user) {
-      console.log('[SIDEBAR] No user, skipping fetch')
+      console.log('[SIDEBAR] No user yet, waiting...')
+      setHasFetchedOnce(false)
       return
     }
 
@@ -83,7 +85,7 @@ export function Sidebar() {
           ? '/api/admin/orders/pending-count'
           : '/api/orders/pending-count'
         
-        console.log('[SIDEBAR] Fetching pending orders from:', endpoint, 'isAdmin:', isAdmin)
+        console.log('[SIDEBAR] Fetching pending orders from:', endpoint, 'isAdmin:', isAdmin, 'userId:', user?.id)
         
         const response = await fetch(endpoint, { 
           headers: {
@@ -97,6 +99,7 @@ export function Sidebar() {
           const data = await response.json()
           console.log('[SIDEBAR] Pending orders count:', data.count)
           setPendingOrderCount(data.count || 0)
+          setHasFetchedOnce(true)
         } else {
           const errorData = await response.json()
           console.error('[SIDEBAR] Error response:', response.status, errorData)
@@ -106,6 +109,7 @@ export function Sidebar() {
       }
     }
 
+    // Fetch immediately when user is available
     fetchPendingOrders()
     
     // Refetch every 30 seconds to keep count updated
