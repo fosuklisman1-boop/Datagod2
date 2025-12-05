@@ -69,16 +69,18 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Get public URL for MoMo receipt
-      momoUrlData = supabase.storage
+      // Get signed URL for MoMo receipt (valid for 24 hours)
+      const { data: momoSignedUrlData } = await supabase.storage
         .from("complaint-evidence")
-        .getPublicUrl(momoFileName)
+        .createSignedUrl(momoFileName, 24 * 60 * 60) // 24 hours
+      
+      momoUrlData = momoSignedUrlData
     }
 
-    // Get public URLs
-    const { data: balanceUrlData } = supabase.storage
+    // Get signed URL for balance image (valid for 24 hours)
+    const { data: balanceSignedUrlData } = await supabase.storage
       .from("complaint-evidence")
-      .getPublicUrl(balanceFileName)
+      .createSignedUrl(balanceFileName, 24 * 60 * 60) // 24 hours
 
     // Create complaint record
     const { data: complaint, error: complaintError } = await supabase
@@ -99,8 +101,8 @@ export async function POST(request: NextRequest) {
             date: orderDetails.createdAt,
           },
           evidence: {
-            balance_image_url: balanceUrlData.publicUrl,
-            momo_receipt_url: momoUrlData?.data?.publicUrl || null,
+            balance_image_url: balanceSignedUrlData?.signedUrl || null,
+            momo_receipt_url: momoUrlData?.signedUrl || null,
             balance_image_path: balanceFileName,
             momo_receipt_path: momoFileName || null,
           },

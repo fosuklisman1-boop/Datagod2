@@ -55,12 +55,50 @@ export default function AdminComplaintsPage() {
   const [resolutionNotes, setResolutionNotes] = useState("")
   const [resolvingId, setResolvingId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
+  const [evidenceUrls, setEvidenceUrls] = useState<{
+    balance_image_url?: string
+    momo_receipt_url?: string
+  }>({})
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
       loadComplaints()
     }
   }, [isAdmin, adminLoading])
+
+  // Regenerate evidence URLs when modal opens
+  useEffect(() => {
+    const regenerateEvidenceUrls = async () => {
+      if (!selectedComplaint?.evidence) return
+
+      try {
+        const response = await fetch("/api/admin/complaints/evidence-urls", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            balanceImagePath: selectedComplaint.evidence.balance_image_path,
+            momoReceiptPath: selectedComplaint.evidence.momo_receipt_path,
+          }),
+        })
+
+        if (response.ok) {
+          const urls = await response.json()
+          setEvidenceUrls(urls)
+          console.log("[ADMIN-COMPLAINTS] Evidence URLs regenerated successfully")
+        } else {
+          console.error("Failed to regenerate evidence URLs")
+        }
+      } catch (error) {
+        console.error("Error regenerating evidence URLs:", error)
+      }
+    }
+
+    if (showModal && selectedComplaint) {
+      regenerateEvidenceUrls()
+    }
+  }, [showModal, selectedComplaint])
 
   const loadComplaints = async () => {
     try {
@@ -572,36 +610,42 @@ export default function AdminComplaintsPage() {
                         Evidence Attachments
                       </Label>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {selectedComplaint.evidence.balance_image_url && (
+                        {(evidenceUrls.balance_image_url || selectedComplaint.evidence.balance_image_url) && (
                           <div className="space-y-2">
                             <p className="text-xs font-medium text-gray-600">Balance Screenshot</p>
                             <a 
-                              href={selectedComplaint.evidence.balance_image_url} 
+                              href={evidenceUrls.balance_image_url || selectedComplaint.evidence.balance_image_url} 
                               target="_blank" 
                               rel="noopener noreferrer"
                               className="block"
                             >
                               <img 
-                                src={selectedComplaint.evidence.balance_image_url} 
+                                src={evidenceUrls.balance_image_url || selectedComplaint.evidence.balance_image_url} 
                                 alt="Balance Screenshot" 
                                 className="w-full h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
+                                onError={(e) => {
+                                  console.error("Error loading balance image:", e)
+                                }}
                               />
                             </a>
                           </div>
                         )}
-                        {selectedComplaint.evidence.momo_receipt_url && (
+                        {(evidenceUrls.momo_receipt_url || selectedComplaint.evidence.momo_receipt_url) && (
                           <div className="space-y-2">
                             <p className="text-xs font-medium text-gray-600">MoMo Receipt</p>
                             <a 
-                              href={selectedComplaint.evidence.momo_receipt_url} 
+                              href={evidenceUrls.momo_receipt_url || selectedComplaint.evidence.momo_receipt_url} 
                               target="_blank" 
                               rel="noopener noreferrer"
                               className="block"
                             >
                               <img 
-                                src={selectedComplaint.evidence.momo_receipt_url} 
+                                src={evidenceUrls.momo_receipt_url || selectedComplaint.evidence.momo_receipt_url} 
                                 alt="MoMo Receipt" 
                                 className="w-full h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
+                                onError={(e) => {
+                                  console.error("Error loading momo receipt image:", e)
+                                }}
                               />
                             </a>
                           </div>
