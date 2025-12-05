@@ -127,7 +127,8 @@ export const shopPackageService = {
           network,
           size,
           price,
-          description
+          description,
+          is_available
         )
       `)
       .eq("shop_id", shopData.id)
@@ -135,7 +136,10 @@ export const shopPackageService = {
       .order("created_at", { ascending: false })
 
     if (error) throw error
-    return data
+    
+    // Filter out packages that are disabled by admin (packages.is_available = false)
+    const availableData = data?.filter(item => item.packages?.is_available !== false) || []
+    return availableData
   },
 
   // Update package profit margin
