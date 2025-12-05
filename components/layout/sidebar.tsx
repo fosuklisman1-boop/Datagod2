@@ -64,32 +64,42 @@ export function Sidebar() {
 
   // Fetch pending orders count
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      console.log('[SIDEBAR] No user, skipping fetch')
+      return
+    }
 
     const fetchPendingOrders = async () => {
       try {
+        // Get auth session
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) {
+          console.error('[SIDEBAR] No access token available')
+          return
+        }
+
         // Determine which endpoint to use based on user role
         const endpoint = isAdmin 
           ? '/api/admin/orders/pending-count'
           : '/api/orders/pending-count'
         
-        const headers: HeadersInit = {}
+        console.log('[SIDEBAR] Fetching pending orders from:', endpoint, 'isAdmin:', isAdmin)
         
-        // Add authorization header for admin endpoint
-        if (isAdmin) {
-          const { data: { session } } = await supabase.auth.getSession()
-          if (session?.access_token) {
-            headers['Authorization'] = `Bearer ${session.access_token}`
+        const response = await fetch(endpoint, { 
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
           }
-        }
+        })
         
-        const response = await fetch(endpoint, { headers })
+        console.log('[SIDEBAR] Fetch response status:', response.status)
+        
         if (response.ok) {
           const data = await response.json()
-          setPendingOrderCount(data.count || 0)
           console.log('[SIDEBAR] Pending orders count:', data.count)
+          setPendingOrderCount(data.count || 0)
         } else {
-          console.error('[SIDEBAR] Error fetching pending orders:', response.status)
+          const errorData = await response.json()
+          console.error('[SIDEBAR] Error response:', response.status, errorData)
         }
       } catch (error) {
         console.error('[SIDEBAR] Error fetching pending orders:', error)
