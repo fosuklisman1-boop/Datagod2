@@ -87,13 +87,20 @@ export function Sidebar() {
         if (response.ok) {
           const data = await response.json()
           setPendingOrderCount(data.count || 0)
+          console.log('[SIDEBAR] Pending orders count:', data.count)
+        } else {
+          console.error('[SIDEBAR] Error fetching pending orders:', response.status)
         }
       } catch (error) {
-        console.error('Error fetching pending orders:', error)
+        console.error('[SIDEBAR] Error fetching pending orders:', error)
       }
     }
 
     fetchPendingOrders()
+    
+    // Refetch every 30 seconds to keep count updated
+    const interval = setInterval(fetchPendingOrders, 30000)
+    return () => clearInterval(interval)
   }, [user, isAdmin])
 
   // Handle mobile responsiveness
