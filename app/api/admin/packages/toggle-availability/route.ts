@@ -29,14 +29,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Check if user is admin
-    const { data: userData, error: metaError } = await supabase
-      .from("users")
-      .select("user_metadata")
-      .eq("id", user.id)
-      .single()
-
-    if (metaError || userData?.user_metadata?.role !== "admin") {
+    // Check if user is admin from user_metadata (stored in auth)
+    if (user?.user_metadata?.role !== "admin") {
       return NextResponse.json({ error: "Forbidden - Admin access required" }, { status: 403 })
     }
 
