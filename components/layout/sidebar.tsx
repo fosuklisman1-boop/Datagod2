@@ -57,64 +57,47 @@ export function Sidebar() {
   const [isMobile, setIsMobile] = useState(false)
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
   const [pendingOrderCount, setPendingOrderCount] = useState(0)
-  const [hasFetchedOnce, setHasFetchedOnce] = useState(false)
 
   const handleLogout = async () => {
     await logout()
   }
 
-  // Fetch pending orders count
+  // Fetch pending orders count from localStorage
   useEffect(() => {
     if (!user) {
       console.log('[SIDEBAR] No user yet, waiting...')
-      setHasFetchedOnce(false)
       return
     }
 
-    const fetchPendingOrders = async () => {
-      try {
-        // Get auth session
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session?.access_token) {
-          console.error('[SIDEBAR] No access token available')
-          return
-        }
-
-        // Determine which endpoint to use based on user role
-        const endpoint = isAdmin 
-          ? '/api/admin/orders/pending-count'
-          : '/api/orders/pending-count'
-        
-        console.log('[SIDEBAR] Fetching pending orders from:', endpoint, 'isAdmin:', isAdmin, 'userId:', user?.id)
-        
-        const response = await fetch(endpoint, { 
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`
-          }
-        })
-        
-        console.log('[SIDEBAR] Fetch response status:', response.status)
-        
-        if (response.ok) {
-          const data = await response.json()
-          console.log('[SIDEBAR] Pending orders count:', data.count)
-          setPendingOrderCount(data.count || 0)
-          setHasFetchedOnce(true)
-        } else {
-          const errorData = await response.json()
-          console.error('[SIDEBAR] Error response:', response.status, errorData)
-        }
-      } catch (error) {
-        console.error('[SIDEBAR] Error fetching pending orders:', error)
-      }
+    // Listen for changes in localStorage (read appropriate key based on role)
+    const handleStorageChange = () => {
+      const userPendingCount = localStorage.getItem('userPendingOrdersCount')
+      const adminPendingCount = localStorage.getItem('adminPendingOrdersCount')
+      
+      // Use admin count if user is admin, otherwise use user count
+      const count = isAdmin && adminPendingCount 
+        ? parseInt(adminPendingCount, 10)
+        : userPendingCount
+        ? parseInt(userPendingCount, 10)
+        : 0
+      
+      console.log('[SIDEBAR] Updated pending count from localStorage:', count, 'isAdmin:', isAdmin)
+      setPendingOrderCount(count)
     }
 
-    // Fetch immediately when user is available
-    fetchPendingOrders()
-    
-    // Refetch every 30 seconds to keep count updated
-    const interval = setInterval(fetchPendingOrders, 30000)
-    return () => clearInterval(interval)
+    // Check localStorage immediately
+    handleStorageChange()
+
+    // Listen for storage events (from other tabs/components)
+    window.addEventListener('storage', handleStorageChange)
+
+    // Also poll localStorage every 5 seconds in case it changes in same tab
+    const interval = setInterval(handleStorageChange, 5000)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      clearInterval(interval)
+    }
   }, [user, isAdmin])
 
   // Handle mobile responsiveness

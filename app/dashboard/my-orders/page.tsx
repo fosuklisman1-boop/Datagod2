@@ -88,6 +88,9 @@ export default function MyOrdersPage() {
       if (statsResponse.ok) {
         const statsData = await statsResponse.json()
         setStats(statsData)
+        // Sync pending count to localStorage for sidebar badge
+        localStorage.setItem('userPendingOrdersCount', statsData.pending.toString())
+        console.log('[MY-ORDERS] Updated localStorage with pending count:', statsData.pending)
       }
 
       // Fetch orders list

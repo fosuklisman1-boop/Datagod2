@@ -72,7 +72,11 @@ export default function AdminOrdersPage() {
 
       const result = await response.json()
       console.log("Fetched pending orders:", result.count)
-      setPendingOrders(result.data || [])
+      const ordersData = result.data || []
+      setPendingOrders(ordersData)
+      // Sync pending count to localStorage for sidebar badge
+      localStorage.setItem('adminPendingOrdersCount', ordersData.length.toString())
+      console.log('[ADMIN-ORDERS] Updated localStorage with admin pending count:', ordersData.length)
     } catch (error) {
       console.error("Error loading pending orders:", error)
       toast.error("Failed to load pending orders")
