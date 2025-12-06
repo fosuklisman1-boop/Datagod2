@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { Shield } from "lucide-react"
 import { authService } from "@/lib/auth"
+import { getAuthErrorMessage } from "@/lib/auth-errors"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -65,8 +66,19 @@ export default function SignupPage() {
       toast.success("Account created! Please check your email to verify your account.")
       router.push("/auth/login")
     } catch (error: any) {
-      const errorMessage = error?.message || "Signup failed. Please try again."
-      toast.error(errorMessage)
+      const { message, type } = getAuthErrorMessage(error)
+      
+      // Show appropriate toast based on error type
+      if (type === 'user-exists') {
+        toast.error(message)
+        // Redirect to login after 2 seconds
+        setTimeout(() => {
+          router.push("/auth/login")
+        }, 2000)
+      } else {
+        toast.error(message)
+      }
+      
       console.error("Signup error:", error)
     } finally {
       setIsLoading(false)

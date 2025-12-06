@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { Shield } from "lucide-react"
 import { authService } from "@/lib/auth"
+import { getAuthErrorMessage } from "@/lib/auth-errors"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -49,8 +50,8 @@ export default function LoginPage() {
       // Redirect to dashboard
       window.location.href = "/dashboard"
     } catch (error: any) {
-      const errorMessage = error?.message || "Login failed. Please try again."
-      toast.error(errorMessage)
+      const { message } = getAuthErrorMessage(error)
+      toast.error(message)
       console.error("Login error:", error)
     } finally {
       setIsLoading(false)
