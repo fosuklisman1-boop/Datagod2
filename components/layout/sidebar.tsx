@@ -56,7 +56,8 @@ export function Sidebar() {
   const [isOpen, setIsOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
-  const [pendingOrderCount, setPendingOrderCount] = useState(0)
+  const [userPendingOrderCount, setUserPendingOrderCount] = useState(0)
+  const [adminPendingOrderCount, setAdminPendingOrderCount] = useState(0)
 
   const handleLogout = async () => {
     await logout()
@@ -69,20 +70,15 @@ export function Sidebar() {
       return
     }
 
-    // Listen for changes in localStorage (read appropriate key based on role)
+    // Listen for changes in localStorage (read both user and admin counts separately)
     const handleStorageChange = () => {
-      const userPendingCount = localStorage.getItem('userPendingOrdersCount')
-      const adminPendingCount = localStorage.getItem('adminPendingOrdersCount')
+      const userCount = localStorage.getItem('userPendingOrdersCount')
+      const adminCount = localStorage.getItem('adminPendingOrdersCount')
       
-      // Use admin count if user is admin, otherwise use user count
-      const count = isAdmin && adminPendingCount 
-        ? parseInt(adminPendingCount, 10)
-        : userPendingCount
-        ? parseInt(userPendingCount, 10)
-        : 0
+      setUserPendingOrderCount(userCount ? parseInt(userCount, 10) : 0)
+      setAdminPendingOrderCount(adminCount ? parseInt(adminCount, 10) : 0)
       
-      console.log('[SIDEBAR] Updated pending count from localStorage:', count, 'isAdmin:', isAdmin)
-      setPendingOrderCount(count)
+      console.log('[SIDEBAR] Updated counts - User:', userCount, 'Admin:', adminCount)
     }
 
     // Check localStorage immediately
@@ -98,7 +94,7 @@ export function Sidebar() {
       window.removeEventListener('storage', handleStorageChange)
       clearInterval(interval)
     }
-  }, [user, isAdmin])
+  }, [user])
 
   // Handle mobile responsiveness
   useEffect(() => {
@@ -194,7 +190,7 @@ export function Sidebar() {
             const Icon = item.icon
             const isActive = pathname === item.href
             const isLoading = loadingPath === item.href
-            const showBadge = item.label === "My Orders" && pendingOrderCount > 0
+            const showBadge = item.label === "My Orders" && userPendingOrderCount > 0
             
             return (
               <Link key={item.href} href={item.href} onClick={() => handleNavigation(item.href)}>
@@ -219,7 +215,7 @@ export function Sidebar() {
                       <span>{item.label}</span>
                       {showBadge && (
                         <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs ml-2">
-                          {pendingOrderCount}
+                          {userPendingOrderCount}
                         </Badge>
                       )}
                     </div>
@@ -329,9 +325,9 @@ export function Sidebar() {
                   {isOpen && (
                     <div className="flex items-center justify-between flex-1">
                       <span>Orders</span>
-                      {pendingOrderCount > 0 && (
+                      {adminPendingOrderCount > 0 && (
                         <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs ml-2">
-                          {pendingOrderCount}
+                          {adminPendingOrderCount}
                         </Badge>
                       )}
                     </div>
