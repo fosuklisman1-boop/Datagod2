@@ -82,22 +82,35 @@ export default function ProfilePage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) return
 
-      // Get user data from auth
+      // Get user email from auth
       const email = user.email || ""
-      const firstName = user.user_metadata?.first_name || email.split("@")[0]
-      const lastName = user.user_metadata?.last_name || ""
-      const phone = user.user_metadata?.phone || ""
-      const businessName = user.user_metadata?.business_name || ""
 
-      // Get created date
-      const createdAt = user.created_at
+      // Get user profile from users table
+      const { data: profileData, error: profileError } = await supabase
+        .from("users")
+        .select("first_name, last_name, phone_number, business_name, created_at")
+        .eq("id", user.id)
+        .single()
+
+      let firstName = email.split("@")[0]
+      let lastName = ""
+      let phone = ""
+      let businessName = ""
       let memberSince = new Date().toLocaleDateString()
-      if (createdAt) {
-        memberSince = new Date(createdAt).toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        })
+
+      if (profileData) {
+        firstName = profileData.first_name || firstName
+        lastName = profileData.last_name || ""
+        phone = profileData.phone_number || ""
+        businessName = profileData.business_name || ""
+        
+        if (profileData.created_at) {
+          memberSince = new Date(profileData.created_at).toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          })
+        }
       }
 
       setProfile({
