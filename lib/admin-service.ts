@@ -236,9 +236,33 @@ export const adminUserService = {
 
   // Remove user
   async removeUser(userId: string) {
-    const { error } = await supabase.auth.admin.deleteUser(userId)
-    if (error) throw error
-    return { success: true }
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/remove-user", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to remove user")
+      }
+
+      return { success: true, message: data.message }
+    } catch (error: any) {
+      console.error("Error removing user:", error)
+      throw error
+    }
   },
 
   // Get user details
