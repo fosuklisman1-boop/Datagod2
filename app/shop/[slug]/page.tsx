@@ -13,7 +13,7 @@ import { shopService, shopPackageService, shopOrderService, networkLogoService }
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
-import { redirectToPayment } from "@/lib/payment-redirect"
+import { initializePaystackInline, verifyPaystackPayment } from "@/lib/paystack-inline"
 import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft, AlignJustify } from "lucide-react"
 import { toast } from "sonner"
 
@@ -196,20 +196,54 @@ export default function ShopStorefront() {
 
       const paymentData = await paymentResponse.json()
       
-      // Redirect to Paystack (handles popup blocker scenarios)
-      if (paymentData.authorizationUrl) {
-        // Store payment reference in sessionStorage for verification after redirect
-        sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
+      // Use Paystack inline payment (no redirect needed)
+      if (paymentData.authorizationUrl && paymentData.reference) {
+        console.log("[STOREFRONT] Starting inline payment for order:", order.id)
         
-        // Use utility function for Safari-compatible payment redirect
-        redirectToPayment({
-          url: paymentData.authorizationUrl,
-          delayMs: 300,
-          onError: (error: Error) => {
-            console.error("Payment redirect failed:", error)
-            toast.error("Payment redirect failed. Please try again.")
+        try {
+          const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY
+          if (!paystackPublicKey) {
+            throw new Error("Paystack public key not configured")
           }
-        })
+
+          await initializePaystackInline({
+            key: paystackPublicKey,
+            email: orderData.customer_email,
+            amount: Math.round(totalPrice * 100), // Convert to kobo
+            reference: paymentData.reference,
+            onSuccess: async (response) => {
+              console.log("[STOREFRONT] Payment successful, verifying...")
+              toast.info("Payment successful! Verifying...")
+              
+              try {
+                await verifyPaystackPayment(response.reference)
+                
+                // Reset form
+                setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+                setCheckoutOpen(false)
+                setSelectedPackage(null)
+                setSubmitting(false)
+                
+                // Redirect to confirmation page
+                console.log("[STOREFRONT] Redirecting to order confirmation")
+                router.push(`/shop/${shopSlug}/order-confirmation/${order.id}`)
+              } catch (error) {
+                console.error("[STOREFRONT] Payment verification failed:", error)
+                toast.error("Payment verified but confirmation failed. Contact support.")
+                setSubmitting(false)
+              }
+            },
+            onClose: () => {
+              console.log("[STOREFRONT] Payment modal closed")
+              toast.info("Payment cancelled. You can try again.")
+              setSubmitting(false)
+            },
+          })
+        } catch (error) {
+          console.error("[STOREFRONT] Failed to initialize inline payment:", error)
+          toast.error("Failed to open payment form. Please try again.")
+          setSubmitting(false)
+        }
         return
       }
 

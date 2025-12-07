@@ -36,8 +36,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate unique reference
-    const reference = `WALLET-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
+    // Generate unique reference with more entropy to prevent duplicates
+    const timestamp = Date.now()
+    const randomPart = crypto.randomBytes(8).toString("hex").toUpperCase()
+    const reference = `WALLET-${timestamp}-${randomPart}`
 
     // Calculate 3% Paystack fee
     const paystackFeePercentage = 0.03
