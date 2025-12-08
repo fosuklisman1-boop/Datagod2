@@ -336,161 +336,61 @@ export default function AFAManagementPage() {
                       {/* Full Name */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Full Name</p>
-                        <button
-                          onClick={() => copyToClipboard(submission.full_name || "N/A", `name-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{submission.full_name || "N/A"}</span>
-                          {copiedId === `name-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.full_name || "N/A"}</p>
                       </div>
 
                       {/* Phone Number */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Phone</p>
-                        <button
-                          onClick={() => copyToClipboard(submission.phone_number || "N/A", `phone-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{submission.phone_number || "N/A"}</span>
-                          {copiedId === `phone-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.phone_number || "N/A"}</p>
                       </div>
 
                       {/* GH Card Number */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">GH Card</p>
-                        <button
-                          onClick={() => copyToClipboard(submission.gh_card_number || "N/A", `ghcard-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{submission.gh_card_number || "N/A"}</span>
-                          {copiedId === `ghcard-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.gh_card_number || "N/A"}</p>
                       </div>
 
                       {/* Location */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Location</p>
-                        <button
-                          onClick={() => copyToClipboard(submission.location || "N/A", `location-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{submission.location || "N/A"}</span>
-                          {copiedId === `location-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.location || "N/A"}</p>
                       </div>
 
                       {/* Region */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Region</p>
-                        <button
-                          onClick={() => copyToClipboard(submission.region || "N/A", `region-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{submission.region || "N/A"}</span>
-                          {copiedId === `region-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.region || "N/A"}</p>
                       </div>
 
                       {/* Occupation */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Occupation</p>
-                        <button
-                          onClick={() => copyToClipboard(submission.occupation || "N/A", `occupation-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{submission.occupation || "N/A"}</span>
-                          {copiedId === `occupation-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.occupation || "N/A"}</p>
                       </div>
 
                       {/* Order Code */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Order Code</p>
-                        <button
-                          onClick={() => copyToClipboard(submission.order_code, `order-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{submission.order_code}</span>
-                          {copiedId === `order-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.order_code}</p>
                       </div>
 
                       {/* Transaction Code */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Transaction Code</p>
-                        <button
-                          onClick={() => copyToClipboard(submission.transaction_code || "N/A", `trans-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{submission.transaction_code || "N/A"}</span>
-                          {copiedId === `trans-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.transaction_code || "N/A"}</p>
                       </div>
 
                       {/* Amount */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Amount</p>
-                        <button
-                          onClick={() => copyToClipboard(`GHS ${submission.amount.toFixed(2)}`, `amount-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono font-semibold"
-                        >
-                          <span className="truncate">GHS {submission.amount.toFixed(2)}</span>
-                          {copiedId === `amount-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono font-semibold">GHS {submission.amount.toFixed(2)}</p>
                       </div>
 
                       {/* Date */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Submitted</p>
-                        <button
-                          onClick={() => copyToClipboard(new Date(submission.created_at).toLocaleDateString(), `date-${submission.id}`)}
-                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
-                        >
-                          <span className="truncate">{new Date(submission.created_at).toLocaleDateString()}</span>
-                          {copiedId === `date-${submission.id}` ? (
-                            <Check className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Copy className="h-3 w-3 flex-shrink-0" />
-                          )}
-                        </button>
+                        <p className="mt-1 text-gray-900 text-sm font-mono">{new Date(submission.created_at).toLocaleDateString()}</p>
                       </div>
                     </div>
                   </div>
