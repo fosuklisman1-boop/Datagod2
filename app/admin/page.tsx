@@ -143,7 +143,7 @@ export default function AdminDashboardPage() {
         )}
 
         {/* Management Sections */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
           {/* Package Management */}
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40 hover:border-blue-300/60">
             <CardHeader>
