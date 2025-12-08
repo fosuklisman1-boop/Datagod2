@@ -15,6 +15,11 @@ interface AFASubmission {
   id: string
   user_id: string
   phone_number: string
+  gh_card_number?: string
+  location?: string
+  region?: string
+  occupation?: string
+  full_name?: string
   amount: number
   status: "pending" | "processing" | "completed" | "cancelled"
   created_at: string
@@ -100,6 +105,10 @@ export default function AFAManagementPage() {
         (sub) =>
           sub.user_email?.toLowerCase().includes(term) ||
           sub.phone_number?.includes(term) ||
+          sub.gh_card_number?.toLowerCase().includes(term) ||
+          sub.location?.toLowerCase().includes(term) ||
+          sub.region?.toLowerCase().includes(term) ||
+          sub.full_name?.toLowerCase().includes(term) ||
           sub.order_code?.toLowerCase().includes(term) ||
           sub.transaction_code?.toLowerCase().includes(term)
       )
@@ -294,61 +303,198 @@ export default function AFAManagementPage() {
             ) : filteredSubmissions.length === 0 ? (
               <div className="text-center py-8 text-gray-500">No submissions found</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-gray-200">
-                    <tr>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Email</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Phone</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Order Code</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Amount</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Date</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSubmissions.map((submission) => (
-                      <tr key={submission.id} className="border-b border-gray-100 hover:bg-white/50">
-                        <td className="py-3 px-4 text-gray-900">{submission.user_email}</td>
-                        <td className="py-3 px-4 text-gray-900">{submission.phone_number}</td>
-                        <td className="py-3 px-4">
-                          <button
-                            onClick={() => copyToClipboard(submission.order_code, `order-${submission.id}`)}
-                            className="flex items-center gap-2 text-cyan-600 hover:text-cyan-700 font-mono text-xs"
-                          >
-                            {submission.order_code}
-                            {copiedId === `order-${submission.id}` ? (
-                              <Check className="h-3 w-3" />
-                            ) : (
-                              <Copy className="h-3 w-3" />
-                            )}
-                          </button>
-                        </td>
-                        <td className="py-3 px-4 font-semibold text-gray-900">GHS {submission.amount.toFixed(2)}</td>
-                        <td className="py-3 px-4">
-                          <Badge className={getStatusColor(submission.status)}>{submission.status}</Badge>
-                        </td>
-                        <td className="py-3 px-4 text-gray-600 text-xs">
-                          {new Date(submission.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="py-3 px-4">
-                          <button
-                            onClick={() => copyToClipboard(JSON.stringify(submission, null, 2), `full-${submission.id}`)}
-                            className="flex items-center gap-1 text-gray-600 hover:text-gray-900 text-xs"
-                          >
-                            {copiedId === `full-${submission.id}` ? (
-                              <Check className="h-3 w-3" />
-                            ) : (
-                              <Copy className="h-3 w-3" />
-                            )}
-                            Copy
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-4">
+                {filteredSubmissions.map((submission) => (
+                  <div key={submission.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                    {/* Header Row */}
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <p className="font-semibold text-gray-900">{submission.full_name || "N/A"}</p>
+                        <p className="text-sm text-gray-600">{submission.user_email}</p>
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <Badge className={getStatusColor(submission.status)}>{submission.status}</Badge>
+                        <button
+                          onClick={() => copyToClipboard(JSON.stringify(submission, null, 2), `full-${submission.id}`)}
+                          className="flex items-center gap-1 bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded text-xs font-medium"
+                        >
+                          {copiedId === `full-${submission.id}` ? (
+                            <>
+                              <Check className="h-3 w-3" /> Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3 w-3" /> Copy All
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Details Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {/* Full Name */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Full Name</p>
+                        <button
+                          onClick={() => copyToClipboard(submission.full_name || "N/A", `name-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{submission.full_name || "N/A"}</span>
+                          {copiedId === `name-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Phone Number */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Phone</p>
+                        <button
+                          onClick={() => copyToClipboard(submission.phone_number || "N/A", `phone-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{submission.phone_number || "N/A"}</span>
+                          {copiedId === `phone-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* GH Card Number */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">GH Card</p>
+                        <button
+                          onClick={() => copyToClipboard(submission.gh_card_number || "N/A", `ghcard-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{submission.gh_card_number || "N/A"}</span>
+                          {copiedId === `ghcard-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Location */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Location</p>
+                        <button
+                          onClick={() => copyToClipboard(submission.location || "N/A", `location-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{submission.location || "N/A"}</span>
+                          {copiedId === `location-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Region */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Region</p>
+                        <button
+                          onClick={() => copyToClipboard(submission.region || "N/A", `region-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{submission.region || "N/A"}</span>
+                          {copiedId === `region-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Occupation */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Occupation</p>
+                        <button
+                          onClick={() => copyToClipboard(submission.occupation || "N/A", `occupation-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{submission.occupation || "N/A"}</span>
+                          {copiedId === `occupation-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Order Code */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Order Code</p>
+                        <button
+                          onClick={() => copyToClipboard(submission.order_code, `order-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{submission.order_code}</span>
+                          {copiedId === `order-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Transaction Code */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Transaction Code</p>
+                        <button
+                          onClick={() => copyToClipboard(submission.transaction_code || "N/A", `trans-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{submission.transaction_code || "N/A"}</span>
+                          {copiedId === `trans-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Amount */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Amount</p>
+                        <button
+                          onClick={() => copyToClipboard(`GHS ${submission.amount.toFixed(2)}`, `amount-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono font-semibold"
+                        >
+                          <span className="truncate">GHS {submission.amount.toFixed(2)}</span>
+                          {copiedId === `amount-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Date */}
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <p className="text-xs text-gray-600 font-medium">Submitted</p>
+                        <button
+                          onClick={() => copyToClipboard(new Date(submission.created_at).toLocaleDateString(), `date-${submission.id}`)}
+                          className="flex items-center gap-2 mt-1 text-gray-900 hover:text-cyan-600 text-sm font-mono"
+                        >
+                          <span className="truncate">{new Date(submission.created_at).toLocaleDateString()}</span>
+                          {copiedId === `date-${submission.id}` ? (
+                            <Check className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Copy className="h-3 w-3 flex-shrink-0" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
