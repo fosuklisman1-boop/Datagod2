@@ -40,15 +40,15 @@ CREATE POLICY "Users can read their own AFA orders" ON afa_orders
 -- Allow admins to read all AFA orders
 CREATE POLICY "Admins can read all AFA orders" ON afa_orders
   FOR SELECT USING (
-    auth.jwt() ->> 'role' = 'admin'
+    auth.jwt() ->> 'user_role' = 'admin' OR auth.jwt() ->> 'role' = 'admin'
   );
 
--- Allow users to insert their own AFA orders
+-- Allow authenticated users to insert their own AFA orders
 CREATE POLICY "Users can create their own AFA orders" ON afa_orders
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Allow admins to update AFA order status
 CREATE POLICY "Admins can update AFA orders" ON afa_orders
   FOR UPDATE USING (
-    auth.jwt() ->> 'role' = 'admin'
+    auth.jwt() ->> 'user_role' = 'admin' OR auth.jwt() ->> 'role' = 'admin'
   );

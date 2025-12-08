@@ -43,6 +43,10 @@ export async function GET(request: NextRequest) {
         transaction_code,
         full_name,
         phone_number,
+        gh_card_number,
+        location,
+        region,
+        occupation,
         amount,
         status,
         created_at
