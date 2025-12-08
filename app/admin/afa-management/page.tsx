@@ -69,15 +69,15 @@ export default function AFAManagementPage() {
   const loadSubmissions = async () => {
     try {
       setLoading(true)
-      const token = localStorage.getItem("sb-token")
-      if (!token) {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
         toast.error("Authentication required")
         return
       }
 
       const response = await fetch("/api/admin/afa-registrations", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${session.access_token}`,
         },
       })
 

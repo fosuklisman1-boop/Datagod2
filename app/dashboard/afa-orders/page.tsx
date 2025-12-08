@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
+import { supabase } from "@/lib/supabase"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -60,15 +61,15 @@ export default function AFAOrdersPage() {
   const loadOrders = async () => {
     try {
       setLoading(true)
-      const token = localStorage.getItem("sb-token")
-      if (!token) {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
         toast.error("Authentication required")
         return
       }
 
       const response = await fetch("/api/user/afa-orders", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${session.access_token}`,
         },
       })
 
