@@ -1,17 +1,20 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { authService } from "@/lib/auth"
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
+  const [isChecking, setIsChecking] = useState(true)
 
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const user = await authService.getCurrentUser()
+        // Get the session to ensure auth context is initialized
+        const session = await authService.getSession()
+        const user = session?.user || await authService.getCurrentUser()
         const isAuthPage = pathname?.startsWith("/auth")
         
         if (user && isAuthPage) {
@@ -23,11 +26,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error("Auth check error:", error)
+      } finally {
+        setIsChecking(false)
       }
     }
 
     checkAuth()
   }, [pathname, router])
 
+  // Don't render until auth check is complete
+  if (isChecking && pathname?.startsWith("/dashboard")) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
+  }
+
   return children
 }
+
