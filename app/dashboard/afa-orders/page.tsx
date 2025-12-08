@@ -1,17 +1,21 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Star, Clock, CheckCircle, AlertCircle, XCircle, Loader2 } from "lucide-react"
+import { Star, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Plus } from "lucide-react"
+import { AFASubmissionModal } from "@/components/afa-submission-modal"
+
+const AFA_PACKAGE_PRICE = 50 // GHS 50 for AFA registration
 
 export default function AFAOrdersPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const [showSubmissionModal, setShowSubmissionModal] = useState(false)
 
   // Auth protection
   useEffect(() => {
@@ -35,9 +39,19 @@ export default function AFAOrdersPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">My AFA Orders</h1>
-          <p className="text-gray-600 mt-1">Manage and track your MTN AFA registrations</p>
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">My AFA Orders</h1>
+            <p className="text-gray-600 mt-1">Manage and track your MTN AFA registrations</p>
+          </div>
+          <Button
+            onClick={() => setShowSubmissionModal(true)}
+            className="bg-blue-600 hover:bg-blue-700"
+            size="lg"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            New Registration
+          </Button>
         </div>
 
         {/* Stats Cards */}
@@ -145,6 +159,18 @@ export default function AFAOrdersPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* AFA Submission Modal */}
+      <AFASubmissionModal
+        isOpen={showSubmissionModal}
+        onClose={() => setShowSubmissionModal(false)}
+        userId={user.id}
+        packagePrice={AFA_PACKAGE_PRICE}
+        onSubmitSuccess={() => {
+          // Refresh the page or list of orders
+          window.location.reload()
+        }}
+      />
     </DashboardLayout>
   )
 }
