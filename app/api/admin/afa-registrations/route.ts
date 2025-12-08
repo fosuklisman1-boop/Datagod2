@@ -21,19 +21,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Check if user is admin
-    const { data: adminUser, error: adminError } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .single()
-
-    if (adminError || !adminUser || adminUser.role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    // Check if user is admin via user_metadata (primary check)
+    let isAdmin = user.user_metadata?.role === "admin"
+    
+    if (!isAdmin) {
+      // Also check the users table as a fallback
+      const { data: userData, error: userTableError } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", user.id)
+        .single()
+      
+      if (!userTableError && userData?.role === "admin") {
+        isAdmin = true
+      }
     }
 
-    // Also check user_metadata for admin role
-    if (user.user_metadata?.role !== "admin") {
+    if (!isAdmin) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
