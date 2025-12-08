@@ -19,10 +19,10 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json()
-    const { fullName, phoneNumber, amount, userId } = body
+    const { fullName, phoneNumber, ghCardNumber, location, region, occupation, amount, userId } = body
 
     // Validate inputs
-    if (!fullName || !phoneNumber || !amount || !userId) {
+    if (!fullName || !phoneNumber || !ghCardNumber || !location || !region || !amount || !userId) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -71,6 +71,10 @@ export async function POST(request: NextRequest) {
         transaction_code: transactionCode,
         full_name: fullName,
         phone_number: phoneNumber,
+        gh_card_number: ghCardNumber,
+        location: location,
+        region: region,
+        occupation: occupation,
         amount,
         status: "pending",
         created_at: new Date().toISOString(),

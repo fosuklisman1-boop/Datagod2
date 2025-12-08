@@ -24,6 +24,10 @@ export function AFASubmissionModal({
 }: AFASubmissionModalProps) {
   const [fullName, setFullName] = useState("")
   const [phoneNumber, setPhoneNumber] = useState("")
+  const [ghCardNumber, setGhCardNumber] = useState("")
+  const [location, setLocation] = useState("")
+  const [region, setRegion] = useState("")
+  const [occupation, setOccupation] = useState("Farmer")
   const [walletBalance, setWalletBalance] = useState(0)
   const [loading, setLoading] = useState(false)
   const [fetchingBalance, setFetchingBalance] = useState(false)
@@ -78,6 +82,21 @@ export function AFASubmissionModal({
       return
     }
 
+    if (!ghCardNumber.trim()) {
+      toast.error("Please enter GH card number")
+      return
+    }
+
+    if (!location.trim()) {
+      toast.error("Please enter location")
+      return
+    }
+
+    if (!region.trim()) {
+      toast.error("Please select region")
+      return
+    }
+
     // Check balance
     if (walletBalance < afaPrice) {
       toast.error(`Insufficient balance. Required: GHS ${afaPrice.toFixed(2)}, Available: GHS ${walletBalance.toFixed(2)}`)
@@ -99,6 +118,10 @@ export function AFASubmissionModal({
         body: JSON.stringify({
           fullName: fullName.trim(),
           phoneNumber: phoneNumber.trim(),
+          ghCardNumber: ghCardNumber.trim(),
+          location: location.trim(),
+          region: region.trim(),
+          occupation: occupation,
           amount: afaPrice,
           userId,
         }),
@@ -117,6 +140,10 @@ export function AFASubmissionModal({
       setTimeout(() => {
         setFullName("")
         setPhoneNumber("")
+        setGhCardNumber("")
+        setLocation("")
+        setRegion("")
+        setOccupation("Farmer")
         setSubmitted(false)
         onClose()
         onSubmitSuccess?.()
@@ -133,6 +160,10 @@ export function AFASubmissionModal({
     if (!loading && !submitted) {
       setFullName("")
       setPhoneNumber("")
+      setGhCardNumber("")
+      setLocation("")
+      setRegion("")
+      setOccupation("Farmer")
       setSubmitted(false)
       onClose()
     }
@@ -140,6 +171,7 @@ export function AFASubmissionModal({
 
   const hasSufficientBalance = walletBalance >= afaPrice
   const isPhoneValid = /^[0-9\s\-\+\(\)]{10,}$/.test(phoneNumber.replace(/\s/g, ""))
+  const isFormValid = fullName.trim() && phoneNumber.trim() && ghCardNumber.trim() && location.trim() && region.trim()
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -231,6 +263,78 @@ export function AFASubmissionModal({
                 </p>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  GH Card Number <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  placeholder="e.g. GHA-123456789-0"
+                  value={ghCardNumber}
+                  onChange={(e) => setGhCardNumber(e.target.value)}
+                  disabled={loading}
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-600 mt-1">
+                  Your Ghana Card identification number
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Location <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    placeholder="e.g. Accra"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    disabled={loading}
+                    className="w-full"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Region <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={region}
+                    onChange={(e) => setRegion(e.target.value)}
+                    disabled={loading}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select Region</option>
+                    <option value="Greater Accra">Greater Accra</option>
+                    <option value="Ashanti">Ashanti</option>
+                    <option value="Central">Central</option>
+                    <option value="Eastern">Eastern</option>
+                    <option value="Northern">Northern</option>
+                    <option value="Oti">Oti</option>
+                    <option value="Savanna">Savanna</option>
+                    <option value="Upper East">Upper East</option>
+                    <option value="Upper West">Upper West</option>
+                    <option value="Volta">Volta</option>
+                    <option value="Western">Western</option>
+                    <option value="Western North">Western North</option>
+                    <option value="North East">North East</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Occupation
+                </label>
+                <Input
+                  value={occupation}
+                  disabled={true}
+                  className="w-full bg-gray-100 cursor-not-allowed"
+                />
+                <p className="text-xs text-gray-600 mt-1">
+                  Occupation is prefilled and cannot be changed
+                </p>
+              </div>
+
               {/* Requirements */}
               <Alert>
                 <AlertCircle className="h-4 w-4" />
@@ -258,7 +362,7 @@ export function AFASubmissionModal({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={loading || !hasSufficientBalance || !fullName.trim() || !phoneNumber.trim()}
+                  disabled={loading || !hasSufficientBalance || !isFormValid}
                   className="flex-1"
                 >
                   {loading ? (
