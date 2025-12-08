@@ -27,22 +27,28 @@ CREATE INDEX IF NOT EXISTS idx_afa_orders_created_at ON afa_orders(created_at);
 ALTER TABLE afa_orders ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
+-- Drop existing policies if they exist (PostgreSQL doesn't support IF NOT EXISTS for policies)
+DROP POLICY IF EXISTS "Users can read their own AFA orders" ON afa_orders;
+DROP POLICY IF EXISTS "Admins can read all AFA orders" ON afa_orders;
+DROP POLICY IF EXISTS "Users can create their own AFA orders" ON afa_orders;
+DROP POLICY IF EXISTS "Admins can update AFA orders" ON afa_orders;
+
 -- Allow users to read their own AFA orders
-CREATE POLICY IF NOT EXISTS "Users can read their own AFA orders" ON afa_orders
+CREATE POLICY "Users can read their own AFA orders" ON afa_orders
   FOR SELECT USING (auth.uid() = user_id);
 
 -- Allow admins to read all AFA orders
-CREATE POLICY IF NOT EXISTS "Admins can read all AFA orders" ON afa_orders
+CREATE POLICY "Admins can read all AFA orders" ON afa_orders
   FOR SELECT USING (
     auth.jwt() ->> 'role' = 'admin'
   );
 
 -- Allow users to insert their own AFA orders
-CREATE POLICY IF NOT EXISTS "Users can create their own AFA orders" ON afa_orders
+CREATE POLICY "Users can create their own AFA orders" ON afa_orders
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Allow admins to update AFA order status
-CREATE POLICY IF NOT EXISTS "Admins can update AFA orders" ON afa_orders
+CREATE POLICY "Admins can update AFA orders" ON afa_orders
   FOR UPDATE USING (
     auth.jwt() ->> 'role' = 'admin'
   );
