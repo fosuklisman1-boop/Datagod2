@@ -13,7 +13,6 @@ interface AFASubmissionModalProps {
   isOpen: boolean
   onClose: () => void
   userId: string
-  packagePrice: number
   onSubmitSuccess?: () => void
 }
 
@@ -21,7 +20,6 @@ export function AFASubmissionModal({
   isOpen,
   onClose,
   userId,
-  packagePrice,
   onSubmitSuccess,
 }: AFASubmissionModalProps) {
   const [fullName, setFullName] = useState("")
@@ -30,10 +28,15 @@ export function AFASubmissionModal({
   const [loading, setLoading] = useState(false)
   const [fetchingBalance, setFetchingBalance] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [afaPrice, setAfaPrice] = useState(50)
 
   // Fetch wallet balance when modal opens
   useEffect(() => {
     if (isOpen && userId) {
+      const storedPrice = localStorage.getItem("afa_price")
+      if (storedPrice) {
+        setAfaPrice(parseFloat(storedPrice))
+      }
       fetchWalletBalance()
     }
   }, [isOpen, userId])
@@ -76,8 +79,8 @@ export function AFASubmissionModal({
     }
 
     // Check balance
-    if (walletBalance < packagePrice) {
-      toast.error(`Insufficient balance. Required: GHS ${packagePrice.toFixed(2)}, Available: GHS ${walletBalance.toFixed(2)}`)
+    if (walletBalance < afaPrice) {
+      toast.error(`Insufficient balance. Required: GHS ${afaPrice.toFixed(2)}, Available: GHS ${walletBalance.toFixed(2)}`)
       return
     }
 
@@ -96,7 +99,7 @@ export function AFASubmissionModal({
         body: JSON.stringify({
           fullName: fullName.trim(),
           phoneNumber: phoneNumber.trim(),
-          amount: packagePrice,
+          amount: afaPrice,
           userId,
         }),
       })
@@ -135,7 +138,7 @@ export function AFASubmissionModal({
     }
   }
 
-  const hasSufficientBalance = walletBalance >= packagePrice
+  const hasSufficientBalance = walletBalance >= afaPrice
   const isPhoneValid = /^[0-9\s\-\+\(\)]{10,}$/.test(phoneNumber.replace(/\s/g, ""))
 
   return (
@@ -153,7 +156,7 @@ export function AFASubmissionModal({
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="font-semibold text-blue-900 mb-2">Exclusive Member Package</h3>
             <p className="text-sm text-blue-700">
-              Amount: <span className="font-bold">GHS {packagePrice.toFixed(2)}</span>
+              Amount: <span className="font-bold">GHS {afaPrice.toFixed(2)}</span>
             </p>
           </div>
 

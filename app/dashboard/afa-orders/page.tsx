@@ -10,8 +10,6 @@ import { Badge } from "@/components/ui/badge"
 import { Star, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Plus } from "lucide-react"
 import { AFASubmissionModal } from "@/components/afa-submission-modal"
 
-const AFA_PACKAGE_PRICE = 50 // GHS 50 for AFA registration
-
 export default function AFAOrdersPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
@@ -165,7 +163,6 @@ export default function AFAOrdersPage() {
         isOpen={showSubmissionModal}
         onClose={() => setShowSubmissionModal(false)}
         userId={user.id}
-        packagePrice={AFA_PACKAGE_PRICE}
         onSubmitSuccess={() => {
           // Refresh the page or list of orders
           window.location.reload()
