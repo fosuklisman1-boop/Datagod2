@@ -140,14 +140,17 @@ export async function POST(request: NextRequest) {
     // Create transaction record
     console.log("[AFA-SUBMIT] Creating transaction record")
     const { error: transError } = await supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .insert({
         user_id: user.id,
         type: "debit",
         amount,
         description: `AFA Registration - ${fullName}`,
-        reference: transactionCode,
+        reference_id: transactionCode,
         source: "afa_registration",
+        status: "completed",
+        balance_before: wallet.balance,
+        balance_after: newBalance,
         created_at: new Date().toISOString(),
       })
 
