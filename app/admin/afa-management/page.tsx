@@ -135,9 +135,16 @@ export default function AFAManagementPage() {
     }
   }
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedId(id)
+  const copyToClipboard = (submission: AFASubmission) => {
+    const textToCopy = `Full Name: ${submission.full_name || "N/A"}
+Phone Number: ${submission.phone_number || "N/A"}
+GH Card Number: ${submission.gh_card_number || "N/A"}
+Location: ${submission.location || "N/A"}
+Region: ${submission.region || "N/A"}
+Occupation: ${submission.occupation || "N/A"}`
+
+    navigator.clipboard.writeText(textToCopy)
+    setCopiedId(`full-${submission.id}`)
     toast.success("Copied to clipboard")
     setTimeout(() => setCopiedId(null), 2000)
   }
@@ -315,7 +322,7 @@ export default function AFAManagementPage() {
                       <div className="flex gap-2 items-center">
                         <Badge className={getStatusColor(submission.status)}>{submission.status}</Badge>
                         <button
-                          onClick={() => copyToClipboard(JSON.stringify(submission, null, 2), `full-${submission.id}`)}
+                          onClick={() => copyToClipboard(submission)}
                           className="flex items-center gap-1 bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded text-xs font-medium"
                         >
                           {copiedId === `full-${submission.id}` ? (
