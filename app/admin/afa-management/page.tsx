@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Settings, Copy, Check, Search, Filter } from "lucide-react"
+import { Settings, Copy, Check, Search, Filter, Loader2 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -42,6 +42,7 @@ export default function AFAManagementPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -92,6 +93,47 @@ export default function AFAManagementPage() {
       toast.error("Failed to load AFA submissions")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const updateStatus = async (submissionId: string, newStatus: string) => {
+    try {
+      setUpdatingId(submissionId)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/afa-update-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          submissionId,
+          status: newStatus,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to update status")
+      }
+
+      // Update local state
+      setSubmissions(
+        submissions.map((sub) =>
+          sub.id === submissionId ? { ...sub, status: newStatus as any } : sub
+        )
+      )
+      toast.success("Status updated successfully")
+    } catch (error) {
+      console.error("Error updating status:", error)
+      toast.error("Failed to update status")
+    } finally {
+      setUpdatingId(null)
     }
   }
 
@@ -319,7 +361,7 @@ Occupation: ${submission.occupation || "N/A"}`
                         <p className="font-semibold text-gray-900">{submission.full_name || "N/A"}</p>
                         <p className="text-sm text-gray-600">{submission.user_email}</p>
                       </div>
-                      <div className="flex gap-2 items-center">
+                      <div className="flex gap-2 items-center flex-wrap">
                         <Badge className={getStatusColor(submission.status)}>{submission.status}</Badge>
                         <button
                           onClick={() => copyToClipboard(submission)}
@@ -335,6 +377,24 @@ Occupation: ${submission.occupation || "N/A"}`
                             </>
                           )}
                         </button>
+                        <div className="flex gap-1">
+                          <select
+                            value={submission.status}
+                            onChange={(e) => updateStatus(submission.id, e.target.value)}
+                            disabled={updatingId === submission.id}
+                            className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="processing">Processing</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                          {updatingId === submission.id && (
+                            <div className="flex items-center text-xs text-gray-500">
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" /> Updating...
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
