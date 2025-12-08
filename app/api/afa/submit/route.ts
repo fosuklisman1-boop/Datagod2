@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     // Get user's wallet
     const { data: wallet, error: walletError } = await supabase
       .from("wallets")
-      .select("balance")
+      .select("balance, total_spent")
       .eq("user_id", user.id)
       .single()
 
@@ -115,9 +115,16 @@ export async function POST(request: NextRequest) {
 
     // Deduct from wallet
     console.log("[AFA-SUBMIT] Updating wallet")
+    const newBalance = wallet.balance - amount
+    const newTotalSpent = (wallet.total_spent || 0) + amount
+
     const { error: updateError } = await supabase
       .from("wallets")
-      .update({ balance: wallet.balance - amount })
+      .update({
+        balance: newBalance,
+        total_spent: newTotalSpent,
+        updated_at: new Date().toISOString(),
+      })
       .eq("user_id", user.id)
 
     if (updateError) {
