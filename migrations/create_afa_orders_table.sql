@@ -28,21 +28,21 @@ ALTER TABLE afa_orders ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
 -- Allow users to read their own AFA orders
-CREATE POLICY "Users can read their own AFA orders" ON afa_orders
+CREATE POLICY IF NOT EXISTS "Users can read their own AFA orders" ON afa_orders
   FOR SELECT USING (auth.uid() = user_id);
 
 -- Allow admins to read all AFA orders
-CREATE POLICY "Admins can read all AFA orders" ON afa_orders
+CREATE POLICY IF NOT EXISTS "Admins can read all AFA orders" ON afa_orders
   FOR SELECT USING (
     auth.jwt() ->> 'role' = 'admin'
   );
 
 -- Allow users to insert their own AFA orders
-CREATE POLICY "Users can create their own AFA orders" ON afa_orders
+CREATE POLICY IF NOT EXISTS "Users can create their own AFA orders" ON afa_orders
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Allow admins to update AFA order status
-CREATE POLICY "Admins can update AFA orders" ON afa_orders
+CREATE POLICY IF NOT EXISTS "Admins can update AFA orders" ON afa_orders
   FOR UPDATE USING (
     auth.jwt() ->> 'role' = 'admin'
   );
