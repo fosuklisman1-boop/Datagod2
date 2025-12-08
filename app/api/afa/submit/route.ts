@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
 
+// AFA Order Submission API Endpoint
 export async function POST(request: NextRequest) {
   try {
     // Get auth header
