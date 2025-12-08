@@ -19,7 +19,6 @@ interface UserProfile {
   lastName: string
   email: string
   phone?: string
-  businessName?: string
   role: string
   status: string
   memberSince: string
@@ -40,7 +39,6 @@ export default function ProfilePage() {
     lastName: "",
     email: "",
     phone: "",
-    businessName: "",
     role: "Agent",
     status: "ACTIVE",
     memberSince: "",
@@ -88,21 +86,23 @@ export default function ProfilePage() {
       // Get user profile from users table
       const { data: profileData, error: profileError } = await supabase
         .from("users")
-        .select("first_name, last_name, phone_number, business_name, created_at")
+        .select("first_name, last_name, phone_number, created_at")
         .eq("id", user.id)
         .single()
+
+      if (profileError) {
+        console.warn("Profile fetch warning (this may be normal if users table is empty):", profileError.message)
+      }
 
       let firstName = email.split("@")[0]
       let lastName = ""
       let phone = ""
-      let businessName = ""
       let memberSince = new Date().toLocaleDateString()
 
       if (profileData) {
         firstName = profileData.first_name || firstName
         lastName = profileData.last_name || ""
         phone = profileData.phone_number || ""
-        businessName = profileData.business_name || ""
         
         if (profileData.created_at) {
           memberSince = new Date(profileData.created_at).toLocaleDateString("en-US", {
@@ -118,7 +118,6 @@ export default function ProfilePage() {
         lastName,
         email,
         phone,
-        businessName,
         role: "Agent",
         status: "ACTIVE",
         memberSince,
@@ -293,10 +292,6 @@ export default function ProfilePage() {
               <div>
                 <label className="text-sm font-medium text-gray-700">WhatsApp</label>
                 <Input value={profile.phone || "Not provided"} readOnly className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Business Name</label>
-                <Input value={profile.businessName || "Not provided"} readOnly className="mt-1" />
               </div>
             </div>
           </CardContent>
