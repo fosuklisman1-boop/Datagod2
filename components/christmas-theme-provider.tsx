@@ -89,20 +89,43 @@ export const ChristmasThemeProvider = () => {
         .christmas-theme [class*="price"]::before,
         .christmas-theme [class*="balance"]::before,
         .christmas-theme [class*="wallet"]::before {
-          content: "🎅";
-          margin-right: 4px;
-          font-size: 1.2em;
+          content: "";
           display: inline-block;
-          animation: hat-wiggle 2s ease-in-out infinite;
+          margin-right: 8px;
+          width: 20px;
+          height: 16px;
+          position: relative;
+          top: 2px;
+          background: linear-gradient(135deg, #DC143C 0%, #C41E3A 50%, #8B0000 100%);
+          clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+          animation: hat-bounce 2s ease-in-out infinite;
+          box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.3);
         }
 
-        /* Hat wiggle animation */
-        @keyframes hat-wiggle {
+        /* White fluffy ball at bottom of hat */
+        .christmas-theme [class*="price"]::after,
+        .christmas-theme [class*="balance"]::after,
+        .christmas-theme [class*="wallet"]::after {
+          content: "";
+          display: inline-block;
+          width: 6px;
+          height: 6px;
+          background: white;
+          border-radius: 50%;
+          margin-left: -14px;
+          margin-right: 8px;
+          position: relative;
+          top: -8px;
+          box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+        }
+
+        /* Hat bounce animation */
+        @keyframes hat-bounce {
           0%, 100% {
-            transform: rotate(0deg) scale(1);
+            transform: rotate(0deg) translateY(0);
           }
           50% {
-            transform: rotate(-5deg) scale(1.05);
+            transform: rotate(-8deg) translateY(-2px);
           }
         }
       `
