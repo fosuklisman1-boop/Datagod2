@@ -452,43 +452,27 @@ export const adminShopService = {
 export const adminDashboardService = {
   // Get dashboard statistics
   async getDashboardStats() {
-    // Total users
-    const { data: users } = await supabase
-      .from("users")
-      .select("id")
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
 
-    // Total shops
-    const { data: shops } = await supabase
-      .from("user_shops")
-      .select("id")
+      const response = await fetch("/api/admin/dashboard-stats", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
 
-    // Total orders
-    const { data: orders } = await supabase
-      .from("shop_orders")
-      .select("id, total_price, order_status")
+      if (!response.ok) {
+        throw new Error("Failed to fetch dashboard stats")
+      }
 
-    // Total revenue (sum of all order totals)
-    const totalRevenue = orders?.reduce((sum: number, order: any) => {
-      return sum + (order.total_price || 0)
-    }, 0) || 0
-
-    // Pending shops
-    const { data: pendingShops } = await supabase
-      .from("user_shops")
-      .select("id")
-      .eq("is_active", false)
-
-    // Completed orders
-    const completedOrders = orders?.filter((o: any) => o.order_status === "completed") || []
-
-    return {
-      totalUsers: users?.length || 0,
-      totalShops: shops?.length || 0,
-      totalOrders: orders?.length || 0,
-      totalRevenue: totalRevenue,
-      pendingShops: pendingShops?.length || 0,
-      completedOrders: completedOrders.length,
-      successRate: orders?.length ? ((completedOrders.length / orders.length) * 100).toFixed(2) : 0,
+      return await response.json()
+    } catch (error) {
+      console.error("Error fetching dashboard stats:", error)
+      throw error
     }
   },
 }
