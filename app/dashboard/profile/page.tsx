@@ -57,6 +57,12 @@ export default function ProfilePage() {
     confirmPassword: "",
   })
   const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [showEditProfileDialog, setShowEditProfileDialog] = useState(false)
+  const [editForm, setEditForm] = useState({
+    firstName: "",
+    lastName: "",
+  })
+  const [isSavingProfile, setIsSavingProfile] = useState(false)
 
   // Auth protection
   useEffect(() => {
@@ -121,6 +127,12 @@ export default function ProfilePage() {
         role: "Agent",
         status: "ACTIVE",
         memberSince,
+      })
+
+      // Initialize edit form with current values
+      setEditForm({
+        firstName,
+        lastName,
       })
 
       // Fetch user stats from dashboard stats
@@ -213,6 +225,61 @@ export default function ProfilePage() {
     }
   }
 
+  const handleEditProfile = async () => {
+    if (!editForm.firstName.trim()) {
+      toast.error("First name is required")
+      return
+    }
+
+    setIsSavingProfile(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error("Not authenticated")
+        return
+      }
+
+      // Update user profile in the users table
+      const { error } = await supabase
+        .from("users")
+        .update({
+          first_name: editForm.firstName,
+          last_name: editForm.lastName,
+        })
+        .eq("id", user.id)
+
+      if (error) {
+        console.error("Profile update error:", error)
+        toast.error(error.message || "Failed to update profile")
+        return
+      }
+
+      // Update the profile state
+      setProfile((prev) => ({
+        ...prev,
+        firstName: editForm.firstName,
+        lastName: editForm.lastName,
+      }))
+
+      toast.success("Profile updated successfully")
+      setShowEditProfileDialog(false)
+    } catch (error) {
+      console.error("Error updating profile:", error)
+      toast.error("An error occurred while updating profile")
+    } finally {
+      setIsSavingProfile(false)
+    }
+  }
+
+  const handleOpenEditDialog = () => {
+    // Reset form with current values
+    setEditForm({
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+    })
+    setShowEditProfileDialog(true)
+  }
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -250,7 +317,10 @@ export default function ProfilePage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button className="bg-white text-blue-600 hover:bg-gray-100">
+                <Button 
+                  className="bg-white text-blue-600 hover:bg-gray-100"
+                  onClick={handleOpenEditDialog}
+                >
                   Edit Profile
                 </Button>
                 <Button 
@@ -496,6 +566,69 @@ export default function ProfilePage() {
               >
                 {isChangingPassword && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isChangingPassword ? "Changing..." : "Change Password"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Profile Dialog */}
+      <Dialog open={showEditProfileDialog} onOpenChange={setShowEditProfileDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Profile</DialogTitle>
+            <DialogDescription>
+              Update your personal information
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700">First Name</label>
+              <Input
+                type="text"
+                placeholder="Enter your first name"
+                value={editForm.firstName}
+                onChange={(e) =>
+                  setEditForm({
+                    ...editForm,
+                    firstName: e.target.value,
+                  })
+                }
+                disabled={isSavingProfile}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Last Name</label>
+              <Input
+                type="text"
+                placeholder="Enter your last name"
+                value={editForm.lastName}
+                onChange={(e) =>
+                  setEditForm({
+                    ...editForm,
+                    lastName: e.target.value,
+                  })
+                }
+                disabled={isSavingProfile}
+                className="mt-1"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setShowEditProfileDialog(false)}
+                disabled={isSavingProfile}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleEditProfile}
+                disabled={isSavingProfile}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isSavingProfile && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {isSavingProfile ? "Saving..." : "Save Changes"}
               </Button>
             </div>
           </div>
