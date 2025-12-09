@@ -14,9 +14,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { shopService, shopPackageService, shopOrderService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
-import { AlertCircle, Check, Copy, ExternalLink, Store, Package, Plus, MessageCircle } from "lucide-react"
+import { AlertCircle, Check, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Search } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
+import { ComplaintModal } from "@/components/complaint-modal"
 
 export default function MyShopPage() {
   const { user } = useAuth()
@@ -49,6 +50,9 @@ export default function MyShopPage() {
     failed: 0,
     totalRevenue: 0,
   })
+  const [searchPhoneNumber, setSearchPhoneNumber] = useState("")
+  const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
+  const [showComplaintModal, setShowComplaintModal] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -962,7 +966,19 @@ export default function MyShopPage() {
                       : `Showing ${shopOrders.length} order${shopOrders.length !== 1 ? 's' : ''}`}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
+                  {shopOrders.length > 0 && (
+                    <div className="flex gap-2">
+                      <Search className="w-5 h-5 text-gray-400 mt-2.5" />
+                      <Input
+                        type="text"
+                        placeholder="Search orders by customer phone number..."
+                        value={searchPhoneNumber}
+                        onChange={(e) => setSearchPhoneNumber(e.target.value)}
+                        className="bg-white/50 border-cyan-200/40"
+                      />
+                    </div>
+                  )}
                   {shopOrders.length === 0 ? (
                     <Alert className="border-blue-300 bg-blue-50">
                       <AlertCircle className="h-4 w-4 text-blue-600" />
@@ -982,10 +998,16 @@ export default function MyShopPage() {
                             <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
                             <th className="text-right py-3 px-4 font-semibold text-gray-700">Profit</th>
                             <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-cyan-100/40">
-                          {shopOrders.map((order: any) => (
+                          {shopOrders
+                            .filter((order) =>
+                              order.customer_phone &&
+                              order.customer_phone.toLowerCase().includes(searchPhoneNumber.toLowerCase())
+                            )
+                            .map((order: any) => (
                             <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">
                               <td className="py-3 px-4 font-mono text-xs text-gray-600">{order.reference_code}</td>
                               <td className="py-3 px-4">
@@ -1014,6 +1036,27 @@ export default function MyShopPage() {
                                 <div>{new Date(order.created_at).toLocaleDateString()}</div>
                                 <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
                               </td>
+                              <td className="py-3 px-4">
+                                <Button
+                                  onClick={() => {
+                                    setSelectedComplaintOrder({
+                                      id: order.id,
+                                      networkName: order.network,
+                                      packageName: `${order.volume_gb}GB`,
+                                      phoneNumber: order.customer_phone,
+                                      totalPrice: order.total_price || 0,
+                                      createdAt: order.created_at,
+                                    })
+                                    setShowComplaintModal(true)
+                                  }}
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                                >
+                                  <MessageCircle className="w-4 h-4 mr-1" />
+                                  Complain
+                                </Button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1028,6 +1071,19 @@ export default function MyShopPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Complaint Modal */}
+      {selectedComplaintOrder && (
+        <ComplaintModal
+          isOpen={showComplaintModal}
+          onClose={() => {
+            setShowComplaintModal(false)
+            setSelectedComplaintOrder(null)
+          }}
+          orderId={selectedComplaintOrder.id}
+          orderDetails={selectedComplaintOrder}
+        />
+      )}
     </DashboardLayout>
   )
 }
