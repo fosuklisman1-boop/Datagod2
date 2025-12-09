@@ -20,8 +20,10 @@ export function Header() {
   const { theme, setTheme } = useTheme()
   const { user, logout } = useAuth()
   const [isMobile, setIsMobile] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768)
     }
@@ -54,14 +56,17 @@ export function Header() {
         <NotificationCenter />
 
         {/* Theme Toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className="h-8 w-8 md:h-10 md:w-10"
-        >
-          {theme === "dark" ? <Sun className="w-4 h-4 md:w-5 md:h-5" /> : <Moon className="w-4 h-4 md:w-5 md:h-5" />}
-        </Button>
+        {mounted && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="h-8 w-8 md:h-10 md:w-10"
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          >
+            {theme === "dark" ? <Sun className="w-4 h-4 md:w-5 md:h-5" /> : <Moon className="w-4 h-4 md:w-5 md:h-5" />}
+          </Button>
+        )}
 
         {/* Shopping Cart - hidden on mobile */}
         <Button variant="ghost" size="icon" className="relative hidden sm:inline-flex h-8 w-8 md:h-10 md:w-10">
