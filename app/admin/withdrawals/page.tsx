@@ -265,24 +265,44 @@ export default function WithdrawalsPage() {
 
                         {/* Mobile Money Number */}
                         {withdrawal.withdrawal_method === "mobile_money" && (
-                          <div>
-                            <p className="text-xs text-gray-600 mb-1">Mobile Number</p>
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 bg-green-50 p-2 rounded border border-green-200">
-                                <p className="font-mono text-sm text-gray-900">
-                                  {withdrawal.account_details?.phone || "N/A"}
-                                </p>
+                          <>
+                            <div>
+                              <p className="text-xs text-gray-600 mb-1">Mobile Number</p>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 bg-green-50 p-2 rounded border border-green-200">
+                                  <p className="font-mono text-sm text-gray-900">
+                                    {withdrawal.account_details?.phone || "N/A"}
+                                  </p>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => copyToClipboard(withdrawal.account_details?.phone || "", "Mobile Number")}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
                               </div>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => copyToClipboard(withdrawal.account_details?.phone || "", "Mobile Number")}
-                                className="h-8 w-8 p-0"
-                              >
-                                <Copy className="h-3 w-3" />
-                              </Button>
                             </div>
-                          </div>
+                            <div>
+                              <p className="text-xs text-gray-600 mb-1">Network</p>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 bg-orange-50 p-2 rounded border border-orange-200">
+                                  <p className="font-mono text-sm font-semibold text-gray-900">
+                                    {withdrawal.account_details?.network || "N/A"}
+                                  </p>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => copyToClipboard(withdrawal.account_details?.network || "", "Network")}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          </>
                         )}
 
                         {/* Bank Details */}

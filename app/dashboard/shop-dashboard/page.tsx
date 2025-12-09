@@ -30,6 +30,7 @@ export default function ShopDashboardPage() {
     accountName: "",
     bankName: "",
     accountNumber: "",
+    network: "MTN",
   })
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -128,6 +129,7 @@ export default function ShopDashboardPage() {
       if (withdrawalForm.method === "mobile_money") {
         accountDetails.phone = withdrawalForm.phone
         accountDetails.account_name = withdrawalForm.accountName
+        accountDetails.network = withdrawalForm.network
       } else if (withdrawalForm.method === "bank_transfer") {
         accountDetails.bank_name = withdrawalForm.bankName
         accountDetails.account_number = withdrawalForm.accountNumber
@@ -145,7 +147,7 @@ export default function ShopDashboardPage() {
       )
 
       toast.success("Withdrawal request submitted successfully")
-      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", accountNumber: "" })
+      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", accountNumber: "", network: "MTN" })
       setShowWithdrawalForm(false)
 
       // Reload withdrawals
@@ -320,15 +322,28 @@ export default function ShopDashboardPage() {
               </div>
 
               {withdrawalForm.method === "mobile_money" && (
-                <div>
-                  <Label>Mobile Number *</Label>
-                  <Input
-                    value={withdrawalForm.phone}
-                    onChange={(e) => setWithdrawalForm({ ...withdrawalForm, phone: e.target.value })}
-                    placeholder="0201234567"
-                    className="mt-1"
-                  />
-                </div>
+                <>
+                  <div>
+                    <Label>Mobile Number *</Label>
+                    <Input
+                      value={withdrawalForm.phone}
+                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, phone: e.target.value })}
+                      placeholder="0201234567"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label>Network *</Label>
+                    <select
+                      value={withdrawalForm.network}
+                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, network: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    >
+                      <option value="MTN">MTN</option>
+                      <option value="TELECEL">TELECEL</option>
+                    </select>
+                  </div>
+                </>
               )}
 
               {withdrawalForm.method === "bank_transfer" && (
