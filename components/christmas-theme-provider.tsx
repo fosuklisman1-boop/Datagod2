@@ -30,7 +30,7 @@ export const ChristmasThemeProvider = () => {
         const snowflake = document.createElement("div")
         const char = snowflakeChars[Math.floor(Math.random() * snowflakeChars.length)]
         const delay = Math.random() * 5
-        const duration = 5 + Math.random() * 4
+        const duration = 3 + Math.random() * 2
         const left = Math.random() * 100
         const size = 15 + Math.random() * 20
 
@@ -60,8 +60,8 @@ export const ChristmasThemeProvider = () => {
               opacity: 1;
             }
             100% {
-              transform: translateY(100vh) translateX(${drift}px) rotate(360deg);
-              opacity: 0;
+              transform: translateY(120vh) translateX(${drift}px) rotate(360deg);
+              opacity: 1;
             }
           }
         `
