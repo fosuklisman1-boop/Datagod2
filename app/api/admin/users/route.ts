@@ -70,10 +70,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: shopsError.message }, { status: 400 })
     }
 
+    // Get wallets info
+    const { data: wallets, error: walletsError } = await adminClient
+      .from("wallets")
+      .select("user_id, balance")
+
+    if (walletsError) {
+      console.error("Error fetching wallets:", walletsError)
+      return NextResponse.json({ error: walletsError.message }, { status: 400 })
+    }
+
     // Combine user and shop data with balance from shop_available_balance table
     const usersWithInfo = await Promise.all(
       users.map(async (authUser: any) => {
         const shop = shops?.find((s: any) => s.user_id === authUser.id)
+        const wallet = wallets?.find((w: any) => w.user_id === authUser.id)
+        const walletBalance = wallet?.balance || 0
 
         if (!shop?.id) {
           return {
@@ -81,7 +93,9 @@ export async function GET(req: NextRequest) {
             email: authUser.email,
             created_at: authUser.created_at,
             shop: null,
-            balance: 0,
+            walletBalance: walletBalance,
+            shopBalance: 0,
+            balance: walletBalance, // For backwards compatibility
             role: authUser.user_metadata?.role || "user",
           }
         }
@@ -113,14 +127,16 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        const balance = balanceData?.available_balance || 0
+        const shopBalance = balanceData?.available_balance || 0
 
         return {
           id: authUser.id,
           email: authUser.email,
           created_at: authUser.created_at,
           shop: shop,
-          balance: balance,
+          walletBalance: walletBalance,
+          shopBalance: shopBalance,
+          balance: walletBalance + shopBalance, // Total balance for backwards compatibility
           role: authUser.user_metadata?.role || "user",
         }
       })

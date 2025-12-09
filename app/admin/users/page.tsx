@@ -20,6 +20,8 @@ interface User {
   created_at: string
   role: string
   balance: number
+  walletBalance: number
+  shopBalance: number
   shop?: any
 }
 
@@ -199,7 +201,8 @@ export default function AdminUsersPage() {
                   <tr>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Email</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Role</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Balance</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Wallet Balance</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop Balance</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Joined</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
@@ -214,7 +217,8 @@ export default function AdminUsersPage() {
                           {user.role}
                         </Badge>
                       </td>
-                      <td className="px-6 py-4 font-semibold text-emerald-600">GHS {user.balance.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-semibold text-blue-600">GHS {user.walletBalance.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-semibold text-emerald-600">GHS {user.shopBalance.toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{user.shop?.shop_name || "No shop"}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{new Date(user.created_at).toLocaleDateString()}</td>
                       <td className="px-6 py-4 flex gap-2">
