@@ -93,6 +93,13 @@ export function useAuth() {
   const logout = async () => {
     try {
       setLoading(true)
+      
+      // Clear localStorage and sessionStorage
+      if (typeof window !== "undefined") {
+        localStorage.clear()
+        sessionStorage.clear()
+      }
+      
       const { error } = await supabase.auth.signOut()
 
       if (error) throw error

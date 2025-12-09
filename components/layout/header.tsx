@@ -31,11 +31,14 @@ export function Header() {
     return () => window.removeEventListener("resize", handleResize)
   }, [])
 
-  const handleLogout = async () => {
+  const handleLogout = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
     try {
       await logout()
       toast.success("Logged out successfully")
     } catch (error) {
+      console.error("Logout error:", error)
       toast.error("Failed to logout")
     }
   }
@@ -89,7 +92,10 @@ export function Header() {
               <span>API Keys</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout} className="text-red-600 text-xs sm:text-sm">
+            <DropdownMenuItem 
+              onClick={handleLogout} 
+              className="text-red-600 text-xs sm:text-sm cursor-pointer"
+            >
               <LogOut className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
               <span>Logout</span>
             </DropdownMenuItem>
