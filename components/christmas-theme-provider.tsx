@@ -85,51 +85,6 @@ export const ChristmasThemeProvider = () => {
           position: relative;
         }
 
-        /* Santa hat on prices and wallet balances */
-        .christmas-theme p:has(+ p),
-        .christmas-theme .text-4xl,
-        .christmas-theme .text-3xl,
-        .christmas-theme .text-2xl,
-        .christmas-theme td {
-          position: relative;
-        }
-
-        /* Add hat before price/balance numbers */
-        .christmas-theme .text-4xl::before,
-        .christmas-theme .text-3xl::before,
-        .christmas-theme .text-2xl::before {
-          content: "";
-          display: inline-block;
-          margin-right: 8px;
-          width: 20px;
-          height: 16px;
-          position: relative;
-          top: 4px;
-          background: linear-gradient(135deg, #DC143C 0%, #C41E3A 50%, #8B0000 100%);
-          clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-          animation: hat-bounce 2s ease-in-out infinite;
-          box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.3);
-          vertical-align: middle;
-        }
-
-        /* White fluffy ball at bottom of hat */
-        .christmas-theme .text-4xl::after,
-        .christmas-theme .text-3xl::after,
-        .christmas-theme .text-2xl::after {
-          content: "";
-          display: inline-block;
-          width: 6px;
-          height: 6px;
-          background: white;
-          border-radius: 50%;
-          margin-left: -14px;
-          margin-right: 8px;
-          position: relative;
-          top: -8px;
-          box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
-          vertical-align: middle;
-        }
-
         /* Hat bounce animation */
         @keyframes hat-bounce {
           0%, 100% {
