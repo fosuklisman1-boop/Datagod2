@@ -84,6 +84,27 @@ export const ChristmasThemeProvider = () => {
         .christmas-theme [class*="card"] {
           position: relative;
         }
+
+        /* Santa hat on prices and wallet balances */
+        .christmas-theme [class*="price"]::before,
+        .christmas-theme [class*="balance"]::before,
+        .christmas-theme [class*="wallet"]::before {
+          content: "🎅";
+          margin-right: 4px;
+          font-size: 1.2em;
+          display: inline-block;
+          animation: hat-wiggle 2s ease-in-out infinite;
+        }
+
+        /* Hat wiggle animation */
+        @keyframes hat-wiggle {
+          0%, 100% {
+            transform: rotate(0deg) scale(1);
+          }
+          50% {
+            transform: rotate(-5deg) scale(1.05);
+          }
+        }
       `
       document.head.appendChild(style)
 
