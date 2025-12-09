@@ -34,16 +34,27 @@ export function AFASubmissionModal({
   const [submitted, setSubmitted] = useState(false)
   const [afaPrice, setAfaPrice] = useState(50)
 
-  // Fetch wallet balance when modal opens
+  // Fetch wallet balance and AFA price when modal opens
   useEffect(() => {
     if (isOpen && userId) {
-      const storedPrice = localStorage.getItem("afa_price")
-      if (storedPrice) {
-        setAfaPrice(parseFloat(storedPrice))
-      }
+      fetchAfaPrice()
       fetchWalletBalance()
     }
   }, [isOpen, userId])
+
+  const fetchAfaPrice = async () => {
+    try {
+      const response = await fetch("/api/afa/price")
+      if (!response.ok) throw new Error("Failed to fetch price")
+
+      const data = await response.json()
+      setAfaPrice(data.price || 50)
+    } catch (error) {
+      console.error("Error fetching AFA price:", error)
+      // Use default price
+      setAfaPrice(50)
+    }
+  }
 
   const fetchWalletBalance = async () => {
     try {
