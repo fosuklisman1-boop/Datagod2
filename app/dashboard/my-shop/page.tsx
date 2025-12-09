@@ -1041,11 +1041,11 @@ export default function MyShopPage() {
                                   onClick={() => {
                                     setSelectedComplaintOrder({
                                       id: order.id,
-                                      networkName: order.network,
-                                      packageName: `${order.volume_gb}GB`,
-                                      phoneNumber: order.customer_phone,
-                                      totalPrice: order.total_price || 0,
-                                      createdAt: order.created_at,
+                                      networkName: order.network || "Unknown",
+                                      packageName: `${order.volume_gb || 0}GB`,
+                                      phoneNumber: order.customer_phone || "N/A",
+                                      totalPrice: parseFloat(order.total_price?.toString() || "0") || 0,
+                                      createdAt: order.created_at || new Date().toISOString(),
                                     })
                                     setShowComplaintModal(true)
                                   }}

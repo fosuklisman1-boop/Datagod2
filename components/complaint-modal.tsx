@@ -86,6 +86,12 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderDetails }: Compl
     try {
       setIsSubmitting(true)
 
+      // Validate order details
+      if (!orderId || !orderDetails) {
+        toast.error("Order information is missing")
+        return
+      }
+
       // Upload images and create complaint
       const formData = new FormData()
       formData.append("orderId", orderId)
@@ -98,7 +104,16 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderDetails }: Compl
       }
 
       // Add order details as JSON
-      formData.append("orderDetails", JSON.stringify(orderDetails))
+      const orderDetailsToSend = {
+        networkName: orderDetails.networkName || "Unknown",
+        packageName: orderDetails.packageName || "Unknown",
+        phoneNumber: orderDetails.phoneNumber || "N/A",
+        totalPrice: typeof orderDetails.totalPrice === 'number' ? orderDetails.totalPrice : parseFloat(String(orderDetails.totalPrice)) || 0,
+        createdAt: orderDetails.createdAt || new Date().toISOString(),
+      }
+      
+      console.log("[COMPLAINT-MODAL] Submitting with order details:", orderDetailsToSend)
+      formData.append("orderDetails", JSON.stringify(orderDetailsToSend))
 
       const response = await fetch("/api/complaints/create", {
         method: "POST",
