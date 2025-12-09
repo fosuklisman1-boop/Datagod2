@@ -32,7 +32,7 @@ export const ChristmasThemeProvider = () => {
         const delay = Math.random() * 5
         const duration = 10 + Math.random() * 8
         const left = Math.random() * 100
-        const size = 10 + Math.random() * 20
+        const size = 30 + Math.random() * 40
 
         snowflake.textContent = char
         snowflake.style.cssText = `
@@ -40,11 +40,12 @@ export const ChristmasThemeProvider = () => {
           top: -50px;
           left: ${left}%;
           font-size: ${size}px;
-          color: rgba(255, 255, 255, ${0.7 + Math.random() * 0.3});
-          text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+          color: rgba(255, 255, 255, 0.95);
+          text-shadow: 0 0 20px rgba(255, 255, 255, 1), 0 0 40px rgba(100, 200, 255, 0.8);
           animation: snowfall-${i} ${duration}s linear ${delay}s infinite;
-          opacity: 0.9;
+          opacity: 1;
           font-weight: bold;
+          filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.9));
         `
 
         snowContainer.appendChild(snowflake)
