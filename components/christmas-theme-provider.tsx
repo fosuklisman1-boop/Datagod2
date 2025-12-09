@@ -30,9 +30,9 @@ export const ChristmasThemeProvider = () => {
         const snowflake = document.createElement("div")
         const char = snowflakeChars[Math.floor(Math.random() * snowflakeChars.length)]
         const delay = Math.random() * 5
-        const duration = 10 + Math.random() * 8
+        const duration = 5 + Math.random() * 4
         const left = Math.random() * 100
-        const size = 30 + Math.random() * 40
+        const size = 15 + Math.random() * 20
 
         snowflake.textContent = char
         snowflake.style.cssText = `
