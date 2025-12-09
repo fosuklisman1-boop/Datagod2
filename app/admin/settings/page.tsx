@@ -536,7 +536,7 @@ export default function AdminSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex items-center justify-between p-6 bg-red-50 border-2 border-red-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-red-300 rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-gray-900 text-lg">Enable Christmas Theme</p>
                 <p className="text-sm text-gray-700 mt-2">
@@ -545,12 +545,14 @@ export default function AdminSettingsPage() {
                     : "Add festive holiday spirit to the app with Christmas-themed colors, animations, and decorations."}
                 </p>
               </div>
-              <div className="ml-6 flex items-center gap-3">
+              <div className="flex items-center justify-end gap-4 min-w-fit">
+                <span className="text-sm font-medium text-gray-700">
+                  {christmasThemeEnabled ? "ON" : "OFF"}
+                </span>
                 <Switch
                   checked={christmasThemeEnabled}
                   onCheckedChange={handleChristmasThemeToggle}
                   disabled={savingChristmasTheme}
-                  className="h-8 w-14"
                 />
                 {savingChristmasTheme && (
                   <Loader2 className="h-5 w-5 animate-spin text-red-600" />
