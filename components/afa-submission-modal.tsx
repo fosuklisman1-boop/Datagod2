@@ -186,15 +186,15 @@ export function AFASubmissionModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 flex-shrink-0">
           <DialogTitle>MTN AFA Registration</DialogTitle>
           <DialogDescription>
             Submit your registration details for MTN AFA package
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-6 overflow-y-auto flex-1 px-4 sm:px-6">
           {/* Package Info */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="font-semibold text-blue-900 mb-2">Exclusive Member Package</h3>
@@ -241,7 +241,7 @@ export function AFASubmissionModal({
 
           {/* Form */}
           {!submitted && (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form id="afa-form" onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Full Name <span className="text-red-500">*</span>
@@ -360,32 +360,6 @@ export function AFASubmissionModal({
                 </AlertDescription>
               </Alert>
 
-              {/* Buttons */}
-              <div className="flex gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleClose}
-                  disabled={loading}
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={loading || !hasSufficientBalance || !isFormValid}
-                  className="flex-1"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    "Submit Application"
-                  )}
-                </Button>
-              </div>
             </form>
           )}
 
@@ -401,6 +375,36 @@ export function AFASubmissionModal({
             </div>
           )}
         </div>
+
+        {/* Fixed Buttons at Bottom */}
+        {!submitted && (
+          <div className="border-t border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex gap-3 flex-shrink-0 bg-white">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleClose}
+              disabled={loading}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="afa-form"
+              disabled={loading || !hasSufficientBalance || !isFormValid}
+              className="flex-1"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "Submit Application"
+              )}
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )
