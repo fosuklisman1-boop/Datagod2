@@ -35,7 +35,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.paystack.co https://checkout.paystack.com; style-src 'self' 'unsafe-inline' https://paystack.com https://checkout.paystack.com; img-src 'self' data: https:; font-src 'self' data:; frame-src https://checkout.paystack.com; connect-src 'self' https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co;",
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.paystack.co https://checkout.paystack.com; style-src 'self' 'unsafe-inline' https://paystack.com https://checkout.paystack.com; img-src 'self' data: https: blob:; font-src 'self' data:; frame-src https://checkout.paystack.com; connect-src 'self' https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co;",
           },
         ],
       },
