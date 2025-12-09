@@ -40,7 +40,7 @@ export const ChristmasThemeProvider = () => {
           top: -50px;
           left: ${left}%;
           font-size: ${size}px;
-          color: rgba(100, 180, 255, 1);
+          color: rgba(120, 190, 255, 1);
           text-shadow: none;
           animation: snowfall-${i} ${duration}s linear ${delay}s infinite;
           opacity: 1;
