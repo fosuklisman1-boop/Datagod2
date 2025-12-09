@@ -57,13 +57,14 @@ export default function AFAManagementPage() {
 
   const loadSettings = async () => {
     try {
-      // Load AFA price from localStorage or use default
-      const stored = localStorage.getItem("afa_price")
-      if (stored) {
-        setSettings({ price: parseFloat(stored) })
-      }
+      const response = await fetch("/api/afa/price")
+      if (!response.ok) throw new Error("Failed to fetch price")
+
+      const data = await response.json()
+      setSettings({ price: data.price || 50 })
     } catch (error) {
       console.error("Error loading settings:", error)
+      toast.error("Failed to load AFA settings")
     }
   }
 
@@ -167,11 +168,33 @@ export default function AFAManagementPage() {
   const handleSavePrice = async () => {
     try {
       setSavingPrice(true)
-      localStorage.setItem("afa_price", settings.price.toString())
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/afa/price", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          price: settings.price,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to update price")
+      }
+
       toast.success("AFA price updated successfully")
+      await loadSettings()
     } catch (error) {
       console.error("Error saving price:", error)
-      toast.error("Failed to save AFA price")
+      toast.error(error instanceof Error ? error.message : "Failed to save AFA price")
     } finally {
       setSavingPrice(false)
     }
