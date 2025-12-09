@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { Trash2, Eye, Shield } from "lucide-react"
+import { Trash2, Eye, Shield, Download } from "lucide-react"
 import { adminUserService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -202,15 +202,103 @@ export default function AdminUsersPage() {
     }
   }
 
+  const downloadAsCSV = (filename: string, data: string) => {
+    const element = document.createElement("a")
+    element.setAttribute("href", "data:text/csv;charset=utf-8," + encodeURIComponent(data))
+    element.setAttribute("download", filename)
+    element.style.display = "none"
+    document.body.appendChild(element)
+    element.click()
+    document.body.removeChild(element)
+  }
+
+  const handleDownloadEmails = () => {
+    try {
+      const headers = ["Email"]
+      const rows = filteredUsers.map((user) => [user.email])
+      const csv = [headers, ...rows].map((row) => row.join(",")).join("\n")
+      downloadAsCSV(`emails_${new Date().toISOString().split("T")[0]}.csv`, csv)
+      toast.success("Emails downloaded successfully")
+    } catch (error) {
+      console.error("Error downloading emails:", error)
+      toast.error("Failed to download emails")
+    }
+  }
+
+  const handleDownloadPhoneNumbers = () => {
+    try {
+      const headers = ["Phone Number"]
+      const rows = filteredUsers.map((user) => [user.phoneNumber || ""])
+      const csv = [headers, ...rows].map((row) => row.join(",")).join("\n")
+      downloadAsCSV(`phone_numbers_${new Date().toISOString().split("T")[0]}.csv`, csv)
+      toast.success("Phone numbers downloaded successfully")
+    } catch (error) {
+      console.error("Error downloading phone numbers:", error)
+      toast.error("Failed to download phone numbers")
+    }
+  }
+
+  const handleDownloadAll = () => {
+    try {
+      const headers = ["Email", "Phone Number", "Role", "Wallet Balance (GHS)", "Shop Balance (GHS)", "Shop Name", "Joined Date"]
+      const rows = filteredUsers.map((user) => [
+        user.email,
+        user.phoneNumber || "",
+        user.role,
+        user.walletBalance.toFixed(2),
+        user.shopBalance.toFixed(2),
+        user.shop?.shop_name || "",
+        new Date(user.created_at).toLocaleDateString(),
+      ])
+      const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n")
+      downloadAsCSV(`all_users_${new Date().toISOString().split("T")[0]}.csv`, csv)
+      toast.success("User data downloaded successfully")
+    } catch (error) {
+      console.error("Error downloading user data:", error)
+      toast.error("Failed to download user data")
+    }
+  }
+
   if (!isAdmin) return null
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">User Management</h1>
-          <p className="text-gray-500 mt-1">Manage user roles, balances, and account status</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">User Management</h1>
+            <p className="text-gray-500 mt-1">Manage user roles, balances, and account status</p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              onClick={handleDownloadEmails}
+              variant="outline"
+              className="text-sm gap-2"
+              title="Download all email addresses"
+            >
+              <Download className="w-4 h-4" />
+              Download Emails
+            </Button>
+            <Button
+              onClick={handleDownloadPhoneNumbers}
+              variant="outline"
+              className="text-sm gap-2"
+              title="Download all phone numbers"
+            >
+              <Download className="w-4 h-4" />
+              Download Phones
+            </Button>
+            <Button
+              onClick={handleDownloadAll}
+              variant="outline"
+              className="text-sm gap-2"
+              title="Download all user data"
+            >
+              <Download className="w-4 h-4" />
+              Download All
+            </Button>
+          </div>
         </div>
 
         {/* Users Table */}
