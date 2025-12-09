@@ -40,12 +40,12 @@ export const ChristmasThemeProvider = () => {
           top: -50px;
           left: ${left}%;
           font-size: ${size}px;
-          color: rgba(255, 255, 255, 0.95);
-          text-shadow: 0 0 20px rgba(255, 255, 255, 1), 0 0 40px rgba(100, 200, 255, 0.8);
+          color: rgba(255, 255, 255, 1);
+          text-shadow: 0 0 20px rgba(255, 255, 255, 1), 0 0 40px rgba(100, 200, 255, 1);
           animation: snowfall-${i} ${duration}s linear ${delay}s infinite;
           opacity: 1;
           font-weight: bold;
-          filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.9));
+          filter: drop-shadow(0 0 5px rgba(255, 255, 255, 1));
         `
 
         snowContainer.appendChild(snowflake)
