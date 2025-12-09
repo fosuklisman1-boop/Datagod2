@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabase, supabaseAdmin } from "@/lib/supabase"
+import { createClient } from "@supabase/supabase-js"
 
 export async function DELETE(req: NextRequest) {
   try {
@@ -9,11 +9,41 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
     }
 
-    // Get the current user to verify they're an admin
-    const { data: { user: currentUser } } = await supabase.auth.getUser()
-    const isAdmin = currentUser?.user_metadata?.role === "admin"
+    // Get authorization token from headers
+    const authHeader = req.headers.get("authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
 
-    if (!isAdmin) {
+    const token = authHeader.slice(7)
+
+    // Create Supabase client with service role for admin operations
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+    )
+
+    // Verify user is admin using the token
+    const { data: { user: currentUser }, error: userError } = await supabaseAdmin.auth.getUser(token)
+
+    if (userError || !currentUser) {
+      return NextResponse.json(
+        { error: "Invalid authentication token" },
+        { status: 401 }
+      )
+    }
+
+    // Check if user is admin
+    const { data: userData } = await supabaseAdmin
+      .from("users")
+      .select("role")
+      .eq("id", currentUser.id)
+      .single()
+
+    if (userData?.role !== "admin") {
       return NextResponse.json(
         { error: "User not allowed to perform this action" },
         { status: 403 }
