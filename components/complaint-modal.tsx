@@ -15,6 +15,7 @@ interface ComplaintModalProps {
   isOpen: boolean
   onClose: () => void
   orderId: string
+  orderType?: "regular" | "shop" // Default to "regular" for backwards compatibility
   orderDetails: {
     networkName: string
     packageName: string
@@ -30,7 +31,7 @@ interface UploadedFile {
   preview: string
 }
 
-export function ComplaintModal({ isOpen, onClose, orderId, orderDetails }: ComplaintModalProps) {
+export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular", orderDetails }: ComplaintModalProps) {
   const { user } = useAuth()
   const [description, setDescription] = useState("")
   const [balanceImage, setBalanceImage] = useState<UploadedFile | null>(null)
@@ -95,6 +96,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderDetails }: Compl
       // Upload images and create complaint
       const formData = new FormData()
       formData.append("orderId", orderId)
+      formData.append("orderType", orderType)
       formData.append("userId", user.id)
       formData.append("description", description)
       formData.append("priority", selectedPriority)

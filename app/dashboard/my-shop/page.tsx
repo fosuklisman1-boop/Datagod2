@@ -1081,6 +1081,7 @@ export default function MyShopPage() {
             setSelectedComplaintOrder(null)
           }}
           orderId={selectedComplaintOrder.id}
+          orderType="shop"
           orderDetails={selectedComplaintOrder}
         />
       )}

@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     
     const orderId = formData.get("orderId") as string
+    const orderType = formData.get("orderType") as string || "regular" // "regular" or "shop"
     const description = formData.get("description") as string
     const priority = formData.get("priority") as string
     const orderDetailsStr = formData.get("orderDetails") as string
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest) {
 
     console.log("[COMPLAINTS-API] Received request with:", {
       orderId,
+      orderType,
       userId,
       description: description?.substring(0, 50),
       priority,
@@ -106,34 +108,42 @@ export async function POST(request: NextRequest) {
 
     console.log("[COMPLAINTS-API] Creating complaint record...")
     
+    // For shop orders, we can't use the order_id foreign key directly
+    // Instead, store the order reference in order_details
+    const complaintData: any = {
+      user_id: userId,
+      title: `Data Issue - ${orderDetails.networkName} ${orderDetails.packageName}`,
+      description: description,
+      priority: priority,
+      status: "pending",
+      order_details: {
+        type: orderType,
+        orderRefId: orderId, // Store the original ID (could be shop_order or regular order)
+        network: orderDetails.networkName,
+        package: orderDetails.packageName,
+        phone: orderDetails.phoneNumber,
+        amount: orderDetails.totalPrice,
+        date: orderDetails.createdAt,
+      },
+      evidence: {
+        balance_image_url: balanceSignedUrlData?.signedUrl || null,
+        momo_receipt_url: momoUrlData?.signedUrl || null,
+        balance_image_path: balanceFileName,
+        momo_receipt_path: momoFileName || null,
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    // Only add order_id if it's a regular order (to satisfy FK constraint)
+    if (orderType === "regular") {
+      complaintData.order_id = orderId
+    }
+
     // Create complaint record
     const { data: complaint, error: complaintError } = await supabase
       .from("complaints")
-      .insert([
-        {
-          user_id: userId,
-          order_id: orderId,
-          title: `Data Issue - ${orderDetails.networkName} ${orderDetails.packageName}`,
-          description: description,
-          priority: priority,
-          status: "pending",
-          order_details: {
-            network: orderDetails.networkName,
-            package: orderDetails.packageName,
-            phone: orderDetails.phoneNumber,
-            amount: orderDetails.totalPrice,
-            date: orderDetails.createdAt,
-          },
-          evidence: {
-            balance_image_url: balanceSignedUrlData?.signedUrl || null,
-            momo_receipt_url: momoUrlData?.signedUrl || null,
-            balance_image_path: balanceFileName,
-            momo_receipt_path: momoFileName || null,
-          },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ])
+      .insert([complaintData])
       .select()
 
     if (complaintError) {

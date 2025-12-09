@@ -390,6 +390,7 @@ export default function MyOrdersPage() {
             setSelectedOrder(null)
           }}
           orderId={selectedOrder.id}
+          orderType="regular"
           orderDetails={{
             networkName: selectedOrder.network_name,
             packageName: selectedOrder.package_name,
