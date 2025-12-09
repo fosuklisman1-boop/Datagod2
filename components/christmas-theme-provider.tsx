@@ -79,20 +79,17 @@ export const ChristmasThemeProvider = () => {
           position: relative;
         }
 
-        /* Frost effect on page edges */
-        .christmas-theme::before {
-          content: "";
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
+        /* Frost overlay background */
+        .christmas-theme body {
+          position: relative;
+        }
+
+        /* Frost effect on entire page */
+        .christmas-theme {
           background: 
-            radial-gradient(ellipse at 20% 10%, rgba(200, 220, 255, 0.15) 0%, transparent 30%),
-            radial-gradient(ellipse at 80% 90%, rgba(180, 210, 255, 0.15) 0%, transparent 35%),
-            radial-gradient(ellipse at 50% 50%, rgba(150, 200, 255, 0.08) 0%, transparent 50%);
-          pointer-events: none;
-          z-index: 0;
+            radial-gradient(ellipse at 20% 10%, rgba(200, 220, 255, 0.12) 0%, transparent 30%),
+            radial-gradient(ellipse at 80% 90%, rgba(180, 210, 255, 0.12) 0%, transparent 35%),
+            radial-gradient(ellipse at 50% 50%, rgba(150, 200, 255, 0.06) 0%, transparent 50%);
           animation: frost-pulse 8s ease-in-out infinite;
         }
 
@@ -100,53 +97,12 @@ export const ChristmasThemeProvider = () => {
         .christmas-theme .card,
         .christmas-theme [class*="card"] {
           position: relative;
+          border-top: 1px solid rgba(200, 220, 255, 0.4);
+          border-bottom: 1px solid rgba(150, 200, 255, 0.2);
           box-shadow: 
-            inset 0 1px 3px rgba(200, 220, 255, 0.3),
-            inset -1px -1px 3px rgba(150, 180, 255, 0.2);
-        }
-
-        /* Ice shimmer on card top */
-        .christmas-theme .card::before,
-        .christmas-theme [class*="card"]::before {
-          content: "";
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 2px;
-          background: linear-gradient(90deg, transparent, rgba(200, 220, 255, 0.4), transparent);
+            inset 0 1px 3px rgba(200, 220, 255, 0.2),
+            0 4px 6px rgba(0, 0, 0, 0.05);
           animation: ice-shimmer 3s ease-in-out infinite;
-        }
-
-        /* Ice line on card bottom */
-        .christmas-theme .card::after,
-        .christmas-theme [class*="card"]::after {
-          content: "";
-          position: absolute;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(150, 200, 255, 0.3), transparent);
-        }
-
-        /* Button frost effect */
-        .christmas-theme button {
-          position: relative;
-          overflow: hidden;
-        }
-
-        /* Frost shine animation on buttons */
-        .christmas-theme button::before {
-          content: "";
-          position: absolute;
-          top: 0;
-          left: -100%;
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-          animation: frost-shine 3s ease-in-out infinite;
-          pointer-events: none;
         }
 
         /* Input frost overlay */
@@ -154,67 +110,84 @@ export const ChristmasThemeProvider = () => {
         .christmas-theme textarea,
         .christmas-theme select {
           position: relative;
-          box-shadow: inset 0 1px 2px rgba(200, 220, 255, 0.2);
+          box-shadow: inset 0 1px 2px rgba(200, 220, 255, 0.15);
+          border-color: rgba(200, 220, 255, 0.3);
+        }
+
+        .christmas-theme input:focus,
+        .christmas-theme textarea:focus,
+        .christmas-theme select:focus {
+          border-color: rgba(200, 220, 255, 0.5);
+          box-shadow: inset 0 1px 2px rgba(200, 220, 255, 0.15), 0 0 0 3px rgba(200, 220, 255, 0.1);
+        }
+
+        /* Button frost glow */
+        .christmas-theme button {
+          position: relative;
+          overflow: visible;
+          box-shadow: 0 2px 8px rgba(200, 220, 255, 0.2);
+        }
+
+        .christmas-theme button:hover {
+          box-shadow: 0 4px 12px rgba(200, 220, 255, 0.3);
         }
 
         /* Frost corner pattern - top left */
-        body.christmas-theme::before {
+        .christmas-theme::before {
           content: "";
           position: fixed;
           top: 0;
           left: 0;
-          width: 100px;
-          height: 100px;
+          width: 150px;
+          height: 150px;
           background: 
-            repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(200, 220, 255, 0.1) 10px, rgba(200, 220, 255, 0.1) 20px),
-            repeating-linear-gradient(-45deg, transparent, transparent 10px, rgba(180, 210, 255, 0.1) 10px, rgba(180, 210, 255, 0.1) 20px);
+            repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(200, 220, 255, 0.08) 10px, rgba(200, 220, 255, 0.08) 20px),
+            repeating-linear-gradient(-45deg, transparent, transparent 10px, rgba(180, 210, 255, 0.08) 10px, rgba(180, 210, 255, 0.08) 20px);
           pointer-events: none;
-          z-index: 1;
-          opacity: 0.5;
+          z-index: 2;
+          opacity: 0.7;
         }
 
         /* Frost corner pattern - bottom right */
-        body.christmas-theme::after {
+        .christmas-theme::after {
           content: "";
           position: fixed;
           bottom: 0;
           right: 0;
-          width: 120px;
-          height: 120px;
+          width: 180px;
+          height: 180px;
           background: 
             repeating-linear-gradient(45deg, transparent, transparent 15px, rgba(150, 200, 255, 0.08) 15px, rgba(150, 200, 255, 0.08) 30px),
             repeating-linear-gradient(-45deg, transparent, transparent 15px, rgba(200, 220, 255, 0.08) 15px, rgba(200, 220, 255, 0.08) 30px);
           pointer-events: none;
-          z-index: 1;
-          opacity: 0.6;
+          z-index: 2;
+          opacity: 0.8;
         }
 
         /* Frost animations */
         @keyframes frost-pulse {
           0%, 100% {
-            opacity: 0.5;
+            background: 
+              radial-gradient(ellipse at 20% 10%, rgba(200, 220, 255, 0.12) 0%, transparent 30%),
+              radial-gradient(ellipse at 80% 90%, rgba(180, 210, 255, 0.12) 0%, transparent 35%),
+              radial-gradient(ellipse at 50% 50%, rgba(150, 200, 255, 0.06) 0%, transparent 50%);
           }
           50% {
-            opacity: 0.8;
+            background: 
+              radial-gradient(ellipse at 20% 10%, rgba(200, 220, 255, 0.18) 0%, transparent 30%),
+              radial-gradient(ellipse at 80% 90%, rgba(180, 210, 255, 0.18) 0%, transparent 35%),
+              radial-gradient(ellipse at 50% 50%, rgba(150, 200, 255, 0.1) 0%, transparent 50%);
           }
         }
 
         @keyframes ice-shimmer {
           0%, 100% {
-            opacity: 0.3;
-            transform: translateX(-100%);
+            border-top-color: rgba(200, 220, 255, 0.2);
+            border-bottom-color: rgba(150, 200, 255, 0.1);
           }
           50% {
-            opacity: 0.6;
-          }
-        }
-
-        @keyframes frost-shine {
-          0% {
-            left: -100%;
-          }
-          100% {
-            left: 100%;
+            border-top-color: rgba(200, 220, 255, 0.6);
+            border-bottom-color: rgba(150, 200, 255, 0.3);
           }
         }
 
