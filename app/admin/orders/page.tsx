@@ -556,7 +556,7 @@ export default function AdminOrdersPage() {
                   getFilteredDownloadedOrders().map(([batchKey, batch]) => (
                   <Card key={batchKey} className="border-l-4 border-l-emerald-500">
                     <CardHeader>
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <div>
                           <CardTitle className="flex items-center gap-2">
                             <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">
@@ -568,8 +568,8 @@ export default function AdminOrdersPage() {
                             Downloaded: {new Date(batch.downloadedAt).toLocaleString()}
                           </CardDescription>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                          <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1 w-full sm:w-auto text-center">
                             {batch.orders.length} orders
                           </Badge>
                           <Button
@@ -577,12 +577,13 @@ export default function AdminOrdersPage() {
                             size="sm"
                             onClick={() => handleRedownloadBatch(batchKey)}
                             disabled={updatingBatch === batchKey}
+                            className="w-full sm:w-auto"
                           >
                             <Download className="h-4 w-4 mr-2" />
                             Redownload
                           </Button>
                           <select
-                            className="px-3 py-2 border rounded-md text-sm"
+                            className="px-3 py-2 border rounded-md text-sm w-full sm:w-auto"
                             onChange={(e) => handleBulkStatusUpdate(batchKey, e.target.value)}
                             disabled={updatingBatch === batchKey}
                             defaultValue=""
@@ -600,28 +601,28 @@ export default function AdminOrdersPage() {
                         <table className="w-full text-sm">
                           <thead className="bg-gray-50 border-b">
                             <tr>
-                              <th className="px-4 py-2 text-left font-semibold text-gray-700">Order ID</th>
-                              <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
-                              <th className="px-4 py-2 text-left font-semibold text-gray-700">Package</th>
-                              <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
-                              <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
-                              <th className="px-4 py-2 text-center font-semibold text-gray-700">Status</th>
+                              <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Order ID</th>
+                              <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Network</th>
+                              <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Package</th>
+                              <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Phone</th>
+                              <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 text-xs sm:text-sm">Price (GHS)</th>
+                              <th className="px-2 sm:px-4 py-2 text-center font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y">
                             {batch.orders.map((order: any) => (
                               <tr key={order.id} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
-                                <td className="px-4 py-3">
-                                  <Badge className={`${getNetworkColor(order.network)} border`}>
+                                <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
+                                <td className="px-2 sm:px-4 py-3">
+                                  <Badge className={`${getNetworkColor(order.network)} border text-xs`}>
                                     {order.network}
                                   </Badge>
                                 </td>
-                                <td className="px-4 py-3">{order.size}GB</td>
-                                <td className="px-4 py-3 font-mono">{order.phone_number}</td>
-                                <td className="px-4 py-3 text-right font-semibold">₵ {order.price.toFixed(2)}</td>
-                                <td className="px-4 py-3 text-center">
-                                  <Badge className={`border ${
+                                <td className="px-2 sm:px-4 py-3 text-xs sm:text-sm">{order.size}GB</td>
+                                <td className="px-2 sm:px-4 py-3 font-mono text-xs">{order.phone_number}</td>
+                                <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">₵ {order.price.toFixed(2)}</td>
+                                <td className="px-2 sm:px-4 py-3 text-center">
+                                  <Badge className={`border text-xs ${
                                     order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
                                     order.status === "failed" ? "bg-red-100 text-red-800 border-red-200" :
                                     order.status === "processing" ? "bg-blue-100 text-blue-800 border-blue-200" :
