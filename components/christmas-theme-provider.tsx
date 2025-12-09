@@ -78,76 +78,10 @@ export const ChristmasThemeProvider = () => {
           position: relative;
         }
 
-        /* Card styling with decorations */
+        /* Card styling */
         .christmas-theme .card,
         .christmas-theme [class*="card"] {
           position: relative;
-          overflow: visible;
-        }
-
-        /* Santa Hat on Cards */
-        .christmas-theme .card::before,
-        .christmas-theme [class*="card"]::before {
-          content: "🎅";
-          position: absolute;
-          top: -20px;
-          right: 20px;
-          font-size: 3rem;
-          z-index: 20;
-          animation: hat-bounce 2s ease-in-out infinite;
-          filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
-          text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-          display: block;
-          line-height: 1;
-        }
-
-        /* Hanging Bells on Cards */
-        .christmas-theme .card::after,
-        .christmas-theme [class*="card"]::after {
-          content: "🔔";
-          position: absolute;
-          top: -15px;
-          left: 50%;
-          transform: translateX(-50%);
-          font-size: 2.5rem;
-          z-index: 20;
-          animation: bell-sway 3s ease-in-out infinite;
-          filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
-          text-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-          display: block;
-          line-height: 1;
-        }
-
-        /* Hat bounce animation */
-        @keyframes hat-bounce {
-          0%, 100% {
-            transform: translateY(0) rotate(0deg);
-          }
-          25% {
-            transform: translateY(-15px) rotate(-5deg);
-          }
-          50% {
-            transform: translateY(-25px) rotate(0deg);
-          }
-          75% {
-            transform: translateY(-10px) rotate(5deg);
-          }
-        }
-
-        /* Bell sway animation */
-        @keyframes bell-sway {
-          0%, 100% {
-            transform: translateX(-50%) rotate(0deg);
-          }
-          25% {
-            transform: translateX(-50%) rotate(-15deg);
-          }
-          50% {
-            transform: translateX(-50%) rotate(0deg);
-          }
-          75% {
-            transform: translateX(-50%) rotate(15deg);
-          }
         }
       `
       document.head.appendChild(style)
