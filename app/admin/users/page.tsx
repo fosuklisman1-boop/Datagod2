@@ -319,7 +319,6 @@ export default function AdminUsersPage() {
               </div>
             </div>
           </CardHeader>
-          </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full">
