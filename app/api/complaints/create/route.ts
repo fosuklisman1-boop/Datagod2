@@ -18,8 +18,25 @@ export async function POST(request: NextRequest) {
     const balanceImage = formData.get("balanceImage") as File
     const momoReceiptImage = formData.get("momoReceiptImage") as File | null
 
+    console.log("[COMPLAINTS-API] Received request with:", {
+      orderId,
+      userId,
+      description: description?.substring(0, 50),
+      priority,
+      balanceImage: !!balanceImage,
+      momoReceiptImage: !!momoReceiptImage,
+    })
+
     // Validate required fields (momoReceiptImage is optional)
     if (!orderId || !description || !priority || !orderDetailsStr || !userId || !balanceImage) {
+      console.error("[COMPLAINTS-API] Missing required fields:", {
+        orderId: !!orderId,
+        description: !!description,
+        priority: !!priority,
+        orderDetailsStr: !!orderDetailsStr,
+        userId: !!userId,
+        balanceImage: !!balanceImage,
+      })
       return NextResponse.json(
         { message: "Missing required fields" },
         { status: 400 }
@@ -32,6 +49,8 @@ export async function POST(request: NextRequest) {
     const balanceFileName = `${userId}/${orderId}/balance-${Date.now()}.${balanceImage.name.split(".").pop()}`
     const balanceBuffer = await balanceImage.arrayBuffer()
     
+    console.log("[COMPLAINTS-API] Uploading balance image:", balanceFileName)
+    
     const { error: balanceUploadError } = await supabase.storage
       .from("complaint-evidence")
       .upload(balanceFileName, balanceBuffer, {
@@ -40,9 +59,9 @@ export async function POST(request: NextRequest) {
       })
 
     if (balanceUploadError) {
-      console.error("Balance image upload error:", balanceUploadError)
+      console.error("[COMPLAINTS-API] Balance image upload error:", balanceUploadError)
       return NextResponse.json(
-        { message: "Failed to upload balance image" },
+        { message: "Failed to upload balance image: " + balanceUploadError.message },
         { status: 500 }
       )
     }
@@ -55,6 +74,8 @@ export async function POST(request: NextRequest) {
       momoFileName = `${userId}/${orderId}/receipt-${Date.now()}.${momoReceiptImage.name.split(".").pop()}`
       const momoBuffer = await momoReceiptImage.arrayBuffer()
       
+      console.log("[COMPLAINTS-API] Uploading MoMo receipt:", momoFileName)
+      
       const { error: momoUploadError } = await supabase.storage
         .from("complaint-evidence")
         .upload(momoFileName, momoBuffer, {
@@ -63,9 +84,9 @@ export async function POST(request: NextRequest) {
         })
 
       if (momoUploadError) {
-        console.error("MoMo receipt upload error:", momoUploadError)
+        console.error("[COMPLAINTS-API] MoMo receipt upload error:", momoUploadError)
         return NextResponse.json(
-          { message: "Failed to upload receipt image" },
+          { message: "Failed to upload receipt image: " + momoUploadError.message },
           { status: 500 }
         )
       }
@@ -83,6 +104,8 @@ export async function POST(request: NextRequest) {
       .from("complaint-evidence")
       .createSignedUrl(balanceFileName, 24 * 60 * 60) // 24 hours
 
+    console.log("[COMPLAINTS-API] Creating complaint record...")
+    
     // Create complaint record
     const { data: complaint, error: complaintError } = await supabase
       .from("complaints")
@@ -114,12 +137,14 @@ export async function POST(request: NextRequest) {
       .select()
 
     if (complaintError) {
-      console.error("Complaint creation error:", complaintError)
+      console.error("[COMPLAINTS-API] Complaint creation error:", complaintError)
       return NextResponse.json(
-        { message: "Failed to create complaint" },
+        { message: "Failed to create complaint: " + complaintError.message },
         { status: 500 }
       )
     }
+
+    console.log("[COMPLAINTS-API] Complaint created successfully:", complaint[0].id)
 
     // Send notification to user
     try {
@@ -146,9 +171,10 @@ export async function POST(request: NextRequest) {
       complaint: complaint[0],
     })
   } catch (error) {
-    console.error("Error in complaint creation:", error)
+    console.error("[COMPLAINTS-API] Error in complaint creation:", error)
+    const errorMessage = error instanceof Error ? error.message : "Internal server error"
     return NextResponse.json(
-      { message: "Internal server error" },
+      { message: errorMessage },
       { status: 500 }
     )
   }
