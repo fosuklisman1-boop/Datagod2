@@ -29,14 +29,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
     const fetchAnnouncement = async () => {
       try {
-        // Check if user has already seen this announcement in this session
-        const sessionKey = `announcement_seen_${user.id}`
-        const hasSeenInSession = sessionStorage.getItem(sessionKey)
-        
-        if (hasSeenInSession) {
-          return
-        }
-
         const response = await fetch("/api/admin/settings")
         const data = await response.json()
 
@@ -55,10 +47,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   const handleCloseAnnouncement = () => {
     setShowAnnouncement(false)
-    // Mark as seen in this session
-    if (user) {
-      sessionStorage.setItem(`announcement_seen_${user.id}`, "true")
-    }
   }
 
   return (
