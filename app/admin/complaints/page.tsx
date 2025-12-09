@@ -497,7 +497,7 @@ export default function AdminComplaintsPage() {
 
         {/* Resolution Modal */}
         <Dialog open={showModal} onOpenChange={setShowModal}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
             <DialogHeader>
               <DialogTitle>Resolve Complaint</DialogTitle>
               <DialogDescription>
@@ -506,7 +506,7 @@ export default function AdminComplaintsPage() {
             </DialogHeader>
 
             {selectedComplaint && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 <div className="space-y-3">
                   <div>
                     <Label className="text-xs font-semibold text-gray-600 uppercase">
@@ -525,13 +525,13 @@ export default function AdminComplaintsPage() {
                   </div>
 
                   {selectedComplaint.order_details && (
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                       <div>
                         <Label className="text-xs font-semibold text-gray-600 uppercase">
                           Phone Number
                         </Label>
-                        <div className="flex items-center gap-2 mt-1">
-                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-1">
+                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded break-all flex-1">
                             {selectedComplaint.order_details.phone || selectedComplaint.order_details.phoneNumber || 'N/A'}
                           </p>
                           <Button
@@ -541,6 +541,7 @@ export default function AdminComplaintsPage() {
                               navigator.clipboard.writeText(selectedComplaint.order_details?.phone || selectedComplaint.order_details?.phoneNumber || '')
                               toast.success("Phone number copied!")
                             }}
+                            className="flex-shrink-0"
                           >
                             Copy
                           </Button>
@@ -550,8 +551,8 @@ export default function AdminComplaintsPage() {
                         <Label className="text-xs font-semibold text-gray-600 uppercase">
                           Data Size
                         </Label>
-                        <div className="flex items-center gap-2 mt-1">
-                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-1">
+                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded flex-1">
                             {selectedComplaint.order_details.package || selectedComplaint.order_details.packageName || 'N/A'}
                           </p>
                           <Button
@@ -561,6 +562,7 @@ export default function AdminComplaintsPage() {
                               navigator.clipboard.writeText(selectedComplaint.order_details?.package || selectedComplaint.order_details?.packageName || '')
                               toast.success("Data size copied!")
                             }}
+                            className="flex-shrink-0"
                           >
                             Copy
                           </Button>
@@ -569,7 +571,7 @@ export default function AdminComplaintsPage() {
                     </div>
                   )}
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                       <div>
                         <Label className="text-xs font-semibold text-gray-600 uppercase">
                           Status
@@ -611,11 +613,11 @@ export default function AdminComplaintsPage() {
 
                   {/* Evidence Images */}
                   {selectedComplaint?.evidence && (
-                    <div className="border-t pt-4">
-                      <Label className="text-sm font-semibold mb-3 block">
+                    <div className="border-t pt-3 sm:pt-4">
+                      <Label className="text-sm font-semibold mb-2 sm:mb-3 block">
                         Evidence Attachments
                       </Label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                         {(evidenceUrls.balance_image_url || selectedComplaint.evidence.balance_image_url) && (
                           <div className="space-y-2">
                             <p className="text-xs font-medium text-gray-600">Balance Screenshot</p>
@@ -628,7 +630,7 @@ export default function AdminComplaintsPage() {
                               <img 
                                 src={evidenceUrls.balance_image_url || selectedComplaint.evidence.balance_image_url} 
                                 alt="Balance Screenshot" 
-                                className="w-full h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
+                                className="w-full h-32 sm:h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
                                 onError={(e) => {
                                   console.error("Error loading balance image:", e)
                                 }}
@@ -648,7 +650,7 @@ export default function AdminComplaintsPage() {
                               <img 
                                 src={evidenceUrls.momo_receipt_url || selectedComplaint.evidence.momo_receipt_url} 
                                 alt="MoMo Receipt" 
-                                className="w-full h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
+                                className="w-full h-32 sm:h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
                                 onError={(e) => {
                                   console.error("Error loading momo receipt image:", e)
                                 }}
@@ -662,7 +664,7 @@ export default function AdminComplaintsPage() {
                   )}
                 </div>
 
-                <div className="border-t pt-4">
+                <div className="border-t pt-3 sm:pt-4">
                   <Label htmlFor="notes" className="text-sm font-semibold">
                     Resolution Notes *
                   </Label>
@@ -676,10 +678,11 @@ export default function AdminComplaintsPage() {
                   />
                 </div>
 
-                <div className="flex gap-2 justify-end">
+                <div className="flex flex-col sm:flex-row gap-2 justify-end">
                   <Button
                     onClick={() => setShowModal(false)}
                     variant="outline"
+                    className="w-full sm:w-auto"
                   >
                     Cancel
                   </Button>
@@ -688,7 +691,7 @@ export default function AdminComplaintsPage() {
                       onClick={() => selectedComplaint && handleReject(selectedComplaint)}
                       disabled={resolvingId === selectedComplaint?.id}
                       variant="destructive"
-                      className="gap-2"
+                      className="gap-2 w-full sm:w-auto"
                     >
                       {resolvingId === selectedComplaint?.id ? (
                         <>
@@ -706,16 +709,16 @@ export default function AdminComplaintsPage() {
                   <Button
                     onClick={() => selectedComplaint && handleResolve(selectedComplaint)}
                     disabled={resolvingId === selectedComplaint?.id}
-                    className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                    className="gap-2 w-full sm:w-auto bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
                   >
                     {resolvingId === selectedComplaint?.id ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <Loader2 className="w-4 h-4 animate-spin" />
                         Resolving...
                       </>
                     ) : (
                       <>
-                        <CheckCircle className="w-4 h-4 mr-2" />
+                        <CheckCircle className="w-4 h-4" />
                         Mark as Resolved
                       </>
                     )}
