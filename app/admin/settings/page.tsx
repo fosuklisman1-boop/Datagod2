@@ -529,32 +529,38 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Christmas Theme Settings */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              🎄 Christmas Theme
+        <Card className="mt-6 border-2 border-red-500">
+          <CardHeader className="bg-gradient-to-r from-red-50 to-green-50">
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              🎄 Christmas Theme 🎅
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg">
-              <div>
-                <p className="font-medium text-gray-900">Enable Christmas Theme</p>
-                <p className="text-sm text-gray-600 mt-1">
+          <CardContent className="space-y-4 pt-6">
+            <div className="flex items-center justify-between p-6 bg-red-50 border-2 border-red-300 rounded-lg">
+              <div className="flex-1">
+                <p className="font-bold text-gray-900 text-lg">Enable Christmas Theme</p>
+                <p className="text-sm text-gray-700 mt-2">
                   {christmasThemeEnabled
-                    ? "✨ Christmas theme is currently active! The app features festive colors, snowfall effects, and holiday decorations."
+                    ? "✨ Christmas theme is currently ACTIVE! The app features festive colors, snowfall effects, and holiday decorations."
                     : "Add festive holiday spirit to the app with Christmas-themed colors, animations, and decorations."}
                 </p>
               </div>
-              <Switch
-                checked={christmasThemeEnabled}
-                onCheckedChange={handleChristmasThemeToggle}
-                disabled={savingChristmasTheme}
-              />
+              <div className="ml-6 flex items-center gap-3">
+                <Switch
+                  checked={christmasThemeEnabled}
+                  onCheckedChange={handleChristmasThemeToggle}
+                  disabled={savingChristmasTheme}
+                  className="h-8 w-14"
+                />
+                {savingChristmasTheme && (
+                  <Loader2 className="h-5 w-5 animate-spin text-red-600" />
+                )}
+              </div>
             </div>
 
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-700">
-                <span className="font-semibold">Preview:</span> Red and green color scheme, snowfall animation, Christmas decorations (🎄 🎅 ⛄ 🎁 ❄️), and festive button effects.
+            <div className="p-4 bg-gradient-to-r from-red-100 to-green-100 border-2 border-green-400 rounded-lg">
+              <p className="text-sm font-medium text-green-900">
+                <span className="font-bold">🎁 Theme Features:</span> Red and green color scheme, snowfall animation, Christmas decorations (🎄 🎅 ⛄ 🎁 ❄️), festive button effects, and more!
               </p>
             </div>
           </CardContent>
