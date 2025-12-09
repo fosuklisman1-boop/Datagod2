@@ -28,8 +28,10 @@ interface User {
 export default function AdminUsersPage() {
   const router = useRouter()
   const [users, setUsers] = useState<User[]>([])
+  const [filteredUsers, setFilteredUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [searchTerm, setSearchTerm] = useState("")
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [showBalanceDialog, setShowBalanceDialog] = useState(false)
@@ -44,6 +46,10 @@ export default function AdminUsersPage() {
   useEffect(() => {
     checkAdminAccess()
   }, [])
+
+  useEffect(() => {
+    filterUsers()
+  }, [users, searchTerm])
 
   const checkAdminAccess = async () => {
     try {
@@ -74,6 +80,22 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const filterUsers = () => {
+    if (!searchTerm.trim()) {
+      setFilteredUsers(users)
+      return
+    }
+
+    const searchLower = searchTerm.toLowerCase()
+    const filtered = users.filter((user) => {
+      const emailMatch = user.email.toLowerCase().includes(searchLower)
+      const shopNameMatch = user.shop?.shop_name?.toLowerCase().includes(searchLower)
+      return emailMatch || shopNameMatch
+    })
+
+    setFilteredUsers(filtered)
   }
 
   const handleUpdateRole = async () => {
@@ -192,7 +214,21 @@ export default function AdminUsersPage() {
         {/* Users Table */}
         <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
           <CardHeader>
-            <CardTitle>All Users ({users.length})</CardTitle>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <CardTitle>All Users ({filteredUsers.length})</CardTitle>
+                <CardDescription>Manage user roles, balances, and account status</CardDescription>
+              </div>
+              <div className="w-full sm:w-64">
+                <Input
+                  placeholder="Search by email or shop name..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="border-emerald-200/40 focus:border-emerald-500"
+                />
+              </div>
+            </div>
+          </CardHeader>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -209,7 +245,14 @@ export default function AdminUsersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-emerald-100/40">
-                  {users.map((user) => (
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                        {searchTerm ? "No users found matching your search" : "No users found"}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((user) => (
                     <tr key={user.id} className="hover:bg-emerald-100/30 backdrop-blur transition-colors">
                       <td className="px-6 py-4 font-medium text-gray-900">{user.email}</td>
                       <td className="px-6 py-4">
@@ -255,7 +298,8 @@ export default function AdminUsersPage() {
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
