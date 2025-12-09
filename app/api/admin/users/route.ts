@@ -80,17 +80,30 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: walletsError.message }, { status: 400 })
     }
 
+    // Get user profiles with phone numbers
+    const { data: userProfiles, error: profilesError } = await adminClient
+      .from("users")
+      .select("id, phone_number")
+
+    if (profilesError) {
+      console.error("Error fetching user profiles:", profilesError)
+      return NextResponse.json({ error: profilesError.message }, { status: 400 })
+    }
+
     // Combine user and shop data with balance from shop_available_balance table
     const usersWithInfo = await Promise.all(
       users.map(async (authUser: any) => {
         const shop = shops?.find((s: any) => s.user_id === authUser.id)
         const wallet = wallets?.find((w: any) => w.user_id === authUser.id)
+        const profile = userProfiles?.find((p: any) => p.id === authUser.id)
         const walletBalance = wallet?.balance || 0
+        const phoneNumber = profile?.phone_number || ""
 
         if (!shop?.id) {
           return {
             id: authUser.id,
             email: authUser.email,
+            phoneNumber: phoneNumber,
             created_at: authUser.created_at,
             shop: null,
             walletBalance: walletBalance,
@@ -132,6 +145,7 @@ export async function GET(req: NextRequest) {
         return {
           id: authUser.id,
           email: authUser.email,
+          phoneNumber: phoneNumber,
           created_at: authUser.created_at,
           shop: shop,
           walletBalance: walletBalance,

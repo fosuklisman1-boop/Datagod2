@@ -17,6 +17,7 @@ import { toast } from "sonner"
 interface User {
   id: string
   email: string
+  phoneNumber: string
   created_at: string
   role: string
   balance: number
@@ -91,8 +92,9 @@ export default function AdminUsersPage() {
     const searchLower = searchTerm.toLowerCase()
     const filtered = users.filter((user) => {
       const emailMatch = user.email.toLowerCase().includes(searchLower)
+      const phoneMatch = user.phoneNumber?.toLowerCase().includes(searchLower)
       const shopNameMatch = user.shop?.shop_name?.toLowerCase().includes(searchLower)
-      return emailMatch || shopNameMatch
+      return emailMatch || phoneMatch || shopNameMatch
     })
 
     setFilteredUsers(filtered)
@@ -221,7 +223,7 @@ export default function AdminUsersPage() {
               </div>
               <div className="w-full sm:w-64">
                 <Input
-                  placeholder="Search by email or shop name..."
+                  placeholder="Search by email, phone or shop..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="border-emerald-200/40 focus:border-emerald-500"
@@ -236,6 +238,7 @@ export default function AdminUsersPage() {
                 <thead className="bg-gradient-to-r from-emerald-100/60 to-teal-100/60 backdrop-blur border-b border-emerald-200/40">
                   <tr>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Email</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Phone</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Role</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Wallet Balance</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop Balance</th>
@@ -247,7 +250,7 @@ export default function AdminUsersPage() {
                 <tbody className="divide-y divide-emerald-100/40">
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                         {searchTerm ? "No users found matching your search" : "No users found"}
                       </td>
                     </tr>
@@ -255,6 +258,7 @@ export default function AdminUsersPage() {
                     filteredUsers.map((user) => (
                     <tr key={user.id} className="hover:bg-emerald-100/30 backdrop-blur transition-colors">
                       <td className="px-6 py-4 font-medium text-gray-900">{user.email}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{user.phoneNumber || "-"}</td>
                       <td className="px-6 py-4">
                         <Badge className={user.role === "admin" ? "bg-red-600" : "bg-blue-600"}>
                           {user.role}
