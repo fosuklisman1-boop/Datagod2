@@ -31,6 +31,10 @@ export default function AdminSettingsPage() {
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementMessage, setAnnouncementMessage] = useState("")
   
+  // Christmas theme settings
+  const [christmasThemeEnabled, setChristmasThemeEnabled] = useState(false)
+  const [savingChristmasTheme, setSavingChristmasTheme] = useState(false)
+  
   const [domainUrls] = useState([
     { name: "Main App", url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000" },
     { name: "Admin Dashboard", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin` },
@@ -75,6 +79,13 @@ export default function AdminSettingsPage() {
         if (data.announcement_message) {
           setAnnouncementMessage(data.announcement_message)
         }
+
+        // Load Christmas theme setting
+        const christmasResponse = await fetch("/api/admin/christmas-theme")
+        const christmasData = await christmasResponse.json()
+        if (christmasData.christmas_theme_enabled !== undefined) {
+          setChristmasThemeEnabled(christmasData.christmas_theme_enabled)
+        }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
         toast.error("Failed to load settings")
@@ -101,6 +112,42 @@ export default function AdminSettingsPage() {
     setCopiedUrl(url)
     toast.success("URL copied to clipboard!")
     setTimeout(() => setCopiedUrl(null), 2000)
+  }
+
+  const handleChristmasThemeToggle = async (enabled: boolean) => {
+    setSavingChristmasTheme(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        setSavingChristmasTheme(false)
+        return
+      }
+
+      const response = await fetch("/api/admin/christmas-theme", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ christmas_theme_enabled: enabled }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update Christmas theme")
+      }
+
+      setChristmasThemeEnabled(enabled)
+      toast.success(
+        enabled ? "🎄 Christmas theme enabled!" : "Christmas theme disabled"
+      )
+    } catch (error) {
+      console.error("Error updating Christmas theme:", error)
+      toast.error("Failed to update Christmas theme")
+    } finally {
+      setSavingChristmasTheme(false)
+    }
   }
 
   const handleSave = async () => {
@@ -477,6 +524,38 @@ export default function AdminSettingsPage() {
                   </>
                 )}
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Christmas Theme Settings */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              🎄 Christmas Theme
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div>
+                <p className="font-medium text-gray-900">Enable Christmas Theme</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  {christmasThemeEnabled
+                    ? "✨ Christmas theme is currently active! The app features festive colors, snowfall effects, and holiday decorations."
+                    : "Add festive holiday spirit to the app with Christmas-themed colors, animations, and decorations."}
+                </p>
+              </div>
+              <Switch
+                checked={christmasThemeEnabled}
+                onCheckedChange={handleChristmasThemeToggle}
+                disabled={savingChristmasTheme}
+              />
+            </div>
+
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700">
+                <span className="font-semibold">Preview:</span> Red and green color scheme, snowfall animation, Christmas decorations (🎄 🎅 ⛄ 🎁 ❄️), and festive button effects.
+              </p>
             </div>
           </CardContent>
         </Card>
