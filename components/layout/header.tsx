@@ -12,13 +12,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/hooks/use-auth"
+import { useSupportConfig } from "@/hooks/use-support-config"
 import { supportConfig } from "@/lib/support-config"
 import { toast } from "sonner"
 import { useState, useEffect } from "react"
 
 export function Header() {
   const { user, logout } = useAuth()
+  const { config: dynamicConfig } = useSupportConfig()
   const [isMobile, setIsMobile] = useState(false)
+  // Use dynamic config if available, otherwise fall back to static config
+  const supportInfo = dynamicConfig || supportConfig
 
   useEffect(() => {
     const handleResize = () => {
@@ -65,15 +69,15 @@ export function Header() {
               <p className="text-xs text-gray-500">Get help from our team</p>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => window.open(`mailto:${supportConfig.email}`)}>
+            <DropdownMenuItem onClick={() => window.open(`mailto:${supportInfo.email}`)}>
               <Mail className="w-4 h-4 mr-2" />
               <span>Email Support</span>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => window.open(`tel:${supportConfig.phone}`)}>
+            <DropdownMenuItem onClick={() => window.open(`tel:${supportInfo.phone}`)}>
               <Phone className="w-4 h-4 mr-2" />
               <span>Call Support</span>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => window.open(supportConfig.whatsapp, "_blank")}>
+            <DropdownMenuItem onClick={() => window.open(supportInfo.whatsapp, "_blank")}>
               <MessageCircle className="w-4 h-4 mr-2" />
               <span>WhatsApp Chat</span>
             </DropdownMenuItem>
