@@ -87,8 +87,8 @@ export function Sidebar() {
     // Listen for storage events (from other tabs/components)
     window.addEventListener('storage', handleStorageChange)
 
-    // Also poll localStorage every 5 seconds in case it changes in same tab
-    const interval = setInterval(handleStorageChange, 5000)
+    // Also poll localStorage every 15 seconds in case it changes in same tab
+    const interval = setInterval(handleStorageChange, 15000)
 
     return () => {
       window.removeEventListener('storage', handleStorageChange)
