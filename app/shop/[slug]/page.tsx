@@ -37,6 +37,7 @@ export default function ShopStorefront() {
     customer_phone: "",
   })
   const [submitting, setSubmitting] = useState(false)
+  const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
 
   const { settings: shopSettings } = useShopSettings(shop?.id)
@@ -119,6 +120,12 @@ export default function ShopStorefront() {
   const validatePhoneNumberField = (phone: string, network?: string): boolean => {
     const result = validatePhoneNumber(phone, network)
     return result.isValid
+  }
+
+  const handleProceedToPayment = () => {
+    if (!paymentUrl) return
+    console.log("[CHECKOUT] User clicked proceed to payment")
+    window.location.href = paymentUrl
   }
 
   const handleSubmitOrder = async () => {
@@ -258,16 +265,9 @@ export default function ShopStorefront() {
             console.log("[CHECKOUT] Stored payment reference:", paymentData.reference)
           }
           
-          // Use utility function for Safari-compatible payment redirect
-          console.log("[CHECKOUT] About to redirect to payment URL")
-          await redirectToPayment({
-            url: paymentData.authorizationUrl,
-            delayMs: 100,
-            onError: (error: Error) => {
-              console.error("[CHECKOUT] Payment redirect failed:", error)
-              toast.error("Payment redirect failed. Please try again.")
-            }
-          })
+          // Store payment URL in state - user must click to proceed (Safari compatibility)
+          setPaymentUrl(paymentData.authorizationUrl)
+          console.log("[CHECKOUT] Payment URL stored, waiting for user click")
           return
         } else {
           throw new Error("No authorization URL received from payment provider")
@@ -616,68 +616,123 @@ export default function ShopStorefront() {
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6 space-y-4">
-              <div>
-                <Label>Full Name *</Label>
-                <Input
-                  value={orderData.customer_name}
-                  onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
-                  placeholder="John Doe"
-                  className="mt-1"
-                />
-              </div>
+              {!paymentUrl ? (
+                <>
+                  <div>
+                    <Label>Full Name *</Label>
+                    <Input
+                      value={orderData.customer_name}
+                      onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
+                      placeholder="John Doe"
+                      className="mt-1"
+                    />
+                  </div>
 
-              <div>
-                <Label>Email Address *</Label>
-                <Input
-                  type="email"
-                  value={orderData.customer_email}
-                  onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
-                  placeholder="john@example.com"
-                  className="mt-1"
-                />
-              </div>
+                  <div>
+                    <Label>Email Address *</Label>
+                    <Input
+                      type="email"
+                      value={orderData.customer_email}
+                      onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
+                      placeholder="john@example.com"
+                      className="mt-1"
+                    />
+                  </div>
 
-              <div>
-                <Label>Phone Number (MTN, Telecel, AT) *</Label>
-                <Input
-                  value={orderData.customer_phone}
-                  onChange={(e) => setOrderData({ ...orderData, customer_phone: e.target.value })}
-                  placeholder="0201234567 or 0551234567"
-                  className="mt-1"
-                />
-                <p className="text-xs text-gray-600 mt-1">
-                  Format: 10 digits starting with 02 or 05 (e.g., 0201234567)
-                </p>
-              </div>
+                  <div>
+                    <Label>Phone Number (MTN, Telecel, AT) *</Label>
+                    <Input
+                      value={orderData.customer_phone}
+                      onChange={(e) => setOrderData({ ...orderData, customer_phone: e.target.value })}
+                      placeholder="0201234567 or 0551234567"
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-gray-600 mt-1">
+                      Format: 10 digits starting with 02 or 05 (e.g., 0201234567)
+                    </p>
+                  </div>
 
-              {/* Order Summary */}
-              <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
-                <div className="flex justify-between items-end mb-3">
-                  <span className="font-semibold text-gray-700">Total Amount:</span>
-                  <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
-                    GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
-                  </span>
-                </div>
-              </div>
+                  {/* Order Summary */}
+                  <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
+                    <div className="flex justify-between items-end mb-3">
+                      <span className="font-semibold text-gray-700">Total Amount:</span>
+                      <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+                        GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
 
-              <Alert className="border-blue-300 bg-blue-50">
-                <AlertCircle className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-xs text-blue-700">
-                  You will be redirected to Paystack to complete your payment.
-                </AlertDescription>
-              </Alert>
+                  <Alert className="border-blue-300 bg-blue-50">
+                    <AlertCircle className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-xs text-blue-700">
+                      You will be redirected to Paystack to complete your payment.
+                    </AlertDescription>
+                  </Alert>
 
-              <div className="flex gap-2 pt-4">
-                <Button
-                  onClick={handleSubmitOrder}
-                  disabled={submitting}
-                  className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
-                >
-                  {submitting ? "Processing..." : "Place Order"}
-                  {!submitting && <ArrowRight className="w-4 h-4 ml-2" />}
-                </Button>
-                <Button
-                  onClick={() => {
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      onClick={handleSubmitOrder}
+                      disabled={submitting}
+                      className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+                    >
+                      {submitting ? "Processing..." : "Place Order"}
+                      {!submitting && <ArrowRight className="w-4 h-4 ml-2" />}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setCheckoutOpen(false)
+                        setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+                        setPaymentUrl(null)
+                      }}
+                      variant="outline"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Alert className="border-green-300 bg-green-50">
+                    <AlertCircle className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-sm text-green-700">
+                      Your order has been created! Click the button below to complete the payment on Paystack.
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
+                    <div className="flex justify-between items-end mb-3">
+                      <span className="font-semibold text-gray-700">Total Amount:</span>
+                      <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+                        GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      onClick={handleProceedToPayment}
+                      className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                    >
+                      Proceed to Payment
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setCheckoutOpen(false)
+                        setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+                        setPaymentUrl(null)
+                      }}
+                      variant="outline"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
                     setCheckoutOpen(false)
                     setSelectedPackage(null)
                     setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
