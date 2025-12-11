@@ -463,11 +463,6 @@ export const adminShopService = {
       console.error("Error rejecting shop:", error)
       throw error
     }
-  },      return await response.json()
-    } catch (error: any) {
-      console.error("Error rejecting shop:", error)
-      throw error
-    }
   },
 
   // Get shop details with orders
