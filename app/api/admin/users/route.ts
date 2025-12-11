@@ -80,10 +80,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: walletsError.message }, { status: 400 })
     }
 
-    // Get user profiles with phone numbers
+    // Get user profiles with phone numbers and roles
     const { data: userProfiles, error: profilesError } = await adminClient
       .from("users")
-      .select("id, phone_number")
+      .select("id, phone_number, role")
 
     if (profilesError) {
       console.error("Error fetching user profiles:", profilesError)
@@ -98,6 +98,8 @@ export async function GET(req: NextRequest) {
         const profile = userProfiles?.find((p: any) => p.id === authUser.id)
         const walletBalance = wallet?.balance || 0
         const phoneNumber = profile?.phone_number || ""
+        // Get role from metadata first, then fallback to database
+        const role = authUser.user_metadata?.role || profile?.role || "user"
 
         if (!shop?.id) {
           return {
@@ -109,7 +111,7 @@ export async function GET(req: NextRequest) {
             walletBalance: walletBalance,
             shopBalance: 0,
             balance: walletBalance, // For backwards compatibility
-            role: authUser.user_metadata?.role || "user",
+            role: role,
           }
         }
 
@@ -151,7 +153,7 @@ export async function GET(req: NextRequest) {
           walletBalance: walletBalance,
           shopBalance: shopBalance,
           balance: walletBalance + shopBalance, // Total balance for backwards compatibility
-          role: authUser.user_metadata?.role || "user",
+          role: role,
         }
       })
     )
