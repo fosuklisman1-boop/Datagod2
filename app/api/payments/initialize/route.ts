@@ -103,13 +103,25 @@ export async function POST(request: NextRequest) {
 
     console.log("[PAYMENT-INIT] ✓ Success")
 
-    return NextResponse.json({
+    // Add Safari-compatible CORS headers
+    const response = NextResponse.json({
       success: true,
       authorizationUrl: paymentResult.authorizationUrl,
       accessCode: paymentResult.accessCode,
       reference: paymentResult.reference,
       paymentId: paymentData[0].id,
     })
+
+    // Safari-compatible headers
+    response.headers.set("Access-Control-Allow-Origin", request.headers.get("origin") || "*")
+    response.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS")
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    response.headers.set("Access-Control-Allow-Credentials", "true")
+    response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
+    response.headers.set("Pragma", "no-cache")
+    response.headers.set("Expires", "0")
+
+    return response
   } catch (error) {
     console.error("[PAYMENT-INIT] ✗ Error:", error)
     return NextResponse.json(

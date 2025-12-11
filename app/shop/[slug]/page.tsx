@@ -174,55 +174,68 @@ export default function ShopStorefront() {
       toast.info("Redirecting to payment...")
       const { data: { session } } = await supabase.auth.getSession()
       
-      const paymentResponse = await fetch("/api/payments/initialize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          amount: totalPrice,
-          email: orderData.customer_email,
-          userId: session?.user?.id || null,
-          shopId: shop.id,
-          orderId: order.id,  // Pass order ID for shop order redirect
-          shopSlug: shopSlug,  // Pass shop slug for order confirmation URL
-        }),
-      })
-
-      if (!paymentResponse.ok) {
-        const error = await paymentResponse.json()
-        throw new Error(error.error || "Failed to initialize payment")
-      }
-
-      const paymentData = await paymentResponse.json()
-      
-      // Redirect to Paystack (handles popup blocker scenarios)
-      if (paymentData.authorizationUrl) {
-        // Store payment reference in sessionStorage for verification after redirect
-        sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
-        
-        // Use utility function for Safari-compatible payment redirect
-        redirectToPayment({
-          url: paymentData.authorizationUrl,
-          delayMs: 300,
-          onError: (error: Error) => {
-            console.error("Payment redirect failed:", error)
-            toast.error("Payment redirect failed. Please try again.")
-          }
+      try {
+        const paymentResponse = await fetch("/api/payments/initialize", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include", // Include cookies for Safari compatibility
+          body: JSON.stringify({
+            amount: totalPrice,
+            email: orderData.customer_email,
+            userId: session?.user?.id || null,
+            shopId: shop.id,
+            orderId: order.id,
+            shopSlug: shopSlug,
+          }),
         })
-        return
+
+        if (!paymentResponse.ok) {
+          let errorMsg = "Failed to initialize payment"
+          try {
+            const errorData = await paymentResponse.json()
+            errorMsg = errorData.error || errorMsg
+          } catch (e) {
+            console.error("Could not parse error response:", e)
+          }
+          throw new Error(errorMsg)
+        }
+
+        const paymentData = await paymentResponse.json()
+        
+        console.log("[CHECKOUT] Payment initialized:", {
+          reference: paymentData.reference,
+          hasUrl: !!paymentData.authorizationUrl,
+        })
+
+        // Redirect to Paystack (handles popup blocker scenarios)
+        if (paymentData.authorizationUrl) {
+          // Store payment reference in sessionStorage for verification after redirect
+          if (typeof window !== "undefined" && window.sessionStorage) {
+            sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
+          }
+          
+          // Use utility function for Safari-compatible payment redirect
+          await redirectToPayment({
+            url: paymentData.authorizationUrl,
+            delayMs: 300,
+            onError: (error: Error) => {
+              console.error("[CHECKOUT] Payment redirect failed:", error)
+              toast.error("Payment redirect failed. Please try again.")
+            }
+          })
+          return
+        } else {
+          throw new Error("No authorization URL received from payment provider")
+        }
+      } catch (paymentError) {
+        console.error("[CHECKOUT] Payment initialization error:", paymentError)
+        throw paymentError
       }
-
-      // Reset form
-      setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
-      setCheckoutOpen(false)
-      setSelectedPackage(null)
-
-      // Redirect to confirmation page
-      router.push(`/shop/${shopSlug}/order-confirmation/${order.id}`)
     } catch (error) {
       console.error("Error submitting order:", error)
-      toast.error("Failed to place order. Please try again.")
+      toast.error(error instanceof Error ? error.message : "Failed to place order. Please try again.")
     } finally {
       setSubmitting(false)
     }

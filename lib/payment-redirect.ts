@@ -25,6 +25,8 @@ export async function redirectToPayment(options: PaymentRedirectOptions): Promis
   }
 
   console.log("[PAYMENT-REDIRECT] Initiating redirect to:", url.substring(0, 100) + "...")
+  console.log("[PAYMENT-REDIRECT] Browser:", getBrowserInfo())
+  console.log("[PAYMENT-REDIRECT] Delay:", delayMs + "ms")
 
   return new Promise((resolve) => {
     setTimeout(() => {
@@ -37,7 +39,23 @@ export async function redirectToPayment(options: PaymentRedirectOptions): Promis
         }
 
         if (typeof window !== "undefined") {
-          window.location.href = url
+          // Safari-specific handling: use a link click approach for better compatibility
+          const isSafariBrowser = isSafari()
+          
+          if (isSafariBrowser) {
+            console.log("[PAYMENT-REDIRECT] Using Safari-compatible redirect method")
+            // Create a temporary anchor element for Safari
+            const link = document.createElement('a')
+            link.href = url
+            link.target = '_self'
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+          } else {
+            // Standard redirect for other browsers
+            window.location.href = url
+          }
+          
           console.log("[PAYMENT-REDIRECT] Redirect initiated successfully")
         }
         resolve()
