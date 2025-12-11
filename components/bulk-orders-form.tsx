@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -53,7 +53,7 @@ export function BulkOrdersForm() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
-  const [excelFileInput, setExcelFileInput] = useState<HTMLInputElement | null>(null)
+  const [excelFileInput, setExcelFileInput] = useRef<HTMLInputElement | null>(null)
 
   // Load packages from database on mount
   useEffect(() => {
@@ -288,8 +288,8 @@ export function BulkOrdersForm() {
       toast.success("Excel file uploaded and converted to text format")
       
       // Reset file input
-      if (excelFileInput) {
-        excelFileInput.value = ''
+      if (excelFileInput.current) {
+        excelFileInput.current.value = ''
       }
     } catch (error) {
       console.error("Error parsing Excel file:", error)
@@ -497,7 +497,7 @@ export function BulkOrdersForm() {
                 type="file" 
                 accept=".csv,.xlsx" 
                 className="mt-4"
-                ref={setExcelFileInput}
+                ref={excelFileInput}
                 onChange={handleExcelFileUpload}
               />
             </div>
