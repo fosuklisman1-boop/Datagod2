@@ -51,6 +51,7 @@ export default function AdminOrdersPage() {
   const [showNetworkSelection, setShowNetworkSelection] = useState(false)
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([])
   const [downloadedBatchFilter, setDownloadedBatchFilter] = useState("all")
+  const [downloadedBatchStatusFilter, setDownloadedBatchStatusFilter] = useState("all")
   const allNetworks = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
 
   useEffect(() => {
@@ -346,21 +347,48 @@ export default function AdminOrdersPage() {
       const batchDate = new Date(batch.downloadedAt)
       const batchDateOnly = new Date(batchDate.getFullYear(), batchDate.getMonth(), batchDate.getDate())
 
+      // Check date filter
+      let dateMatch = true
       switch (downloadedBatchFilter) {
         case "today":
-          return batchDateOnly.getTime() === today.getTime()
+          dateMatch = batchDateOnly.getTime() === today.getTime()
+          break
         case "yesterday":
-          return batchDateOnly.getTime() === yesterday.getTime()
+          dateMatch = batchDateOnly.getTime() === yesterday.getTime()
+          break
         case "this-week":
-          return batchDateOnly >= weekAgo && batchDateOnly <= today
+          dateMatch = batchDateOnly >= weekAgo && batchDateOnly <= today
+          break
         case "this-month":
-          return batchDate >= monthAgo && batchDate <= now
+          dateMatch = batchDate >= monthAgo && batchDate <= now
+          break
         case "this-quarter":
-          return batchDate >= threeMonthsAgo && batchDate <= now
+          dateMatch = batchDate >= threeMonthsAgo && batchDate <= now
+          break
         case "all":
         default:
-          return true
+          dateMatch = true
       }
+
+      if (!dateMatch) return false
+
+      // Check status filter
+      if (downloadedBatchStatusFilter === "all") return true
+      
+      // Filter by batch status
+      const statuses = batch.orders.map(o => o.status || "processing")
+      if (downloadedBatchStatusFilter === "completed") {
+        return statuses.every(s => s === "completed")
+      } else if (downloadedBatchStatusFilter === "failed") {
+        return statuses.some(s => s === "failed")
+      } else if (downloadedBatchStatusFilter === "processing") {
+        return statuses.some(s => s === "processing" || s === "pending")
+      } else if (downloadedBatchStatusFilter === "mixed") {
+        // Show batches with mixed statuses
+        const uniqueStatuses = new Set(statuses)
+        return uniqueStatuses.size > 1
+      }
+      return true
     })
   }
 
@@ -479,57 +507,106 @@ export default function AdminOrdersPage() {
           <TabsContent value="downloaded" className="space-y-4">
             {/* Filter Section */}
             {Object.keys(downloadedOrders).length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Filter Downloaded Batches</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant={downloadedBatchFilter === "all" ? "default" : "outline"}
-                      onClick={() => setDownloadedBatchFilter("all")}
-                      size="sm"
-                    >
-                      All
-                    </Button>
-                    <Button
-                      variant={downloadedBatchFilter === "today" ? "default" : "outline"}
-                      onClick={() => setDownloadedBatchFilter("today")}
-                      size="sm"
-                    >
-                      Today
-                    </Button>
-                    <Button
-                      variant={downloadedBatchFilter === "yesterday" ? "default" : "outline"}
-                      onClick={() => setDownloadedBatchFilter("yesterday")}
-                      size="sm"
-                    >
-                      Yesterday
-                    </Button>
-                    <Button
-                      variant={downloadedBatchFilter === "this-week" ? "default" : "outline"}
-                      onClick={() => setDownloadedBatchFilter("this-week")}
-                      size="sm"
-                    >
-                      This Week
-                    </Button>
-                    <Button
-                      variant={downloadedBatchFilter === "this-month" ? "default" : "outline"}
-                      onClick={() => setDownloadedBatchFilter("this-month")}
-                      size="sm"
-                    >
-                      This Month
-                    </Button>
-                    <Button
-                      variant={downloadedBatchFilter === "this-quarter" ? "default" : "outline"}
-                      onClick={() => setDownloadedBatchFilter("this-quarter")}
-                      size="sm"
-                    >
-                      This Quarter
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              <>
+                {/* Date Filter */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Filter Downloaded Batches by Date</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant={downloadedBatchFilter === "all" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchFilter("all")}
+                        size="sm"
+                      >
+                        All
+                      </Button>
+                      <Button
+                        variant={downloadedBatchFilter === "today" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchFilter("today")}
+                        size="sm"
+                      >
+                        Today
+                      </Button>
+                      <Button
+                        variant={downloadedBatchFilter === "yesterday" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchFilter("yesterday")}
+                        size="sm"
+                      >
+                        Yesterday
+                      </Button>
+                      <Button
+                        variant={downloadedBatchFilter === "this-week" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchFilter("this-week")}
+                        size="sm"
+                      >
+                        This Week
+                      </Button>
+                      <Button
+                        variant={downloadedBatchFilter === "this-month" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchFilter("this-month")}
+                        size="sm"
+                      >
+                        This Month
+                      </Button>
+                      <Button
+                        variant={downloadedBatchFilter === "this-quarter" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchFilter("this-quarter")}
+                        size="sm"
+                      >
+                        This Quarter
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Status Filter */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Filter Downloaded Batches by Status</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant={downloadedBatchStatusFilter === "all" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchStatusFilter("all")}
+                        size="sm"
+                      >
+                        All
+                      </Button>
+                      <Button
+                        variant={downloadedBatchStatusFilter === "completed" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchStatusFilter("completed")}
+                        size="sm"
+                      >
+                        All Completed
+                      </Button>
+                      <Button
+                        variant={downloadedBatchStatusFilter === "processing" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchStatusFilter("processing")}
+                        size="sm"
+                      >
+                        Processing
+                      </Button>
+                      <Button
+                        variant={downloadedBatchStatusFilter === "failed" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchStatusFilter("failed")}
+                        size="sm"
+                      >
+                        Has Failures
+                      </Button>
+                      <Button
+                        variant={downloadedBatchStatusFilter === "mixed" ? "default" : "outline"}
+                        onClick={() => setDownloadedBatchStatusFilter("mixed")}
+                        size="sm"
+                      >
+                        Mixed Status
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
             )}
 
             {Object.keys(downloadedOrders).length === 0 ? (
