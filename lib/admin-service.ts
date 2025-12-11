@@ -479,28 +479,30 @@ export const adminShopService = {
 export const adminDashboardService = {
   // Get dashboard statistics
   async getDashboardStats() {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session?.access_token) {
-        throw new Error("No authentication token available")
+    return getCachedRequest('dashboard-stats', async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (!session?.access_token) {
+          throw new Error("No authentication token available")
+        }
+
+        const response = await fetch("/api/admin/dashboard-stats", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        })
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch dashboard stats")
+        }
+
+        return await response.json()
+      } catch (error) {
+        console.error("Error fetching dashboard stats:", error)
+        throw error
       }
-
-      const response = await fetch("/api/admin/dashboard-stats", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch dashboard stats")
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error("Error fetching dashboard stats:", error)
-      throw error
-    }
+    })
   },
 }
 

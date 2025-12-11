@@ -1,13 +1,20 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Cache-Control": "public, s-maxage=0, stale-while-revalidate=0"
+}
+
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get("authorization")
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
         { error: "Unauthorized" },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       )
     }
 
@@ -23,21 +30,25 @@ export async function GET(request: NextRequest) {
     if (userError || !user) {
       return NextResponse.json(
         { error: "Invalid token" },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       )
     }
 
-    // Check if user is admin
-    const { data: userData, error: roleError } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .single()
+    // Check if user is admin (check metadata first, then users table)
+    let isAdmin = user.user_metadata?.role === "admin"
+    if (!isAdmin) {
+      const { data: userData } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", user.id)
+        .single()
+      isAdmin = userData?.role === "admin"
+    }
 
-    if (roleError || userData?.role !== "admin") {
+    if (!isAdmin) {
       return NextResponse.json(
         { error: "Admin access required" },
-        { status: 403 }
+        { status: 403, headers: corsHeaders }
       )
     }
 
@@ -81,13 +92,17 @@ export async function GET(request: NextRequest) {
         completedOrders: completedOrders.length,
         successRate: totalOrders ? ((completedOrders.length / totalOrders) * 100).toFixed(2) : 0,
       },
-      { status: 200 }
+      { status: 200, headers: corsHeaders }
     )
   } catch (error) {
     console.error("[ADMIN-STATS] Unexpected error:", error)
     return NextResponse.json(
       { error: "Failed to fetch dashboard stats" },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     )
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return NextResponse.json({}, { headers: corsHeaders })
 }
