@@ -180,10 +180,6 @@ export default function WalletPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 Add Funds
               </Button>
-              <Button variant="outline" className="border-white text-white hover:bg-white/20 flex-1" disabled>
-                <Minus className="w-4 h-4 mr-2" />
-                Withdraw
-              </Button>
             </div>
           </CardContent>
         </Card>
