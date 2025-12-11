@@ -37,7 +37,6 @@ export default function ShopStorefront() {
     customer_phone: "",
   })
   const [submitting, setSubmitting] = useState(false)
-  const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
 
   const { settings: shopSettings } = useShopSettings(shop?.id)
@@ -45,18 +44,6 @@ export default function ShopStorefront() {
   useEffect(() => {
     loadShopData()
     loadNetworkLogos()
-    
-    // Check if we have a saved payment URL from Safari (page refresh/navigation)
-    if (typeof window !== "undefined" && window.localStorage) {
-      const savedPaymentUrl = localStorage.getItem('checkout_payment_url')
-      const savedOrderId = localStorage.getItem('checkout_order_id')
-      
-      if (savedPaymentUrl && savedOrderId) {
-        console.log("[CHECKOUT] Recovered saved payment state from localStorage")
-        setPaymentUrl(savedPaymentUrl)
-        setCheckoutOpen(true)
-      }
-    }
   }, [shopSlug])
 
   useEffect(() => {
@@ -132,23 +119,6 @@ export default function ShopStorefront() {
   const validatePhoneNumberField = (phone: string, network?: string): boolean => {
     const result = validatePhoneNumber(phone, network)
     return result.isValid
-  }
-
-  const handleProceedToPayment = () => {
-    if (!paymentUrl) return
-    console.log("[CHECKOUT] User clicked proceed to payment")
-    
-    // Save state before redirect for Safari compatibility
-    if (typeof window !== "undefined" && window.localStorage) {
-      localStorage.setItem('checkout_payment_url', paymentUrl)
-      localStorage.setItem('checkout_in_progress', 'true')
-      console.log("[CHECKOUT] Saved state to localStorage before redirect")
-    }
-    
-    // Use a small delay to ensure localStorage is written
-    setTimeout(() => {
-      window.location.href = paymentUrl
-    }, 50)
   }
 
   const handleSubmitOrder = async () => {
@@ -329,9 +299,16 @@ export default function ShopStorefront() {
             console.log("[CHECKOUT] Payment URL and reference saved to localStorage")
           }
           
-          // Store payment URL in state - user must click to proceed (Safari compatibility)
-          setPaymentUrl(paymentData.authorizationUrl)
-          console.log("[CHECKOUT] Payment URL stored, waiting for user click")
+          // Redirect directly to payment
+          console.log("[CHECKOUT] Redirecting to payment URL")
+          await redirectToPayment({
+            url: paymentData.authorizationUrl,
+            delayMs: 100,
+            onError: (error: Error) => {
+              console.error("[CHECKOUT] Payment redirect failed:", error)
+              toast.error("Payment redirect failed. Please try again.")
+            }
+          })
           return
         } else {
           throw new Error("No authorization URL received from payment provider")
@@ -741,44 +718,6 @@ export default function ShopStorefront() {
                     >
                       {submitting ? "Processing..." : "Place Order"}
                       {!submitting && <ArrowRight className="w-4 h-4 ml-2" />}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setCheckoutOpen(false)
-                        setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
-                        setPaymentUrl(null)
-                      }}
-                      variant="outline"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Alert className="border-green-300 bg-green-50">
-                    <AlertCircle className="h-4 w-4 text-green-600" />
-                    <AlertDescription className="text-sm text-green-700">
-                      Your order has been created! Click the button below to complete the payment on Paystack.
-                    </AlertDescription>
-                  </Alert>
-
-                  <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
-                    <div className="flex justify-between items-end mb-3">
-                      <span className="font-semibold text-gray-700">Total Amount:</span>
-                      <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
-                        GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 pt-4">
-                    <Button
-                      onClick={handleProceedToPayment}
-                      className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
-                    >
-                      Proceed to Payment
-                      <ArrowRight className="w-4 h-4 ml-2" />
                     </Button>
                     <Button
                       onClick={() => {
