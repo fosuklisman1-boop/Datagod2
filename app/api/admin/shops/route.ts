@@ -24,10 +24,14 @@ export async function GET(request: NextRequest) {
 
       const { searchParams } = new URL(request.url)
       const status = searchParams.get("status") // "pending" or "active" or null for all
+      const limit = parseInt(searchParams.get("limit") || "100", 10) // Default 100, max 500
+      const offset = parseInt(searchParams.get("offset") || "0", 10)
+      
+      const actualLimit = Math.min(Math.max(limit, 1), 500) // Clamp between 1 and 500
 
       let query = supabase
         .from("user_shops")
-        .select("*")
+        .select("id, shop_name, email, is_active, created_at, profile_picture, approved_at", { count: "exact" })
 
       // Filter by status if specified
       if (status === "pending") {
@@ -39,7 +43,9 @@ export async function GET(request: NextRequest) {
       }
 
       const queryStartTime = Date.now()
-      const { data, error } = await query.order("created_at", { ascending: false })
+      const { data, error, count } = await query
+        .order("created_at", { ascending: false })
+        .range(offset, offset + actualLimit - 1)
       const queryDuration = Date.now() - queryStartTime
       console.log("[ADMIN-SHOPS-API] Query executed in", queryDuration, "ms, error:", error?.message || null, "data count:", data?.length || 0)
 
@@ -61,7 +67,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: data || [],
-        count: data?.length || 0
+        count: data?.length || 0,
+        total: count || 0,
+        limit: actualLimit,
+        offset: offset
       }, {
         headers: {
           "Access-Control-Allow-Origin": "*",
@@ -109,10 +118,14 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get("status")
+    const limit = parseInt(searchParams.get("limit") || "100", 10)
+    const offset = parseInt(searchParams.get("offset") || "0", 10)
+    
+    const actualLimit = Math.min(Math.max(limit, 1), 500)
 
     let query = supabase
       .from("user_shops")
-      .select("*")
+      .select("id, shop_name, email, is_active, created_at, profile_picture, approved_at", { count: "exact" })
 
     if (status === "pending") {
       console.log("[ADMIN-SHOPS-API] Filtering for pending shops (is_active=false)")
@@ -123,9 +136,11 @@ export async function GET(request: NextRequest) {
     }
 
     const queryStartTime = Date.now()
-    const { data, error } = await query.order("created_at", { ascending: false })
+    const { data, error, count } = await query
+      .order("created_at", { ascending: false })
+      .range(offset, offset + actualLimit - 1)
     const queryDuration = Date.now() - queryStartTime
-    console.log("[ADMIN-SHOPS-API] With auth - Query executed in", queryDuration, "ms, error:", error?.message || null, "data count:", data?.length || 0)
+    console.log("[ADMIN-SHOPS-API] With auth - Query executed in", queryDuration, "ms, error:", error?.message || null, "data count:", data?.length || 0, "total:", count)
 
     if (error) {
       console.error("[ADMIN-SHOPS-API] Error fetching shops:", error)
@@ -145,7 +160,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: data || [],
-      count: data?.length || 0
+      count: data?.length || 0,
+      total: count || 0,
+      limit: actualLimit,
+      offset: offset
     }, {
       headers: {
         "Access-Control-Allow-Origin": "*",
