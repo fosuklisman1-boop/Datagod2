@@ -514,26 +514,30 @@ export const adminDashboardService = {
 export const adminOrderService = {
   // Get all pending orders
   async getPendingOrders() {
-    const { data, error } = await supabase
-      .from("shop_orders")
-      .select("*")
-      .eq("order_status", "pending")
-      .order("created_at", { ascending: false })
+    return getCachedRequest('pending-orders', async () => {
+      const { data, error } = await supabase
+        .from("shop_orders")
+        .select("*")
+        .eq("order_status", "pending")
+        .order("created_at", { ascending: false })
 
-    if (error) throw error
-    return data
+      if (error) throw error
+      return data
+    })
   },
 
   // Get orders by status
   async getOrdersByStatus(status: string) {
-    const { data, error } = await supabase
-      .from("shop_orders")
-      .select("*")
-      .eq("order_status", status)
-      .order("created_at", { ascending: false })
+    return getCachedRequest(`orders-by-status-${status}`, async () => {
+      const { data, error } = await supabase
+        .from("shop_orders")
+        .select("*")
+        .eq("order_status", status)
+        .order("created_at", { ascending: false })
 
-    if (error) throw error
-    return data
+      if (error) throw error
+      return data
+    })
   },
 
   // Download pending orders (returns CSV)
@@ -551,6 +555,8 @@ export const adminOrderService = {
         throw new Error(data.error || "Failed to download orders")
       }
 
+      // Clear cache after download (status may have changed)
+      this.clearCache()
       return data
     } catch (error: any) {
       console.error("Error downloading orders:", error)
@@ -596,6 +602,10 @@ export const adminOrderService = {
       .select()
 
     if (error) throw error
+    
+    // Clear order-related caches after mutation
+    this.clearCache()
+    
     return data[0]
   },
 
