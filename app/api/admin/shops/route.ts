@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
       let query = supabase
         .from("user_shops")
-        .select("id, shop_name, email, is_active, created_at, profile_picture, approved_at", { count: "exact" })
+        .select("id, shop_name, shop_slug, is_active, created_at, logo_url", { count: "exact" })
 
       // Filter by status if specified
       if (status === "pending") {
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("user_shops")
-      .select("id, shop_name, email, is_active, created_at, profile_picture, approved_at", { count: "exact" })
+      .select("id, shop_name, shop_slug, is_active, created_at, logo_url", { count: "exact" })
 
     if (status === "pending") {
       console.log("[ADMIN-SHOPS-API] Filtering for pending shops (is_active=false)")
