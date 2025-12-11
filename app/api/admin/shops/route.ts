@@ -40,7 +40,12 @@ export async function GET(request: NextRequest) {
         console.error("Error fetching shops:", error)
         return NextResponse.json(
           { error: error.message },
-          { status: 500 }
+          { status: 500, headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Cache-Control": "public, s-maxage=0, stale-while-revalidate=0"
+          }}
         )
       }
 
@@ -48,6 +53,13 @@ export async function GET(request: NextRequest) {
         success: true,
         data: data || [],
         count: data?.length || 0
+      }, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          "Cache-Control": "public, s-maxage=0, stale-while-revalidate=0"
+        }
       })
     }
 
@@ -105,7 +117,12 @@ export async function GET(request: NextRequest) {
       console.error("Error fetching shops:", error)
       return NextResponse.json(
         { error: error.message },
-        { status: 500 }
+        { status: 500, headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          "Cache-Control": "public, s-maxage=0, stale-while-revalidate=0"
+        }}
       )
     }
 
@@ -113,12 +130,38 @@ export async function GET(request: NextRequest) {
       success: true,
       data: data || [],
       count: data?.length || 0
+    }, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Cache-Control": "public, s-maxage=0, stale-while-revalidate=0"
+      }
     })
   } catch (error: any) {
     console.error("Error in GET /api/admin/shops:", error)
     return NextResponse.json(
       { error: error.message || "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Cache-Control": "public, s-maxage=0, stale-while-revalidate=0"
+      }}
     )
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return NextResponse.json(
+    {},
+    {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Cache-Control": "public, s-maxage=0, stale-while-revalidate=0"
+      }
+    }
+  )
 }
