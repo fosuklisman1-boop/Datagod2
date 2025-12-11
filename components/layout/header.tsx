@@ -1,6 +1,6 @@
 "use client"
 
-import { ShoppingCart, User, LogOut, HelpCircle, Mail, Phone, MessageCircle } from "lucide-react"
+import { ShoppingCart, User, LogOut, Headphones, Mail, Phone, MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { NotificationCenter } from "@/components/notification-center"
@@ -60,7 +60,7 @@ export function Header() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10" title="Customer Support">
-              <HelpCircle className="w-4 h-4 md:w-5 md:h-5" />
+              <Headphones className="w-4 h-4 md:w-5 md:h-5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
