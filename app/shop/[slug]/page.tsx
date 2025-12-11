@@ -193,12 +193,11 @@ export default function ShopStorefront() {
       console.log("[CHECKOUT] Initializing payment with userId:", session?.user?.id)
       
       try {
-        const paymentResponse = await fetch("/api/payments/initialize", {
+        const fetchOptions: RequestInit = {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          credentials: "include", // Include cookies for Safari compatibility
           body: JSON.stringify({
             amount: totalPrice,
             email: orderData.customer_email,
@@ -207,21 +206,36 @@ export default function ShopStorefront() {
             orderId: order.id,
             shopSlug: shopSlug,
           }),
-        })
+        }
+
+        console.log("[CHECKOUT] Sending payment request with options:", { method: fetchOptions.method, headers: fetchOptions.headers })
+
+        const paymentResponse = await fetch("/api/payments/initialize", fetchOptions)
 
         console.log("[CHECKOUT] Payment response status:", paymentResponse.status)
+        console.log("[CHECKOUT] Payment response headers:", {
+          contentType: paymentResponse.headers.get("content-type"),
+          status: paymentResponse.status,
+          statusText: paymentResponse.statusText,
+        })
 
         if (!paymentResponse.ok) {
           let errorMsg = "Failed to initialize payment"
           let errorData = null
           try {
-            errorData = await paymentResponse.json()
-            errorMsg = errorData.error || errorMsg
-          } catch (e) {
-            console.error("[CHECKOUT] Could not parse error response:", e)
+            const responseText = await paymentResponse.text()
+            console.log("[CHECKOUT] Raw response body:", responseText)
+            if (responseText) {
+              errorData = JSON.parse(responseText)
+              errorMsg = errorData.error || errorMsg
+            }
+          } catch (parseError) {
+            console.error("[CHECKOUT] Could not parse error response:", parseError)
+            errorMsg = `HTTP ${paymentResponse.status}: ${paymentResponse.statusText}`
           }
           console.error("[CHECKOUT] Payment API error:", {
             status: paymentResponse.status,
+            statusText: paymentResponse.statusText,
             errorMsg,
             errorData,
           })
@@ -260,6 +274,9 @@ export default function ShopStorefront() {
         }
       } catch (paymentError) {
         console.error("[CHECKOUT] Payment initialization error:", paymentError)
+        if (paymentError instanceof TypeError && paymentError.message.includes("fetch")) {
+          throw new Error("Network error: Unable to connect to payment service. Please check your connection and try again.")
+        }
         throw paymentError
       }
     } catch (error) {
@@ -268,6 +285,7 @@ export default function ShopStorefront() {
       console.error("[CHECKOUT] Full error details:", {
         message: errorMessage,
         error: error,
+        errorStack: error instanceof Error ? error.stack : "N/A",
       })
       toast.error(errorMessage)
     } finally {
