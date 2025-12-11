@@ -53,6 +53,7 @@ export function BulkOrdersForm() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
+  const [excelFileInput, setExcelFileInput] = useState<HTMLInputElement | null>(null)
 
   // Load packages from database on mount
   useEffect(() => {
@@ -248,6 +249,52 @@ export function BulkOrdersForm() {
     element.click()
     document.body.removeChild(element)
     toast.success("Template downloaded")
+  }
+
+  const handleExcelFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!selectedNetwork) {
+      toast.error("Please select a network first")
+      return
+    }
+
+    try {
+      const text = await file.text()
+      
+      // Parse CSV content
+      const lines = text.split('\n').filter(line => line.trim())
+      
+      // Skip header if it exists
+      let dataLines = lines
+      if (lines[0]?.toLowerCase().includes('phone') || lines[0]?.toLowerCase().includes('volume')) {
+        dataLines = lines.slice(1)
+      }
+
+      // Convert CSV to text format (phone,volume per line)
+      const formattedText = dataLines
+        .map(line => {
+          const parts = line.split(',').map(p => p.trim())
+          if (parts.length >= 2) {
+            return `${parts[0]} ${parts[1]}`
+          }
+          return line
+        })
+        .join('\n')
+
+      setTextInput(formattedText)
+      setActiveTab("text")
+      toast.success("Excel file uploaded and converted to text format")
+      
+      // Reset file input
+      if (excelFileInput) {
+        excelFileInput.value = ''
+      }
+    } catch (error) {
+      console.error("Error parsing Excel file:", error)
+      toast.error("Failed to parse Excel file. Please ensure it's a valid CSV file.")
+    }
   }
 
   const handleSubmitOrders = async () => {
@@ -446,7 +493,13 @@ export function BulkOrdersForm() {
             <div className="border-2 border-dashed border-violet-300 rounded-lg p-6 text-center hover:border-violet-500 transition-colors cursor-pointer">
               <p className="text-gray-600 mb-2">Click to upload Excel file or drag and drop</p>
               <p className="text-xs text-gray-500">CSV or XLSX files only</p>
-              <Input type="file" accept=".csv,.xlsx" className="mt-4" />
+              <Input 
+                type="file" 
+                accept=".csv,.xlsx" 
+                className="mt-4"
+                ref={setExcelFileInput}
+                onChange={handleExcelFileUpload}
+              />
             </div>
             <Button
               variant="outline"
