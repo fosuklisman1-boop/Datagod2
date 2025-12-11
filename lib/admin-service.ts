@@ -352,6 +352,7 @@ export const adminShopService = {
   async getAllShops() {
     return getCachedRequest('all-shops', async () => {
       try {
+        console.log('[ADMIN-SHOPS] Fetching all shops...')
         const { data: { session } } = await supabase.auth.getSession()
         
         const headers: HeadersInit = {}
@@ -359,14 +360,20 @@ export const adminShopService = {
           headers["Authorization"] = `Bearer ${session.access_token}`
         }
 
+        console.log('[ADMIN-SHOPS] Calling /api/admin/shops')
         const response = await fetch("/api/admin/shops", { headers })
+        console.log('[ADMIN-SHOPS] Response status:', response.status)
+        
         if (!response.ok) {
+          const text = await response.text()
+          console.error('[ADMIN-SHOPS] Error response:', text)
           throw new Error("Failed to fetch shops")
         }
         const result = await response.json()
+        console.log('[ADMIN-SHOPS] Fetched shops count:', result.data?.length || 0)
         return result.data || []
       } catch (error: any) {
-        console.error("Error fetching shops:", error)
+        console.error("[ADMIN-SHOPS] Error fetching shops:", error)
         throw error
       }
     })
@@ -376,6 +383,7 @@ export const adminShopService = {
   async getPendingShops() {
     return getCachedRequest('pending-shops', async () => {
       try {
+        console.log('[PENDING-SHOPS] Fetching pending shops...')
         const { data: { session } } = await supabase.auth.getSession()
         
         const headers: HeadersInit = {}
@@ -383,14 +391,20 @@ export const adminShopService = {
           headers["Authorization"] = `Bearer ${session.access_token}`
         }
 
+        console.log('[PENDING-SHOPS] Calling /api/admin/shops?status=pending')
         const response = await fetch("/api/admin/shops?status=pending", { headers })
+        console.log('[PENDING-SHOPS] Response status:', response.status)
+        
         if (!response.ok) {
+          const text = await response.text()
+          console.error('[PENDING-SHOPS] Error response:', text)
           throw new Error("Failed to fetch shops")
         }
         const result = await response.json()
+        console.log('[PENDING-SHOPS] Fetched pending shops count:', result.data?.length || 0)
         return result.data || []
       } catch (error: any) {
-        console.error("Error fetching pending shops:", error)
+        console.error("[PENDING-SHOPS] Error fetching pending shops:", error)
         throw error
       }
     })
@@ -462,14 +476,33 @@ export const adminShopService = {
   // Get shop details with orders
   async getShopDetails(shopId: string) {
     try {
-      const response = await fetch(`/api/admin/shops/${shopId}`)
+      console.log('[SHOP-DETAILS] Fetching details for shop:', shopId)
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        console.error('[SHOP-DETAILS] No authentication token available')
+        throw new Error("No authentication token available")
+      }
+
+      console.log('[SHOP-DETAILS] Calling /api/admin/shops/' + shopId)
+      const response = await fetch(`/api/admin/shops/${shopId}`, {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+
+      console.log('[SHOP-DETAILS] Response status:', response.status)
       if (!response.ok) {
+        const text = await response.text()
+        console.error('[SHOP-DETAILS] Error response:', text)
         throw new Error("Failed to fetch shop details")
       }
+
       const result = await response.json()
+      console.log('[SHOP-DETAILS] Successfully fetched details for shop:', shopId)
       return result.data || { shop: null, orders: [], profits: [] }
     } catch (error: any) {
-      console.error("Error fetching shop details:", error)
+      console.error("[SHOP-DETAILS] Error fetching shop details:", error)
       throw error
     }
   },
