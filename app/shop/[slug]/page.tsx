@@ -195,20 +195,41 @@ export default function ShopStorefront() {
         totalPrice,
       })
 
-      // Create order
-      const order = await shopOrderService.createShopOrder({
-        shop_id: shop.id,
-        customer_name: orderData.customer_name,
-        customer_email: orderData.customer_email,
-        customer_phone: normalizedPhone,
-        shop_package_id: selectedPackage.id,
-        package_id: pkg.id,
-        network: pkg.network,
-        volume_gb: volumeGb,
-        base_price: basePrice,
-        profit_amount: profitAmount,
-        total_price: totalPrice,
+      // Create order via API (uses service role for RLS bypass)
+      const createOrderResponse = await fetch("/api/shop/orders/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_id: shop.id,
+          customer_name: orderData.customer_name,
+          customer_email: orderData.customer_email,
+          customer_phone: normalizedPhone,
+          shop_package_id: selectedPackage.id,
+          package_id: pkg.id,
+          network: pkg.network,
+          volume_gb: volumeGb,
+          base_price: basePrice,
+          profit_amount: profitAmount,
+          total_price: totalPrice,
+        }),
       })
+
+      if (!createOrderResponse.ok) {
+        let errorMsg = "Failed to create order"
+        try {
+          const errorData = await createOrderResponse.json()
+          errorMsg = errorData.error || errorMsg
+        } catch (e) {
+          console.error("[CHECKOUT] Could not parse order creation error:", e)
+        }
+        console.error("[CHECKOUT] Order creation failed:", errorMsg)
+        throw new Error(errorMsg)
+      }
+
+      const createOrderData = await createOrderResponse.json()
+      const order = createOrderData.order
 
       console.log("[CHECKOUT] Order created successfully:", order.id)
 
