@@ -45,6 +45,18 @@ export default function ShopStorefront() {
   useEffect(() => {
     loadShopData()
     loadNetworkLogos()
+    
+    // Check if we have a saved payment URL from Safari (page refresh/navigation)
+    if (typeof window !== "undefined" && window.localStorage) {
+      const savedPaymentUrl = localStorage.getItem('checkout_payment_url')
+      const savedOrderId = localStorage.getItem('checkout_order_id')
+      
+      if (savedPaymentUrl && savedOrderId) {
+        console.log("[CHECKOUT] Recovered saved payment state from localStorage")
+        setPaymentUrl(savedPaymentUrl)
+        setCheckoutOpen(true)
+      }
+    }
   }, [shopSlug])
 
   useEffect(() => {
@@ -125,7 +137,18 @@ export default function ShopStorefront() {
   const handleProceedToPayment = () => {
     if (!paymentUrl) return
     console.log("[CHECKOUT] User clicked proceed to payment")
-    window.location.href = paymentUrl
+    
+    // Save state before redirect for Safari compatibility
+    if (typeof window !== "undefined" && window.localStorage) {
+      localStorage.setItem('checkout_payment_url', paymentUrl)
+      localStorage.setItem('checkout_in_progress', 'true')
+      console.log("[CHECKOUT] Saved state to localStorage before redirect")
+    }
+    
+    // Use a small delay to ensure localStorage is written
+    setTimeout(() => {
+      window.location.href = paymentUrl
+    }, 50)
   }
 
   const handleSubmitOrder = async () => {
@@ -188,6 +211,19 @@ export default function ShopStorefront() {
       })
 
       console.log("[CHECKOUT] Order created successfully:", order.id)
+
+      // Save order details to localStorage for Safari recovery
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.setItem('checkout_order_id', order.id)
+        localStorage.setItem('checkout_order_data', JSON.stringify({
+          shop_id: shop.id,
+          customer_name: orderData.customer_name,
+          customer_email: orderData.customer_email,
+          customer_phone: normalizedPhone,
+          total_price: totalPrice,
+        }))
+        console.log("[CHECKOUT] Order data saved to localStorage")
+      }
 
       // Initialize Paystack payment
       toast.info("Redirecting to payment...")
@@ -263,6 +299,13 @@ export default function ShopStorefront() {
           if (typeof window !== "undefined" && window.sessionStorage) {
             sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
             console.log("[CHECKOUT] Stored payment reference:", paymentData.reference)
+          }
+          
+          // Store payment URL and reference in localStorage for Safari recovery
+          if (typeof window !== "undefined" && window.localStorage) {
+            localStorage.setItem('checkout_payment_url', paymentData.authorizationUrl)
+            localStorage.setItem('checkout_payment_reference', paymentData.reference || "")
+            console.log("[CHECKOUT] Payment URL and reference saved to localStorage")
           }
           
           // Store payment URL in state - user must click to proceed (Safari compatibility)
