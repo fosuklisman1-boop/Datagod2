@@ -395,12 +395,6 @@ export const adminShopService = {
       }
     })
   },
-
-  // Clear cache (call after mutations)
-  clearCache() {
-    requestCache.clear()
-  },
-
   // Approve shop
   async approveShop(shopId: string) {
     try {
@@ -425,7 +419,7 @@ export const adminShopService = {
       }
 
       // Clear cache after successful mutation
-      this.clearCache()
+      requestCache.clear()
       return await response.json()
     } catch (error: any) {
       console.error("Error approving shop:", error)
@@ -457,7 +451,7 @@ export const adminShopService = {
       }
 
       // Clear cache after successful mutation
-      this.clearCache()
+      requestCache.clear()
       return await response.json()
     } catch (error: any) {
       console.error("Error rejecting shop:", error)
@@ -556,7 +550,7 @@ export const adminOrderService = {
       }
 
       // Clear cache after download (status may have changed)
-      this.clearCache()
+      requestCache.clear()
       return data
     } catch (error: any) {
       console.error("Error downloading orders:", error)
@@ -604,7 +598,7 @@ export const adminOrderService = {
     if (error) throw error
     
     // Clear order-related caches after mutation
-    this.clearCache()
+    requestCache.clear()
     
     return data[0]
   },
