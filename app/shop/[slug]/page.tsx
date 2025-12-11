@@ -733,20 +733,6 @@ export default function ShopStorefront() {
           </Card>
         </div>
       )}
-                    setCheckoutOpen(false)
-                    setSelectedPackage(null)
-                    setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
-                  }}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* Floating WhatsApp Icon */}
       {shopSettings?.whatsapp_link && (
