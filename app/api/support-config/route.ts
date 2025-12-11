@@ -20,17 +20,12 @@ export async function GET() {
       .eq("setting_key", "support_contact")
       .single()
 
+    console.log("[SUPPORT-CONFIG] Fetched settings:", { settings, error })
+
     if (error && error.code !== "PGRST116") {
       // PGRST116 is "no rows found" error
-      console.error("Error fetching support settings:", error)
-      return NextResponse.json(
-        { error: "Failed to fetch support settings" },
-        { status: 500 }
-      )
-    }
-
-    // If no settings found, return defaults
-    if (!settings) {
+      console.error("[SUPPORT-CONFIG] Error fetching support settings:", error)
+      // Still return defaults on error instead of 500
       return NextResponse.json({
         email: "support@datagod.com",
         phone: "+233 XXX XXX XXXX",
@@ -39,6 +34,18 @@ export async function GET() {
       })
     }
 
+    // If no settings found, return defaults
+    if (!settings) {
+      console.log("[SUPPORT-CONFIG] No settings found, using defaults")
+      return NextResponse.json({
+        email: "support@datagod.com",
+        phone: "+233 XXX XXX XXXX",
+        whatsapp: "https://wa.me/233XXXXXXXXX",
+        website: "https://datagod.com",
+      })
+    }
+
+    console.log("[SUPPORT-CONFIG] Using database settings:", settings)
     const settingValue = settings.setting_value || {}
 
     return NextResponse.json({

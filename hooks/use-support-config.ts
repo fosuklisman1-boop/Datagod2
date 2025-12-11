@@ -23,15 +23,17 @@ export function useSupportConfig() {
     const fetchConfig = async () => {
       try {
         setLoading(true)
+        console.log("[useSupportConfig] Fetching support config...")
         const response = await fetch("/api/support-config")
         if (!response.ok) {
           throw new Error("Failed to fetch support config")
         }
         const data = await response.json()
+        console.log("[useSupportConfig] Fetched config:", data)
         setConfig(data)
         setError(null)
       } catch (err) {
-        console.error("Error fetching support config:", err)
+        console.error("[useSupportConfig] Error fetching support config:", err)
         // Keep default config on error
         setError(err instanceof Error ? err.message : "Unknown error")
       } finally {
