@@ -251,6 +251,64 @@ export function BulkOrdersForm() {
     toast.success("Template downloaded")
   }
 
+  const parseXLSXBasic = (data: ArrayBuffer): string[][] => {
+    // Basic XLSX parsing - finds XML content and extracts cell values
+    const view = new Uint8Array(data)
+    const text = new TextDecoder().decode(view)
+    
+    // Look for shared strings XML and worksheet XML
+    const sharedStringsMatch = text.match(/<si>[\s\S]*?<\/si>/g) || []
+    const strings: string[] = []
+    
+    sharedStringsMatch.forEach(match => {
+      const textMatch = match.match(/<t[^>]*>([^<]*)<\/t>/)
+      if (textMatch) {
+        strings.push(textMatch[1])
+      }
+    })
+
+    // Extract cells from worksheet
+    const cellMatches = text.match(/<c[^>]*>[\s\S]*?<\/c>/g) || []
+    const rows: Map<number, Map<number, string>> = new Map()
+
+    cellMatches.forEach(cellMatch => {
+      const refMatch = cellMatch.match(/r="([A-Z]+)(\d+)"/)
+      if (!refMatch) return
+
+      const col = refMatch[1].charCodeAt(0) - 65 // Convert A=0, B=1, etc
+      const row = parseInt(refMatch[2]) - 1
+
+      let value = ''
+      const typeMatch = cellMatch.match(/t="([^"]*)"/)
+      const vMatch = cellMatch.match(/<v>([^<]*)<\/v>/)
+
+      if (typeMatch?.[1] === 's' && vMatch) {
+        // String reference
+        const idx = parseInt(vMatch[1])
+        value = strings[idx] || ''
+      } else if (vMatch) {
+        // Numeric or direct value
+        value = vMatch[1]
+      }
+
+      if (!rows.has(row)) rows.set(row, new Map())
+      rows.get(row)!.set(col, value)
+    })
+
+    // Convert to 2D array
+    const result: string[][] = []
+    for (let i = 0; i < rows.size; i++) {
+      const row = rows.get(i) || new Map()
+      const rowData: string[] = []
+      for (let j = 0; j < (row.size || 2); j++) {
+        rowData.push(row.get(j) || '')
+      }
+      result.push(rowData)
+    }
+
+    return result
+  }
+
   const handleExcelFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -261,18 +319,33 @@ export function BulkOrdersForm() {
     }
 
     try {
-      const text = await file.text()
-      
-      // Parse CSV content
-      const lines = text.split('\n').filter(line => line.trim())
-      
+      let lines: string[] = []
+
+      if (file.name.endsWith('.csv')) {
+        // Handle CSV
+        const text = await file.text()
+        lines = text.split('\n').filter(line => line.trim())
+      } else if (file.name.endsWith('.xlsx')) {
+        // Handle XLSX
+        const buffer = await file.arrayBuffer()
+        const rows = parseXLSXBasic(buffer)
+        
+        // Convert 2D array to lines with comma-separated values
+        lines = rows
+          .map(row => row.join(','))
+          .filter(line => line.trim())
+      } else {
+        toast.error("Please upload a CSV or XLSX file")
+        return
+      }
+
       // Skip header if it exists
       let dataLines = lines
       if (lines[0]?.toLowerCase().includes('phone') || lines[0]?.toLowerCase().includes('volume')) {
         dataLines = lines.slice(1)
       }
 
-      // Convert CSV to text format (phone,volume per line)
+      // Convert to text format (phone volume per line)
       const formattedText = dataLines
         .map(line => {
           const parts = line.split(',').map(p => p.trim())
@@ -285,15 +358,15 @@ export function BulkOrdersForm() {
 
       setTextInput(formattedText)
       setActiveTab("text")
-      toast.success("Excel file uploaded and converted to text format")
+      toast.success("File uploaded and converted to text format")
       
       // Reset file input
       if (excelFileInput.current) {
         excelFileInput.current.value = ''
       }
     } catch (error) {
-      console.error("Error parsing Excel file:", error)
-      toast.error("Failed to parse Excel file. Please ensure it's a valid CSV file.")
+      console.error("Error parsing file:", error)
+      toast.error("Failed to parse file. Please ensure it's a valid CSV or XLSX file.")
     }
   }
 
