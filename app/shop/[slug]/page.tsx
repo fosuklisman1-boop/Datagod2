@@ -140,6 +140,8 @@ export default function ShopStorefront() {
     try {
       setSubmitting(true)
 
+      console.log("[CHECKOUT] Starting order submission...")
+
       // Normalize phone number using shared utility
       const phoneResult = validatePhoneNumber(orderData.customer_phone, selectedPackage.network)
       if (!phoneResult.isValid) {
@@ -154,6 +156,14 @@ export default function ShopStorefront() {
       
       // Extract volume as number (e.g., "1GB" -> 1)
       const volumeGb = parseInt(pkg.size.toString().replace(/[^0-9]/g, "")) || 0
+
+      console.log("[CHECKOUT] Creating order with details:", {
+        shop_id: shop.id,
+        customer_name: orderData.customer_name,
+        customer_email: orderData.customer_email,
+        network: pkg.network,
+        totalPrice,
+      })
 
       // Create order
       const order = await shopOrderService.createShopOrder({
@@ -170,9 +180,17 @@ export default function ShopStorefront() {
         total_price: totalPrice,
       })
 
+      console.log("[CHECKOUT] Order created successfully:", order.id)
+
       // Initialize Paystack payment
       toast.info("Redirecting to payment...")
       const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.user?.id) {
+        console.warn("[CHECKOUT] No authenticated user session, proceeding with anonymous payment")
+      }
+
+      console.log("[CHECKOUT] Initializing payment with userId:", session?.user?.id)
       
       try {
         const paymentResponse = await fetch("/api/payments/initialize", {
@@ -191,14 +209,22 @@ export default function ShopStorefront() {
           }),
         })
 
+        console.log("[CHECKOUT] Payment response status:", paymentResponse.status)
+
         if (!paymentResponse.ok) {
           let errorMsg = "Failed to initialize payment"
+          let errorData = null
           try {
-            const errorData = await paymentResponse.json()
+            errorData = await paymentResponse.json()
             errorMsg = errorData.error || errorMsg
           } catch (e) {
-            console.error("Could not parse error response:", e)
+            console.error("[CHECKOUT] Could not parse error response:", e)
           }
+          console.error("[CHECKOUT] Payment API error:", {
+            status: paymentResponse.status,
+            errorMsg,
+            errorData,
+          })
           throw new Error(errorMsg)
         }
 
@@ -207,6 +233,7 @@ export default function ShopStorefront() {
         console.log("[CHECKOUT] Payment initialized:", {
           reference: paymentData.reference,
           hasUrl: !!paymentData.authorizationUrl,
+          paymentId: paymentData.paymentId,
         })
 
         // Redirect to Paystack (handles popup blocker scenarios)
@@ -214,9 +241,11 @@ export default function ShopStorefront() {
           // Store payment reference in sessionStorage for verification after redirect
           if (typeof window !== "undefined" && window.sessionStorage) {
             sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
+            console.log("[CHECKOUT] Stored payment reference:", paymentData.reference)
           }
           
           // Use utility function for Safari-compatible payment redirect
+          console.log("[CHECKOUT] About to redirect to payment URL")
           await redirectToPayment({
             url: paymentData.authorizationUrl,
             delayMs: 300,
@@ -234,8 +263,13 @@ export default function ShopStorefront() {
         throw paymentError
       }
     } catch (error) {
-      console.error("Error submitting order:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to place order. Please try again.")
+      console.error("[CHECKOUT] Order submission error:", error)
+      const errorMessage = error instanceof Error ? error.message : "Failed to place order. Please try again."
+      console.error("[CHECKOUT] Full error details:", {
+        message: errorMessage,
+        error: error,
+      })
+      toast.error(errorMessage)
     } finally {
       setSubmitting(false)
     }
