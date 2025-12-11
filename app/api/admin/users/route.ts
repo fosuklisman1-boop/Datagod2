@@ -49,15 +49,32 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    // Get all users using admin API
-    const { data: allUsers, error: usersError } = await adminClient.auth.admin.listUsers()
+    // Get all users using admin API with pagination
+    let allUsers: any[] = []
+    let page = 1
+    let hasMore = true
 
-    if (usersError) {
-      console.error("Error fetching users:", usersError)
-      return NextResponse.json({ error: usersError.message }, { status: 400 })
+    while (hasMore) {
+      const { data: pageUsers, error: usersError } = await adminClient.auth.admin.listUsers({
+        perPage: 100,
+        page: page,
+      })
+
+      if (usersError) {
+        console.error("Error fetching users:", usersError)
+        return NextResponse.json({ error: usersError.message }, { status: 400 })
+      }
+
+      const pageData = pageUsers?.users || []
+      if (pageData.length === 0) {
+        hasMore = false
+      } else {
+        allUsers = [...allUsers, ...pageData]
+        page++
+      }
     }
 
-    const users = allUsers?.users || []
+    const users = allUsers
 
     // Get shops info
     const { data: shops, error: shopsError } = await adminClient
