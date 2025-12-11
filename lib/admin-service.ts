@@ -362,20 +362,22 @@ export const adminShopService = {
 
         console.log('[ADMIN-SHOPS] Calling /api/admin/shops')
         
-        // Add timeout to fetch
+        // Add timeout to fetch (increased to 30s for slower database queries)
         const controller = new AbortController()
         const timeoutId = setTimeout(() => {
-          console.error('[ADMIN-SHOPS] Request timeout after 15s')
+          console.error('[ADMIN-SHOPS] Request timeout after 30s')
           controller.abort()
-        }, 15000)
+        }, 30000)
         
         try {
+          const startTime = Date.now()
           const response = await fetch("/api/admin/shops", { 
             headers,
             signal: controller.signal 
           })
+          const duration = Date.now() - startTime
           clearTimeout(timeoutId)
-          console.log('[ADMIN-SHOPS] Response status:', response.status)
+          console.log('[ADMIN-SHOPS] Response status:', response.status, 'after', duration, 'ms')
           
           if (!response.ok) {
             const text = await response.text()
@@ -413,20 +415,22 @@ export const adminShopService = {
 
         console.log('[PENDING-SHOPS] Calling /api/admin/shops?status=pending')
         
-        // Add timeout to fetch
+        // Add timeout to fetch (increased to 30s for slower database queries)
         const controller = new AbortController()
         const timeoutId = setTimeout(() => {
-          console.error('[PENDING-SHOPS] Request timeout after 15s')
+          console.error('[PENDING-SHOPS] Request timeout after 30s')
           controller.abort()
-        }, 15000)
+        }, 30000)
         
         try {
+          const startTime = Date.now()
           const response = await fetch("/api/admin/shops?status=pending", { 
             headers,
             signal: controller.signal 
           })
+          const duration = Date.now() - startTime
           clearTimeout(timeoutId)
-          console.log('[PENDING-SHOPS] Response status:', response.status)
+          console.log('[PENDING-SHOPS] Response status:', response.status, 'after', duration, 'ms')
           
           if (!response.ok) {
             const text = await response.text()

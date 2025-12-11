@@ -5,8 +5,9 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
   try {
-    console.log("[ADMIN-SHOPS-API] GET request received")
+    console.log("[ADMIN-SHOPS-API] GET request received at", new Date().toISOString())
     
     // Verify user is authenticated and is an admin
     const authHeader = request.headers.get("Authorization")
@@ -30,18 +31,20 @@ export async function GET(request: NextRequest) {
 
       // Filter by status if specified
       if (status === "pending") {
-        console.log("[ADMIN-SHOPS] Filtering for pending shops (is_active=false)")
+        console.log("[ADMIN-SHOPS-API] Filtering for pending shops (is_active=false)")
         query = query.eq("is_active", false)
       } else if (status === "active") {
-        console.log("[ADMIN-SHOPS] Filtering for active shops (is_active=true)")
+        console.log("[ADMIN-SHOPS-API] Filtering for active shops (is_active=true)")
         query = query.eq("is_active", true)
       }
 
+      const queryStartTime = Date.now()
       const { data, error } = await query.order("created_at", { ascending: false })
-      console.log("[ADMIN-SHOPS] No auth - Query executed, error:", error?.message || null, "data count:", data?.length || 0)
+      const queryDuration = Date.now() - queryStartTime
+      console.log("[ADMIN-SHOPS-API] Query executed in", queryDuration, "ms, error:", error?.message || null, "data count:", data?.length || 0)
 
       if (error) {
-        console.error("Error fetching shops:", error)
+        console.error("[ADMIN-SHOPS-API] Error fetching shops:", error)
         return NextResponse.json(
           { error: error.message },
           { status: 500, headers: {
@@ -53,6 +56,8 @@ export async function GET(request: NextRequest) {
         )
       }
 
+      const totalDuration = Date.now() - startTime
+      console.log("[ADMIN-SHOPS-API] Total response time:", totalDuration, "ms")
       return NextResponse.json({
         success: true,
         data: data || [],
@@ -110,15 +115,17 @@ export async function GET(request: NextRequest) {
       .select("*")
 
     if (status === "pending") {
-      console.log("[ADMIN-SHOPS] Filtering for pending shops (is_active=false)")
+      console.log("[ADMIN-SHOPS-API] Filtering for pending shops (is_active=false)")
       query = query.eq("is_active", false)
     } else if (status === "active") {
-      console.log("[ADMIN-SHOPS] Filtering for active shops (is_active=true)")
+      console.log("[ADMIN-SHOPS-API] Filtering for active shops (is_active=true)")
       query = query.eq("is_active", true)
     }
 
+    const queryStartTime = Date.now()
     const { data, error } = await query.order("created_at", { ascending: false })
-    console.log("[ADMIN-SHOPS-API] With auth - Query executed, error:", error?.message || null, "data count:", data?.length || 0)
+    const queryDuration = Date.now() - queryStartTime
+    console.log("[ADMIN-SHOPS-API] With auth - Query executed in", queryDuration, "ms, error:", error?.message || null, "data count:", data?.length || 0)
 
     if (error) {
       console.error("[ADMIN-SHOPS-API] Error fetching shops:", error)
@@ -133,7 +140,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    console.log("[ADMIN-SHOPS-API] Returning shops successfully, count:", data?.length || 0)
+    const totalDuration = Date.now() - startTime
+    console.log("[ADMIN-SHOPS-API] Returning shops successfully, count:", data?.length || 0, "total time:", totalDuration, "ms")
     return NextResponse.json({
       success: true,
       data: data || [],
