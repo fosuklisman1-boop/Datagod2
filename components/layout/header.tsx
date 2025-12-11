@@ -1,8 +1,7 @@
 "use client"
 
-import { Moon, Sun, ShoppingCart, User, LogOut } from "lucide-react"
+import { ShoppingCart, User, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useTheme } from "next-themes"
 import { Badge } from "@/components/ui/badge"
 import { NotificationCenter } from "@/components/notification-center"
 import {
@@ -17,13 +16,10 @@ import { toast } from "sonner"
 import { useState, useEffect } from "react"
 
 export function Header() {
-  const { theme, setTheme } = useTheme()
   const { user, logout } = useAuth()
   const [isMobile, setIsMobile] = useState(false)
-  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768)
     }
@@ -54,19 +50,6 @@ export function Header() {
       <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
         {/* Notification Center */}
         <NotificationCenter />
-
-        {/* Theme Toggle */}
-        {mounted && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="h-8 w-8 md:h-10 md:w-10"
-            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-          >
-            {theme === "dark" ? <Sun className="w-4 h-4 md:w-5 md:h-5" /> : <Moon className="w-4 h-4 md:w-5 md:h-5" />}
-          </Button>
-        )}
 
         {/* Shopping Cart - hidden on mobile */}
         <Button variant="ghost" size="icon" className="relative hidden sm:inline-flex h-8 w-8 md:h-10 md:w-10">
