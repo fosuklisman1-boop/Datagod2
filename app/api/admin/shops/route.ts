@@ -6,10 +6,14 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function GET(request: NextRequest) {
   try {
+    console.log("[ADMIN-SHOPS-API] GET request received")
+    
     // Verify user is authenticated and is an admin
     const authHeader = request.headers.get("Authorization")
+    console.log("[ADMIN-SHOPS-API] Authorization header present:", !!authHeader)
+    
     if (!authHeader?.startsWith("Bearer ")) {
-      // For API calls without auth, use service role with admin bypass
+      console.log("[ADMIN-SHOPS-API] No auth header, using service role")
       const supabase = createClient(supabaseUrl, serviceRoleKey, {
         auth: {
           autoRefreshToken: false,
@@ -64,15 +68,18 @@ export async function GET(request: NextRequest) {
     }
 
     // Verify admin access
+    console.log("[ADMIN-SHOPS-API] Verifying admin access with token")
     const token = authHeader.slice(7)
     const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
     const { data: { user: callerUser }, error: callerError } = await supabaseClient.auth.getUser(token)
 
     if (callerError || !callerUser) {
+      console.error("[ADMIN-SHOPS-API] Invalid token:", callerError?.message)
       return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
     }
 
     // Check if caller is admin
+    console.log("[ADMIN-SHOPS-API] Checking admin status for user:", callerUser.id)
     let isAdmin = callerUser.user_metadata?.role === "admin"
     if (!isAdmin) {
       const { data: userData } = await supabaseClient
@@ -111,10 +118,10 @@ export async function GET(request: NextRequest) {
     }
 
     const { data, error } = await query.order("created_at", { ascending: false })
-    console.log("[ADMIN-SHOPS] With auth - Query executed, error:", error?.message || null, "data count:", data?.length || 0)
+    console.log("[ADMIN-SHOPS-API] With auth - Query executed, error:", error?.message || null, "data count:", data?.length || 0)
 
     if (error) {
-      console.error("Error fetching shops:", error)
+      console.error("[ADMIN-SHOPS-API] Error fetching shops:", error)
       return NextResponse.json(
         { error: error.message },
         { status: 500, headers: {
@@ -126,6 +133,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    console.log("[ADMIN-SHOPS-API] Returning shops successfully, count:", data?.length || 0)
     return NextResponse.json({
       success: true,
       data: data || [],
@@ -139,7 +147,7 @@ export async function GET(request: NextRequest) {
       }
     })
   } catch (error: any) {
-    console.error("Error in GET /api/admin/shops:", error)
+    console.error("[ADMIN-SHOPS-API] Error in GET /api/admin/shops:", error)
     return NextResponse.json(
       { error: error.message || "Internal server error" },
       { status: 500, headers: {
@@ -153,6 +161,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function OPTIONS(request: NextRequest) {
+  console.log("[ADMIN-SHOPS-API] OPTIONS request received")
   return NextResponse.json(
     {},
     {

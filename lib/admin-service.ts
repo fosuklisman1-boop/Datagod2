@@ -361,17 +361,37 @@ export const adminShopService = {
         }
 
         console.log('[ADMIN-SHOPS] Calling /api/admin/shops')
-        const response = await fetch("/api/admin/shops", { headers })
-        console.log('[ADMIN-SHOPS] Response status:', response.status)
         
-        if (!response.ok) {
-          const text = await response.text()
-          console.error('[ADMIN-SHOPS] Error response:', text)
-          throw new Error("Failed to fetch shops")
+        // Add timeout to fetch
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => {
+          console.error('[ADMIN-SHOPS] Request timeout after 15s')
+          controller.abort()
+        }, 15000)
+        
+        try {
+          const response = await fetch("/api/admin/shops", { 
+            headers,
+            signal: controller.signal 
+          })
+          clearTimeout(timeoutId)
+          console.log('[ADMIN-SHOPS] Response status:', response.status)
+          
+          if (!response.ok) {
+            const text = await response.text()
+            console.error('[ADMIN-SHOPS] Error response:', text)
+            throw new Error("Failed to fetch shops")
+          }
+          const result = await response.json()
+          console.log('[ADMIN-SHOPS] Fetched shops count:', result.data?.length || 0)
+          return result.data || []
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId)
+          if (fetchError.name === 'AbortError') {
+            console.error('[ADMIN-SHOPS] Request was aborted/timed out')
+          }
+          throw fetchError
         }
-        const result = await response.json()
-        console.log('[ADMIN-SHOPS] Fetched shops count:', result.data?.length || 0)
-        return result.data || []
       } catch (error: any) {
         console.error("[ADMIN-SHOPS] Error fetching shops:", error)
         throw error
@@ -392,17 +412,37 @@ export const adminShopService = {
         }
 
         console.log('[PENDING-SHOPS] Calling /api/admin/shops?status=pending')
-        const response = await fetch("/api/admin/shops?status=pending", { headers })
-        console.log('[PENDING-SHOPS] Response status:', response.status)
         
-        if (!response.ok) {
-          const text = await response.text()
-          console.error('[PENDING-SHOPS] Error response:', text)
-          throw new Error("Failed to fetch shops")
+        // Add timeout to fetch
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => {
+          console.error('[PENDING-SHOPS] Request timeout after 15s')
+          controller.abort()
+        }, 15000)
+        
+        try {
+          const response = await fetch("/api/admin/shops?status=pending", { 
+            headers,
+            signal: controller.signal 
+          })
+          clearTimeout(timeoutId)
+          console.log('[PENDING-SHOPS] Response status:', response.status)
+          
+          if (!response.ok) {
+            const text = await response.text()
+            console.error('[PENDING-SHOPS] Error response:', text)
+            throw new Error("Failed to fetch shops")
+          }
+          const result = await response.json()
+          console.log('[PENDING-SHOPS] Fetched pending shops count:', result.data?.length || 0)
+          return result.data || []
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId)
+          if (fetchError.name === 'AbortError') {
+            console.error('[PENDING-SHOPS] Request was aborted/timed out')
+          }
+          throw fetchError
         }
-        const result = await response.json()
-        console.log('[PENDING-SHOPS] Fetched pending shops count:', result.data?.length || 0)
-        return result.data || []
       } catch (error: any) {
         console.error("[PENDING-SHOPS] Error fetching pending shops:", error)
         throw error
