@@ -248,7 +248,7 @@ export default function ShopStorefront() {
           console.log("[CHECKOUT] About to redirect to payment URL")
           await redirectToPayment({
             url: paymentData.authorizationUrl,
-            delayMs: 300,
+            delayMs: 100,
             onError: (error: Error) => {
               console.error("[CHECKOUT] Payment redirect failed:", error)
               toast.error("Payment redirect failed. Please try again.")

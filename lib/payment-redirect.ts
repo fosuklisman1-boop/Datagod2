@@ -14,7 +14,7 @@ interface PaymentRedirectOptions {
  * Safari requires proper timing and event handling for redirects
  */
 export async function redirectToPayment(options: PaymentRedirectOptions): Promise<void> {
-  const { url, delayMs = 300, onError } = options
+  const { url, delayMs = 100, onError } = options
 
   try {
     new URL(url)
@@ -39,18 +39,13 @@ export async function redirectToPayment(options: PaymentRedirectOptions): Promis
         }
 
         if (typeof window !== "undefined") {
-          // Safari-specific handling: use a link click approach for better compatibility
+          // Safari-specific handling: use _self target which works better on iOS Safari
           const isSafariBrowser = isSafari()
           
           if (isSafariBrowser) {
             console.log("[PAYMENT-REDIRECT] Using Safari-compatible redirect method")
-            // Create a temporary anchor element for Safari
-            const link = document.createElement('a')
-            link.href = url
-            link.target = '_self'
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
+            // For Safari, directly set location to avoid popup blockers
+            window.location.href = url
           } else {
             // Standard redirect for other browsers
             window.location.href = url
