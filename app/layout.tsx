@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/components/auth-provider";
 import { ChristmasThemeProvider } from "@/components/christmas-theme-provider";
 import { InactivityLogoutProvider } from "@/components/inactivity-logout-provider";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -40,6 +41,7 @@ export default function RootLayout({
             <InactivityLogoutProvider />
             {children}
             <Toaster />
+            <SpeedInsights />
           </AuthProvider>
         </ThemeProvider>
       </body>
