@@ -13,11 +13,11 @@ export async function GET() {
       },
     })
 
-    // Fetch support settings from admin_settings table
+    // Fetch support settings from support_settings table
     const { data: settings, error } = await supabaseClient
-      .from("admin_settings")
-      .select("*")
-      .eq("setting_key", "support_contact")
+      .from("support_settings")
+      .select("support_email, support_phone, support_whatsapp")
+      .limit(1)
       .single()
 
     console.log("[SUPPORT-CONFIG] Fetched settings:", { settings, error })
@@ -46,13 +46,18 @@ export async function GET() {
     }
 
     console.log("[SUPPORT-CONFIG] Using database settings:", settings)
-    const settingValue = settings.setting_value || {}
+    
+    // Format WhatsApp URL if it's just the number
+    let whatsappUrl = settings.support_whatsapp || "https://wa.me/233XXXXXXXXX"
+    if (whatsappUrl && !whatsappUrl.startsWith("http")) {
+      whatsappUrl = `https://wa.me/${whatsappUrl}`
+    }
 
     return NextResponse.json({
-      email: settingValue.email || "support@datagod.com",
-      phone: settingValue.phone || "+233 XXX XXX XXXX",
-      whatsapp: settingValue.whatsapp || "https://wa.me/233XXXXXXXXX",
-      website: settingValue.website || "https://datagod.com",
+      email: settings.support_email || "support@datagod.com",
+      phone: settings.support_phone || "+233 XXX XXX XXXX",
+      whatsapp: whatsappUrl,
+      website: "https://datagod.com",
     })
   } catch (error: any) {
     console.error("API error:", error)
