@@ -53,7 +53,7 @@ export function BulkOrdersForm() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
-  const [excelFileInput, setExcelFileInput] = useRef<HTMLInputElement | null>(null)
+  const excelFileInput = useRef<HTMLInputElement | null>(null)
 
   // Load packages from database on mount
   useEffect(() => {
