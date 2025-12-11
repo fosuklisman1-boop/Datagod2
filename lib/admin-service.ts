@@ -327,49 +327,78 @@ export const adminUserService = {
 }
 
 // Admin Shop Management
+// Simple request cache to deduplicate API calls
+const requestCache = new Map<string, { promise: Promise<any>, timestamp: number }>()
+const CACHE_TTL = 5000 // 5 seconds
+
+function getCachedRequest<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const now = Date.now()
+  const cached = requestCache.get(key)
+  
+  // Return cached promise if still valid
+  if (cached && now - cached.timestamp < CACHE_TTL) {
+    return cached.promise
+  }
+
+  // Create new promise and cache it
+  const promise = fetcher()
+  requestCache.set(key, { promise, timestamp: now })
+  
+  return promise
+}
+
 export const adminShopService = {
   // Get all shops with approval status
   async getAllShops() {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      const headers: HeadersInit = {}
-      if (session?.access_token) {
-        headers["Authorization"] = `Bearer ${session.access_token}`
-      }
+    return getCachedRequest('all-shops', async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        const headers: HeadersInit = {}
+        if (session?.access_token) {
+          headers["Authorization"] = `Bearer ${session.access_token}`
+        }
 
-      const response = await fetch("/api/admin/shops", { headers })
-      if (!response.ok) {
-        throw new Error("Failed to fetch shops")
+        const response = await fetch("/api/admin/shops", { headers })
+        if (!response.ok) {
+          throw new Error("Failed to fetch shops")
+        }
+        const result = await response.json()
+        return result.data || []
+      } catch (error: any) {
+        console.error("Error fetching shops:", error)
+        throw error
       }
-      const result = await response.json()
-      return result.data || []
-    } catch (error: any) {
-      console.error("Error fetching shops:", error)
-      throw error
-    }
+    })
   },
 
   // Get pending shop approvals
   async getPendingShops() {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      const headers: HeadersInit = {}
-      if (session?.access_token) {
-        headers["Authorization"] = `Bearer ${session.access_token}`
-      }
+    return getCachedRequest('pending-shops', async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        const headers: HeadersInit = {}
+        if (session?.access_token) {
+          headers["Authorization"] = `Bearer ${session.access_token}`
+        }
 
-      const response = await fetch("/api/admin/shops?status=pending", { headers })
-      if (!response.ok) {
-        throw new Error("Failed to fetch shops")
+        const response = await fetch("/api/admin/shops?status=pending", { headers })
+        if (!response.ok) {
+          throw new Error("Failed to fetch shops")
+        }
+        const result = await response.json()
+        return result.data || []
+      } catch (error: any) {
+        console.error("Error fetching pending shops:", error)
+        throw error
       }
-      const result = await response.json()
-      return result.data || []
-    } catch (error: any) {
-      console.error("Error fetching pending shops:", error)
-      throw error
-    }
+    })
+  },
+
+  // Clear cache (call after mutations)
+  clearCache() {
+    requestCache.clear()
   },
 
   // Approve shop
@@ -395,6 +424,8 @@ export const adminShopService = {
         throw new Error(error.error || "Failed to approve shop")
       }
 
+      // Clear cache after successful mutation
+      this.clearCache()
       return await response.json()
     } catch (error: any) {
       console.error("Error approving shop:", error)
@@ -425,7 +456,14 @@ export const adminShopService = {
         throw new Error(error.error || "Failed to reject shop")
       }
 
+      // Clear cache after successful mutation
+      this.clearCache()
       return await response.json()
+    } catch (error: any) {
+      console.error("Error rejecting shop:", error)
+      throw error
+    }
+  },      return await response.json()
     } catch (error: any) {
       console.error("Error rejecting shop:", error)
       throw error
