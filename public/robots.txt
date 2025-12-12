@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin-setup
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api
+Disallow: /*.json$
+Disallow: /*?*
+Disallow: /*#*
+
+# Allow specific paths
+Allow: /shop/
+
+# Crawl delay and request rate
+Crawl-delay: 1
+
+# Sitemap
+Sitemap: https://datagod.com/sitemap.xml

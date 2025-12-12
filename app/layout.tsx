@@ -10,15 +10,45 @@ import { InactivityLogoutProvider } from "@/components/inactivity-logout-provide
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "DATAGOD - Data Packages & Services",
-  description: "Buy affordable data packages from multiple networks with instant delivery",
+  title: "DATAGOD - Affordable Data Packages & Services",
+  description: "Buy affordable data packages from multiple networks with instant delivery. Shop data bundles from MTN, Telecel, AT, and more with 24/7 support.",
+  keywords: ["data packages", "mobile data", "bundles", "MTN", "Telecel", "airtime", "Ghana"],
+  metadataBase: new URL("https://datagod.com"),
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+  alternates: {
+    canonical: "https://datagod.com",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
     url: "https://datagod.com",
     siteName: "DATAGOD",
-    title: "DATAGOD - Data Packages & Services",
+    title: "DATAGOD - Affordable Data Packages & Services",
     description: "Buy affordable data packages from multiple networks with instant delivery",
+    images: [
+      {
+        url: "https://datagod.com/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "DATAGOD - Data Packages",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "DATAGOD - Affordable Data Packages & Services",
+    description: "Buy affordable data packages from multiple networks with instant delivery",
+    images: ["https://datagod.com/og-image.png"],
   },
 };
 
