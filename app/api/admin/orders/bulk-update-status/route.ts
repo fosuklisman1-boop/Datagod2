@@ -127,6 +127,16 @@ export async function POST(request: NextRequest) {
       console.log(`[BULK-UPDATE] Updating ${shopOrderIds.length} shop orders in shop_orders table...`)
       console.log(`[BULK-UPDATE] Setting order_status = "${status}" for IDs:`, shopOrderIds.slice(0, 3).join(", "))
       
+      // Before update - verify orders exist
+      const { data: beforeUpdate, error: beforeError } = await supabase
+        .from("shop_orders")
+        .select("id, order_status")
+        .in("id", shopOrderIds.slice(0, 3))
+
+      if (!beforeError && beforeUpdate) {
+        console.log(`[BULK-UPDATE] Before update - First 3 orders:`, beforeUpdate)
+      }
+
       const { data: updateData, error: updateError } = await supabase
         .from("shop_orders")
         .update({ order_status: status, updated_at: new Date().toISOString() })
@@ -134,18 +144,19 @@ export async function POST(request: NextRequest) {
         .select("id, order_status, updated_at")
 
       if (updateError) {
-        console.error("[BULK-UPDATE] Error updating shop orders:", updateError)
+        console.error("[BULK-UPDATE] Error updating shop orders:", JSON.stringify(updateError))
         throw new Error(`Failed to update shop order status: ${updateError.message}`)
+      }
+
+      if (!updateData) {
+        console.error("[BULK-UPDATE] Update returned no data!")
+        throw new Error("Shop order update failed: no data returned from database")
       }
 
       console.log(`[BULK-UPDATE] ✓ Update query completed`)
       console.log(`[BULK-UPDATE] Updated rows returned:`, updateData?.length || 0)
       if (updateData && updateData.length > 0) {
-        console.log(`[BULK-UPDATE] Sample updated record:`, {
-          id: updateData[0].id,
-          order_status: updateData[0].order_status,
-          updated_at: updateData[0].updated_at
-        })
+        console.log(`[BULK-UPDATE] Sample updated records:`, updateData.slice(0, 3))
       }
 
       // Verify the update actually worked by fetching back
@@ -154,8 +165,18 @@ export async function POST(request: NextRequest) {
         .select("id, order_status")
         .in("id", shopOrderIds.slice(0, 3))
 
-      if (!verifyError && verifyData) {
-        console.log(`[BULK-UPDATE] Verification fetch - First 3 orders:`, verifyData)
+      if (verifyError) {
+        console.error("[BULK-UPDATE] Error during verification fetch:", verifyError)
+      } else if (verifyData) {
+        console.log(`[BULK-UPDATE] Verification - After update, first 3 orders:`, verifyData)
+        // Check if status actually changed
+        const statusChanged = verifyData.every(o => o.order_status === status)
+        if (!statusChanged) {
+          console.warn("[BULK-UPDATE] WARNING: Status update did not persist!")
+          verifyData.forEach(o => {
+            console.warn(`  Order ${o.id}: expected "${status}" but got "${o.order_status}"`)
+          })
+        }
       }
 
       // Send notifications for completed or failed shop orders
