@@ -25,7 +25,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`[BULK-UPDATE] Updating ${orderIds.length} ${orderType || 'bulk'} orders to status: ${status}`)
+    console.log(`[BULK-UPDATE] Request received:`)
+    console.log(`[BULK-UPDATE]   - Order IDs: ${orderIds.length} total`)
+    console.log(`[BULK-UPDATE]   - First 5 IDs: ${orderIds.slice(0, 5).join(", ")}`)
+    console.log(`[BULK-UPDATE]   - Status: ${status}`)
+    console.log(`[BULK-UPDATE]   - Order type hint: ${orderType || 'not specified'}`)
 
     // Determine actual order types by checking both tables
     const { data: bulkOrders, error: bulkError } = await supabase
@@ -33,15 +37,26 @@ export async function POST(request: NextRequest) {
       .select("id")
       .in("id", orderIds)
 
+    if (bulkError) {
+      console.warn(`[BULK-UPDATE] Error checking bulk orders table:`, bulkError.message)
+    }
+
     const { data: shopOrders, error: shopError } = await supabase
       .from("shop_orders")
       .select("id")
       .in("id", orderIds)
 
+    if (shopError) {
+      console.warn(`[BULK-UPDATE] Error checking shop_orders table:`, shopError.message)
+    }
+
     const bulkOrderIds = bulkOrders?.map(o => o.id) || []
     const shopOrderIds = shopOrders?.map(o => o.id) || []
 
     console.log(`[BULK-UPDATE] Detected: ${bulkOrderIds.length} bulk orders, ${shopOrderIds.length} shop orders`)
+    if (bulkOrderIds.length > 0) {
+      console.log(`[BULK-UPDATE] Bulk order IDs:`, bulkOrderIds.slice(0, 5).join(", ") + (bulkOrderIds.length > 5 ? "..." : ""))
+    }
     if (shopOrderIds.length > 0) {
       console.log(`[BULK-UPDATE] Shop order IDs:`, shopOrderIds.slice(0, 5).join(", ") + (shopOrderIds.length > 5 ? "..." : ""))
     }
