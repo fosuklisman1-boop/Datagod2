@@ -110,19 +110,38 @@ export async function POST(request: NextRequest) {
     // Update shop orders
     if (shopOrderIds.length > 0) {
       console.log(`[BULK-UPDATE] Updating ${shopOrderIds.length} shop orders in shop_orders table...`)
+      console.log(`[BULK-UPDATE] Setting order_status = "${status}" for IDs:`, shopOrderIds.slice(0, 3).join(", "))
       
-      const { error: updateError } = await supabase
+      const { data: updateData, error: updateError } = await supabase
         .from("shop_orders")
         .update({ order_status: status, updated_at: new Date().toISOString() })
         .in("id", shopOrderIds)
+        .select("id, order_status, updated_at")
 
       if (updateError) {
         console.error("[BULK-UPDATE] Error updating shop orders:", updateError)
         throw new Error(`Failed to update shop order status: ${updateError.message}`)
       }
 
-      console.log(`[BULK-UPDATE] ✓ Successfully updated ${shopOrderIds.length} shop orders to status: ${status}`)
-      console.log(`[BULK-UPDATE] Shop order IDs updated:`, shopOrderIds.slice(0, 3).join(", ") + (shopOrderIds.length > 3 ? "..." : ""))
+      console.log(`[BULK-UPDATE] ✓ Update query completed`)
+      console.log(`[BULK-UPDATE] Updated rows returned:`, updateData?.length || 0)
+      if (updateData && updateData.length > 0) {
+        console.log(`[BULK-UPDATE] Sample updated record:`, {
+          id: updateData[0].id,
+          order_status: updateData[0].order_status,
+          updated_at: updateData[0].updated_at
+        })
+      }
+
+      // Verify the update actually worked by fetching back
+      const { data: verifyData, error: verifyError } = await supabase
+        .from("shop_orders")
+        .select("id, order_status")
+        .in("id", shopOrderIds.slice(0, 3))
+
+      if (!verifyError && verifyData) {
+        console.log(`[BULK-UPDATE] Verification fetch - First 3 orders:`, verifyData)
+      }
 
       // Send notifications for completed or failed shop orders
       if (status === "completed" || status === "failed") {
