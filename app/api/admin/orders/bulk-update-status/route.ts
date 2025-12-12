@@ -27,30 +27,43 @@ export async function POST(request: NextRequest) {
 
     console.log(`[BULK-UPDATE] Updating ${orderIds.length} ${orderType || 'bulk'} orders to status: ${status}`)
 
-    // Determine if these are bulk orders or shop orders
-    const isBulkOrder = orderType !== 'shop'
+    // Determine actual order types by checking both tables
+    const { data: bulkOrders, error: bulkError } = await supabase
+      .from("orders")
+      .select("id")
+      .in("id", orderIds)
 
-    if (isBulkOrder) {
-      // Update regular bulk orders
+    const { data: shopOrders, error: shopError } = await supabase
+      .from("shop_orders")
+      .select("id")
+      .in("id", orderIds)
+
+    const bulkOrderIds = bulkOrders?.map(o => o.id) || []
+    const shopOrderIds = shopOrders?.map(o => o.id) || []
+
+    console.log(`[BULK-UPDATE] Detected: ${bulkOrderIds.length} bulk orders, ${shopOrderIds.length} shop orders`)
+
+    // Update bulk orders
+    if (bulkOrderIds.length > 0) {
       const { error: updateError } = await supabase
         .from("orders")
         .update({ status })
-        .in("id", orderIds)
+        .in("id", bulkOrderIds)
 
       if (updateError) {
-        throw new Error(`Failed to update order status: ${updateError.message}`)
+        throw new Error(`Failed to update bulk order status: ${updateError.message}`)
       }
 
-      console.log(`[BULK-UPDATE] ✓ Updated ${orderIds.length} bulk orders to status: ${status}`)
+      console.log(`[BULK-UPDATE] ✓ Updated ${bulkOrderIds.length} bulk orders to status: ${status}`)
 
-      // Send notifications for completed or failed orders
+      // Send notifications for completed or failed bulk orders
       if (status === "completed" || status === "failed") {
         try {
           // Get order details to send notifications
           const { data: orders, error: ordersError } = await supabase
             .from("orders")
             .select("id, user_id, network, size")
-            .in("id", orderIds)
+            .in("id", bulkOrderIds)
 
           if (!ordersError && orders) {
             for (const order of orders) {
@@ -83,44 +96,46 @@ export async function POST(request: NextRequest) {
                 console.warn(`[NOTIFICATION] Failed to send notification for order ${order.id}:`, notifError)
               }
             }
-            console.log(`[NOTIFICATION] Sent ${orders.length} order status notifications`)
+            console.log(`[NOTIFICATION] Sent ${orders.length} bulk order status notifications`)
           }
         } catch (error) {
           console.warn("[NOTIFICATION] Error sending bulk notifications:", error)
         }
       }
-    } else {
-      // Update shop orders and credit profits if completing
+    }
+
+    // Update shop orders
+    if (shopOrderIds.length > 0) {
       const { error: updateError } = await supabase
         .from("shop_orders")
         .update({ order_status: status, updated_at: new Date().toISOString() })
-        .in("id", orderIds)
+        .in("id", shopOrderIds)
 
       if (updateError) {
         console.error("[BULK-UPDATE] Error updating shop orders:", updateError)
         throw new Error(`Failed to update shop order status: ${updateError.message}`)
       }
 
-      console.log(`[BULK-UPDATE] ✓ Updated ${orderIds.length} shop orders to status: ${status}`)
+      console.log(`[BULK-UPDATE] ✓ Updated ${shopOrderIds.length} shop orders to status: ${status}`)
 
       // Send notifications for completed or failed shop orders
       if (status === "completed" || status === "failed") {
         try {
           // Get shop order details to send notifications
-          const { data: shopOrders, error: ordersError } = await supabase
+          const { data: shopOrderDetails, error: ordersError } = await supabase
             .from("shop_orders")
-            .select("id, user_id, network_name, package_name")
-            .in("id", orderIds)
+            .select("id, user_id, network, volume_gb")
+            .in("id", shopOrderIds)
 
-          if (!ordersError && shopOrders) {
-            for (const order of shopOrders) {
+          if (!ordersError && shopOrderDetails) {
+            for (const order of shopOrderDetails) {
               try {
                 if (status === "completed") {
                   const notificationData = notificationTemplates.orderCompleted(order.id, "")
                   await notificationService.createNotification(
                     order.user_id,
                     notificationData.title,
-                    `Your ${order.network_name} ${order.package_name} order has been completed.`,
+                    `Your ${order.network} ${order.volume_gb}GB data order has been completed.`,
                     notificationData.type,
                     {
                       reference_id: order.id,
@@ -131,7 +146,7 @@ export async function POST(request: NextRequest) {
                   await notificationService.createNotification(
                     order.user_id,
                     "Order Failed",
-                    `Your ${order.network_name} ${order.package_name} order has failed. Please contact support.`,
+                    `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support.`,
                     "order_update",
                     {
                       reference_id: order.id,
@@ -143,7 +158,7 @@ export async function POST(request: NextRequest) {
                 console.warn(`[NOTIFICATION] Failed to send notification for shop order ${order.id}:`, notifError)
               }
             }
-            console.log(`[NOTIFICATION] Sent ${shopOrders.length} shop order status notifications`)
+            console.log(`[NOTIFICATION] Sent ${shopOrderDetails.length} shop order status notifications`)
           }
         } catch (error) {
           console.warn("[NOTIFICATION] Error sending shop order notifications:", error)
@@ -152,13 +167,13 @@ export async function POST(request: NextRequest) {
 
       // If status is "completed", credit the associated profits
       if (status === "completed") {
-        console.log(`[BULK-UPDATE] Crediting profits for ${orderIds.length} completed orders...`)
+        console.log(`[BULK-UPDATE] Crediting profits for ${shopOrderIds.length} completed orders...`)
 
         // Get the profit records for these orders
         const { data: profitRecords, error: profitFetchError } = await supabase
           .from("shop_profits")
           .select("id, shop_id, profit_amount, status")
-          .in("shop_order_id", orderIds)
+          .in("shop_order_id", shopOrderIds)
           .eq("status", "pending")
 
         if (profitFetchError) {
@@ -289,7 +304,8 @@ export async function POST(request: NextRequest) {
       success: true,
       count: orderIds.length,
       status,
-      orderType: isBulkOrder ? 'bulk' : 'shop'
+      bulkCount: bulkOrderIds.length,
+      shopCount: shopOrderIds.length
     })
   } catch (error) {
     console.error("[BULK-UPDATE] Error in bulk update status:", error)

@@ -26,10 +26,38 @@ export async function GET() {
 
     console.log(`Found ${data?.length || 0} download batches`)
 
+    // Determine order types for each batch
+    const enrichedData = await Promise.all((data || []).map(async (batch: any) => {
+      if (!batch.orders || batch.orders.length === 0) {
+        return batch
+      }
+
+      // Check if these orders are shop orders or bulk orders
+      const orderIds = batch.orders.map((o: any) => o.id)
+      
+      const { data: shopOrders, error: shopError } = await supabase
+        .from("shop_orders")
+        .select("id")
+        .in("id", orderIds)
+      
+      const shopOrderIds = new Set(shopOrders?.map(o => o.id) || [])
+      
+      // Add type to each order
+      const enrichedOrders = batch.orders.map((order: any) => ({
+        ...order,
+        type: shopOrderIds.has(order.id) ? 'shop' : 'bulk'
+      }))
+      
+      return {
+        ...batch,
+        orders: enrichedOrders
+      }
+    }))
+
     return NextResponse.json({
       success: true,
-      data: data || [],
-      count: data?.length || 0
+      data: enrichedData,
+      count: enrichedData?.length || 0
     })
   } catch (error) {
     console.error("Error fetching download batches:", error)
