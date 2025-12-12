@@ -42,6 +42,9 @@ export async function POST(request: NextRequest) {
     const shopOrderIds = shopOrders?.map(o => o.id) || []
 
     console.log(`[BULK-UPDATE] Detected: ${bulkOrderIds.length} bulk orders, ${shopOrderIds.length} shop orders`)
+    if (shopOrderIds.length > 0) {
+      console.log(`[BULK-UPDATE] Shop order IDs:`, shopOrderIds.slice(0, 5).join(", ") + (shopOrderIds.length > 5 ? "..." : ""))
+    }
 
     // Update bulk orders
     if (bulkOrderIds.length > 0) {
@@ -106,6 +109,8 @@ export async function POST(request: NextRequest) {
 
     // Update shop orders
     if (shopOrderIds.length > 0) {
+      console.log(`[BULK-UPDATE] Updating ${shopOrderIds.length} shop orders in shop_orders table...`)
+      
       const { error: updateError } = await supabase
         .from("shop_orders")
         .update({ order_status: status, updated_at: new Date().toISOString() })
@@ -116,7 +121,8 @@ export async function POST(request: NextRequest) {
         throw new Error(`Failed to update shop order status: ${updateError.message}`)
       }
 
-      console.log(`[BULK-UPDATE] ✓ Updated ${shopOrderIds.length} shop orders to status: ${status}`)
+      console.log(`[BULK-UPDATE] ✓ Successfully updated ${shopOrderIds.length} shop orders to status: ${status}`)
+      console.log(`[BULK-UPDATE] Shop order IDs updated:`, shopOrderIds.slice(0, 3).join(", ") + (shopOrderIds.length > 3 ? "..." : ""))
 
       // Send notifications for completed or failed shop orders
       if (status === "completed" || status === "failed") {
