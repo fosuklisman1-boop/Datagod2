@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
-const INACTIVITY_TIMEOUT = 10 * 60 * 1000 // 10 minutes in milliseconds
+const INACTIVITY_TIMEOUT = 12 * 60 * 60 * 1000 // 12 hours in milliseconds
 
 export function useInactivityLogout() {
   const router = useRouter()
