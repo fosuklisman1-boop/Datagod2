@@ -37,28 +37,31 @@ export async function POST(request: NextRequest) {
 
     console.log(`Shop ${shopId} approved by admin`)
 
-    // Send notification to shop owner via admin API endpoint
+    // Send notification to shop owner
     if (data && data[0]) {
       try {
         const shop = data[0]
         const notificationData = notificationTemplates.shopApproved(shop.shop_name || "Your shop", shopId)
-        const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId: shop.user_id,
-            title: notificationData.title,
-            message: notificationData.message,
-            type: notificationData.type,
-            reference_id: notificationData.reference_id,
-            action_url: `/dashboard/my-shop`,
-          }),
-        })
-        if (notifResponse.ok) {
-          console.log(`[NOTIFICATION] Shop approval notification sent to user ${shop.user_id}`)
+        const { error: notifError } = await supabase
+          .from("notifications")
+          .insert([
+            {
+              user_id: shop.user_id,
+              title: notificationData.title,
+              message: notificationData.message,
+              type: notificationData.type,
+              metadata: {
+                reference_id: notificationData.reference_id,
+                action_url: `/dashboard/my-shop`,
+              },
+              is_read: false,
+              created_at: new Date().toISOString(),
+            },
+          ])
+        if (notifError) {
+          console.warn("[NOTIFICATION] Failed to send notification:", notifError)
         } else {
-          const errorData = await notifResponse.json()
-          console.warn("[NOTIFICATION] Failed to send notification:", errorData.error)
+          console.log(`[NOTIFICATION] Shop approval notification sent to user ${shop.user_id}`)
         }
       } catch (notifError) {
         console.warn("[NOTIFICATION] Failed to send notification:", notifError)

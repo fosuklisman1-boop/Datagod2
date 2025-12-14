@@ -129,26 +129,29 @@ export async function POST(request: NextRequest) {
       console.error("Failed to create transaction record:", transactionError)
     }
 
-    // Send notification about successful purchase via admin API endpoint
+    // Send notification about successful purchase
     try {
       const notificationData = notificationTemplates.paymentSuccess(price, order[0].id)
-      const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          title: notificationData.title,
-          message: `${notificationData.message} Order: ${network} - ${size}GB. Order Code: ${order[0].order_code}`,
-          type: notificationData.type,
-          reference_id: notificationData.reference_id,
-          action_url: `/dashboard/my-orders?orderId=${order[0].id}`,
-        }),
-      })
-      if (notifResponse.ok) {
-        console.log(`[NOTIFICATION] Purchase success notification sent to user ${userId}`)
+      const { error: notifError } = await supabaseAdmin
+        .from("notifications")
+        .insert([
+          {
+            user_id: userId,
+            title: notificationData.title,
+            message: `${notificationData.message} Order: ${network} - ${size}GB. Order Code: ${order[0].order_code}`,
+            type: notificationData.type,
+            metadata: {
+              reference_id: notificationData.reference_id,
+              action_url: `/dashboard/my-orders?orderId=${order[0].id}`,
+            },
+            is_read: false,
+            created_at: new Date().toISOString(),
+          },
+        ])
+      if (notifError) {
+        console.warn("[NOTIFICATION] Failed to send purchase notification:", notifError)
       } else {
-        const errorData = await notifResponse.json()
-        console.warn("[NOTIFICATION] Failed to send purchase notification:", errorData.error)
+        console.log(`[NOTIFICATION] Purchase success notification sent to user ${userId}`)
       }
     } catch (notifError) {
       console.warn("[NOTIFICATION] Failed to send purchase notification:", notifError)

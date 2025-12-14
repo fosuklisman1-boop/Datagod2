@@ -160,23 +160,26 @@ export async function POST(request: NextRequest) {
     try {
       const complaintTitle = `Data Issue - ${orderDetails.networkName} ${orderDetails.packageName}`
       const notificationData = notificationTemplates.complaintSubmitted(complaint[0].id, complaintTitle)
-      const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          title: notificationData.title,
-          message: notificationData.message,
-          type: notificationData.type,
-          reference_id: notificationData.reference_id,
-          action_url: `/dashboard/complaints?id=${complaint[0].id}`,
-        }),
-      })
-      if (notifResponse.ok) {
-        console.log("[NOTIFICATION] Complaint submitted notification sent to user", userId)
+      const { error: notifError } = await supabase
+        .from("notifications")
+        .insert([
+          {
+            user_id: userId,
+            title: notificationData.title,
+            message: notificationData.message,
+            type: notificationData.type,
+            metadata: {
+              reference_id: notificationData.reference_id,
+              action_url: `/dashboard/complaints?id=${complaint[0].id}`,
+            },
+            is_read: false,
+            created_at: new Date().toISOString(),
+          },
+        ])
+      if (notifError) {
+        console.warn("[NOTIFICATION] Failed to send complaint submitted notification:", notifError)
       } else {
-        const errorData = await notifResponse.json()
-        console.warn("[NOTIFICATION] Failed to send complaint submitted notification:", errorData.error)
+        console.log("[NOTIFICATION] Complaint submitted notification sent to user", userId)
       }
     } catch (notifError) {
       console.warn("[NOTIFICATION] Failed to send complaint submitted notification:", notifError)

@@ -62,24 +62,31 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (!shopError && shop) {
-        const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawalId)
-        const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId: shop.user_id,
-            title: notificationData.title,
-            message: notificationData.message,
-            type: notificationData.type,
-            reference_id: notificationData.reference_id,
-            action_url: `/dashboard/shop-dashboard`,
-          }),
-        })
-        if (notifResponse.ok) {
-          console.log(`[NOTIFICATION] Withdrawal approval notification sent to user ${shop.user_id}`)
-        } else {
-          const errorData = await notifResponse.json()
-          console.warn("[NOTIFICATION] Failed to send notification:", errorData.error)
+        try {
+          const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawalId)
+          const { error: notifError } = await supabase
+            .from("notifications")
+            .insert([
+              {
+                user_id: shop.user_id,
+                title: notificationData.title,
+                message: notificationData.message,
+                type: notificationData.type,
+                metadata: {
+                  reference_id: notificationData.reference_id,
+                  action_url: `/dashboard/shop-dashboard`,
+                },
+                is_read: false,
+                created_at: new Date().toISOString(),
+              },
+            ])
+          if (notifError) {
+            console.warn("[NOTIFICATION] Failed to send notification:", notifError)
+          } else {
+            console.log(`[NOTIFICATION] Withdrawal approval notification sent to user ${shop.user_id}`)
+          }
+        } catch (notifError) {
+          console.warn("[NOTIFICATION] Failed to send notification:", notifError)
         }
       }
     } catch (notifError) {
