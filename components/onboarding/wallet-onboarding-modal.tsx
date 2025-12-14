@@ -52,7 +52,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
       const fetchBalance = async () => {
         try {
           const { data, error } = await supabase
-            .from("wallet")
+            .from("wallets")
             .select("balance")
             .eq("user_id", user?.id)
             .maybeSingle()

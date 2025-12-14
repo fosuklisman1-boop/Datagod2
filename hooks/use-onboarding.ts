@@ -35,7 +35,7 @@ export function useOnboarding(): UseOnboardingReturn {
 
         // Check wallet balance directly from Supabase
         const { data, error } = await supabase
-          .from("wallet")
+          .from("wallets")
           .select("balance")
           .eq("user_id", user.id)
           .maybeSingle()

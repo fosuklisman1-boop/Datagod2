@@ -44,9 +44,9 @@ export async function GET(request: NextRequest) {
 
     const userId = user.id
 
-    // Get wallet balance data from wallet table
+    // Get wallet balance data from wallets table
     const { data: walletData, error: walletError } = await supabase
-      .from("wallet")
+      .from("wallets")
       .select("balance")
       .eq("user_id", userId)
       .maybeSingle()
