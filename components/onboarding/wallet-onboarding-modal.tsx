@@ -49,20 +49,19 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
     if (open) {
       const fetchBalance = async () => {
         try {
-          const { data: { session } } = await supabase.auth.getSession()
-          if (!session?.access_token) {
-            console.error("No auth session")
+          const { data, error } = await supabase
+            .from("wallet")
+            .select("balance")
+            .eq("user_id", user?.id)
+            .maybeSingle()
+
+          if (error) {
+            console.error("Error fetching wallet balance:", error)
             setWalletBalance(0)
             return
           }
 
-          const response = await fetch("/api/wallet/balance", {
-            headers: {
-              "Authorization": `Bearer ${session.access_token}`,
-            },
-          })
-          const data = await response.json()
-          setWalletBalance(data.balance || 0)
+          setWalletBalance(data?.balance || 0)
         } catch (err) {
           console.error("Error fetching wallet balance:", err)
           setWalletBalance(0)
@@ -70,7 +69,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
       }
       fetchBalance()
     }
-  }, [open])
+  }, [open, user?.id])
 
   useEffect(() => {
     if (showTour && currentStep < TOUR_STEPS.length) {

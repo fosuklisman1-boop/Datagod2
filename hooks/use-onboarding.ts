@@ -33,24 +33,23 @@ export function useOnboarding(): UseOnboardingReturn {
       try {
         setIsLoading(true)
 
-        // Get auth session
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session?.access_token) {
-          console.error("No auth session")
+        // Check wallet balance directly from Supabase
+        const { data, error } = await supabase
+          .from("wallet")
+          .select("balance")
+          .eq("user_id", user.id)
+          .maybeSingle()
+
+        if (error) {
+          console.error("Error checking onboarding:", error)
+          // Default to showing onboarding if we can't check
+          setShowOnboarding(true)
           setIsLoading(false)
           return
         }
 
-        // Check wallet balance with auth token
-        const response = await fetch("/api/wallet/balance", {
-          headers: {
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-        })
-        const data = await response.json()
-
         // Show onboarding if wallet balance is less than 5
-        const balance = data.balance || 0
+        const balance = data?.balance || 0
         setShowOnboarding(balance < 5)
         setIsLoading(false)
       } catch (err: any) {
