@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { ChevronRight, X, Wallet } from "lucide-react"
 import { TourOverlay } from "./tour-overlay"
 import { useTourSpotlight } from "@/hooks/use-tour-spotlight"
+import { supabase } from "@/lib/supabase-client"
 
 interface TourStep {
   selector: string | null
@@ -48,7 +49,18 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
     if (open) {
       const fetchBalance = async () => {
         try {
-          const response = await fetch("/api/wallet/balance")
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session?.access_token) {
+            console.error("No auth session")
+            setWalletBalance(0)
+            return
+          }
+
+          const response = await fetch("/api/wallet/balance", {
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+          })
           const data = await response.json()
           setWalletBalance(data.wallet?.balance || 0)
         } catch (err) {
