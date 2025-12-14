@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { notificationService, notificationTemplates } from "@/lib/notification-service"
+import { notificationTemplates } from "@/lib/notification-service"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -88,27 +88,39 @@ export async function POST(request: NextRequest) {
               try {
                 if (status === "completed") {
                   const notificationData = notificationTemplates.orderCompleted(order.id, "")
-                  await notificationService.createNotification(
-                    order.user_id,
-                    notificationData.title,
-                    `Your ${order.network} ${order.size} data order has been completed.`,
-                    notificationData.type,
-                    {
+                  const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      userId: order.user_id,
+                      title: notificationData.title,
+                      message: `Your ${order.network} ${order.size} data order has been completed.`,
+                      type: notificationData.type,
                       reference_id: order.id,
                       action_url: `/dashboard/my-orders`,
-                    }
-                  )
+                    }),
+                  })
+                  if (!notifResponse.ok) {
+                    const errorData = await notifResponse.json()
+                    console.warn(`[NOTIFICATION] Failed to send completion notification for order ${order.id}:`, errorData.error)
+                  }
                 } else if (status === "failed") {
-                  await notificationService.createNotification(
-                    order.user_id,
-                    "Order Failed",
-                    `Your ${order.network} ${order.size} data order has failed. Please contact support.`,
-                    "order_update",
-                    {
+                  const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      userId: order.user_id,
+                      title: "Order Failed",
+                      message: `Your ${order.network} ${order.size} data order has failed. Please contact support.`,
+                      type: "order_update",
                       reference_id: order.id,
                       action_url: `/dashboard/my-orders`,
-                    }
-                  )
+                    }),
+                  })
+                  if (!notifResponse.ok) {
+                    const errorData = await notifResponse.json()
+                    console.warn(`[NOTIFICATION] Failed to send failure notification for order ${order.id}:`, errorData.error)
+                  }
                 }
               } catch (notifError) {
                 console.warn(`[NOTIFICATION] Failed to send notification for order ${order.id}:`, notifError)
@@ -193,27 +205,39 @@ export async function POST(request: NextRequest) {
               try {
                 if (status === "completed") {
                   const notificationData = notificationTemplates.orderCompleted(order.id, "")
-                  await notificationService.createNotification(
-                    order.user_id,
-                    notificationData.title,
-                    `Your ${order.network} ${order.volume_gb}GB data order has been completed.`,
-                    notificationData.type,
-                    {
+                  const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      userId: order.user_id,
+                      title: notificationData.title,
+                      message: `Your ${order.network} ${order.volume_gb}GB data order has been completed.`,
+                      type: notificationData.type,
                       reference_id: order.id,
                       action_url: `/dashboard/my-orders`,
-                    }
-                  )
+                    }),
+                  })
+                  if (!notifResponse.ok) {
+                    const errorData = await notifResponse.json()
+                    console.warn(`[NOTIFICATION] Failed to send completion notification for shop order ${order.id}:`, errorData.error)
+                  }
                 } else if (status === "failed") {
-                  await notificationService.createNotification(
-                    order.user_id,
-                    "Order Failed",
-                    `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support.`,
-                    "order_update",
-                    {
+                  const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      userId: order.user_id,
+                      title: "Order Failed",
+                      message: `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support.`,
+                      type: "order_update",
                       reference_id: order.id,
                       action_url: `/dashboard/my-orders`,
-                    }
-                  )
+                    }),
+                  })
+                  if (!notifResponse.ok) {
+                    const errorData = await notifResponse.json()
+                    console.warn(`[NOTIFICATION] Failed to send failure notification for shop order ${order.id}:`, errorData.error)
+                  }
                 }
               } catch (notifError) {
                 console.warn(`[NOTIFICATION] Failed to send notification for shop order ${order.id}:`, notifError)
