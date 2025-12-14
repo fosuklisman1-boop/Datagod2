@@ -50,7 +50,8 @@ export function useOnboarding(): UseOnboardingReturn {
         const data = await response.json()
 
         // Show onboarding if wallet balance is less than 5
-        setShowOnboarding(!data.wallet || data.wallet.balance < 5)
+        const balance = data.balance || 0
+        setShowOnboarding(balance < 5)
         setIsLoading(false)
       } catch (err: any) {
         console.error("Error checking onboarding:", err)

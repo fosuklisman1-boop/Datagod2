@@ -62,7 +62,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
             },
           })
           const data = await response.json()
-          setWalletBalance(data.wallet?.balance || 0)
+          setWalletBalance(data.balance || 0)
         } catch (err) {
           console.error("Error fetching wallet balance:", err)
           setWalletBalance(0)
@@ -143,7 +143,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
           handleComplete()
         }
       }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto sm:w-full">
           <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
