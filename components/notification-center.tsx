@@ -101,17 +101,17 @@ export function NotificationCenter() {
 
       {/* Notification Panel */}
       {open && (
-        <div className="absolute right-0 top-12 w-96 max-h-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50 flex flex-col">
+        <div className="absolute right-0 top-12 w-80 sm:w-96 max-h-[60vh] sm:max-h-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50 flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Notifications</h2>
-            <div className="flex gap-2">
+          <div className="flex items-center justify-between p-3 sm:p-4 border-b border-gray-200">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900">Notifications</h2>
+            <div className="flex gap-1 sm:gap-2">
               {unreadCount > 0 && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={handleMarkAllAsRead}
-                  className="text-xs"
+                  className="text-xs hidden sm:inline-flex"
                 >
                   <CheckCircle2 className="w-4 h-4 mr-1" />
                   Mark all read
@@ -154,10 +154,10 @@ export function NotificationCenter() {
 
           {/* View All Link */}
           {notifications.length > 0 && (
-            <div className="border-t border-gray-200 p-4 text-center">
+            <div className="border-t border-gray-200 p-3 sm:p-4 text-center">
               <Link
                 href="/dashboard/notifications"
-                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                className="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium"
                 onClick={() => setOpen(false)}
               >
                 View all notifications
@@ -233,20 +233,20 @@ function NotificationItem({
   return (
     <div
       className={cn(
-        "p-4 hover:bg-gray-50 transition-colors cursor-pointer",
+        "p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer",
         !notification.read && "bg-blue-50"
       )}
     >
-      <div className="flex gap-3">
+      <div className="flex gap-2 sm:gap-3">
         {/* Icon */}
-        <div className="mt-1">{getTypeIcon(notification.type)}</div>
+        <div className="mt-1 flex-shrink-0">{getTypeIcon(notification.type)}</div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex-1">
-              <p className="font-semibold text-gray-900 text-sm">{notification.title}</p>
-              <p className="text-gray-600 text-sm mt-1 line-clamp-2">
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-gray-900 text-xs sm:text-sm">{notification.title}</p>
+              <p className="text-gray-600 text-xs sm:text-sm mt-1 line-clamp-2">
                 {notification.message}
               </p>
               <p className="text-xs text-gray-400 mt-1">{formatTime(notification.created_at)}</p>
@@ -259,14 +259,14 @@ function NotificationItem({
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 mt-2">
+          <div className="flex gap-1 sm:gap-2 mt-2 flex-wrap">
             {!notification.read && (
               <button
                 onClick={() => onMarkAsRead(notification.id)}
                 className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
               >
                 <Check className="w-3 h-3" />
-                Mark read
+                <span className="hidden sm:inline">Mark read</span>
               </button>
             )}
 
@@ -283,7 +283,7 @@ function NotificationItem({
             <button
               onClick={() => onDelete(notification.id)}
               title="Delete notification"
-              className="text-xs text-gray-500 hover:text-red-600 ml-auto flex items-center gap-1"
+              className="text-xs text-gray-500 hover:text-red-600 ml-auto sm:ml-0 flex items-center gap-1"
             >
               <Trash2 className="w-3 h-3" />
             </button>
