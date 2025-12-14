@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { ChevronRight, X, Wallet } from "lucide-react"
 import { TourOverlay } from "./tour-overlay"
 import { useTourSpotlight } from "@/hooks/use-tour-spotlight"
+import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 
 interface TourStep {
@@ -39,6 +40,7 @@ interface WalletOnboardingModalProps {
 
 export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModalProps) {
   const router = useRouter()
+  const { user } = useAuth()
   const [currentStep, setCurrentStep] = useState(0)
   const [showTour, setShowTour] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
