@@ -43,7 +43,7 @@ export default function ForgotPasswordPage() {
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-4">
             <div className="bg-white p-3 rounded-full">
-              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6" />
+              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6 rounded-lg" />
             </div>
           </div>
           <CardTitle>Password Reset</CardTitle>
