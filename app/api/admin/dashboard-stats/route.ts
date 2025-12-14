@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get shop owners to calculate profit balance per user
-    const { data: shops, error: shopsError } = await supabase
+    const { data: shops, error: shopsDataError } = await supabase
       .from("user_shops")
       .select("id, user_id")
 
