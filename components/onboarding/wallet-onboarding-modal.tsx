@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -36,6 +37,7 @@ interface WalletOnboardingModalProps {
 }
 
 export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModalProps) {
+  const router = useRouter()
   const [currentStep, setCurrentStep] = useState(0)
   const [showTour, setShowTour] = useState(false)
   const { spotlight, highlightElement, clearSpotlight } = useTourSpotlight()
@@ -59,6 +61,14 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
   const handleStartTour = () => {
     setShowTour(true)
     setCurrentStep(0)
+  }
+
+  const handleSpotlightClick = () => {
+    // If on step 2 (wallet topup), navigate to wallet page
+    if (currentStep === 1) {
+      handleComplete()
+      router.push("/dashboard/wallet")
+    }
   }
 
   const handleNext = () => {
@@ -95,6 +105,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
         spotlight={spotlight}
         message={showTour && TOUR_STEPS[currentStep] ? TOUR_STEPS[currentStep].message : ""}
         direction={showTour && TOUR_STEPS[currentStep] ? TOUR_STEPS[currentStep].direction : "bottom"}
+        onElementClick={handleSpotlightClick}
       />
 
       <Dialog open={open} onOpenChange={(isOpen) => {
