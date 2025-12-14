@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { notificationService, notificationTemplates } from "@/lib/notification-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -117,6 +118,41 @@ export async function POST(request: NextRequest) {
       // Log but don't fail - wallet was already updated successfully
     } else {
       console.log(`[ADMIN] Transaction record created for ${transactionType} of GHS ${amount.toFixed(2)}`)
+    }
+
+    // Send notification to user about the balance update
+    try {
+      const notificationTitle = type === "credit" 
+        ? "Wallet Credited"
+        : "Wallet Debited"
+      
+      const notificationMessage = type === "credit"
+        ? `Your wallet has been credited with GHS ${amount.toFixed(2)} by admin. New balance: GHS ${newBalance.toFixed(2)}`
+        : `Your wallet has been debited by GHS ${amount.toFixed(2)} by admin. New balance: GHS ${newBalance.toFixed(2)}`
+      
+      const notificationType = type === "credit" ? "wallet_credited" : "wallet_debited"
+
+      const { error: notifError } = await notificationService.createNotification(
+        userId,
+        notificationTitle,
+        notificationMessage,
+        notificationType,
+        {
+          reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
+          amount: amount,
+          type: type,
+        }
+      )
+
+      if (notifError) {
+        console.warn("[NOTIFICATION] Failed to send balance update notification:", notifError)
+        // Don't fail the operation if notification fails
+      } else {
+        console.log(`[NOTIFICATION] Balance update notification sent to user ${userId}`)
+      }
+    } catch (notificationError) {
+      console.warn("[NOTIFICATION] Error sending notification:", notificationError)
+      // Don't fail the operation if notification fails
     }
 
     return NextResponse.json({
