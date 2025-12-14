@@ -32,12 +32,12 @@ export function useOnboarding(): UseOnboardingReturn {
       try {
         setIsLoading(true)
 
-        // Check if wallet balance is 0 (new user or needs to fund)
+        // Check wallet balance
         const response = await fetch("/api/wallet/balance")
         const data = await response.json()
 
-        // Show onboarding if wallet balance is 0 or doesn't exist
-        setShowOnboarding(!data.wallet || data.wallet.balance === 0)
+        // Show onboarding if wallet balance is less than 5
+        setShowOnboarding(!data.wallet || data.wallet.balance < 5)
         setIsLoading(false)
       } catch (err: any) {
         console.error("Error checking onboarding:", err)
