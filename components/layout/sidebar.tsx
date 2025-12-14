@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Menu,
   Loader2,
+  Lock,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -279,7 +280,7 @@ export function Sidebar() {
                   {loadingPath === "/admin" ? (
                     <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
                   ) : (
-                    <Shield className="w-5 h-5 flex-shrink-0" />
+                    <Lock className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Admin Panel"}
                 </Button>
