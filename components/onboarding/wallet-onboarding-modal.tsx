@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { ChevronRight, X, Wallet } from "lucide-react"
@@ -144,6 +144,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
         }
       }}>
         <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto sm:w-full">
+          <DialogTitle>Wallet Setup Guide</DialogTitle>
           <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">

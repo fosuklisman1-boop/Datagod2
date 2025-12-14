@@ -52,39 +52,23 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
 
     if (walletError) {
-      console.error("Wallet fetch error:", walletError)
+      console.error("[WALLET-BALANCE] Wallet fetch error:", walletError)
       return NextResponse.json(
-        { error: "Failed to fetch wallet" },
+        { error: "Failed to fetch wallet", details: walletError.message },
         { status: 400 }
       )
     }
 
-    // If wallet doesn't exist, return 0
-    if (!walletData) {
-      return NextResponse.json({
-        balance: 0,
-        totalCredited: 0,
-        totalDebited: 0,
-        transactionCount: 0,
-      })
-    }
+    const balance = walletData?.balance || 0
 
-    // Get transaction count
-    const { count } = await supabase
-      .from("transactions")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
+    console.log("[WALLET-BALANCE] User:", userId, "Balance:", balance)
 
-    const walletBalance: WalletData = {
-      balance: walletData.balance || 0,
+    return NextResponse.json({
+      balance,
       totalCredited: 0,
       totalDebited: 0,
-      transactionCount: count || 0,
-    }
-
-    console.log("[WALLET-BALANCE] User:", userId, "Wallet data:", walletBalance)
-
-    return NextResponse.json(walletBalance)
+      transactionCount: 0,
+    })
   } catch (error) {
     console.error("Error fetching wallet balance:", error)
     return NextResponse.json(
