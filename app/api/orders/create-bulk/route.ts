@@ -83,6 +83,30 @@ export async function POST(request: NextRequest) {
 
     console.log(`[BULK-ORDERS] Successfully created ${createdOrders?.length || 0} orders`)
 
+    // Send notification for bulk order placement
+    try {
+      const { error: notifError } = await supabase
+        .from("notifications")
+        .insert([
+          {
+            user_id: userId,
+            title: "Bulk Orders Placed",
+            message: `Your bulk order of ${orders.length} order(s) for ${network} network has been placed successfully. Total cost: ₵${orders.reduce((sum: number, order: BulkOrderData) => sum + order.price, 0).toFixed(2)}`,
+            type: "order_update",
+            reference_id: `BULK-${Date.now()}`,
+            action_url: `/dashboard/my-orders`,
+            read: false,
+          },
+        ])
+      if (notifError) {
+        console.warn("[BULK-ORDERS] Failed to send notification:", notifError)
+      } else {
+        console.log("[BULK-ORDERS] ✓ Notification sent for bulk order placement")
+      }
+    } catch (notifError) {
+      console.warn("[BULK-ORDERS] Error sending notification:", notifError)
+    }
+
     // Calculate total cost
     const totalCost = orders.reduce((sum: number, order: BulkOrderData) => sum + order.price, 0)
 
