@@ -15,11 +15,30 @@ const nextConfig: NextConfig = {
     unoptimized: false,
     formats: ["image/avif", "image/webp"],
   },
+  // Redirects
+  redirects: async () => {
+    return [
+      {
+        source: "/favicon.ico",
+        destination: "/favicon_custom.ico",
+        permanent: true,
+      },
+    ];
+  },
   // Security headers handled by Vercel
   headers: async () => {
     return [
       {
         source: "/favicon-v2.jpeg",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/favicon_custom.ico",
         headers: [
           {
             key: "Cache-Control",
