@@ -19,6 +19,8 @@ interface DashboardStats {
   pendingShops: number
   completedOrders: number
   successRate: string | number
+  totalWalletBalance: number
+  totalProfitBalance: number
 }
 
 export default function AdminDashboardPage() {
@@ -116,6 +118,35 @@ export default function AdminDashboardPage() {
               <CardContent>
                 <div className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">GHS {stats.totalRevenue.toFixed(2)}</div>
                 <p className="text-xs text-gray-500">Platform revenue</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Users Balance Cards */}
+        {stats && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-2 sm:gap-3 lg:gap-4">
+            {/* Total Wallet Balance */}
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-gray-900">Users Wallet Balance</CardTitle>
+                <Wallet className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">GHS {stats.totalWalletBalance.toFixed(2)}</div>
+                <p className="text-xs text-gray-500">Total available wallet balance</p>
+              </CardContent>
+            </Card>
+
+            {/* Total Profit Balance */}
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-gradient-to-br from-pink-50/60 to-rose-50/40 backdrop-blur-xl border border-pink-200/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-gray-900">Users Profit Balance</CardTitle>
+                <TrendingUp className="h-4 w-4 text-pink-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">GHS {stats.totalProfitBalance.toFixed(2)}</div>
+                <p className="text-xs text-gray-500">Total available profit balance</p>
               </CardContent>
             </Card>
           </div>

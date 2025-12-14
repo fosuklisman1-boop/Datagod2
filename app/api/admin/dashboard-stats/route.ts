@@ -46,6 +46,26 @@ export async function GET(request: NextRequest) {
       .from("users")
       .select("id", { count: "exact", head: true })
 
+    // Get all users with wallet and profit balances
+    const { data: usersData, error: usersBalanceError } = await supabase
+      .from("users")
+      .select("wallet_balance, profit_balance")
+
+    // Calculate total wallet and profit balances
+    let totalWalletBalance = 0
+    let totalProfitBalance = 0
+
+    if (usersData && usersData.length > 0) {
+      totalWalletBalance = usersData.reduce(
+        (sum, user) => sum + (user.wallet_balance || 0),
+        0
+      )
+      totalProfitBalance = usersData.reduce(
+        (sum, user) => sum + (user.profit_balance || 0),
+        0
+      )
+    }
+
     // Get total shops count
     const { count: totalShops, error: shopsError } = await supabase
       .from("user_shops")
@@ -80,6 +100,8 @@ export async function GET(request: NextRequest) {
         pendingShops: pendingShops || 0,
         completedOrders: completedOrders.length,
         successRate: totalOrders ? ((completedOrders.length / totalOrders) * 100).toFixed(2) : 0,
+        totalWalletBalance,
+        totalProfitBalance,
       },
       { status: 200 }
     )
