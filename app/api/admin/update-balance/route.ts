@@ -90,12 +90,18 @@ export async function POST(request: NextRequest) {
         status: "completed",
         description: description,
         reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
-        payment_method: "admin",
+        source: "admin_operation",
+        balance_before: currentBalance,
+        balance_after: newBalance,
+        created_at: new Date().toISOString(),
       }])
 
     if (transactionError) {
       console.error("Error creating transaction record:", transactionError)
-      // Don't fail - balance update succeeded
+      return NextResponse.json(
+        { error: `Failed to create transaction record: ${transactionError.message}` },
+        { status: 400 }
+      )
     }
 
     return NextResponse.json({
