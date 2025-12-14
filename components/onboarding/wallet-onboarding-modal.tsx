@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { ChevronRight, X, Wallet } from "lucide-react"
 import { TourOverlay } from "./tour-overlay"
 import { useTourSpotlight } from "@/hooks/use-tour-spotlight"
-import { supabase } from "@/lib/supabase-client"
+import { supabase } from "@/lib/supabase"
 
 interface TourStep {
   selector: string | null
