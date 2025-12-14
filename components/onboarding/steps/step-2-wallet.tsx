@@ -1,8 +1,21 @@
 "use client"
 
-import { Wallet, CreditCard, TrendingUp } from "lucide-react"
+import { Wallet, CreditCard, TrendingUp, Play } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { useState } from "react"
 
-export function Step2Wallet() {
+interface Step2Props {
+  onStartInteractiveWallet?: () => void
+}
+
+export function Step2Wallet({ onStartInteractiveWallet }: Step2Props) {
+  const [showInteractive, setShowInteractive] = useState(false)
+
+  const handleStartTour = () => {
+    setShowInteractive(true)
+    onStartInteractiveWallet?.()
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-center mb-6">
@@ -63,6 +76,19 @@ export function Step2Wallet() {
         <p className="font-semibold text-yellow-900 mb-2">💡 Pro Tip:</p>
         <p>Keep your wallet funded to avoid delays when purchasing data packages. You can set up auto-reload if needed.</p>
       </div>
+
+      {/* Interactive Wallet Button */}
+      <Button
+        onClick={handleStartTour}
+        className="w-full bg-gradient-to-r from-blue-600 to-purple-600 gap-2 h-auto py-3"
+        disabled={showInteractive}
+      >
+        <Play className="w-4 h-4" />
+        <div className="text-left">
+          <div className="font-semibold">Try Interactive Wallet Guide</div>
+          <div className="text-xs opacity-90">Get live pointers on the dashboard</div>
+        </div>
+      </Button>
     </div>
   )
 }

@@ -8,7 +8,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { OnboardingModal } from "@/components/onboarding/onboarding-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2 } from "lucide-react"
+import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2, Wallet } from "lucide-react"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
 
@@ -36,6 +36,7 @@ export default function DashboardPage() {
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
+  const [walletBalance, setWalletBalance] = useState(0)
   const [stats, setStats] = useState<DashboardStats>({
     totalOrders: 0,
     completed: 0,
@@ -59,6 +60,7 @@ export default function DashboardPage() {
       fetchUserInfo()
       fetchDashboardStats()
       fetchRecentActivity()
+      fetchWalletBalance()
     }
   }, [user])
 
@@ -163,6 +165,25 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error("Error fetching recent activity:", error)
+    }
+  }
+
+  const fetchWalletBalance = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user?.id) return
+
+      const { data, error } = await supabase
+        .from("wallets")
+        .select("balance")
+        .eq("user_id", user.id)
+        .single()
+
+      if (!error && data) {
+        setWalletBalance(data.balance || 0)
+      }
+    } catch (error) {
+      console.error("Error fetching wallet balance:", error)
     }
   }
 
@@ -317,6 +338,25 @@ export default function DashboardPage() {
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{stats.pending}</div>
               <p className="text-xs text-gray-500">Awaiting processing</p>
+            </CardContent>
+          </Card>
+
+          {/* Wallet Balance */}
+          <Card 
+            className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40 hover:border-green-300/60"
+            data-tour="wallet-balance"
+          >
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-900">Wallet Balance</CardTitle>
+              <div className="bg-gradient-to-br from-green-400/30 to-emerald-400/20 backdrop-blur p-2 rounded-lg border border-green-300/60 shadow-lg">
+                <Wallet className="h-4 w-4 text-green-600" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                GHS {walletBalance.toFixed(2)}
+              </div>
+              <p className="text-xs text-gray-500">Available funds</p>
             </CardContent>
           </Card>
         </div>

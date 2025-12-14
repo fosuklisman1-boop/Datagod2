@@ -204,6 +204,7 @@ export function Sidebar() {
                   )}
                   title={!isOpen ? item.label : undefined}
                   disabled={isLoading}
+                  data-tour={item.label === "Wallet" ? "wallet-topup" : undefined}
                 >
                   {isLoading ? (
                     <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
