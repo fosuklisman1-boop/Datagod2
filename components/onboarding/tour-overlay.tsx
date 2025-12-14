@@ -100,7 +100,7 @@ export function TourOverlay({ spotlight, message, direction = "bottom", onElemen
   }
 
   return (
-    <div className="fixed inset-0 pointer-events-none z-[100]">
+    <div className="fixed inset-0 pointer-events-none z-[1001]">
       <canvas
         ref={canvasRef}
         className="absolute inset-0 pointer-events-auto"
@@ -109,7 +109,7 @@ export function TourOverlay({ spotlight, message, direction = "bottom", onElemen
 
       {/* Tooltip */}
       <div
-        className="absolute bg-white rounded-lg shadow-2xl border border-blue-500 p-4 max-w-xs z-[101] pointer-events-auto transform -translate-x-1/2"
+        className="absolute bg-white rounded-lg shadow-2xl border border-blue-500 p-4 max-w-xs z-[1002] pointer-events-auto transform -translate-x-1/2"
         style={{
           top: `${tooltipTop}px`,
           left: `${tooltipLeft}px`,
