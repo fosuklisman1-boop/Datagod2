@@ -40,7 +40,25 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState(0)
   const [showTour, setShowTour] = useState(false)
+  const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const { spotlight, highlightElement, clearSpotlight } = useTourSpotlight()
+
+  useEffect(() => {
+    // Fetch wallet balance when modal opens
+    if (open) {
+      const fetchBalance = async () => {
+        try {
+          const response = await fetch("/api/wallet/balance")
+          const data = await response.json()
+          setWalletBalance(data.wallet?.balance || 0)
+        } catch (err) {
+          console.error("Error fetching wallet balance:", err)
+          setWalletBalance(0)
+        }
+      }
+      fetchBalance()
+    }
+  }, [open])
 
   useEffect(() => {
     if (showTour && currentStep < TOUR_STEPS.length) {
@@ -198,6 +216,17 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
                   <h3 className="text-xl font-bold text-gray-900">
                     {TOUR_STEPS[currentStep]?.title}
                   </h3>
+                  
+                  {/* Show wallet balance on step 1 */}
+                  {currentStep === 0 && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-6 my-6">
+                      <p className="text-sm text-gray-600 mb-2">Your Current Balance</p>
+                      <div className="text-4xl font-bold text-green-600">
+                        GHS {walletBalance !== null ? walletBalance.toFixed(2) : '0.00'}
+                      </div>
+                    </div>
+                  )}
+                  
                   <p className="text-gray-600 max-w-lg mx-auto">
                     {TOUR_STEPS[currentStep]?.message}
                   </p>
