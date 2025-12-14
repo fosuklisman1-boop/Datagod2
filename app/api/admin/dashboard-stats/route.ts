@@ -49,19 +49,37 @@ export async function GET(request: NextRequest) {
     // Get all users with wallet and profit balances
     const { data: usersData, error: usersBalanceError } = await supabase
       .from("users")
-      .select("wallet_balance, profit_balance")
+      .select("id")
 
-    // Calculate total wallet and profit balances
+    // Get wallet balances
+    const { data: wallets, error: walletsError } = await supabase
+      .from("wallets")
+      .select("user_id, balance")
+
+    // Get shop available balances (profit balances)
+    const { data: shopBalances, error: shopBalancesError } = await supabase
+      .from("shop_available_balance")
+      .select("shop_id, available_balance")
+
+    // Calculate total wallet balance
     let totalWalletBalance = 0
-    let totalProfitBalance = 0
-
-    if (usersData && usersData.length > 0) {
-      totalWalletBalance = usersData.reduce(
-        (sum, user) => sum + (user.wallet_balance || 0),
+    if (wallets && wallets.length > 0) {
+      totalWalletBalance = wallets.reduce(
+        (sum, wallet) => sum + (wallet.balance || 0),
         0
       )
-      totalProfitBalance = usersData.reduce(
-        (sum, user) => sum + (user.profit_balance || 0),
+    }
+
+    // Get shop owners to calculate profit balance per user
+    const { data: shops, error: shopsError } = await supabase
+      .from("user_shops")
+      .select("id, user_id")
+
+    // Calculate total profit balance (sum of available_balance from shop_available_balance)
+    let totalProfitBalance = 0
+    if (shopBalances && shopBalances.length > 0) {
+      totalProfitBalance = shopBalances.reduce(
+        (sum, shopBalance) => sum + (shopBalance.available_balance || 0),
         0
       )
     }
