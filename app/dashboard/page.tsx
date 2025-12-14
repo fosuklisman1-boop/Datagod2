@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { useAuth } from "@/hooks/use-auth"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { OnboardingModal } from "@/components/onboarding/onboarding-modal"
+import { WalletOnboardingModal } from "@/components/onboarding/wallet-onboarding-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2, Wallet } from "lucide-react"
@@ -225,10 +225,9 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
-      <OnboardingModal 
+      <WalletOnboardingModal 
         open={showOnboarding && !onboardingLoading}
         onComplete={completeOnboarding}
-        onSkip={skipOnboarding}
       />
       <div className="space-y-6">
         {/* Greeting Card */}
