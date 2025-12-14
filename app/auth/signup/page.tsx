@@ -90,7 +90,7 @@ export default function SignupPage() {
         <CardHeader className="space-y-2 text-center">
           <div className="flex justify-center mb-4">
             <div className="bg-white p-3 rounded-lg shadow-lg">
-              <img src="/favicon.jpeg" alt="DATAGOD Logo" className="w-8 h-8" />
+              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-8 h-8" />
             </div>
           </div>
           <CardTitle className="text-3xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent">Create Account</CardTitle>
