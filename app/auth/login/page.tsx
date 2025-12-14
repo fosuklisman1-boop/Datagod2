@@ -63,7 +63,7 @@ export default function LoginPage() {
         <CardHeader className="space-y-2 text-center">
           <div className="flex justify-center mb-4">
             <div className="bg-white p-3 rounded-lg shadow-lg">
-              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-8 h-8 rounded-lg" />
+              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-8 h-8 rounded-lg object-cover" />
             </div>
           </div>
           <CardTitle className="text-3xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Welcome Back</CardTitle>
