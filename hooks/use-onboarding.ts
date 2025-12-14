@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "./use-auth"
+import { supabase } from "@/lib/supabase"
 
 interface UseOnboardingReturn {
   showOnboarding: boolean
@@ -32,8 +33,20 @@ export function useOnboarding(): UseOnboardingReturn {
       try {
         setIsLoading(true)
 
-        // Check wallet balance
-        const response = await fetch("/api/wallet/balance")
+        // Get auth session
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) {
+          console.error("No auth session")
+          setIsLoading(false)
+          return
+        }
+
+        // Check wallet balance with auth token
+        const response = await fetch("/api/wallet/balance", {
+          headers: {
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+        })
         const data = await response.json()
 
         // Show onboarding if wallet balance is less than 5
