@@ -44,10 +44,10 @@ export async function GET(request: NextRequest) {
 
     const userId = user.id
 
-    // Get wallet data from wallets table
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("balance, total_credited, total_spent")
+    // Get wallet balance data from wallet_balance table
+    const { data: walletBalance, error: walletError } = await supabase
+      .from("wallet_balance")
+      .select("balance")
       .eq("user_id", userId)
       .maybeSingle()
 
@@ -59,29 +59,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // If wallet doesn't exist, create one with 0 balance
-    if (!wallet) {
-      const { data: newWallet, error: createError } = await supabase
-        .from("wallets")
-        .insert([{
-          user_id: userId,
-          balance: 0,
-          total_credited: 0,
-          total_spent: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }])
-        .select()
-        .single()
-
-      if (createError) {
-        console.error("Wallet creation error:", createError)
-        return NextResponse.json(
-          { error: "Failed to create wallet" },
-          { status: 400 }
-        )
-      }
-
+    // If wallet doesn't exist, return 0
+    if (!walletBalance) {
       return NextResponse.json({
         balance: 0,
         totalCredited: 0,
@@ -97,9 +76,9 @@ export async function GET(request: NextRequest) {
       .eq("user_id", userId)
 
     const walletData: WalletData = {
-      balance: wallet.balance || 0,
-      totalCredited: wallet.total_credited || 0,
-      totalDebited: wallet.total_spent || 0,
+      balance: walletBalance.balance || 0,
+      totalCredited: 0,
+      totalDebited: 0,
       transactionCount: count || 0,
     }
 
