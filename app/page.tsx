@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Package, Zap, Users, ArrowRight } from "lucide-react"
+import { Package, Zap, Users, ArrowRight, Lock } from "lucide-react"
 
 export default function HomePage() {
   return (
@@ -76,7 +76,7 @@ export default function HomePage() {
           </div>
 
           <div className="p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
-            <Shield className="w-8 h-8 text-orange-600 mb-4" />
+            <Lock className="w-8 h-8 text-orange-600 mb-4" />
             <h3 className="font-semibold text-gray-900 mb-2">Secure & Safe</h3>
             <p className="text-sm text-gray-600">
               Your transactions are protected with industry-standard security
@@ -106,7 +106,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <Shield className="w-5 h-5 text-blue-400" />
+                <Lock className="w-5 h-5 text-blue-400" />
                 <span className="font-semibold text-white">DATAGOD</span>
               </div>
               <p className="text-sm">Your trusted data hub solution</p>
