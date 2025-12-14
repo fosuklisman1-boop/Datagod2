@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
           // Get order details to send notifications
           const { data: orders, error: ordersError } = await supabase
             .from("orders")
-            .select("id, user_id, network, size")
+            .select("id, user_id, network, size, phone_number")
             .in("id", bulkOrderIds)
 
           if (!ordersError && orders) {
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
                       {
                         user_id: order.user_id,
                         title: notificationData.title,
-                        message: `Your ${order.network} ${order.size} data order has been completed.`,
+                        message: `Your ${order.network} ${order.size} data order has been completed. Phone: ${order.phone_number}`,
                         type: notificationData.type,
                         reference_id: order.id,
                         action_url: `/dashboard/my-orders`,
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
                       {
                         user_id: order.user_id,
                         title: "Order Failed",
-                        message: `Your ${order.network} ${order.size} data order has failed. Please contact support.`,
+                        message: `Your ${order.network} ${order.size} data order has failed. Please contact support. Phone: ${order.phone_number}`,
                         type: "order_update" as NotificationType,
                         reference_id: order.id,
                         action_url: `/dashboard/my-orders`,
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
           // Get shop order details to send notifications
           const { data: shopOrderDetails, error: ordersError } = await supabase
             .from("shop_orders")
-            .select("id, user_id, network, volume_gb")
+            .select("id, user_id, network, volume_gb, phone_number")
             .in("id", shopOrderIds)
 
           if (!ordersError && shopOrderDetails) {
@@ -211,7 +211,7 @@ export async function POST(request: NextRequest) {
                       {
                         user_id: order.user_id,
                         title: notificationData.title,
-                        message: `Your ${order.network} ${order.volume_gb}GB data order has been completed.`,
+                        message: `Your ${order.network} ${order.volume_gb}GB data order has been completed. Phone: ${order.phone_number}`,
                         type: notificationData.type,
                         reference_id: order.id,
                         action_url: `/dashboard/my-orders`,
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
                       {
                         user_id: order.user_id,
                         title: "Order Failed",
-                        message: `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support.`,
+                        message: `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support. Phone: ${order.phone_number}`,
                         type: "order_update" as NotificationType,
                         reference_id: order.id,
                         action_url: `/dashboard/my-orders`,
