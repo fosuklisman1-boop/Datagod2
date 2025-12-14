@@ -139,8 +139,6 @@ export async function POST(request: NextRequest) {
         notificationType,
         {
           reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
-          amount: amount,
-          type: type,
         }
       )
 
