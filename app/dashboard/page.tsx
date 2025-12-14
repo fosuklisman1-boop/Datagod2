@@ -32,7 +32,7 @@ interface RecentActivity {
 export default function DashboardPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
-  const { showOnboarding, completeOnboarding, skipOnboarding, isLoading: onboardingLoading } = useOnboarding()
+  const { showOnboarding, completeOnboarding, isLoading: onboardingLoading } = useOnboarding()
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
