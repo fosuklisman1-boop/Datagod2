@@ -159,7 +159,7 @@ export function Sidebar() {
             {isOpen && (
               <div>
                 <h1 className="text-xl font-bold">DATAGOD</h1>
-                <p className="text-xs text-blue-100">Data Hub</p>
+                <p className="text-xs text-blue-100">{user?.email || "User"}</p>
               </div>
             )}
           </Link>
