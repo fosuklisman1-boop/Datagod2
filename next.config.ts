@@ -19,6 +19,15 @@ const nextConfig: NextConfig = {
   headers: async () => {
     return [
       {
+        source: "/favicon-v2.jpeg",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
         source: "/:path*",
         headers: [
           {
