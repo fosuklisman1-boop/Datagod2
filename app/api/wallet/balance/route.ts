@@ -44,9 +44,9 @@ export async function GET(request: NextRequest) {
 
     const userId = user.id
 
-    // Get wallet balance data from wallet_balance table
-    const { data: walletBalance, error: walletError } = await supabase
-      .from("wallet_balance")
+    // Get wallet balance data from wallet table
+    const { data: walletData, error: walletError } = await supabase
+      .from("wallet")
       .select("balance")
       .eq("user_id", userId)
       .maybeSingle()
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     }
 
     // If wallet doesn't exist, return 0
-    if (!walletBalance) {
+    if (!walletData) {
       return NextResponse.json({
         balance: 0,
         totalCredited: 0,
@@ -75,16 +75,16 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
 
-    const walletData: WalletData = {
-      balance: walletBalance.balance || 0,
+    const walletBalance: WalletData = {
+      balance: walletData.balance || 0,
       totalCredited: 0,
       totalDebited: 0,
       transactionCount: count || 0,
     }
 
-    console.log("[WALLET-BALANCE] User:", userId, "Wallet data:", walletData)
+    console.log("[WALLET-BALANCE] User:", userId, "Wallet data:", walletBalance)
 
-    return NextResponse.json(walletData)
+    return NextResponse.json(walletBalance)
   } catch (error) {
     console.error("Error fetching wallet balance:", error)
     return NextResponse.json(
