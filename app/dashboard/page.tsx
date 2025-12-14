@@ -170,18 +170,19 @@ export default function DashboardPage() {
 
   const fetchWalletBalance = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user?.id) return
-
-      const { data, error } = await supabase
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", user.id)
-        .single()
-
-      if (!error && data) {
-        setWalletBalance(data.balance || 0)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.error("No auth session")
+        return
       }
+
+      const response = await fetch("/api/wallet/balance", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+      const data = await response.json()
+      setWalletBalance(data.balance || 0)
     } catch (error) {
       console.error("Error fetching wallet balance:", error)
     }
