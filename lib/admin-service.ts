@@ -179,58 +179,51 @@ export const adminUserService = {
 
   // Update user balance (credit/debit)
   async updateUserBalance(shopId: string, amount: number, type: "credit" | "debit") {
-    if (type === "credit") {
-      const { data, error } = await supabase
-        .from("shop_profits")
-        .insert([{
-          shop_id: shopId,
-          shop_order_id: null,
-          profit_amount: amount,
-          status: "pending",
-        }])
+    try {
+      // Get the user_id from the shop
+      const { data: shop, error: shopError } = await supabase
+        .from("user_shops")
+        .select("user_id")
+        .eq("id", shopId)
+        .single()
+
+      if (shopError || !shop) {
+        throw new Error("Shop not found")
+      }
+
+      const userId = shop.user_id
+
+      // Get current wallet balance
+      const { data: wallet, error: walletError } = await supabase
+        .from("wallets")
+        .select("balance")
+        .eq("user_id", userId)
+        .single()
+
+      if (walletError || !wallet) {
+        throw new Error("Wallet not found for user")
+      }
+
+      const currentBalance = wallet.balance || 0
+      const newBalance = type === "credit" 
+        ? currentBalance + amount 
+        : Math.max(0, currentBalance - amount)
+
+      // Update wallet balance
+      const { data: updated, error: updateError } = await supabase
+        .from("wallets")
+        .update({ balance: newBalance })
+        .eq("user_id", userId)
         .select()
 
-      if (error) throw error
-      return data[0]
-    } else {
-      // For debit, update existing pending profits
-      const { data: profits } = await supabase
-        .from("shop_profits")
-        .select("id, profit_amount")
-        .eq("shop_id", shopId)
-        .eq("status", "pending")
-        .order("created_at", { ascending: true })
-
-      let remainingDebit = amount
-      const updates = []
-
-      for (const profit of profits || []) {
-        if (remainingDebit <= 0) break
-
-        if (profit.profit_amount <= remainingDebit) {
-          updates.push({
-            id: profit.id,
-            profit_amount: 0,
-            status: "withdrawn",
-          })
-          remainingDebit -= profit.profit_amount
-        } else {
-          updates.push({
-            id: profit.id,
-            profit_amount: profit.profit_amount - remainingDebit,
-          })
-          remainingDebit = 0
-        }
+      if (updateError) {
+        throw new Error(`Failed to update wallet: ${updateError.message}`)
       }
 
-      for (const update of updates) {
-        await supabase
-          .from("shop_profits")
-          .update(update)
-          .eq("id", update.id)
-      }
-
-      return { success: true, debited: amount - remainingDebit }
+      return updated[0]
+    } catch (error) {
+      console.error("Error in updateUserBalance:", error)
+      throw error
     }
   },
 
