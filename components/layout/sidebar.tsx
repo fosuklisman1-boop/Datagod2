@@ -18,7 +18,6 @@ import {
   AlertCircle,
   MessageCircle,
   LogOut,
-  Shield,
   Store,
   TrendingUp,
   Settings,
@@ -154,7 +153,7 @@ export function Sidebar() {
         <div className="p-6 border-b border-blue-500">
           <Link href="/dashboard" className="flex items-center gap-3">
             <div className="bg-white p-2 rounded-lg flex-shrink-0">
-              <Shield className="w-6 h-6 text-blue-600" />
+              <img src="/favicon.jpeg" alt="DATAGOD Logo" className="w-6 h-6" />
             </div>
             {isOpen && (
               <div>
