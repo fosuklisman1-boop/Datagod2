@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Shield, Package, Zap, Users, ArrowRight } from "lucide-react"
+import { Package, Zap, Users, ArrowRight } from "lucide-react"
 
 export default function HomePage() {
   return (
@@ -10,8 +10,8 @@ export default function HomePage() {
       {/* Navigation */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
         <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-br from-blue-600 to-purple-600 p-2 rounded-lg">
-            <Shield className="w-6 h-6 text-white" />
+          <div className="bg-white p-2 rounded-lg">
+            <img src="/favicon.jpeg" alt="DATAGOD Logo" className="w-6 h-6" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900">DATAGOD</h1>
         </div>

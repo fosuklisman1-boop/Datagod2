@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { Shield } from "lucide-react"
 import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
 
@@ -63,8 +62,8 @@ export default function LoginPage() {
       <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
         <CardHeader className="space-y-2 text-center">
           <div className="flex justify-center mb-4">
-            <div className="bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 p-3 rounded-lg shadow-lg">
-              <Shield className="w-8 h-8 text-white" />
+            <div className="bg-white p-3 rounded-lg shadow-lg">
+              <img src="/favicon.jpeg" alt="DATAGOD Logo" className="w-8 h-8" />
             </div>
           </div>
           <CardTitle className="text-3xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Welcome Back</CardTitle>

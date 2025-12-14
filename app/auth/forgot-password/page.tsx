@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Shield, ArrowLeft, Mail, MessageCircle } from "lucide-react"
+import { ArrowLeft, Mail, MessageCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { supportSettingsService } from "@/lib/support-settings-service"
 
@@ -42,8 +42,8 @@ export default function ForgotPasswordPage() {
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-4">
-            <div className="bg-indigo-100 p-3 rounded-full">
-              <Shield className="w-6 h-6 text-indigo-600" />
+            <div className="bg-white p-3 rounded-full">
+              <img src="/favicon.jpeg" alt="DATAGOD Logo" className="w-6 h-6" />
             </div>
           </div>
           <CardTitle>Password Reset</CardTitle>
