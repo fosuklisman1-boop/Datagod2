@@ -154,7 +154,7 @@ export function Sidebar() {
         <div className="p-6 border-b border-blue-500">
           <Link href="/dashboard" className="flex items-center gap-3">
             <div className="bg-white p-2 rounded-lg flex-shrink-0">
-              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-full h-full rounded-lg object-cover" />
+              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6 rounded-lg object-cover" />
             </div>
             {isOpen && (
               <div>
