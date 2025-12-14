@@ -60,10 +60,26 @@ export async function POST(request: NextRequest) {
       ? currentBalance + amount 
       : Math.max(0, currentBalance - amount)
 
-    // Update wallet balance
+    // Calculate updated total_credited and total_spent
+    const currentTotalCredited = wallet.total_credited || 0
+    const currentTotalSpent = wallet.total_spent || 0
+    
+    const newTotalCredited = type === "credit" 
+      ? currentTotalCredited + amount 
+      : currentTotalCredited
+    
+    const newTotalSpent = type === "debit" 
+      ? currentTotalSpent + amount 
+      : currentTotalSpent
+
+    // Update wallet balance and totals
     const { data: updated, error: updateError } = await supabase
       .from("wallets")
-      .update({ balance: newBalance })
+      .update({ 
+        balance: newBalance,
+        total_credited: newTotalCredited,
+        total_spent: newTotalSpent,
+      })
       .eq("user_id", userId)
       .select()
 
