@@ -33,8 +33,8 @@ export function useTourSpotlight(): UseTourSpotlightReturn {
     setSpotlight({
       element,
       position: {
-        top: rect.top + window.scrollY,
-        left: rect.left + window.scrollX,
+        top: rect.top,
+        left: rect.left,
         width: rect.width,
         height: rect.height,
       },
@@ -59,8 +59,8 @@ export function useTourSpotlight(): UseTourSpotlightReturn {
           ? {
               ...prev,
               position: {
-                top: rect.top + window.scrollY,
-                left: rect.left + window.scrollX,
+                top: rect.top,
+                left: rect.left,
                 width: rect.width,
                 height: rect.height,
               },
