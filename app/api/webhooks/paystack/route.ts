@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
-import { notificationService, notificationTemplates } from "@/lib/notification-service"
+import { notificationTemplates } from "@/lib/notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -321,16 +321,27 @@ export async function POST(request: NextRequest) {
 
         console.log(`[WEBHOOK] ✓ Wallet credited for user ${paymentData.user_id}: GHS ${creditAmount.toFixed(2)} (after GHS ${feeAmount.toFixed(2)} fee)`)
         
-        // Send notification to user about wallet top-up
+        // Send notification to user about wallet top-up via admin API endpoint
         try {
           const notificationData = notificationTemplates.balanceUpdated(newBalance)
-          await notificationService.createNotification(
-            paymentData.user_id,
-            notificationData.title,
-            `${notificationData.message} Credited amount: GHS ${creditAmount.toFixed(2)}.`,
-            notificationData.type
-          )
-          console.log(`[NOTIFICATION] Wallet top-up notification sent to user ${paymentData.user_id}`)
+          const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: paymentData.user_id,
+              title: notificationData.title,
+              message: `${notificationData.message} Credited amount: GHS ${creditAmount.toFixed(2)}.`,
+              type: notificationData.type,
+              reference_id: `PAYSTACK_${paymentData.reference}`,
+              action_url: "/dashboard/wallet",
+            }),
+          })
+          if (notifResponse.ok) {
+            console.log(`[NOTIFICATION] Wallet top-up notification sent to user ${paymentData.user_id}`)
+          } else {
+            const errorData = await notifResponse.json()
+            console.warn("[NOTIFICATION] Failed to send wallet top-up notification:", errorData.error)
+          }
         } catch (notifError) {
           console.warn("[NOTIFICATION] Failed to send wallet top-up notification:", notifError)
           // Don't fail the webhook if notification fails

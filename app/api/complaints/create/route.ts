@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { notificationService, notificationTemplates } from "@/lib/notification-service"
+import { notificationTemplates } from "@/lib/notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -160,17 +160,24 @@ export async function POST(request: NextRequest) {
     try {
       const complaintTitle = `Data Issue - ${orderDetails.networkName} ${orderDetails.packageName}`
       const notificationData = notificationTemplates.complaintSubmitted(complaint[0].id, complaintTitle)
-      await notificationService.createNotification(
-        userId,
-        notificationData.title,
-        notificationData.message,
-        notificationData.type,
-        {
+      const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          title: notificationData.title,
+          message: notificationData.message,
+          type: notificationData.type,
           reference_id: notificationData.reference_id,
           action_url: `/dashboard/complaints?id=${complaint[0].id}`,
-        }
-      )
-      console.log("[NOTIFICATION] Complaint submitted notification sent to user", userId)
+        }),
+      })
+      if (notifResponse.ok) {
+        console.log("[NOTIFICATION] Complaint submitted notification sent to user", userId)
+      } else {
+        const errorData = await notifResponse.json()
+        console.warn("[NOTIFICATION] Failed to send complaint submitted notification:", errorData.error)
+      }
     } catch (notifError) {
       console.warn("[NOTIFICATION] Failed to send complaint submitted notification:", notifError)
       // Don't fail the complaint creation if notification fails
