@@ -13,6 +13,10 @@ export const metadata: Metadata = {
   title: "DATAGOD - Affordable Data Packages & Services",
   description: "Buy affordable data packages from multiple networks with instant delivery. Shop data bundles from MTN, Telecel, AT, and more with 24/7 support.",
   keywords: ["data packages", "mobile data", "bundles", "MTN", "Telecel", "airtime", "Ghana"],
+  icons: {
+    icon: "/favicon.jpeg",
+    apple: "/favicon.jpeg",
+  },
   metadataBase: new URL("https://datagod.com"),
   robots: {
     index: true,
