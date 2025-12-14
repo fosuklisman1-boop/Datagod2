@@ -86,10 +86,10 @@ export async function POST(request: NextRequest) {
     // Calculate total cost
     const totalCost = orders.reduce((sum: number, order: BulkOrderData) => sum + order.price, 0)
 
-    // Deduct from wallet - get current balance first
+    // Deduct from wallet - get current balance and totals first
     const { data: walletData, error: walletFetchError } = await supabase
       .from("wallets")
-      .select("balance")
+      .select("balance, total_spent")
       .eq("user_id", userId)
       .single()
 
@@ -102,12 +102,15 @@ export async function POST(request: NextRequest) {
     }
 
     const currentBalance = walletData.balance || 0
+    const currentTotalSpent = walletData.total_spent || 0
     const newBalance = Math.max(0, currentBalance - totalCost)
+    const newTotalSpent = currentTotalSpent + totalCost
 
     const { error: updateError } = await supabase
       .from("wallets")
       .update({
-        balance: newBalance
+        balance: newBalance,
+        total_spent: newTotalSpent,
       })
       .eq("user_id", userId)
 
