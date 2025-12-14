@@ -1,6 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
-import { notificationService, notificationTemplates } from "@/lib/notification-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -120,7 +119,7 @@ export async function POST(request: NextRequest) {
       console.log(`[ADMIN] Transaction record created for ${transactionType} of GHS ${amount.toFixed(2)}`)
     }
 
-    // Send notification to user about the balance update
+    // Send notification to user about the balance update via admin API endpoint
     try {
       const notificationTitle = type === "credit" 
         ? "Wallet Credited"
@@ -132,18 +131,22 @@ export async function POST(request: NextRequest) {
       
       const notificationType: "balance_updated" | "admin_action" = "balance_updated"
 
-      const { error: notifError } = await notificationService.createNotification(
-        userId,
-        notificationTitle,
-        notificationMessage,
-        notificationType,
-        {
+      const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          title: notificationTitle,
+          message: notificationMessage,
+          type: notificationType,
           reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
-        }
-      )
+          action_url: "/dashboard/wallet",
+        }),
+      })
 
-      if (notifError) {
-        console.warn("[NOTIFICATION] Failed to send balance update notification:", notifError)
+      if (!notifResponse.ok) {
+        const errorData = await notifResponse.json()
+        console.warn("[NOTIFICATION] Failed to send balance update notification:", errorData.error)
         // Don't fail the operation if notification fails
       } else {
         console.log(`[NOTIFICATION] Balance update notification sent to user ${userId}`)

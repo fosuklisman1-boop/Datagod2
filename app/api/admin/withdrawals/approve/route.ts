@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { notificationService, notificationTemplates } from "@/lib/notification-service"
+import { notificationTemplates } from "@/lib/notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[WITHDRAWAL-APPROVE] Withdrawal ${withdrawalId} approved - Amount: GHS ${withdrawal.amount}`)
 
-    // Send notification to shop owner
+    // Send notification to shop owner via admin API endpoint
     try {
       // Get shop owner user_id
       const { data: shop, error: shopError } = await supabase
@@ -63,17 +63,24 @@ export async function POST(request: NextRequest) {
 
       if (!shopError && shop) {
         const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawalId)
-        await notificationService.createNotification(
-          shop.user_id,
-          notificationData.title,
-          notificationData.message,
-          notificationData.type,
-          {
+        const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: shop.user_id,
+            title: notificationData.title,
+            message: notificationData.message,
+            type: notificationData.type,
             reference_id: notificationData.reference_id,
             action_url: `/dashboard/shop-dashboard`,
-          }
-        )
-        console.log(`[NOTIFICATION] Withdrawal approval notification sent to user ${shop.user_id}`)
+          }),
+        })
+        if (notifResponse.ok) {
+          console.log(`[NOTIFICATION] Withdrawal approval notification sent to user ${shop.user_id}`)
+        } else {
+          const errorData = await notifResponse.json()
+          console.warn("[NOTIFICATION] Failed to send notification:", errorData.error)
+        }
       }
     } catch (notifError) {
       console.warn("[NOTIFICATION] Failed to send notification:", notifError)
