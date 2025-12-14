@@ -72,12 +72,9 @@ export async function POST(request: NextRequest) {
                 title: notificationData.title,
                 message: notificationData.message,
                 type: notificationData.type,
-                metadata: {
-                  reference_id: notificationData.reference_id,
-                  action_url: `/dashboard/shop-dashboard`,
-                },
-                is_read: false,
-                created_at: new Date().toISOString(),
+                reference_id: notificationData.reference_id,
+                action_url: `/dashboard/shop-dashboard`,
+                read: false,
               },
             ])
           if (notifError) {

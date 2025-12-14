@@ -139,12 +139,9 @@ export async function POST(request: NextRequest) {
             title: notificationTitle,
             message: notificationMessage,
             type: notificationType,
-            metadata: {
-              reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
-              action_url: "/dashboard/wallet",
-            },
-            is_read: false,
-            created_at: new Date().toISOString(),
+            reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
+            action_url: "/dashboard/wallet",
+            read: false,
           },
         ])
 

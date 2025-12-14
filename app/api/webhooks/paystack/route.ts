@@ -332,12 +332,9 @@ export async function POST(request: NextRequest) {
                 title: notificationData.title,
                 message: `${notificationData.message} Credited amount: GHS ${creditAmount.toFixed(2)}.`,
                 type: notificationData.type,
-                metadata: {
-                  reference_id: `PAYSTACK_${paymentData.reference}`,
-                  action_url: "/dashboard/wallet",
-                },
-                is_read: false,
-                created_at: new Date().toISOString(),
+                reference_id: `PAYSTACK_${paymentData.reference}`,
+                action_url: "/dashboard/wallet",
+                read: false,
               },
             ])
           if (notifError) {

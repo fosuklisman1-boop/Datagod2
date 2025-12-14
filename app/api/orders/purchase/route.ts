@@ -140,12 +140,9 @@ export async function POST(request: NextRequest) {
             title: notificationData.title,
             message: `${notificationData.message} Order: ${network} - ${size}GB. Order Code: ${order[0].order_code}`,
             type: notificationData.type,
-            metadata: {
-              reference_id: notificationData.reference_id,
-              action_url: `/dashboard/my-orders?orderId=${order[0].id}`,
-            },
-            is_read: false,
-            created_at: new Date().toISOString(),
+            reference_id: notificationData.reference_id,
+            action_url: `/dashboard/my-orders?orderId=${order[0].id}`,
+            read: false,
           },
         ])
       if (notifError) {

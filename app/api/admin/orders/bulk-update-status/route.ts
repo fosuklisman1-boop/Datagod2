@@ -96,12 +96,9 @@ export async function POST(request: NextRequest) {
                         title: notificationData.title,
                         message: `Your ${order.network} ${order.size} data order has been completed.`,
                         type: notificationData.type,
-                        metadata: {
-                          reference_id: order.id,
-                          action_url: `/dashboard/my-orders`,
-                        },
-                        is_read: false,
-                        created_at: new Date().toISOString(),
+                        reference_id: order.id,
+                        action_url: `/dashboard/my-orders`,
+                        read: false,
                       },
                     ])
                   if (notifError) {
@@ -116,12 +113,9 @@ export async function POST(request: NextRequest) {
                         title: "Order Failed",
                         message: `Your ${order.network} ${order.size} data order has failed. Please contact support.`,
                         type: "order_update" as NotificationType,
-                        metadata: {
-                          reference_id: order.id,
-                          action_url: `/dashboard/my-orders`,
-                        },
-                        is_read: false,
-                        created_at: new Date().toISOString(),
+                        reference_id: order.id,
+                        action_url: `/dashboard/my-orders`,
+                        read: false,
                       },
                     ])
                   if (notifError) {
@@ -219,12 +213,9 @@ export async function POST(request: NextRequest) {
                         title: notificationData.title,
                         message: `Your ${order.network} ${order.volume_gb}GB data order has been completed.`,
                         type: notificationData.type,
-                        metadata: {
-                          reference_id: order.id,
-                          action_url: `/dashboard/my-orders`,
-                        },
-                        is_read: false,
-                        created_at: new Date().toISOString(),
+                        reference_id: order.id,
+                        action_url: `/dashboard/my-orders`,
+                        read: false,
                       },
                     ])
                   if (notifError) {
@@ -239,12 +230,9 @@ export async function POST(request: NextRequest) {
                         title: "Order Failed",
                         message: `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support.`,
                         type: "order_update" as NotificationType,
-                        metadata: {
-                          reference_id: order.id,
-                          action_url: `/dashboard/my-orders`,
-                        },
-                        is_read: false,
-                        created_at: new Date().toISOString(),
+                        reference_id: order.id,
+                        action_url: `/dashboard/my-orders`,
+                        read: false,
                       },
                     ])
                   if (notifError) {
