@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { useAuth } from "@/hooks/use-auth"
+import { useOnboarding } from "@/hooks/use-onboarding"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { OnboardingModal } from "@/components/onboarding/onboarding-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2 } from "lucide-react"
@@ -30,6 +32,7 @@ interface RecentActivity {
 export default function DashboardPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const { showOnboarding, completeOnboarding, skipOnboarding, isLoading: onboardingLoading } = useOnboarding()
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
@@ -201,6 +204,11 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
+      <OnboardingModal 
+        open={showOnboarding && !onboardingLoading}
+        onComplete={completeOnboarding}
+        onSkip={skipOnboarding}
+      />
       <div className="space-y-6">
         {/* Greeting Card */}
         <Card className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 border-0 hover:shadow-2xl transition-all duration-300 text-white">
