@@ -114,10 +114,9 @@ export async function POST(request: NextRequest) {
 
     if (transactionError) {
       console.error("Error creating transaction record:", transactionError)
-      return NextResponse.json(
-        { error: `Failed to create transaction record: ${transactionError.message}` },
-        { status: 400 }
-      )
+      // Log but don't fail - wallet was already updated successfully
+    } else {
+      console.log(`[ADMIN] Transaction record created for ${transactionType} of GHS ${amount.toFixed(2)}`)
     }
 
     return NextResponse.json({
