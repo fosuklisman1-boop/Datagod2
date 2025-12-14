@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { type NotificationType } from "@/lib/notification-service"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -38,6 +39,60 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[SHOP-ORDERS-UPDATE] ✓ Updated ${orderIds.length} shop orders to status: ${status}`)
+
+    // Send notifications to users about their order status change
+    try {
+      const { data: shopOrders, error: ordersError } = await supabase
+        .from("shop_orders")
+        .select("id, user_id, network, volume_gb, phone_number")
+        .in("id", orderIds)
+
+      if (!ordersError && shopOrders) {
+        for (const order of shopOrders) {
+          try {
+            let title = "Order Updated"
+            let message = ""
+
+            if (status === "completed") {
+              title = "Order Completed"
+              message = `Your ${order.network} ${order.volume_gb}GB data order has been completed. Phone: ${order.phone_number}`
+            } else if (status === "processing") {
+              title = "Order Processing"
+              message = `Your ${order.network} ${order.volume_gb}GB data order is now being processed. Phone: ${order.phone_number}`
+            } else if (status === "failed") {
+              title = "Order Failed"
+              message = `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support. Phone: ${order.phone_number}`
+            } else {
+              title = "Order Status Updated"
+              message = `Your order status has been updated to: ${status}. Phone: ${order.phone_number}`
+            }
+
+            const { error: notifError } = await supabase
+              .from("notifications")
+              .insert([
+                {
+                  user_id: order.user_id,
+                  title,
+                  message,
+                  type: "order_update" as NotificationType,
+                  reference_id: order.id,
+                  action_url: `/dashboard/shop-orders`,
+                  read: false,
+                },
+              ])
+
+            if (notifError) {
+              console.warn(`[SHOP-ORDERS-UPDATE] Failed to send notification for order ${order.id}:`, notifError)
+            }
+          } catch (notifError) {
+            console.warn(`[SHOP-ORDERS-UPDATE] Error sending notification for order ${order.id}:`, notifError)
+          }
+        }
+        console.log(`[SHOP-ORDERS-UPDATE] ✓ Sent ${shopOrders.length} status notifications`)
+      }
+    } catch (notifError) {
+      console.warn("[SHOP-ORDERS-UPDATE] Error sending notifications:", notifError)
+    }
 
     // If status is "completed", credit the associated profits
     if (status === "completed") {
