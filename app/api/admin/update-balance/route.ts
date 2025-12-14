@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
         ? `Your wallet has been credited with GHS ${amount.toFixed(2)} by admin. New balance: GHS ${newBalance.toFixed(2)}`
         : `Your wallet has been debited by GHS ${amount.toFixed(2)} by admin. New balance: GHS ${newBalance.toFixed(2)}`
       
-      const notificationType = type === "credit" ? "wallet_credited" : "wallet_debited"
+      const notificationType: "balance_updated" | "admin_action" = "balance_updated"
 
       const { error: notifError } = await notificationService.createNotification(
         userId,
