@@ -338,7 +338,7 @@ export default function ShopStorefront() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
         <div className="text-center">
-          <Store className="w-12 h-12 mx-auto text-gray-400 mb-2" />
+          <img src="/favicon_custom.ico" alt="DATAGOD Logo" className="w-12 h-12 mx-auto mb-2" />
           <p className="text-gray-600">Loading store...</p>
         </div>
       </div>
