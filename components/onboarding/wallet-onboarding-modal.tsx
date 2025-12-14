@@ -68,6 +68,8 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
 
   const handleComplete = () => {
     clearSpotlight()
+    setShowTour(false)
+    setCurrentStep(0)
     onComplete()
   }
 

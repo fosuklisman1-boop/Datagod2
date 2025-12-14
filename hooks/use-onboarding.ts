@@ -2,13 +2,11 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "./use-auth"
-import { supabase } from "@/lib/supabase"
 
 interface UseOnboardingReturn {
   showOnboarding: boolean
   isLoading: boolean
   completeOnboarding: () => Promise<void>
-  skipOnboarding: () => Promise<void>
   error: string | null
 }
 
@@ -34,26 +32,17 @@ export function useOnboarding(): UseOnboardingReturn {
       try {
         setIsLoading(true)
 
-        // Fetch user's onboarding status
-        const { data, error: fetchError } = await supabase
-          .from("users")
-          .select("onboarding_completed")
-          .eq("id", user.id)
-          .single()
+        // Check if wallet balance is 0 (new user or needs to fund)
+        const response = await fetch("/api/wallet/balance")
+        const data = await response.json()
 
-        if (fetchError) {
-          console.error("Error fetching onboarding status:", fetchError)
-          setError(fetchError.message)
-          setIsLoading(false)
-          return
-        }
-
-        // Show onboarding if not completed
-        setShowOnboarding(!data?.onboarding_completed)
+        // Show onboarding if wallet balance is 0 or doesn't exist
+        setShowOnboarding(!data.wallet || data.wallet.balance === 0)
         setIsLoading(false)
       } catch (err: any) {
         console.error("Error checking onboarding:", err)
-        setError(err?.message || "Failed to check onboarding status")
+        // Default to showing onboarding if we can't check
+        setShowOnboarding(true)
         setIsLoading(false)
       }
     }
@@ -62,44 +51,15 @@ export function useOnboarding(): UseOnboardingReturn {
   }, [user, authLoading])
 
   const completeOnboarding = async () => {
-    if (!user) return
-
-    try {
-      setIsLoading(true)
-      
-      // Call API to mark onboarding as complete
-      const response = await fetch("/api/user/complete-onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
-      })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Failed to complete onboarding")
-      }
-
-      // Update local state
-      setShowOnboarding(false)
-      setIsLoading(false)
-    } catch (err: any) {
-      console.error("Error completing onboarding:", err)
-      setError(err?.message || "Failed to complete onboarding")
-      setIsLoading(false)
-      throw err
-    }
-  }
-
-  const skipOnboarding = async () => {
-    // Skip = complete onboarding
-    return completeOnboarding()
+    // Just close the modal - no database update
+    // This way it shows again on next login
+    setShowOnboarding(false)
   }
 
   return {
     showOnboarding,
     isLoading,
     completeOnboarding,
-    skipOnboarding,
     error,
   }
 }
