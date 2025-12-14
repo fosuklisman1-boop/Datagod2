@@ -8,18 +8,25 @@ import { ChevronRight, X, Wallet } from "lucide-react"
 import { TourOverlay } from "./tour-overlay"
 import { useTourSpotlight } from "@/hooks/use-tour-spotlight"
 
-const TOUR_STEPS = [
+interface TourStep {
+  selector: string | null
+  title: string
+  message: string
+  direction: "top" | "bottom" | "left" | "right"
+}
+
+const TOUR_STEPS: TourStep[] = [
   {
-    selector: '[data-tour="wallet-balance"]',
+    selector: null,
     title: "Your Wallet Balance",
     message: "👈 This shows your available balance. You'll use this to buy data packages. Currently, it's empty.",
-    direction: "bottom" as const,
+    direction: "bottom",
   },
   {
     selector: '[data-tour="wallet-topup"]',
     title: "Top Up Your Wallet",
     message: "👈 Click here to add funds to your wallet. You can use different payment methods like Paystack, MTN Mobile Money, etc.",
-    direction: "bottom" as const,
+    direction: "bottom",
   },
 ]
 
@@ -36,13 +43,18 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
   useEffect(() => {
     if (showTour && currentStep < TOUR_STEPS.length) {
       const timer = setTimeout(() => {
-        highlightElement(TOUR_STEPS[currentStep].selector)
+        const step = TOUR_STEPS[currentStep]
+        if (step.selector) {
+          highlightElement(step.selector)
+        } else {
+          clearSpotlight()
+        }
       }, 500)
       return () => clearTimeout(timer)
     } else if (!showTour) {
       clearSpotlight()
     }
-  }, [showTour, currentStep])
+  }, [showTour, currentStep, highlightElement, clearSpotlight])
 
   const handleStartTour = () => {
     setShowTour(true)
