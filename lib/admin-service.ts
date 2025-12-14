@@ -180,71 +180,29 @@ export const adminUserService = {
   // Update user balance (credit/debit)
   async updateUserBalance(shopId: string, amount: number, type: "credit" | "debit") {
     try {
-      // Get the user_id from the shop
-      const { data: shop, error: shopError } = await supabase
-        .from("user_shops")
-        .select("user_id")
-        .eq("id", shopId)
-        .single()
-
-      if (shopError || !shop) {
-        throw new Error("Shop not found")
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
       }
 
-      const userId = shop.user_id
+      const response = await fetch("/api/admin/update-balance", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ shopId, amount, type }),
+      })
 
-      // Get current wallet balance
-      const { data: wallet, error: walletError } = await supabase
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", userId)
-        .single()
+      const data = await response.json()
 
-      if (walletError || !wallet) {
-        throw new Error("Wallet not found for user")
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update balance")
       }
 
-      const currentBalance = wallet.balance || 0
-      const newBalance = type === "credit" 
-        ? currentBalance + amount 
-        : Math.max(0, currentBalance - amount)
-
-      // Update wallet balance
-      const { data: updated, error: updateError } = await supabase
-        .from("wallets")
-        .update({ balance: newBalance })
-        .eq("user_id", userId)
-        .select()
-
-      if (updateError) {
-        throw new Error(`Failed to update wallet: ${updateError.message}`)
-      }
-
-      // Create transaction history record
-      const transactionType = type === "credit" ? "admin_credit" : "admin_debit"
-      const description = type === "credit" 
-        ? `Admin credited GHS ${amount.toFixed(2)}` 
-        : `Admin debited GHS ${amount.toFixed(2)}`
-
-      const { error: transactionError } = await supabase
-        .from("transactions")
-        .insert([{
-          user_id: userId,
-          amount: amount,
-          type: transactionType,
-          status: "completed",
-          description: description,
-          reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
-          payment_method: "admin",
-        }])
-
-      if (transactionError) {
-        console.error("Error creating transaction record:", transactionError)
-        // Don't throw - the balance update succeeded, transaction logging is optional
-      }
-
-      return updated[0]
-    } catch (error) {
+      return data.data
+    } catch (error: any) {
       console.error("Error in updateUserBalance:", error)
       throw error
     }
