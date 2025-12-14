@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     // Get wallet balance data from wallets table
     const { data: walletData, error: walletError } = await supabase
       .from("wallets")
-      .select("balance")
+      .select("balance, total_credited, total_spent")
       .eq("user_id", userId)
       .maybeSingle()
 
@@ -60,13 +60,15 @@ export async function GET(request: NextRequest) {
     }
 
     const balance = walletData?.balance || 0
+    const totalCredited = walletData?.total_credited || 0
+    const totalDebited = walletData?.total_spent || 0
 
-    console.log("[WALLET-BALANCE] User:", userId, "Balance:", balance)
+    console.log("[WALLET-BALANCE] User:", userId, "Balance:", balance, "Credited:", totalCredited, "Spent:", totalDebited)
 
     return NextResponse.json({
       balance,
-      totalCredited: 0,
-      totalDebited: 0,
+      totalCredited,
+      totalDebited,
       transactionCount: 0,
     })
   } catch (error) {
