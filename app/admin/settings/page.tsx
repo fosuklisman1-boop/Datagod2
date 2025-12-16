@@ -472,6 +472,26 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
             </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save Settings
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
