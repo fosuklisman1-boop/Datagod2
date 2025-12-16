@@ -107,6 +107,11 @@ export default function ShopDashboardPage() {
       return
     }
 
+    if (amount < 5) {
+      toast.error("Minimum withdrawal amount is GHS 5.00")
+      return
+    }
+
     if (amount > balance) {
       toast.error("Insufficient balance")
       return
@@ -306,11 +311,12 @@ export default function ShopDashboardPage() {
                   value={withdrawalForm.amount}
                   onChange={(e) => setWithdrawalForm({ ...withdrawalForm, amount: e.target.value })}
                   placeholder="0.00"
+                  min="5"
                   max={balance}
                   className="mt-1"
                 />
                 <p className="text-xs text-gray-600 mt-1">
-                  Available: GHS {balance.toFixed(2)}
+                  Available: GHS {balance.toFixed(2)} | Minimum: GHS 5.00
                 </p>
               </div>
 

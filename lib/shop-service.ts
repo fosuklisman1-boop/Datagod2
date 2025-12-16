@@ -459,6 +459,11 @@ export const withdrawalService = {
       throw new Error("Invalid withdrawal amount")
     }
 
+    // Validate minimum withdrawal amount
+    if (withdrawalData.amount < 5) {
+      throw new Error("Minimum withdrawal amount is GHS 5.00")
+    }
+
     // Check if there's already a pending withdrawal request
     try {
       const { data: pendingRequests, error: pendingError } = await supabase
