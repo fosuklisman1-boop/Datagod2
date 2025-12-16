@@ -39,14 +39,19 @@ export async function POST(request: NextRequest) {
     // Generate unique reference
     const reference = `WALLET-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
 
-    // Calculate 3% Paystack fee
-    const paystackFeePercentage = 0.03
+    // Get current fee settings from app_settings
+    const { data: settings, error: settingsError } = await supabase
+      .from("app_settings")
+      .select("paystack_fee_percentage")
+      .single()
+
+    const paystackFeePercentage = (settings?.paystack_fee_percentage || 3.0) / 100
     const paystackFee = Math.round(amount * paystackFeePercentage * 100) / 100
     const totalAmount = amount + paystackFee
 
     console.log("[PAYMENT-INIT] Fee Calculation:")
     console.log("  Original Amount:", amount)
-    console.log("  Paystack Fee (3%):", paystackFee)
+    console.log(`  Paystack Fee (${paystackFeePercentage * 100}%):`, paystackFee)
     console.log("  Total Amount:", totalAmount)
 
     // Store payment record with total amount (including fee)

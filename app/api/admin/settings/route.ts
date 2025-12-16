@@ -26,7 +26,9 @@ export async function GET(request: NextRequest) {
           join_community_link: "",
           announcement_enabled: false,
           announcement_title: "",
-          announcement_message: ""
+          announcement_message: "",
+          paystack_fee_percentage: 3.0,
+          wallet_topup_fee_percentage: 0
         }])
         .select()
         .single()
@@ -37,6 +39,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           id: null,
           join_community_link: "",
+          paystack_fee_percentage: 3.0,
+          wallet_topup_fee_percentage: 0,
           created_at: null,
           updated_at: null,
         })
@@ -92,12 +96,29 @@ export async function PUT(request: NextRequest) {
       join_community_link, 
       announcement_enabled, 
       announcement_title, 
-      announcement_message 
+      announcement_message,
+      paystack_fee_percentage,
+      wallet_topup_fee_percentage
     } = body
 
     if (!join_community_link) {
       return NextResponse.json(
         { error: "join_community_link is required" },
+        { status: 400 }
+      )
+    }
+
+    // Validate fee percentages
+    if (paystack_fee_percentage !== undefined && (paystack_fee_percentage < 0 || paystack_fee_percentage > 100)) {
+      return NextResponse.json(
+        { error: "paystack_fee_percentage must be between 0 and 100" },
+        { status: 400 }
+      )
+    }
+
+    if (wallet_topup_fee_percentage !== undefined && (wallet_topup_fee_percentage < 0 || wallet_topup_fee_percentage > 100)) {
+      return NextResponse.json(
+        { error: "wallet_topup_fee_percentage must be between 0 and 100" },
         { status: 400 }
       )
     }
@@ -129,6 +150,8 @@ export async function PUT(request: NextRequest) {
           announcement_enabled: announcement_enabled ?? false,
           announcement_title: announcement_title ?? "",
           announcement_message: announcement_message ?? "",
+          paystack_fee_percentage: paystack_fee_percentage ?? 3.0,
+          wallet_topup_fee_percentage: wallet_topup_fee_percentage ?? 0,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingSettings.id)
@@ -150,6 +173,8 @@ export async function PUT(request: NextRequest) {
             announcement_enabled: announcement_enabled ?? false,
             announcement_title: announcement_title ?? "",
             announcement_message: announcement_message ?? "",
+            paystack_fee_percentage: paystack_fee_percentage ?? 3.0,
+            wallet_topup_fee_percentage: wallet_topup_fee_percentage ?? 0,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },
