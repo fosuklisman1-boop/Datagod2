@@ -175,7 +175,8 @@ export default function ShopDashboardPage() {
       setWithdrawals(updated || [])
     } catch (error) {
       console.error("Error creating withdrawal:", error)
-      toast.error("Failed to create withdrawal request")
+      const errorMessage = error instanceof Error ? error.message : "Failed to create withdrawal request"
+      toast.error(errorMessage)
     } finally {
       setIsSubmitting(false)
     }
