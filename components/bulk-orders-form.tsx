@@ -94,7 +94,8 @@ export function BulkOrdersForm() {
       }
     } catch (error) {
       console.error("Error loading packages from database:", error)
-      toast.error("Failed to load packages from database")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load packages from database"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

@@ -75,7 +75,8 @@ export default function AdminPackagesPage() {
       setPackages(data || [])
     } catch (error) {
       console.error("Error loading packages:", error)
-      toast.error("Failed to load packages")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load packages"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

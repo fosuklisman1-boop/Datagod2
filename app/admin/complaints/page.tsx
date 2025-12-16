@@ -112,7 +112,8 @@ export default function AdminComplaintsPage() {
       setComplaints(data || [])
     } catch (error) {
       console.error("Error loading complaints:", error)
-      toast.error("Failed to load complaints")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load complaints"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -176,7 +177,8 @@ export default function AdminComplaintsPage() {
       toast.success("Complaint resolved successfully")
     } catch (error) {
       console.error("Error resolving complaint:", error)
-      toast.error("Failed to resolve complaint")
+      const errorMessage = error instanceof Error ? error.message : "Failed to resolve complaint"
+      toast.error(errorMessage)
     } finally {
       setResolvingId(null)
     }
@@ -227,7 +229,8 @@ export default function AdminComplaintsPage() {
       toast.success("Complaint rejected")
     } catch (error) {
       console.error("Error rejecting complaint:", error)
-      toast.error("Failed to reject complaint")
+      const errorMessage = error instanceof Error ? error.message : "Failed to reject complaint"
+      toast.error(errorMessage)
     } finally {
       setResolvingId(null)
     }

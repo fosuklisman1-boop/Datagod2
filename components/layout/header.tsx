@@ -42,7 +42,8 @@ export function Header() {
       toast.success("Logged out successfully")
     } catch (error) {
       console.error("Logout error:", error)
-      toast.error("Failed to logout")
+      const errorMessage = error instanceof Error ? error.message : "Failed to logout"
+      toast.error(errorMessage)
     }
   }
 

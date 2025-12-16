@@ -41,7 +41,8 @@ export default function AdminDashboardPage() {
       setStats(dashboardStats)
     } catch (error) {
       console.error("Error loading stats:", error)
-      toast.error("Failed to load dashboard stats")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load dashboard stats"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

@@ -81,7 +81,8 @@ export default function AdminOrdersPage() {
       console.log('[ADMIN-ORDERS] Updated localStorage with admin pending count:', ordersData.length)
     } catch (error) {
       console.error("Error loading pending orders:", error)
-      toast.error("Failed to load pending orders")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load pending orders"
+      toast.error(errorMessage)
     } finally {
       setLoadingPending(false)
     }

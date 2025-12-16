@@ -112,7 +112,8 @@ export default function MyOrdersPage() {
       }
     } catch (error) {
       console.error("Error fetching orders data:", error)
-      toast.error("Failed to load orders")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load orders"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

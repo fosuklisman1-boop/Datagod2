@@ -77,7 +77,8 @@ export default function AdminUsersPage() {
       setUsers(data || [])
     } catch (error) {
       console.error("Error loading users:", error)
-      toast.error("Failed to load users")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load users"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -221,7 +222,8 @@ export default function AdminUsersPage() {
       toast.success("Emails downloaded successfully")
     } catch (error) {
       console.error("Error downloading emails:", error)
-      toast.error("Failed to download emails")
+      const errorMessage = error instanceof Error ? error.message : "Failed to download emails"
+      toast.error(errorMessage)
     }
   }
 
@@ -234,7 +236,8 @@ export default function AdminUsersPage() {
       toast.success("Phone numbers downloaded successfully")
     } catch (error) {
       console.error("Error downloading phone numbers:", error)
-      toast.error("Failed to download phone numbers")
+      const errorMessage = error instanceof Error ? error.message : "Failed to download phone numbers"
+      toast.error(errorMessage)
     }
   }
 
@@ -255,7 +258,8 @@ export default function AdminUsersPage() {
       toast.success("User data downloaded successfully")
     } catch (error) {
       console.error("Error downloading user data:", error)
-      toast.error("Failed to download user data")
+      const errorMessage = error instanceof Error ? error.message : "Failed to download user data"
+      toast.error(errorMessage)
     }
   }
 

@@ -61,7 +61,8 @@ export default function OrderStatusPage() {
       setShop(shopData)
     } catch (err) {
       console.error("Error loading shop:", err)
-      toast.error("Failed to load shop")
+      const errorMessage = err instanceof Error ? err.message : "Failed to load shop"
+      toast.error(errorMessage)
       setError("Failed to load shop information")
     } finally {
       setLoading(false)

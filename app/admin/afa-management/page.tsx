@@ -64,7 +64,7 @@ export default function AFAManagementPage() {
       setSettings({ price: data.price || 50 })
     } catch (error) {
       console.error("Error loading settings:", error)
-      toast.error("Failed to load AFA settings")
+      toast.error(error instanceof Error ? error.message : "Failed to load AFA settings")
     }
   }
 
@@ -91,7 +91,8 @@ export default function AFAManagementPage() {
       setSubmissions(data.submissions || [])
     } catch (error) {
       console.error("Error loading submissions:", error)
-      toast.error("Failed to load AFA submissions")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load AFA submissions"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -132,7 +133,8 @@ export default function AFAManagementPage() {
       toast.success("Status updated successfully")
     } catch (error) {
       console.error("Error updating status:", error)
-      toast.error("Failed to update status")
+      const errorMessage = error instanceof Error ? error.message : "Failed to update status"
+      toast.error(errorMessage)
     } finally {
       setUpdatingId(null)
     }

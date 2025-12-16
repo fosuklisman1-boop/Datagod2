@@ -48,7 +48,8 @@ export default function ShopSettingsPage() {
         }
       } catch (error) {
         console.error("[SHOP-SETTINGS] Error fetching settings:", error)
-        toast.error("Failed to load settings")
+        const errorMessage = error instanceof Error ? error.message : "Failed to load settings"
+        toast.error(errorMessage)
       } finally {
         setLoading(false)
       }
@@ -104,7 +105,8 @@ export default function ShopSettingsPage() {
       toast.success("WhatsApp link saved successfully!")
     } catch (error) {
       console.error("[SHOP-SETTINGS] Error saving settings:", error)
-      toast.error("Failed to save settings")
+      const errorMessage = error instanceof Error ? error.message : "Failed to save settings"
+      toast.error(errorMessage)
     } finally {
       setSaving(false)
     }

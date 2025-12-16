@@ -31,7 +31,8 @@ export default function OrderConfirmation() {
       setOrder(orderData)
     } catch (error) {
       console.error("Error loading order:", error)
-      toast.error("Failed to load order details")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load order details"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

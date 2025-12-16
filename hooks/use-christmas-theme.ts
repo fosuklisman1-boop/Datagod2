@@ -85,7 +85,8 @@ export const useChristmasTheme = () => {
         return true
       } catch (error) {
         console.error("Error toggling Christmas theme:", error)
-        toast.error("Failed to update theme")
+        const errorMessage = error instanceof Error ? error.message : "Failed to update theme"
+        toast.error(errorMessage)
         return false
       }
     },

@@ -30,7 +30,8 @@ export default function NotificationsPage() {
       setNotifications(data)
     } catch (error) {
       console.error("Error loading notifications:", error)
-      toast.error("Failed to load notifications")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load notifications"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -44,7 +45,8 @@ export default function NotificationsPage() {
       )
       toast.success("Marked as read")
     } catch (error) {
-      toast.error("Failed to mark as read")
+      const errorMessage = error instanceof Error ? error.message : "Failed to mark as read"
+      toast.error(errorMessage)
     }
   }
 
@@ -55,7 +57,8 @@ export default function NotificationsPage() {
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
       toast.success("All notifications marked as read")
     } catch (error) {
-      toast.error("Failed to mark all notifications as read")
+      const errorMessage = error instanceof Error ? error.message : "Failed to mark all notifications as read"
+      toast.error(errorMessage)
     }
   }
 
@@ -65,7 +68,8 @@ export default function NotificationsPage() {
       setNotifications((prev) => prev.filter((n) => n.id !== notificationId))
       toast.success("Notification deleted")
     } catch (error) {
-      toast.error("Failed to delete notification")
+      const errorMessage = error instanceof Error ? error.message : "Failed to delete notification"
+      toast.error(errorMessage)
     }
   }
 

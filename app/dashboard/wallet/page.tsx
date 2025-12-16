@@ -72,7 +72,8 @@ export default function WalletPage() {
       ])
     } catch (error) {
       console.error("Error fetching user:", error)
-      toast.error("Failed to load wallet data")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load wallet data"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -97,7 +98,8 @@ export default function WalletPage() {
       setWalletData(data)
     } catch (error) {
       console.error("Error fetching wallet data:", error)
-      toast.error("Failed to load wallet balance")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load wallet balance"
+      toast.error(errorMessage)
     }
   }
 
@@ -120,7 +122,8 @@ export default function WalletPage() {
       setTransactions(data.transactions || [])
     } catch (error) {
       console.error("Error fetching transactions:", error)
-      toast.error("Failed to load transaction history")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load transaction history"
+      toast.error(errorMessage)
     }
   }
 

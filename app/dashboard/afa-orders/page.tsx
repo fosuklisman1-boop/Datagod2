@@ -82,7 +82,8 @@ export default function AFAOrdersPage() {
       setStats(data.stats || { total: 0, pending: 0, processing: 0, completed: 0, cancelled: 0 })
     } catch (error) {
       console.error("[AFA-ORDERS] Error loading orders:", error)
-      toast.error("Failed to load AFA orders")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load AFA orders"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

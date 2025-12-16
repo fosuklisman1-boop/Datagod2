@@ -66,7 +66,8 @@ export default function AdminShopsPage() {
       setPendingShops(pendingData || [])
     } catch (error) {
       console.error("Error loading shops:", error)
-      toast.error("Failed to load shops")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load shops"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -80,7 +81,8 @@ export default function AdminShopsPage() {
       setShowDetailsDialog(true)
     } catch (error) {
       console.error("Error loading shop details:", error)
-      toast.error("Failed to load shop details")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load shop details"
+      toast.error(errorMessage)
     }
   }
 

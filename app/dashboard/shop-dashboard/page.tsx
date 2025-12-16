@@ -93,7 +93,8 @@ export default function ShopDashboardPage() {
       setOrders(orderList || [])
     } catch (error) {
       console.error("Error loading dashboard:", error)
-      toast.error("Failed to load shop dashboard")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load shop dashboard"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

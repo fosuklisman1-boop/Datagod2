@@ -100,7 +100,8 @@ export default function TransactionsPage() {
       }
     } catch (error) {
       console.error("Error fetching transaction data:", error)
-      toast.error("Failed to load transaction data")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load transaction data"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

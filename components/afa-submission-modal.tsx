@@ -73,7 +73,7 @@ export function AFASubmissionModal({
       setWalletBalance(data.balance || 0)
     } catch (error) {
       console.error("Error fetching wallet balance:", error)
-      toast.error("Failed to fetch wallet balance")
+      toast.error(error instanceof Error ? error.message : "Failed to fetch wallet balance")
     } finally {
       setFetchingBalance(false)
     }

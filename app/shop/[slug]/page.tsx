@@ -79,7 +79,8 @@ export default function ShopStorefront() {
       }
     } catch (error) {
       console.error("Error loading shop:", error)
-      toast.error("Failed to load shop")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load shop"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

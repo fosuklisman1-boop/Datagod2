@@ -55,7 +55,8 @@ export default function ComplaintsPage() {
       setComplaints(data || [])
     } catch (error) {
       console.error("Error loading complaints:", error)
-      toast.error("Failed to load complaints")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load complaints"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

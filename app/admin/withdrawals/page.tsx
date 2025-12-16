@@ -65,7 +65,7 @@ export default function WithdrawalsPage() {
       setWithdrawals(data || [])
     } catch (error) {
       console.error("Error loading withdrawals:", error)
-      toast.error("Failed to load withdrawal requests")
+      toast.error(error instanceof Error ? error.message : "Failed to load withdrawal requests")
     } finally {
       setLoading(false)
     }

@@ -152,7 +152,8 @@ export default function MyShopPage() {
       toast.success("Shop updated successfully")
     } catch (error) {
       console.error("Error updating shop:", error)
-      toast.error("Failed to update shop")
+      const errorMessage = error instanceof Error ? error.message : "Failed to update shop"
+      toast.error(errorMessage)
     } finally {
       setUpdatingShop(false)
     }
@@ -197,7 +198,8 @@ export default function MyShopPage() {
       toast.success("WhatsApp link saved successfully!")
     } catch (error) {
       console.error("Error saving WhatsApp link:", error)
-      toast.error("Failed to save WhatsApp link")
+      const errorMessage = error instanceof Error ? error.message : "Failed to save WhatsApp link"
+      toast.error(errorMessage)
     } finally {
       setSavingWhatsapp(false)
     }
@@ -269,7 +271,8 @@ export default function MyShopPage() {
       toast.success(`Package marked as ${!currentStatus ? "available" : "unavailable"}`)
     } catch (error: any) {
       console.error("Error toggling availability:", error)
-      toast.error("Failed to update availability")
+      const errorMessage = error instanceof Error ? error.message : "Failed to update availability"
+      toast.error(errorMessage)
     } finally {
       setTogglingPackageId(null)
     }

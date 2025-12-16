@@ -105,7 +105,8 @@ export default function AFARegistrationsAdminPage() {
       setSubmissions(data.submissions || [])
     } catch (error) {
       console.error("Error fetching submissions:", error)
-      toast.error("Failed to load AFA submissions")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load AFA submissions"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

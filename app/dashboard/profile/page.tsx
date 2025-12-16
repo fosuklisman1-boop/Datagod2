@@ -154,7 +154,8 @@ export default function ProfilePage() {
       }
     } catch (error) {
       console.error("Error fetching profile:", error)
-      toast.error("Failed to load profile data")
+      const errorMessage = error instanceof Error ? error.message : "Failed to load profile data"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

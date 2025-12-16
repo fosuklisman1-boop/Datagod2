@@ -104,7 +104,8 @@ export default function AdminSettingsPage() {
         }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
-        toast.error("Failed to load settings")
+        const errorMessage = error instanceof Error ? error.message : "Failed to load settings"
+        toast.error(errorMessage)
       } finally {
         setLoading(false)
       }
@@ -160,7 +161,8 @@ export default function AdminSettingsPage() {
       )
     } catch (error) {
       console.error("Error updating Christmas theme:", error)
-      toast.error("Failed to update Christmas theme")
+      const errorMessage = error instanceof Error ? error.message : "Failed to update Christmas theme"
+      toast.error(errorMessage)
     } finally {
       setSavingChristmasTheme(false)
     }
@@ -230,7 +232,8 @@ export default function AdminSettingsPage() {
       toast.success("Settings saved successfully!")
     } catch (error) {
       console.error("[SETTINGS] Error saving settings:", error)
-      toast.error("Failed to save settings")
+      const errorMessage = error instanceof Error ? error.message : "Failed to save settings"
+      toast.error(errorMessage)
     } finally {
       setSaving(false)
     }
