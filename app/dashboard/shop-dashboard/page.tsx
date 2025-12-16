@@ -34,11 +34,26 @@ export default function ShopDashboardPage() {
   })
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
 
   useEffect(() => {
     if (!user) return
     loadDashboardData()
+    fetchWithdrawalFee()
   }, [user])
+
+  const fetchWithdrawalFee = async () => {
+    try {
+      const response = await fetch("/api/settings/fees")
+      const data = await response.json()
+      if (data.withdrawal_fee_percentage !== undefined) {
+        setWithdrawalFeePercentage(data.withdrawal_fee_percentage)
+      }
+    } catch (error) {
+      console.warn("Failed to fetch withdrawal fee:", error)
+      // Continue with default fee of 0
+    }
+  }
 
   const loadDashboardData = async () => {
     try {
@@ -367,6 +382,30 @@ export default function ShopDashboardPage() {
                     />
                   </div>
                 </>
+              )}
+
+              {withdrawalForm.amount && parseFloat(withdrawalForm.amount) > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                  <h4 className="font-semibold text-sm text-amber-900">Withdrawal Breakdown</h4>
+                  <div className="text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-amber-700">Requested amount:</span>
+                      <span className="font-medium text-amber-900">GHS {parseFloat(withdrawalForm.amount).toFixed(2)}</span>
+                    </div>
+                    {withdrawalFeePercentage > 0 && (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-amber-700">Withdrawal fee ({withdrawalFeePercentage}%):</span>
+                          <span className="font-medium text-orange-600">-GHS {(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100).toFixed(2)}</span>
+                        </div>
+                        <div className="border-t border-amber-200 pt-1 flex justify-between">
+                          <span className="text-amber-900 font-semibold">You will receive:</span>
+                          <span className="font-bold text-green-600">GHS {(parseFloat(withdrawalForm.amount) - (parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100)).toFixed(2)}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
               )}
 
               <Alert className="border-blue-300 bg-blue-50">
