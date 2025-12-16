@@ -24,6 +24,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     "idle"
   )
   const [errorMessage, setErrorMessage] = useState("")
+  const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
   const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || ""
 
   // Predefined amounts
@@ -31,7 +32,22 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
   useEffect(() => {
     fetchUserInfo()
+    fetchFeeSettings()
   }, [])
+
+  const fetchFeeSettings = async () => {
+    try {
+      const response = await fetch("/api/settings/fees")
+      if (response.ok) {
+        const data = await response.json()
+        setPaystackFeePercentage(data.paystack_fee_percentage || 3.0)
+      }
+    } catch (error) {
+      console.error("[WALLET-TOPUP] Error fetching fee settings:", error)
+      // Use default if fetch fails
+      setPaystackFeePercentage(3.0)
+    }
+  }
 
   const fetchUserInfo = async () => {
     try {
@@ -194,15 +210,15 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <span>GHS {parseFloat(amount || "0").toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-orange-600">
-                <span>Paystack Fee (3%):</span>
-                <span>GHS {(parseFloat(amount || "0") * 0.03).toFixed(2)}</span>
+                <span>Paystack Fee ({paystackFeePercentage}%):</span>
+                <span>GHS {(parseFloat(amount || "0") * paystackFeePercentage / 100).toFixed(2)}</span>
               </div>
               <div className="pt-1 border-t border-orange-200 flex justify-between font-semibold text-gray-900">
                 <span>Total Amount:</span>
-                <span>GHS {(parseFloat(amount || "0") * 1.03).toFixed(2)}</span>
+                <span>GHS {(parseFloat(amount || "0") * (1 + paystackFeePercentage / 100)).toFixed(2)}</span>
               </div>
             </div>
-            <p className="text-xs text-orange-700 mt-2">The 3% fee is charged by Paystack for payment processing.</p>
+            <p className="text-xs text-orange-700 mt-2">The {paystackFeePercentage}% fee is charged by Paystack for payment processing.</p>
           </div>
         )}
 
@@ -241,7 +257,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           ) : (
             <>
               <Zap className="h-4 w-4 mr-2" />
-              Pay GHS {(parseFloat(amount || "0") * 1.03).toFixed(2)}
+              Pay GHS {(parseFloat(amount || "0") * (1 + paystackFeePercentage / 100)).toFixed(2)}
             </>
           )}
         </Button>
