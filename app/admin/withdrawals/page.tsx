@@ -18,6 +18,8 @@ interface WithdrawalRequest {
   shop_id: string
   user_id: string
   amount: number
+  fee_amount?: number
+  net_amount?: number
   withdrawal_method: string
   account_details: any
   status: "pending" | "approved" | "rejected" | "completed"
@@ -235,6 +237,12 @@ export default function WithdrawalsPage() {
                       <div className="text-right">
                         <p className="text-2xl font-bold text-gray-900">GHS {withdrawal.amount.toFixed(2)}</p>
                         <p className="text-xs text-gray-600 capitalize">{withdrawal.withdrawal_method}</p>
+                        {withdrawal.fee_amount && withdrawal.fee_amount > 0 && (
+                          <p className="text-xs text-orange-600 font-medium mt-1">Fee: GHS {withdrawal.fee_amount.toFixed(2)}</p>
+                        )}
+                        {withdrawal.net_amount && (
+                          <p className="text-xs text-green-600 font-semibold mt-1">Payout: GHS {withdrawal.net_amount.toFixed(2)}</p>
+                        )}
                       </div>
                     </div>
 

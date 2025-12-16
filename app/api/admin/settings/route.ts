@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
           announcement_title: "",
           announcement_message: "",
           paystack_fee_percentage: 3.0,
-          wallet_topup_fee_percentage: 0
+          wallet_topup_fee_percentage: 0,
+          withdrawal_fee_percentage: 0
         }])
         .select()
         .single()
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
           join_community_link: "",
           paystack_fee_percentage: 3.0,
           wallet_topup_fee_percentage: 0,
+          withdrawal_fee_percentage: 0,
           created_at: null,
           updated_at: null,
         })
@@ -98,7 +100,8 @@ export async function PUT(request: NextRequest) {
       announcement_title, 
       announcement_message,
       paystack_fee_percentage,
-      wallet_topup_fee_percentage
+      wallet_topup_fee_percentage,
+      withdrawal_fee_percentage
     } = body
 
     if (!join_community_link) {
@@ -119,6 +122,13 @@ export async function PUT(request: NextRequest) {
     if (wallet_topup_fee_percentage !== undefined && (wallet_topup_fee_percentage < 0 || wallet_topup_fee_percentage > 100)) {
       return NextResponse.json(
         { error: "wallet_topup_fee_percentage must be between 0 and 100" },
+        { status: 400 }
+      )
+    }
+
+    if (withdrawal_fee_percentage !== undefined && (withdrawal_fee_percentage < 0 || withdrawal_fee_percentage > 100)) {
+      return NextResponse.json(
+        { error: "withdrawal_fee_percentage must be between 0 and 100" },
         { status: 400 }
       )
     }
@@ -152,6 +162,7 @@ export async function PUT(request: NextRequest) {
           announcement_message: announcement_message ?? "",
           paystack_fee_percentage: paystack_fee_percentage ?? 3.0,
           wallet_topup_fee_percentage: wallet_topup_fee_percentage ?? 0,
+          withdrawal_fee_percentage: withdrawal_fee_percentage ?? 0,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingSettings.id)
@@ -175,6 +186,7 @@ export async function PUT(request: NextRequest) {
             announcement_message: announcement_message ?? "",
             paystack_fee_percentage: paystack_fee_percentage ?? 3.0,
             wallet_topup_fee_percentage: wallet_topup_fee_percentage ?? 0,
+            withdrawal_fee_percentage: withdrawal_fee_percentage ?? 0,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },

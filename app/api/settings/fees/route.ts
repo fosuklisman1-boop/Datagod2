@@ -10,7 +10,7 @@ export async function GET() {
   try {
     const { data: settings, error } = await supabase
       .from("app_settings")
-      .select("paystack_fee_percentage, wallet_topup_fee_percentage")
+      .select("paystack_fee_percentage, wallet_topup_fee_percentage, withdrawal_fee_percentage")
       .single()
 
     if (error && error.code !== "PGRST116") {
@@ -19,6 +19,7 @@ export async function GET() {
       return NextResponse.json({
         paystack_fee_percentage: 3.0,
         wallet_topup_fee_percentage: 0,
+        withdrawal_fee_percentage: 0,
       })
     }
 
@@ -27,12 +28,14 @@ export async function GET() {
       return NextResponse.json({
         paystack_fee_percentage: 3.0,
         wallet_topup_fee_percentage: 0,
+        withdrawal_fee_percentage: 0,
       })
     }
 
     return NextResponse.json({
       paystack_fee_percentage: settings.paystack_fee_percentage || 3.0,
       wallet_topup_fee_percentage: settings.wallet_topup_fee_percentage || 0,
+      withdrawal_fee_percentage: settings.withdrawal_fee_percentage || 0,
     })
   } catch (error) {
     console.error("[FEES-API] Error:", error)

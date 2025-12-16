@@ -34,6 +34,7 @@ export default function AdminSettingsPage() {
   // Fee settings
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
   const [walletTopupFeePercentage, setWalletTopupFeePercentage] = useState(0)
+  const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
   
   // Christmas theme settings
   const [christmasThemeEnabled, setChristmasThemeEnabled] = useState(false)
@@ -90,6 +91,9 @@ export default function AdminSettingsPage() {
         }
         if (data.wallet_topup_fee_percentage !== undefined) {
           setWalletTopupFeePercentage(data.wallet_topup_fee_percentage)
+        }
+        if (data.withdrawal_fee_percentage !== undefined) {
+          setWithdrawalFeePercentage(data.withdrawal_fee_percentage)
         }
 
         // Load Christmas theme setting
@@ -205,6 +209,7 @@ export default function AdminSettingsPage() {
           announcement_message: announcementMessage,
           paystack_fee_percentage: paystackFeePercentage,
           wallet_topup_fee_percentage: walletTopupFeePercentage,
+          withdrawal_fee_percentage: withdrawalFeePercentage,
         }),
       })
 
@@ -441,34 +446,83 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
-              <h4 className="font-semibold text-sm text-blue-900">Fee Preview (GHS 100 Top-up)</h4>
-              <div className="text-sm space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-blue-700">Amount to top up:</span>
-                  <span className="font-medium text-blue-900">GHS 100.00</span>
+            <div>
+              <Label htmlFor="withdrawalFee" className="text-sm font-medium">
+                Withdrawal Fee Percentage
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                Fee deducted from withdrawal requests (e.g., 5 for 5%)
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="withdrawalFee"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={withdrawalFeePercentage}
+                  onChange={(e) => setWithdrawalFeePercentage(parseFloat(e.target.value))}
+                  className="flex-1"
+                  placeholder="0"
+                />
+                <span className="text-sm font-medium text-gray-600">%</span>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+              <div>
+                <h4 className="font-semibold text-sm text-blue-900 mb-2">Top-up Preview (GHS 100)</h4>
+                <div className="text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-blue-700">Amount to top up:</span>
+                    <span className="font-medium text-blue-900">GHS 100.00</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-blue-700">
+                      Paystack fee ({paystackFeePercentage}%):
+                    </span>
+                    <span className="font-medium text-blue-900">
+                      GHS {(100 * paystackFeePercentage / 100).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-blue-700">
+                      Wallet topup fee ({walletTopupFeePercentage}%):
+                    </span>
+                    <span className="font-medium text-blue-900">
+                      GHS {(100 * walletTopupFeePercentage / 100).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="border-t border-blue-200 pt-1 flex justify-between">
+                    <span className="text-blue-900 font-semibold">Total charge:</span>
+                    <span className="font-bold text-blue-900">
+                      GHS {(100 + (100 * paystackFeePercentage / 100) + (100 * walletTopupFeePercentage / 100)).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-blue-700">
-                    Paystack fee ({paystackFeePercentage}%):
-                  </span>
-                  <span className="font-medium text-blue-900">
-                    GHS {(100 * paystackFeePercentage / 100).toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-blue-700">
-                    Wallet topup fee ({walletTopupFeePercentage}%):
-                  </span>
-                  <span className="font-medium text-blue-900">
-                    GHS {(100 * walletTopupFeePercentage / 100).toFixed(2)}
-                  </span>
-                </div>
-                <div className="border-t border-blue-200 pt-1 flex justify-between">
-                  <span className="text-blue-900 font-semibold">Total charge:</span>
-                  <span className="font-bold text-blue-900">
-                    GHS {(100 + (100 * paystackFeePercentage / 100) + (100 * walletTopupFeePercentage / 100)).toFixed(2)}
-                  </span>
+              </div>
+
+              <div className="border-t border-blue-200 pt-3">
+                <h4 className="font-semibold text-sm text-blue-900 mb-2">Withdrawal Preview (GHS 100 Requested)</h4>
+                <div className="text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-blue-700">Requested amount:</span>
+                    <span className="font-medium text-blue-900">GHS 100.00</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-blue-700">
+                      Withdrawal fee ({withdrawalFeePercentage}%):
+                    </span>
+                    <span className="font-medium text-orange-600">
+                      -GHS {(100 * withdrawalFeePercentage / 100).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="border-t border-blue-200 pt-1 flex justify-between">
+                    <span className="text-blue-900 font-semibold">Shop receives:</span>
+                    <span className="font-bold text-green-600">
+                      GHS {(100 - (100 * withdrawalFeePercentage / 100)).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

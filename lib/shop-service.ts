@@ -526,6 +526,31 @@ export const withdrawalService = {
       console.warn(`[WITHDRAWAL-CREATE] Warning checking balance:`, error)
     }
 
+    // Fetch withdrawal fee percentage from settings
+    let withdrawalFeePercentage = 0
+    try {
+      const { data: settings, error: settingsError } = await supabase
+        .from("app_settings")
+        .select("withdrawal_fee_percentage")
+        .single()
+
+      if (!settingsError && settings?.withdrawal_fee_percentage) {
+        withdrawalFeePercentage = settings.withdrawal_fee_percentage / 100
+      }
+    } catch (settingsError) {
+      console.warn(`[WITHDRAWAL-CREATE] Warning fetching fee settings:`, settingsError)
+      // Continue with default 0 fee if settings fetch fails
+    }
+
+    // Calculate fee and net amount
+    const feeAmount = Math.round(withdrawalData.amount * withdrawalFeePercentage * 100) / 100
+    const netAmount = withdrawalData.amount - feeAmount
+
+    console.log(`[WITHDRAWAL-CREATE] Fee Calculation:`)
+    console.log(`  Requested Amount: GHS ${withdrawalData.amount}`)
+    console.log(`  Withdrawal Fee (${withdrawalFeePercentage * 100}%): GHS ${feeAmount}`)
+    console.log(`  Net Amount (Shop Receives): GHS ${netAmount}`)
+
     const { data, error } = await supabase
       .from("withdrawal_requests")
       .insert([{
@@ -533,7 +558,9 @@ export const withdrawalService = {
         shop_id: shopId,
         ...withdrawalData,
         status: "pending",
-        reference_code: `WD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+        reference_code: `WD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+        fee_amount: feeAmount,
+        net_amount: netAmount
       }])
       .select()
 
