@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell } from "lucide-react"
+import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign } from "lucide-react"
 import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -30,6 +30,10 @@ export default function AdminSettingsPage() {
   const [announcementEnabled, setAnnouncementEnabled] = useState(false)
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementMessage, setAnnouncementMessage] = useState("")
+  
+  // Fee settings
+  const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
+  const [walletTopupFeePercentage, setWalletTopupFeePercentage] = useState(0)
   
   // Christmas theme settings
   const [christmasThemeEnabled, setChristmasThemeEnabled] = useState(false)
@@ -74,10 +78,18 @@ export default function AdminSettingsPage() {
           setAnnouncementEnabled(data.announcement_enabled)
         }
         if (data.announcement_title) {
-          setAnnouncementTitle(data.announcement_title)
+          setAnnouncementTitle(data.annotation_title)
         }
         if (data.announcement_message) {
           setAnnouncementMessage(data.announcement_message)
+        }
+
+        // Load fee settings
+        if (data.paystack_fee_percentage !== undefined) {
+          setPaystackFeePercentage(data.paystack_fee_percentage)
+        }
+        if (data.wallet_topup_fee_percentage !== undefined) {
+          setWalletTopupFeePercentage(data.wallet_topup_fee_percentage)
         }
 
         // Load Christmas theme setting
@@ -191,6 +203,8 @@ export default function AdminSettingsPage() {
           announcement_enabled: announcementEnabled,
           announcement_title: announcementTitle,
           announcement_message: announcementMessage,
+          paystack_fee_percentage: paystackFeePercentage,
+          wallet_topup_fee_percentage: walletTopupFeePercentage,
         }),
       })
 
@@ -376,7 +390,95 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <LinkIcon className="w-5 h-5 text-blue-600" />
+              <DollarSign className="w-5 h-5 text-green-600" />
+              Payment Fees
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="paystackFee" className="text-sm font-medium">
+                Paystack Fee Percentage
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                Fee charged for Paystack payments (e.g., 3 for 3%)
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="paystackFee"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={paystackFeePercentage}
+                  onChange={(e) => setPaystackFeePercentage(parseFloat(e.target.value))}
+                  className="flex-1"
+                  placeholder="3.0"
+                />
+                <span className="text-sm font-medium text-gray-600">%</span>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="walletTopupFee" className="text-sm font-medium">
+                Wallet Top-up Fee Percentage
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                Additional fee charged on top-ups (e.g., 2 for 2%)
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="walletTopupFee"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={walletTopupFeePercentage}
+                  onChange={(e) => setWalletTopupFeePercentage(parseFloat(e.target.value))}
+                  className="flex-1"
+                  placeholder="0"
+                />
+                <span className="text-sm font-medium text-gray-600">%</span>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+              <h4 className="font-semibold text-sm text-blue-900">Fee Preview (GHS 100 Top-up)</h4>
+              <div className="text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-blue-700">Amount to top up:</span>
+                  <span className="font-medium text-blue-900">GHS 100.00</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-blue-700">
+                    Paystack fee ({paystackFeePercentage}%):
+                  </span>
+                  <span className="font-medium text-blue-900">
+                    GHS {(100 * paystackFeePercentage / 100).toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-blue-700">
+                    Wallet topup fee ({walletTopupFeePercentage}%):
+                  </span>
+                  <span className="font-medium text-blue-900">
+                    GHS {(100 * walletTopupFeePercentage / 100).toFixed(2)}
+                  </span>
+                </div>
+                <div className="border-t border-blue-200 pt-1 flex justify-between">
+                  <span className="text-blue-900 font-semibold">Total charge:</span>
+                  <span className="font-bold text-blue-900">
+                    GHS {(100 + (100 * paystackFeePercentage / 100) + (100 * walletTopupFeePercentage / 100)).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <LinkIcon className="w-5 h-5 text-purple-600" />
               Quick URL Copy
             </CardTitle>
           </CardHeader>
