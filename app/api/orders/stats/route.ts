@@ -22,50 +22,56 @@ export async function GET(request: NextRequest) {
 
     const userId = user.id
 
-    // Get total orders count
-    const { count: totalCount } = await supabase
+    // Get all order status counts in a single query
+    const { data: orders, error: ordersError } = await supabase
       .from("orders")
-      .select("*", { count: "exact", head: true })
+      .select("status", { count: "exact" })
       .eq("user_id", userId)
 
-    // Get completed orders (use 'status' column, not 'order_status')
-    const { count: completedCount } = await supabase
-      .from("orders")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("status", "completed")
+    if (ordersError) {
+      console.error("Error fetching orders:", ordersError)
+      return NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      )
+    }
 
-    // Get processing orders
-    const { count: processingCount } = await supabase
-      .from("orders")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("status", "processing")
+    // Count statuses locally instead of making 5 separate queries
+    const statusCounts = {
+      total: orders?.length || 0,
+      completed: 0,
+      processing: 0,
+      failed: 0,
+      pending: 0,
+    }
 
-    // Get failed orders
-    const { count: failedCount } = await supabase
-      .from("orders")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("status", "failed")
+    orders?.forEach((order: any) => {
+      switch (order.status) {
+        case "completed":
+          statusCounts.completed++
+          break
+        case "processing":
+          statusCounts.processing++
+          break
+        case "failed":
+          statusCounts.failed++
+          break
+        case "pending":
+          statusCounts.pending++
+          break
+      }
+    })
 
-    // Get pending orders
-    const { count: pendingCount } = await supabase
-      .from("orders")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("status", "pending")
-
-    const total = totalCount || 0
-    const completed = completedCount || 0
-    const successRate = total > 0 ? (completed / total) * 100 : 0
+    const successRate = statusCounts.total > 0 
+      ? (statusCounts.completed / statusCounts.total) * 100 
+      : 0
 
     return NextResponse.json({
-      totalOrders: total,
-      completed,
-      processing: processingCount || 0,
-      failed: failedCount || 0,
-      pending: pendingCount || 0,
+      totalOrders: statusCounts.total,
+      completed: statusCounts.completed,
+      processing: statusCounts.processing,
+      failed: statusCounts.failed,
+      pending: statusCounts.pending,
       successRate,
     })
   } catch (error) {

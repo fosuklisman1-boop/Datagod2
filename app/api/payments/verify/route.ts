@@ -19,11 +19,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Fetch payment record
+    // Fetch payment record (select only needed columns)
     console.log("[PAYMENT-VERIFY] Fetching payment record...")
     const { data: paymentData, error: fetchError } = await supabase
       .from("wallet_payments")
-      .select("*")
+      .select("id, user_id, reference, status, shop_id, order_id")
       .eq("reference", reference)
       .maybeSingle()
 
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
         // Find shop order by order_id from payment record
         const { data: shopOrderData, error: shopOrderFetchError } = await supabase
           .from("shop_orders")
-          .select("*")
+          .select("id, profit_amount")
           .eq("id", paymentData.order_id)
           .single()
 

@@ -33,10 +33,10 @@ export async function POST(request: NextRequest) {
 
     const userId = shop.user_id
 
-    // Get current wallet balance
+    // Get current wallet balance (select only needed columns)
     const { data: wallet, error: walletError } = await supabase
       .from("wallets")
-      .select("*")
+      .select("balance, total_credited, total_spent")
       .eq("user_id", userId)
       .maybeSingle()
 

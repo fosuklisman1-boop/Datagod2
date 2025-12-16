@@ -43,11 +43,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get wallet
+    // Get wallet (select only needed columns)
     console.log("[WALLET-DEBIT] Fetching wallet...")
     const { data: wallet, error: walletError } = await supabase
       .from("wallets")
-      .select("*")
+      .select("balance, total_spent")
       .eq("user_id", user.id)
       .maybeSingle()
 

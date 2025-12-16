@@ -46,10 +46,10 @@ export async function POST(request: NextRequest) {
         status,
       })
 
-      // Find and update payment record
+      // Find and update payment record (select only needed columns)
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")
-        .select("*")
+        .select("id, user_id, status, shop_id, order_id")
         .eq("reference", reference)
         .single()
 
