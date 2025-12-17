@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, AlertCircle, CheckCircle, Zap } from "lucide-react"
 import { initializePayment } from "@/lib/payment-service"
+import { PaystackInlineModal } from "@/components/paystack-inline-modal"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
@@ -25,7 +26,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   )
   const [errorMessage, setErrorMessage] = useState("")
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
-  const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || ""
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentReference, setPaymentReference] = useState<string | null>(null)
 
   // Predefined amounts
   const quickAmounts = [50, 100, 200, 500]
@@ -108,18 +110,10 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
       console.log("[WALLET-TOPUP] Payment initialized:", paymentResult)
 
-      console.log("[WALLET-TOPUP] Redirecting to Paystack checkout URL:", paymentResult.authorizationUrl)
-      
-      // Store the payment reference in sessionStorage for verification after redirect
-      sessionStorage.setItem('lastPaymentReference', paymentResult.reference)
-      
-      setPaymentStatus("processing")
-      
-      // Use direct redirect instead of popup (works better cross-browser, especially Safari)
-      // Paystack will redirect back to our redirect URL after payment
-      setTimeout(() => {
-        window.location.href = paymentResult.authorizationUrl
-      }, 500)
+      // Store reference and show inline modal
+      setPaymentReference(paymentResult.reference)
+      setShowPaymentModal(true)
+      setIsLoading(false)
     } catch (error) {
       console.error("[WALLET-TOPUP] Error:", error)
       setPaymentStatus("error")
@@ -127,6 +121,26 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       toast.error("Payment initialization failed")
       setIsLoading(false)
     }
+  }
+
+  const handlePaymentSuccess = (reference: string) => {
+    console.log("[WALLET-TOPUP] Payment successful with reference:", reference)
+    setPaymentStatus("success")
+    setShowPaymentModal(false)
+    
+    // Call success callback with amount
+    if (onSuccess) {
+      onSuccess(parseFloat(amount))
+    }
+    
+    // Reset form
+    setAmount("")
+    setErrorMessage("")
+    
+    // Reset status after 3 seconds
+    setTimeout(() => {
+      setPaymentStatus("idle")
+    }, 3000)
   }
 
   return (
@@ -252,7 +266,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           {isLoading ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Redirecting to Payment...
+              Preparing Payment...
             </>
           ) : (
             <>
@@ -260,6 +274,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
               Pay GHS {(parseFloat(amount || "0") * (1 + paystackFeePercentage / 100)).toFixed(2)}
             </>
           )}
+        </Button>
         </Button>
 
         {/* Security Notice */}
@@ -271,5 +286,23 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         </div>
       </CardContent>
     </Card>
+
+    {/* Paystack Inline Payment Modal */}
+    {paymentReference && (
+      <PaystackInlineModal
+        isOpen={showPaymentModal}
+        onOpenChange={setShowPaymentModal}
+        amount={parseFloat(amount)}
+        email={email}
+        reference={paymentReference}
+        onSuccess={handlePaymentSuccess}
+        onClose={() => {
+          setShowPaymentModal(false)
+          setPaymentStatus("idle")
+        }}
+        title="Complete Your Wallet Top-Up"
+        description="Enter your payment details to add funds to your wallet"
+      />
+    )}
   )
 }

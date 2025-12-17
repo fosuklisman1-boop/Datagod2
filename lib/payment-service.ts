@@ -86,44 +86,7 @@ export async function verifyPayment(
   }
 }
 
-/**
- * Open Paystack payment modal
- */
-export function openPaystackModal(config: {
-  key: string
-  email: string
-  amount: number
-  reference: string
-  onClose?: () => void
-  onSuccess?: (reference: string) => void
-}) {
-  return new Promise((resolve, reject) => {
-    if (!window.PaystackPop) {
-      reject(new Error("Paystack script not loaded"))
-      return
-    }
-
-    const handler = window.PaystackPop.setup({
-      key: config.key,
-      email: config.email,
-      amount: config.amount * 100, // Convert to kobo
-      ref: config.reference,
-      onClose: () => {
-        if (config.onClose) config.onClose()
-        resolve(false)
-      },
-      onSuccess: (response: any) => {
-        if (config.onSuccess) config.onSuccess(response.reference)
-        resolve(true)
-      },
-    })
-
-    handler.openIframe()
-  })
-}
-
 export default {
   initializePayment,
   verifyPayment,
-  openPaystackModal,
 }
