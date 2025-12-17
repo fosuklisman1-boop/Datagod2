@@ -144,7 +144,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   }
 
   return (
-    <Card className="w-full border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
+    <div className="space-y-4">
+      <Card className="w-full border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Zap className="h-5 w-5 text-cyan-600" />
@@ -303,5 +304,6 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         description="Enter your payment details to add funds to your wallet"
       />
     )}
+    </div>
   )
 }
