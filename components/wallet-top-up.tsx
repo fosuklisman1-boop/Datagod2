@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, AlertCircle, CheckCircle, Zap } from "lucide-react"
 import { initializePayment } from "@/lib/payment-service"
-import { PaystackInlineModal } from "@/components/paystack-inline-modal"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
@@ -26,9 +25,6 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   )
   const [errorMessage, setErrorMessage] = useState("")
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [paymentReference, setPaymentReference] = useState<string | null>(null)
-  const [paymentAccessCode, setPaymentAccessCode] = useState<string | null>(null)
 
   // Predefined amounts
   const quickAmounts = [50, 100, 200, 500]
@@ -111,10 +107,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
       console.log("[WALLET-TOPUP] Payment initialized:", paymentResult)
 
-      // Store reference and access code, then show inline modal
-      setPaymentReference(paymentResult.reference)
-      setPaymentAccessCode(paymentResult.accessCode)
-      setShowPaymentModal(true)
+      // Redirect to Paystack checkout
+      window.location.href = paymentResult.authorizationUrl
       setIsLoading(false)
     } catch (error) {
       console.error("[WALLET-TOPUP] Error:", error)
@@ -128,7 +122,6 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const handlePaymentSuccess = (reference: string) => {
     console.log("[WALLET-TOPUP] Payment successful with reference:", reference)
     setPaymentStatus("success")
-    setShowPaymentModal(false)
     
     // Call success callback with amount
     if (onSuccess) {
@@ -288,25 +281,6 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         </div>
       </CardContent>
     </Card>
-
-    {/* Paystack Inline Payment Modal */}
-    {paymentReference && paymentAccessCode && (
-      <PaystackInlineModal
-        isOpen={showPaymentModal}
-        onOpenChange={setShowPaymentModal}
-        amount={parseFloat(amount)}
-        email={email}
-        reference={paymentReference}
-        accessCode={paymentAccessCode}
-        onSuccess={handlePaymentSuccess}
-        onClose={() => {
-          setShowPaymentModal(false)
-          setPaymentStatus("idle")
-        }}
-        title="Complete Your Wallet Top-Up"
-        description="Enter your payment details to add funds to your wallet"
-      />
-    )}
     </div>
   )
 }
