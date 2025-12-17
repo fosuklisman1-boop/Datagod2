@@ -50,23 +50,34 @@ export function PaystackInlineModal({
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || ""
 
-  // Load Paystack script if not already loaded
+  // Load Paystack script once when component mounts
   useEffect(() => {
-    if (!window.PaystackPop && isOpen) {
-      const script = document.createElement("script")
-      script.src = "https://js.paystack.co/v1/inline.js"
-      script.async = true
-      script.onload = () => {
-        console.log("[PAYSTACK-MODAL] Paystack script loaded")
-      }
-      script.onerror = () => {
-        console.error("[PAYSTACK-MODAL] Failed to load Paystack script")
-        setError("Failed to load payment provider")
-        setStatus("error")
-      }
-      document.body.appendChild(script)
+    // Check if script is already loaded
+    if (window.PaystackPop) {
+      console.log("[PAYSTACK-MODAL] Paystack script already loaded")
+      return
     }
-  }, [isOpen])
+
+    // Check if script tag already exists
+    if (document.querySelector('script[src="https://js.paystack.co/v1/inline.js"]')) {
+      console.log("[PAYSTACK-MODAL] Paystack script tag already exists")
+      return
+    }
+
+    console.log("[PAYSTACK-MODAL] Loading Paystack script...")
+    const script = document.createElement("script")
+    script.src = "https://js.paystack.co/v1/inline.js"
+    script.async = true
+    script.onload = () => {
+      console.log("[PAYSTACK-MODAL] Paystack script loaded successfully")
+    }
+    script.onerror = () => {
+      console.error("[PAYSTACK-MODAL] Failed to load Paystack script")
+      setError("Failed to load payment provider")
+      setStatus("error")
+    }
+    document.body.appendChild(script)
+  }, [])  // Run only once on mount
 
   const handlePayment = async () => {
     try {
@@ -74,10 +85,25 @@ export function PaystackInlineModal({
       setError(null)
       setStatus("loading")
 
+      // Check if public key is configured
+      if (!paystackPublicKey) {
+        console.error("[PAYSTACK-MODAL] ERROR: NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY is not set!")
+        throw new Error("Payment service not configured. Please check environment variables.")
+      }
+
       // Ensure Paystack script is loaded
       if (!window.PaystackPop) {
-        throw new Error("Payment provider not ready. Please try again.")
+        console.error("[PAYSTACK-MODAL] ERROR: Paystack script not loaded!")
+        throw new Error("Payment provider not ready. Please refresh the page.")
       }
+
+      console.log("[PAYSTACK-MODAL] Payment details:", {
+        email,
+        amount: `${amount} GHS`,
+        reference,
+        keyConfigured: true,
+        scriptLoaded: true,
+      })
 
       // Setup Paystack inline payment
       const handler = window.PaystackPop.setup({
@@ -85,6 +111,7 @@ export function PaystackInlineModal({
         email: email,
         amount: Math.round(amount * 100), // Convert GHS to kobo
         ref: reference,
+        currency: "GHS",
         onClose: () => {
           console.log("[PAYSTACK-MODAL] Payment modal closed by user")
           setLoading(false)
@@ -112,6 +139,7 @@ export function PaystackInlineModal({
         },
       })
 
+      console.log("[PAYSTACK-MODAL] Opening Paystack inline form...")
       // Open the payment modal
       handler.openIframe()
     } catch (err) {
