@@ -36,6 +36,16 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[PAYMENT-VERIFY] ✓ Record found - User:", paymentData.user_id)
+    
+    // Safety check: if already completed, don't verify again
+    if (paymentData.status === "completed") {
+      console.log("[PAYMENT-VERIFY] ℹ Payment already completed - skipping re-verification")
+      return NextResponse.json({
+        success: true,
+        status: "completed",
+        message: "Payment already verified and completed",
+      })
+    }
 
     // Verify with Paystack
     console.log("[PAYMENT-VERIFY] Verifying with Paystack...")

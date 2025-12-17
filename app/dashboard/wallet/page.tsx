@@ -141,6 +141,9 @@ export default function WalletPage() {
       setPaymentVerifying(true)
       console.log("[WALLET] Verifying payment:", reference)
       
+      // Clear reference from URL immediately to prevent double verification on reload
+      window.history.replaceState({}, "", "/dashboard/wallet")
+      
       // Call verification endpoint
       const response = await fetch("/api/payments/verify", {
         method: "POST",
@@ -159,10 +162,7 @@ export default function WalletPage() {
       }
 
       console.log("[WALLET] Payment verified successfully")
-      toast.success("Payment verified! Your wallet has been updated.")
-      
-      // Clear reference from URL
-      window.history.replaceState({}, "", "/dashboard/wallet")
+      toast.success("Payment verified! Your wallet will be updated shortly.")
       
       // Refresh wallet data
       if (userId) {
