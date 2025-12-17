@@ -206,7 +206,7 @@ export function PaystackInlineModal({
             {status !== "success" && (
               <Button
                 onClick={handlePayment}
-                disabled={loading || status === "success"}
+                disabled={loading}
                 className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
               >
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
