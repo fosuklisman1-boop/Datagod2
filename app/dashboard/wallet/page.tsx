@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -31,6 +31,7 @@ interface Transaction {
 
 export default function WalletPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user, loading: authLoading } = useAuth()
   const [userId, setUserId] = useState<string | null>(null)
   const [walletData, setWalletData] = useState<WalletData>({
@@ -42,6 +43,7 @@ export default function WalletPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [showTopUp, setShowTopUp] = useState(false)
+  const [paymentVerifying, setPaymentVerifying] = useState(false)
 
   // Auth protection
   useEffect(() => {
@@ -54,6 +56,13 @@ export default function WalletPage() {
   useEffect(() => {
     if (user) {
       fetchUserAndWallet()
+      
+      // Check if returning from Paystack payment
+      const reference = searchParams.get("reference")
+      if (reference) {
+        console.log("[WALLET] Payment reference detected:", reference)
+        verifyPaymentAndRefresh(reference)
+      }
     }
   }, [user])
 
@@ -124,6 +133,49 @@ export default function WalletPage() {
       console.error("Error fetching transactions:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load transaction history"
       toast.error(errorMessage)
+    }
+  }
+
+  const verifyPaymentAndRefresh = async (reference: string) => {
+    try {
+      setPaymentVerifying(true)
+      console.log("[WALLET] Verifying payment:", reference)
+      
+      // Call verification endpoint
+      const response = await fetch("/api/payments/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ reference }),
+      })
+
+      const result = await response.json()
+      
+      if (!response.ok) {
+        console.error("[WALLET] Verification failed:", result)
+        toast.error("Payment verification failed. Please try again.")
+        return
+      }
+
+      console.log("[WALLET] Payment verified successfully")
+      toast.success("Payment verified! Your wallet has been updated.")
+      
+      // Clear reference from URL
+      window.history.replaceState({}, "", "/dashboard/wallet")
+      
+      // Refresh wallet data
+      if (userId) {
+        await Promise.all([
+          fetchWalletData(userId),
+          fetchTransactions(userId),
+        ])
+      }
+    } catch (error) {
+      console.error("[WALLET] Error verifying payment:", error)
+      toast.error("Failed to verify payment")
+    } finally {
+      setPaymentVerifying(false)
     }
   }
 

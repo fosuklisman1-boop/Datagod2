@@ -85,10 +85,10 @@ export async function POST(request: NextRequest) {
 
     // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
-    // For shop orders, redirect to order confirmation; for wallet topup, redirect to wallet page
+    // For shop orders, redirect to order confirmation; for wallet topup, redirect to wallet page with reference
     const redirectUrl = shopId && orderId && shopSlug
-      ? `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/order-confirmation/${orderId}`
-      : `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?payment_status=completed`
+      ? `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/order-confirmation/${orderId}?reference=${reference}`
+      : `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?reference=${reference}`
     console.log("[PAYMENT-INIT] Redirect URL:", redirectUrl)
     
     const paymentResult = await initializePayment({
