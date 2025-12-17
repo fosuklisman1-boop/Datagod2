@@ -50,6 +50,17 @@ export function PaystackInlineModal({
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const paystackPublicKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || ""
 
+  // Log environment variable status on component mount
+  useEffect(() => {
+    console.log("[PAYSTACK-MODAL] Component mounted")
+    console.log("[PAYSTACK-MODAL] Public key status:", {
+      isDefined: !!paystackPublicKey,
+      keyLength: paystackPublicKey.length,
+      keyPrefix: paystackPublicKey.substring(0, 7),
+      fullKey: paystackPublicKey, // Log full key for debugging
+    })
+  }, [paystackPublicKey])
+
   // Load Paystack script once when component mounts
   useEffect(() => {
     // Check if script is already loaded
@@ -101,12 +112,13 @@ export function PaystackInlineModal({
         email,
         amount: `${amount} GHS`,
         reference,
-        keyConfigured: true,
-        scriptLoaded: true,
+        keyConfigured: !!paystackPublicKey,
+        keyValue: paystackPublicKey,
+        scriptLoaded: !!window.PaystackPop,
       })
 
       // Setup Paystack inline payment
-      const handler = window.PaystackPop.setup({
+      const paymentConfig = {
         key: paystackPublicKey,
         email: email,
         amount: Math.round(amount * 100), // Convert GHS to kobo
@@ -136,7 +148,11 @@ export function PaystackInlineModal({
             setStatus("idle")
           }, 2000)
         },
-      })
+      }
+
+      console.log("[PAYSTACK-MODAL] Paystack config:", paymentConfig)
+
+      const handler = window.PaystackPop.setup(paymentConfig)
 
       console.log("[PAYSTACK-MODAL] Opening Paystack inline form...")
       // Open the payment modal
