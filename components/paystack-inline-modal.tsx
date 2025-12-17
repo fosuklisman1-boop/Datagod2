@@ -111,7 +111,6 @@ export function PaystackInlineModal({
         email: email,
         amount: Math.round(amount * 100), // Convert GHS to kobo
         ref: reference,
-        currency: "GHS",
         onClose: () => {
           console.log("[PAYSTACK-MODAL] Payment modal closed by user")
           setLoading(false)
