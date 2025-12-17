@@ -275,7 +275,6 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             </>
           )}
         </Button>
-        </Button>
 
         {/* Security Notice */}
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
