@@ -28,6 +28,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [paymentReference, setPaymentReference] = useState<string | null>(null)
+  const [paymentAccessCode, setPaymentAccessCode] = useState<string | null>(null)
 
   // Predefined amounts
   const quickAmounts = [50, 100, 200, 500]
@@ -110,8 +111,9 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
       console.log("[WALLET-TOPUP] Payment initialized:", paymentResult)
 
-      // Store reference and show inline modal
+      // Store reference and access code, then show inline modal
       setPaymentReference(paymentResult.reference)
+      setPaymentAccessCode(paymentResult.accessCode)
       setShowPaymentModal(true)
       setIsLoading(false)
     } catch (error) {
@@ -288,13 +290,14 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     </Card>
 
     {/* Paystack Inline Payment Modal */}
-    {paymentReference && (
+    {paymentReference && paymentAccessCode && (
       <PaystackInlineModal
         isOpen={showPaymentModal}
         onOpenChange={setShowPaymentModal}
         amount={parseFloat(amount)}
         email={email}
         reference={paymentReference}
+        accessCode={paymentAccessCode}
         onSuccess={handlePaymentSuccess}
         onClose={() => {
           setShowPaymentModal(false)

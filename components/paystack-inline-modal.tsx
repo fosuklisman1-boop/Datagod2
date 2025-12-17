@@ -13,6 +13,7 @@ interface PaystackInlineModalProps {
   amount: number // Amount in GHS
   email: string
   reference: string
+  accessCode: string // Required for inline modal
   onSuccess?: (reference: string) => void
   onClose?: () => void
   title?: string
@@ -40,6 +41,7 @@ export function PaystackInlineModal({
   amount,
   email,
   reference,
+  accessCode,
   onSuccess,
   onClose,
   title = "Complete Payment",
@@ -117,12 +119,13 @@ export function PaystackInlineModal({
         scriptLoaded: !!window.PaystackPop,
       })
 
-      // Setup Paystack inline payment
+      // Setup Paystack inline payment using access code
       const paymentConfig = {
         key: paystackPublicKey,
         email: email,
         amount: Math.round(amount * 100), // Convert GHS to kobo
         ref: reference,
+        accessCode: accessCode, // Use access code from backend
         onClose: () => {
           console.log("[PAYSTACK-MODAL] Payment modal closed by user")
           setLoading(false)
