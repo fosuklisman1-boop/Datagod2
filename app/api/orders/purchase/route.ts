@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -153,6 +154,21 @@ export async function POST(request: NextRequest) {
     } catch (notifError) {
       console.warn("[NOTIFICATION] Failed to send purchase notification:", notifError)
       // Don't fail the purchase if notification fails
+    }
+
+    // Send SMS about successful purchase
+    try {
+      const smsMessage = `DATAGOD: ✓ Order placed! ${network} ${size}GB for GHS ${price.toFixed(2)}. Order Code: ${order[0].order_code}. Track at datagod.com`
+      
+      await sendSMS({
+        phone: phoneNumber,
+        message: smsMessage,
+        type: 'data_purchase_success',
+        reference: order[0].id,
+      }).catch(err => console.error("[SMS] SMS error:", err))
+    } catch (smsError) {
+      console.warn("[SMS] Failed to send purchase SMS:", smsError)
+      // Don't fail the purchase if SMS fails
     }
 
     return NextResponse.json({

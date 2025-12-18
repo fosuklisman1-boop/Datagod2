@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -166,6 +167,25 @@ export async function POST(request: NextRequest) {
         // Log but don't fail - transaction record is secondary
       } else {
         console.log(`[BULK-ORDERS] ✓ Transaction record created for ₵${totalCost}`)
+      }
+
+      // Send SMS to user about bulk order placement
+      try {
+        // Get first phone number from the orders for SMS
+        const firstPhoneNumber = orders[0]?.phone_number
+        if (firstPhoneNumber) {
+          const smsMessage = `DATAGOD: ✓ Bulk order placed! ${orders.length} order(s) for ${network}. Total: GHS ${totalCost.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
+          
+          await sendSMS({
+            phone: firstPhoneNumber,
+            message: smsMessage,
+            type: 'bulk_order_success',
+            reference: `BULK-${Date.now()}`,
+          }).catch(err => console.error("[SMS] SMS error:", err))
+        }
+      } catch (smsError) {
+        console.warn("[SMS] Failed to send bulk order SMS:", smsError)
+        // Don't fail the bulk order if SMS fails
       }
     }
 
