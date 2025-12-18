@@ -86,17 +86,15 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     return { success: true, skipped: true }
   }
 
-  if (!process.env.MOOLRE_API_KEY) {
-    console.warn('[SMS] Moolre API key not configured')
+  if (!process.env.MOOLRE_API_VASKEY) {
+    console.warn('[SMS] Moolre API VASKEY not configured')
     return { success: false, error: 'SMS service not configured' }
   }
 
   console.log('[SMS] SMS_ENABLED is true, proceeding with send')
   console.log('[SMS] Environment variables check:', {
-    hasUser: !!process.env.MOOLRE_API_USER,
-    hasKey: !!process.env.MOOLRE_API_KEY,
-    hasPubKey: !!process.env.MOOLRE_API_PUBKEY,
     hasVasKey: !!process.env.MOOLRE_API_VASKEY,
+    hasSenderId: !!process.env.MOOLRE_SENDER_ID,
   })
 
   try {
@@ -107,9 +105,6 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     const moolreClient = axios.create({
       baseURL: process.env.MOOLRE_API_URL || 'https://api.moolre.com',
       headers: {
-        'X-API-USER': process.env.MOOLRE_API_USER || '',
-        'X-API-KEY': process.env.MOOLRE_API_KEY || '',
-        'X-API-PUBKEY': process.env.MOOLRE_API_PUBKEY || '',
         'X-API-VASKEY': process.env.MOOLRE_API_VASKEY || '',
         'Content-Type': 'application/json',
       },
@@ -117,16 +112,22 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
 
     console.log('[SMS] Making request to:', `${process.env.MOOLRE_API_URL || 'https://api.moolre.com'}/open/sms/send`)
     console.log('[SMS] Request payload:', {
-      phone: normalizedPhone,
+      recipient: normalizedPhone,
       message: payload.message.substring(0, 60) + '...',
-      senderId: process.env.MOOLRE_SENDER_ID || 'DGOD',
+      senderid: process.env.MOOLRE_SENDER_ID || 'DGOD',
+      ref: payload.reference || '',
     })
 
     const response = await moolreClient.post('/open/sms/send', {
-      phone: normalizedPhone,
-      message: payload.message,
-      senderId: process.env.MOOLRE_SENDER_ID || 'DGOD',
-      scheduleTime: null,
+      type: 1,
+      senderid: process.env.MOOLRE_SENDER_ID || 'DGOD',
+      messages: [
+        {
+          recipient: normalizedPhone,
+          message: payload.message,
+          ref: payload.reference || '',
+        }
+      ]
     })
 
     console.log('[SMS] Response received:', response.data)
@@ -137,9 +138,9 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     }
 
     // Extract message ID from response data
-    const messageId = response.data.data?.id || response.data.data?.messageId || response.data.messageId || response.data.id
+    const messageId = response.data.data?.messages?.[0]?.id || response.data.data?.id || response.data.id || 'unknown'
     console.log('[SMS] ✓ Success - Message ID:', messageId)
-    console.log('[SMS] Response:', response.data.message)
+    console.log('[SMS] Response:', response.data.message || 'Success')
 
     // Log to database if user provided
     if (payload.userId) {
