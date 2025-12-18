@@ -30,18 +30,18 @@ export const metadata: Metadata = {
     },
   },
   alternates: {
-    canonical: "https://datagod.com",
+    canonical: "https://www.datagod.store",
   },
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://datagod.com",
-    siteName: "DATAGOD",
+    url: "https://www.datagod.store",
+    siteName: "DataGod",
     title: "DATAGOD - Affordable Data Packages & Services",
     description: "Buy affordable data packages from multiple networks with instant delivery",
     images: [
       {
-        url: "https://datagod.com/og-image.png",
+        url: "https://www.datagod.store/og-image.png",
         width: 1200,
         height: 630,
         alt: "DATAGOD - Data Packages",
@@ -52,7 +52,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "DATAGOD - Affordable Data Packages & Services",
     description: "Buy affordable data packages from multiple networks with instant delivery",
-    images: ["https://datagod.com/og-image.png"],
+    images: ["https://www.datagod.store/og-image.png"],
   },
 };
 

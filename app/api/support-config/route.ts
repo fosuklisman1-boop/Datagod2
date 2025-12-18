@@ -30,7 +30,7 @@ export async function GET() {
         email: "support@datagod.com",
         phone: "+233 XXX XXX XXXX",
         whatsapp: "https://wa.me/233XXXXXXXXX",
-        website: "https://datagod.com",
+        website: "https://www.datagod.store",
       })
     }
 
