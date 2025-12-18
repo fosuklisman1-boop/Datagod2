@@ -97,7 +97,10 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     const moolreClient = axios.create({
       baseURL: process.env.MOOLRE_API_URL || 'https://api.moolre.com/v1',
       headers: {
-        'Authorization': `Bearer ${process.env.MOOLRE_API_KEY}`,
+        'X-API-USER': process.env.MOOLRE_API_USER || '',
+        'X-API-KEY': process.env.MOOLRE_API_KEY || '',
+        'X-API-PUBKEY': process.env.MOOLRE_API_PUBKEY || '',
+        'X-API-VASKEY': process.env.MOOLRE_API_VASKEY || '',
         'Content-Type': 'application/json',
       },
     })
