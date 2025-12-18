@@ -195,7 +195,7 @@ export default function OrderPaymentStatusPage() {
                       <tr key={order.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3">
                           <Badge variant="outline" className="text-xs">
-                            {order.type === "bulk" ? "Bulk" : "Shop"}
+                            {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : "Wallet"}
                           </Badge>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs max-w-xs truncate" title={order.payment_reference}>

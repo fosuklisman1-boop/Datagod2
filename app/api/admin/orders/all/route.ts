@@ -68,6 +68,27 @@ export async function GET(request: NextRequest) {
 
     console.log(`Found ${shopOrdersData?.length || 0} shop orders`)
 
+    // Fetch wallet payments to get Paystack references
+    const { data: walletPayments, error: walletPaymentsError } = await supabase
+      .from("wallet_payments")
+      .select(`
+        id,
+        reference,
+        user_id,
+        created_at,
+        status,
+        amount,
+        fee,
+        shop_id,
+        order_id
+      `)
+      .order("created_at", { ascending: false })
+
+    if (walletPaymentsError) {
+      console.error("Supabase error fetching wallet payments:", walletPaymentsError)
+      // Don't throw - wallet payments are optional for search
+    }
+
     // Format bulk orders
     const formattedBulkOrders = (bulkOrders || []).map((order: any) => ({
       id: order.id,
@@ -96,8 +117,22 @@ export async function GET(request: NextRequest) {
       created_at: order.created_at,
     }))
 
+    // Format wallet payments (for tracking Paystack payments)
+    const formattedWalletPayments = (walletPayments || []).map((payment: any) => ({
+      id: payment.id,
+      type: "wallet_payment",
+      phone_number: "-", // Wallet payments don't have direct phone reference
+      network: "Wallet Top-up",
+      volume_gb: 0,
+      price: payment.amount,
+      status: payment.status,
+      payment_status: payment.status,
+      payment_reference: payment.reference || "-",
+      created_at: payment.created_at,
+    }))
+
     // Combine all orders
-    let allOrders = [...formattedBulkOrders, ...formattedShopOrders]
+    let allOrders = [...formattedBulkOrders, ...formattedShopOrders, ...formattedWalletPayments]
 
     // Apply search filter
     if (searchQuery) {
