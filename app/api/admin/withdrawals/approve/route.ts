@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
             .single()
 
           if (!userError && userData?.phone_number) {
-            const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been approved. Funds will be transferred to ${withdrawal.mobile_number} shortly.`
+            const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been approved. Funds will be transferred to ${withdrawal.account_details?.phone || withdrawal.account_details?.account_number || "your account"} shortly.`
             
             await sendSMS({
               phone: userData.phone_number,
