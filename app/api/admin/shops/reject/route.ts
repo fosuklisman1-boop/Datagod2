@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -63,6 +64,31 @@ export async function POST(request: NextRequest) {
       } catch (notifError) {
         console.warn("[NOTIFICATION] Failed to send notification:", notifError)
         // Don't fail the rejection if notification fails
+      }
+
+      // Send SMS to shop owner
+      try {
+        const shop = data[0]
+        const { data: userData, error: userError } = await supabase
+          .from("users")
+          .select("phone_number")
+          .eq("id", shop.user_id)
+          .single()
+
+        if (!userError && userData?.phone_number) {
+          const reasonText = reason ? ` Reason: ${reason}` : ""
+          const smsMessage = `Your shop "${shop.shop_name}" has been rejected.${reasonText} Contact support for more details.`
+          
+          await sendSMS({
+            phone: userData.phone_number,
+            message: smsMessage,
+            type: 'shop_rejected',
+            reference: shopId,
+          }).catch(err => console.error("[SMS] SMS error:", err))
+        }
+      } catch (smsError) {
+        console.warn("[SMS] Failed to send shop rejection SMS:", smsError)
+        // Don't fail the rejection if SMS fails
       }
     }
 
