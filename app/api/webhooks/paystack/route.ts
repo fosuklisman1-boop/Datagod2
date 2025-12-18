@@ -127,7 +127,16 @@ export async function POST(request: NextRequest) {
             // Send SMS to customer about payment confirmation
             if (shopOrderData?.customer_phone) {
               try {
-                const smsMessage = `DATAGOD: ✓ Payment confirmed for order ${shopOrderData.reference_code}! ${shopOrderData.network} ${shopOrderData.volume_gb}GB - GHS ${shopOrderData.total_price}`
+                // Get shop owner's phone number for support contact
+                const { data: shopData, error: shopFetchError } = await supabase
+                  .from("shops")
+                  .select("phone_number")
+                  .eq("id", paymentData.shop_id)
+                  .single()
+                
+                const shopOwnerPhone = shopData?.phone_number || "Support"
+                
+                const smsMessage = `You have successfully placed an order of ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
                 
                 await sendSMS({
                   phone: shopOrderData.customer_phone,
