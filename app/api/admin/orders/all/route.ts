@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`Found ${bulkOrders?.length || 0} bulk orders`)
 
-    // Fetch all shop orders (any status) with user phone as fallback
+    // Fetch all shop orders (any status)
     const { data: shopOrdersData, error: shopError } = await supabase
       .from("shop_orders")
       .select(`
@@ -57,8 +57,7 @@ export async function GET(request: NextRequest) {
         network,
         reference_code,
         payment_status,
-        user_id,
-        users!inner(phone_number)
+        user_id
       `)
       .order("created_at", { ascending: false })
 
@@ -90,6 +89,21 @@ export async function GET(request: NextRequest) {
       // Don't throw - wallet payments are optional for search
     }
 
+    // Fetch users to get phone numbers as fallback for shop orders
+    const { data: usersData, error: usersError } = await supabase
+      .from("users")
+      .select("id, phone_number")
+
+    if (usersError) {
+      console.error("Supabase error fetching users:", usersError)
+      // Don't throw - users lookup is optional
+    }
+
+    // Create a map of user IDs to phone numbers
+    const userPhoneMap = new Map(
+      (usersData || []).map((user: any) => [user.id, user.phone_number])
+    )
+
     // Format bulk orders
     const formattedBulkOrders = (bulkOrders || []).map((order: any) => ({
       id: order.id,
@@ -108,7 +122,7 @@ export async function GET(request: NextRequest) {
     const formattedShopOrders = (shopOrdersData || []).map((order: any) => ({
       id: order.id,
       type: "shop",
-      phone_number: order.customer_phone || (order.users?.[0]?.phone_number) || "-",
+      phone_number: order.customer_phone || userPhoneMap.get(order.user_id) || "-",
       network: normalizeNetwork(order.network),
       volume_gb: order.volume_gb,
       price: order.total_price,
