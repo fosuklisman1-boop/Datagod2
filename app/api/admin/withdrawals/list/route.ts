@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("withdrawal_requests")
-      .select("id, shop_id, amount, status, created_at, user_id")
+      .select("id, shop_id, amount, status, created_at")
 
     if (status !== "all") {
       query = query.eq("status", status)

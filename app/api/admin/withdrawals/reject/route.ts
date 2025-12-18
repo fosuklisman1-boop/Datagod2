@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     // Get the withdrawal request
     const { data: withdrawal, error: fetchError } = await supabase
       .from("withdrawal_requests")
-      .select("id, shop_id, amount, status, user_id")
+      .select("id, shop_id, amount, status")
       .eq("id", withdrawalId)
       .single()
 
