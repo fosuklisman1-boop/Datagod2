@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`Found ${bulkOrders?.length || 0} bulk orders`)
 
-    // Fetch all shop orders (any status)
+    // Fetch all shop orders (any status) with user phone as fallback
     const { data: shopOrdersData, error: shopError } = await supabase
       .from("shop_orders")
       .select(`
@@ -57,7 +57,8 @@ export async function GET(request: NextRequest) {
         network,
         reference_code,
         payment_status,
-        shop_id
+        user_id,
+        users!inner(phone_number)
       `)
       .order("created_at", { ascending: false })
 
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
     const formattedShopOrders = (shopOrdersData || []).map((order: any) => ({
       id: order.id,
       type: "shop",
-      phone_number: order.customer_phone,
+      phone_number: order.customer_phone || (order.users?.[0]?.phone_number) || "-",
       network: normalizeNetwork(order.network),
       volume_gb: order.volume_gb,
       price: order.total_price,
