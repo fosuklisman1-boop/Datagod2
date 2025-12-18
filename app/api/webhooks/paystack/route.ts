@@ -380,15 +380,16 @@ export async function POST(request: NextRequest) {
 
         // Send SMS to user about wallet top-up
         try {
-          // Get user's phone number from users table
+          // Get user's phone number and first name from users table
           const { data: userData, error: userError } = await supabase
             .from("users")
-            .select("phone_number")
+            .select("phone_number, first_name")
             .eq("id", paymentData.user_id)
             .single()
           
           if (!userError && userData?.phone_number) {
-            const smsMessage = `DATAGOD: ✓ Wallet topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
+            const firstName = userData.first_name || 'User'
+            const smsMessage = `Hi ${firstName}, DATAGOD: ✓ Wallet topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
             
             await sendSMS({
               phone: userData.phone_number,
