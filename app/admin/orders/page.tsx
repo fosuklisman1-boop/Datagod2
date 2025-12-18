@@ -256,7 +256,7 @@ export default function AdminOrdersPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ orderIds: batch.orders.map(o => o.id) })
+        body: JSON.stringify({ orderIds: batch.orders.map(o => o.id), isRedownload: true })
       })
 
       if (!response.ok) {

@@ -29,9 +29,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
-    const { orderIds, orderType } = await request.json()
+    const { orderIds, orderType, isRedownload } = await request.json()
 
-    console.log("[DOWNLOAD] Admin", callerUser.id, "downloading orders:", orderIds, "orderType:", orderType)
+    console.log("[DOWNLOAD] Admin", callerUser.id, "downloading orders:", orderIds, "orderType:", orderType, "isRedownload:", isRedownload)
 
     if (!orderIds || orderIds.length === 0) {
       return NextResponse.json(
@@ -145,76 +145,81 @@ export async function POST(request: NextRequest) {
     }
 
     // Update order statuses - handle both types
-    if (bulkOrderIds.length > 0) {
-      const { error: updateError } = await supabase
-        .from("orders")
-        .update({ status: "processing" })
-        .in("id", bulkOrderIds)
+    // Only update status to "processing" on initial download, not on redownloads
+    if (!isRedownload) {
+      if (bulkOrderIds.length > 0) {
+        const { error: updateError } = await supabase
+          .from("orders")
+          .update({ status: "processing" })
+          .in("id", bulkOrderIds)
 
-      if (updateError) {
-        throw new Error(`Failed to update bulk order status: ${updateError.message}`)
-      }
-    }
-
-    if (shopOrderIds.length > 0) {
-      const { error: updateError } = await supabase
-        .from("shop_orders")
-        .update({ order_status: "processing" })
-        .in("id", shopOrderIds)
-
-      if (updateError) {
-        throw new Error(`Failed to update shop order status: ${updateError.message}`)
-      }
-    }
-
-    // Send processing notifications to users
-    try {
-      // Get user info for all orders to send notifications
-      const bulkOrdersWithUsers = bulkOrderIds.length > 0 
-        ? await supabase
-            .from("orders")
-            .select("id, user_id, network, size, phone_number")
-            .in("id", bulkOrderIds)
-        : { data: [] }
-
-      const shopOrdersWithUsers = shopOrderIds.length > 0
-        ? await supabase
-            .from("shop_orders")
-            .select("id, user_id, network, volume_gb, phone_number")
-            .in("id", shopOrderIds)
-        : { data: [] }
-
-      const allOrdersWithUsers = [
-        ...(bulkOrdersWithUsers.data || []).map(o => ({ ...o, type: "bulk", size: o.size })),
-        ...(shopOrdersWithUsers.data || []).map(o => ({ ...o, type: "shop", size: o.volume_gb }))
-      ]
-
-      for (const order of allOrdersWithUsers) {
-        try {
-          const { error: notifError } = await supabase
-            .from("notifications")
-            .insert([
-              {
-                user_id: order.user_id,
-                title: "Order Processing",
-                message: `Your ${order.network} ${order.size}GB data order is now being processed. Phone: ${order.phone_number}`,
-                type: "order_update" as NotificationType,
-                reference_id: order.id,
-                action_url: order.type === "shop" ? `/dashboard/shop-orders` : `/dashboard/my-orders`,
-                read: false,
-              },
-            ])
-
-          if (notifError) {
-            console.warn(`[DOWNLOAD] Failed to send processing notification for order ${order.id}:`, notifError)
-          }
-        } catch (notifError) {
-          console.warn(`[DOWNLOAD] Error sending notification for order ${order.id}:`, notifError)
+        if (updateError) {
+          throw new Error(`Failed to update bulk order status: ${updateError.message}`)
         }
       }
-      console.log(`[DOWNLOAD] ✓ Sent processing notifications for ${allOrdersWithUsers.length} orders`)
-    } catch (notifError) {
-      console.warn("[DOWNLOAD] Error sending notifications:", notifError)
+
+      if (shopOrderIds.length > 0) {
+        const { error: updateError } = await supabase
+          .from("shop_orders")
+          .update({ order_status: "processing" })
+          .in("id", shopOrderIds)
+
+        if (updateError) {
+          throw new Error(`Failed to update shop order status: ${updateError.message}`)
+        }
+      }
+    }
+
+    // Send processing notifications to users (only on initial download, not redownloads)
+    if (!isRedownload) {
+      try {
+        // Get user info for all orders to send notifications
+        const bulkOrdersWithUsers = bulkOrderIds.length > 0 
+          ? await supabase
+              .from("orders")
+              .select("id, user_id, network, size, phone_number")
+              .in("id", bulkOrderIds)
+          : { data: [] }
+
+        const shopOrdersWithUsers = shopOrderIds.length > 0
+          ? await supabase
+              .from("shop_orders")
+              .select("id, user_id, network, volume_gb, phone_number")
+              .in("id", shopOrderIds)
+          : { data: [] }
+
+        const allOrdersWithUsers = [
+          ...(bulkOrdersWithUsers.data || []).map(o => ({ ...o, type: "bulk", size: o.size })),
+          ...(shopOrdersWithUsers.data || []).map(o => ({ ...o, type: "shop", size: o.volume_gb }))
+        ]
+
+        for (const order of allOrdersWithUsers) {
+          try {
+            const { error: notifError } = await supabase
+              .from("notifications")
+              .insert([
+                {
+                  user_id: order.user_id,
+                  title: "Order Processing",
+                  message: `Your ${order.network} ${order.size}GB data order is now being processed. Phone: ${order.phone_number}`,
+                  type: "order_update" as NotificationType,
+                  reference_id: order.id,
+                  action_url: order.type === "shop" ? `/dashboard/shop-orders` : `/dashboard/my-orders`,
+                  read: false,
+                },
+              ])
+
+            if (notifError) {
+              console.warn(`[DOWNLOAD] Failed to send processing notification for order ${order.id}:`, notifError)
+            }
+          } catch (notifError) {
+            console.warn(`[DOWNLOAD] Error sending notification for order ${order.id}:`, notifError)
+          }
+        }
+        console.log(`[DOWNLOAD] ✓ Sent processing notifications for ${allOrdersWithUsers.length} orders`)
+      } catch (notifError) {
+        console.warn("[DOWNLOAD] Error sending notifications:", notifError)
+      }
     }
 
     // Group orders by network
