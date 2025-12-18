@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
       volume_gb: 0,
       price: payment.amount,
       status: payment.status,
-      payment_status: payment.status,
+      payment_status: "completed", // Wallet orders are always completed instantly
       payment_reference: payment.reference || "-",
       created_at: payment.created_at,
     }))
