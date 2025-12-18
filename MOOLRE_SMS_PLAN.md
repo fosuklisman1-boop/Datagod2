@@ -42,7 +42,7 @@ interface SendSMSResponse {
 ```env
 MOOLRE_API_KEY=your_moolre_api_key
 MOOLRE_API_URL=https://api.moolre.com/v1
-MOOLRE_SENDER_ID=DATAGOD
+MOOLRE_SENDER_ID=DGOD
 SMS_ENABLED=true
 ```
 
@@ -207,7 +207,7 @@ export async function sendSMSViaaMoolre(
     const response = await moolreClient.post('/sms/send', {
       phone: normalizePhoneNumber(phone), // +233XXXXXXXXX format
       message,
-      senderId: process.env.MOOLRE_SENDER_ID || 'DATAGOD',
+      senderId: process.env.MOOLRE_SENDER_ID || 'DGOD',
       scheduleTime: null, // Send immediately
     })
 

@@ -13,7 +13,7 @@ Get SMS notifications working in 30 minutes!
 ```env
 MOOLRE_API_KEY=your_moolre_api_key_here
 MOOLRE_API_URL=https://api.moolre.com/v1
-MOOLRE_SENDER_ID=DATAGOD
+MOOLRE_SENDER_ID=DGOD
 SMS_ENABLED=true
 ```
 
@@ -58,7 +58,7 @@ export async function sendSMS(payload: SMSPayload) {
     const response = await moolreClient.post('/sms/send', {
       phone: normalizePhoneNumber(payload.phone),
       message: payload.message,
-      senderId: process.env.MOOLRE_SENDER_ID || 'DATAGOD',
+      senderId: process.env.MOOLRE_SENDER_ID || 'DGOD',
       scheduleTime: null
     })
 

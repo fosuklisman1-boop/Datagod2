@@ -105,7 +105,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     const response = await moolreClient.post('/sms/send', {
       phone: normalizedPhone,
       message: payload.message,
-      senderId: process.env.MOOLRE_SENDER_ID || 'DATAGOD',
+      senderId: process.env.MOOLRE_SENDER_ID || 'DGOD',
       scheduleTime: null,
     })
 

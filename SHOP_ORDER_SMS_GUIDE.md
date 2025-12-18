@@ -109,14 +109,14 @@ CREATE TABLE sms_logs (
 # Moolre SMS Service
 MOOLRE_API_KEY=your_moolre_api_key_here
 MOOLRE_API_URL=https://api.moolre.com/v1
-MOOLRE_SENDER_ID=DATAGOD
+MOOLRE_SENDER_ID=DGOD
 SMS_ENABLED=true
 ```
 
 ### Optional Variables
 
 - `SMS_ENABLED=false` - Disable SMS (for testing)
-- `MOOLRE_SENDER_ID` - Customize sender ID (default: DATAGOD)
+- `MOOLRE_SENDER_ID` - Customize sender ID (default: DGOD)
 
 ## Testing
 

@@ -174,7 +174,7 @@ All automatically converted to `+233XXXXXXXXX`
 ```env
 MOOLRE_API_KEY=your_moolre_api_key
 MOOLRE_API_URL=https://api.moolre.com/v1
-MOOLRE_SENDER_ID=DATAGOD
+MOOLRE_SENDER_ID=DGOD
 SMS_ENABLED=true
 ```
 
