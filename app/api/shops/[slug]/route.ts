@@ -17,7 +17,7 @@ export async function GET(
     // Get shop data from user_shops table
     const { data: shop, error: shopError } = await supabase
       .from('user_shops')
-      .select('*')
+      .select("id, shop_name, shop_slug, description, is_active, created_at")
       .eq('shop_slug', slug)
       .eq('is_active', true)
       .single()

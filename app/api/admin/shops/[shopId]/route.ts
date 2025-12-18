@@ -19,12 +19,24 @@ export async function GET(
       )
     }
 
-    // Get shop details
-    const { data: shop, error: shopError } = await supabase
-      .from("user_shops")
-      .select("*")
-      .eq("id", shopId)
-      .single()
+    // Parallelize all three queries instead of sequential, with specific column selection
+    const [shopResult, ordersResult, profitsResult] = await Promise.all([
+      supabase
+        .from("user_shops")
+        .select("id, shop_name, shop_slug, description, is_active, created_at, user_id")
+        .eq("id", shopId)
+        .single(),
+      supabase
+        .from("shop_orders")
+        .select("id, shop_id, user_id, customer_phone, network, volume_gb, transaction_id, order_status, payment_status, created_at")
+        .eq("shop_id", shopId),
+      supabase
+        .from("shop_profits")
+        .select("id, shop_id, shop_order_id, profit_amount, status, created_at")
+        .eq("shop_id", shopId)
+    ])
+
+    const { data: shop, error: shopError } = shopResult
 
     if (shopError) {
       console.error("Error fetching shop:", shopError)
@@ -34,17 +46,8 @@ export async function GET(
       )
     }
 
-    // Get shop orders
-    const { data: orders } = await supabase
-      .from("shop_orders")
-      .select("*")
-      .eq("shop_id", shopId)
-
-    // Get shop profits
-    const { data: profits } = await supabase
-      .from("shop_profits")
-      .select("*")
-      .eq("shop_id", shopId)
+    const { data: orders } = ordersResult
+    const { data: profits } = profitsResult
 
     return NextResponse.json({
       success: true,

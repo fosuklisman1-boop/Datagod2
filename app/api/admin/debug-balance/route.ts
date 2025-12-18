@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     // Get current balance table record
     const { data: balance, error: balanceError } = await supabase
       .from("shop_available_balance")
-      .select("*")
+      .select("id, shop_id, available_balance, total_profit, created_at")
       .eq("shop_id", shopId)
 
     if (balanceError) console.warn("Balance table error:", balanceError)

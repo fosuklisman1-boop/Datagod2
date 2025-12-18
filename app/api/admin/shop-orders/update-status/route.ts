@@ -47,48 +47,46 @@ export async function POST(request: NextRequest) {
         .select("id, user_id, network, volume_gb, phone_number")
         .in("id", orderIds)
 
-      if (!ordersError && shopOrders) {
-        for (const order of shopOrders) {
-          try {
-            let title = "Order Updated"
-            let message = ""
+      if (!ordersError && shopOrders && shopOrders.length > 0) {
+        // Batch insert all notifications at once instead of looping
+        const notifications = shopOrders.map((order) => {
+          let title = "Order Updated"
+          let message = ""
 
-            if (status === "completed") {
-              title = "Order Completed"
-              message = `Your ${order.network} ${order.volume_gb}GB data order has been completed. Phone: ${order.phone_number}`
-            } else if (status === "processing") {
-              title = "Order Processing"
-              message = `Your ${order.network} ${order.volume_gb}GB data order is now being processed. Phone: ${order.phone_number}`
-            } else if (status === "failed") {
-              title = "Order Failed"
-              message = `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support. Phone: ${order.phone_number}`
-            } else {
-              title = "Order Status Updated"
-              message = `Your order status has been updated to: ${status}. Phone: ${order.phone_number}`
-            }
-
-            const { error: notifError } = await supabase
-              .from("notifications")
-              .insert([
-                {
-                  user_id: order.user_id,
-                  title,
-                  message,
-                  type: "order_update" as NotificationType,
-                  reference_id: order.id,
-                  action_url: `/dashboard/shop-orders`,
-                  read: false,
-                },
-              ])
-
-            if (notifError) {
-              console.warn(`[SHOP-ORDERS-UPDATE] Failed to send notification for order ${order.id}:`, notifError)
-            }
-          } catch (notifError) {
-            console.warn(`[SHOP-ORDERS-UPDATE] Error sending notification for order ${order.id}:`, notifError)
+          if (status === "completed") {
+            title = "Order Completed"
+            message = `Your ${order.network} ${order.volume_gb}GB data order has been completed. Phone: ${order.phone_number}`
+          } else if (status === "processing") {
+            title = "Order Processing"
+            message = `Your ${order.network} ${order.volume_gb}GB data order is now being processed. Phone: ${order.phone_number}`
+          } else if (status === "failed") {
+            title = "Order Failed"
+            message = `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support. Phone: ${order.phone_number}`
+          } else {
+            title = "Order Status Updated"
+            message = `Your order status has been updated to: ${status}. Phone: ${order.phone_number}`
           }
+
+          return {
+            user_id: order.user_id,
+            title,
+            message,
+            type: "order_update" as NotificationType,
+            reference_id: order.id,
+            action_url: `/dashboard/shop-orders`,
+            read: false,
+          }
+        })
+
+        const { error: notifError } = await supabase
+          .from("notifications")
+          .insert(notifications)
+
+        if (notifError) {
+          console.warn(`[SHOP-ORDERS-UPDATE] Failed to send ${notifications.length} notifications:`, notifError)
+        } else {
+          console.log(`[SHOP-ORDERS-UPDATE] ✓ Sent ${notifications.length} status notifications`)
         }
-        console.log(`[SHOP-ORDERS-UPDATE] ✓ Sent ${shopOrders.length} status notifications`)
       }
     } catch (notifError) {
       console.warn("[SHOP-ORDERS-UPDATE] Error sending notifications:", notifError)
@@ -150,44 +148,51 @@ export async function POST(request: NextRequest) {
         // Sync available balance for each shop
         const shopIds = [...new Set(profitRecords.map(p => p.shop_id))]
         
-        for (const shopId of shopIds) {
-          try {
-            // Get all profits for this shop to calculate available balance
-            const { data: profits, error: profitFetchError } = await supabase
-              .from("shop_profits")
-              .select("profit_amount, status")
-              .eq("shop_id", shopId)
+        // Batch fetch all profits and withdrawals for all shops at once
+        const [profitsResult, withdrawalsResult] = await Promise.all([
+          supabase
+            .from("shop_profits")
+            .select("shop_id, profit_amount, status")
+            .in("shop_id", shopIds),
+          supabase
+            .from("withdrawal_requests")
+            .select("shop_id, amount")
+            .in("shop_id", shopIds)
+            .eq("status", "approved")
+        ])
 
-            if (!profitFetchError && profits) {
-              // Calculate totals by status
-              const breakdown = {
-                totalProfit: 0,
-                creditedProfit: 0,
-                withdrawnProfit: 0,
-              }
+        const { data: allShopProfits, error: allProfitsError } = profitsResult
+        const { data: allApprovedWithdrawals } = withdrawalsResult
 
-              profits.forEach((p: any) => {
-                const amount = p.profit_amount || 0
-                breakdown.totalProfit += amount
+        // Process all shops without additional queries
+        if (!allProfitsError && allShopProfits) {
+          for (const shopId of shopIds) {
+            try {
+              // Filter profits for this shop from the already-fetched data
+              const profits = allShopProfits.filter(p => p.shop_id === shopId)
 
-                if (p.status === "credited") {
-                  breakdown.creditedProfit += amount
-                } else if (p.status === "withdrawn") {
-                  breakdown.withdrawnProfit += amount
+              if (profits.length > 0) {
+                // Calculate totals by status
+                const breakdown = {
+                  totalProfit: 0,
+                  creditedProfit: 0,
+                  withdrawnProfit: 0,
                 }
-              })
 
-              // Get approved withdrawals to subtract from available balance
-              const { data: approvedWithdrawals, error: withdrawalError } = await supabase
-                .from("withdrawal_requests")
-                .select("amount")
-                .eq("shop_id", shopId)
-                .eq("status", "approved")
+                profits.forEach((p: any) => {
+                  const amount = p.profit_amount || 0
+                  breakdown.totalProfit += amount
 
-              let totalApprovedWithdrawals = 0
-              if (!withdrawalError && approvedWithdrawals) {
-                totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
-              }
+                  if (p.status === "credited") {
+                    breakdown.creditedProfit += amount
+                  } else if (p.status === "withdrawn") {
+                    breakdown.withdrawnProfit += amount
+                  }
+                })
+
+                // Use already-fetched withdrawals for this shop
+                const shopWithdrawals = allApprovedWithdrawals ? allApprovedWithdrawals.filter(w => w.shop_id === shopId) : []
+                const totalApprovedWithdrawals = shopWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
 
               // Available balance = credited profit - approved withdrawals
               const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)

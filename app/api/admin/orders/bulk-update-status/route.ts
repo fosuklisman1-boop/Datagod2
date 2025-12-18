@@ -83,50 +83,42 @@ export async function POST(request: NextRequest) {
             .select("id, user_id, network, size, phone_number")
             .in("id", bulkOrderIds)
 
-          if (!ordersError && orders) {
-            for (const order of orders) {
-              try {
-                if (status === "completed") {
-                  const notificationData = notificationTemplates.orderCompleted(order.id, "")
-                  const { error: notifError } = await supabase
-                    .from("notifications")
-                    .insert([
-                      {
-                        user_id: order.user_id,
-                        title: notificationData.title,
-                        message: `Your ${order.network} ${order.size} data order has been completed. Phone: ${order.phone_number}`,
-                        type: notificationData.type,
-                        reference_id: order.id,
-                        action_url: `/dashboard/my-orders`,
-                        read: false,
-                      },
-                    ])
-                  if (notifError) {
-                    console.warn(`[NOTIFICATION] Failed to send completion notification for order ${order.id}:`, notifError)
-                  }
-                } else if (status === "failed") {
-                  const { error: notifError } = await supabase
-                    .from("notifications")
-                    .insert([
-                      {
-                        user_id: order.user_id,
-                        title: "Order Failed",
-                        message: `Your ${order.network} ${order.size} data order has failed. Please contact support. Phone: ${order.phone_number}`,
-                        type: "order_update" as NotificationType,
-                        reference_id: order.id,
-                        action_url: `/dashboard/my-orders`,
-                        read: false,
-                      },
-                    ])
-                  if (notifError) {
-                    console.warn(`[NOTIFICATION] Failed to send failure notification for order ${order.id}:`, notifError)
-                  }
+          if (!ordersError && orders && orders.length > 0) {
+            // Batch insert all notifications at once
+            const notifications = orders.map((order) => {
+              if (status === "completed") {
+                const notificationData = notificationTemplates.orderCompleted(order.id, "")
+                return {
+                  user_id: order.user_id,
+                  title: notificationData.title,
+                  message: `Your ${order.network} ${order.size} data order has been completed. Phone: ${order.phone_number}`,
+                  type: notificationData.type,
+                  reference_id: order.id,
+                  action_url: `/dashboard/my-orders`,
+                  read: false,
                 }
-              } catch (notifError) {
-                console.warn(`[NOTIFICATION] Failed to send notification for order ${order.id}:`, notifError)
+              } else {
+                return {
+                  user_id: order.user_id,
+                  title: "Order Failed",
+                  message: `Your ${order.network} ${order.size} data order has failed. Please contact support. Phone: ${order.phone_number}`,
+                  type: "order_update" as NotificationType,
+                  reference_id: order.id,
+                  action_url: `/dashboard/my-orders`,
+                  read: false,
+                }
               }
+            })
+
+            const { error: notifError } = await supabase
+              .from("notifications")
+              .insert(notifications)
+
+            if (notifError) {
+              console.warn(`[NOTIFICATION] Failed to send ${notifications.length} bulk notifications:`, notifError)
+            } else {
+              console.log(`[NOTIFICATION] Sent ${notifications.length} bulk order status notifications`)
             }
-            console.log(`[NOTIFICATION] Sent ${orders.length} bulk order status notifications`)
           }
         } catch (error) {
           console.warn("[NOTIFICATION] Error sending bulk notifications:", error)
@@ -200,50 +192,42 @@ export async function POST(request: NextRequest) {
             .select("id, user_id, network, volume_gb, phone_number")
             .in("id", shopOrderIds)
 
-          if (!ordersError && shopOrderDetails) {
-            for (const order of shopOrderDetails) {
-              try {
-                if (status === "completed") {
-                  const notificationData = notificationTemplates.orderCompleted(order.id, "")
-                  const { error: notifError } = await supabase
-                    .from("notifications")
-                    .insert([
-                      {
-                        user_id: order.user_id,
-                        title: notificationData.title,
-                        message: `Your ${order.network} ${order.volume_gb}GB data order has been completed. Phone: ${order.phone_number}`,
-                        type: notificationData.type,
-                        reference_id: order.id,
-                        action_url: `/dashboard/my-orders`,
-                        read: false,
-                      },
-                    ])
-                  if (notifError) {
-                    console.warn(`[NOTIFICATION] Failed to send completion notification for shop order ${order.id}:`, notifError)
-                  }
-                } else if (status === "failed") {
-                  const { error: notifError } = await supabase
-                    .from("notifications")
-                    .insert([
-                      {
-                        user_id: order.user_id,
-                        title: "Order Failed",
-                        message: `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support. Phone: ${order.phone_number}`,
-                        type: "order_update" as NotificationType,
-                        reference_id: order.id,
-                        action_url: `/dashboard/my-orders`,
-                        read: false,
-                      },
-                    ])
-                  if (notifError) {
-                    console.warn(`[NOTIFICATION] Failed to send failure notification for shop order ${order.id}:`, notifError)
-                  }
+          if (!ordersError && shopOrderDetails && shopOrderDetails.length > 0) {
+            // Batch insert all notifications at once
+            const notifications = shopOrderDetails.map((order) => {
+              if (status === "completed") {
+                const notificationData = notificationTemplates.orderCompleted(order.id, "")
+                return {
+                  user_id: order.user_id,
+                  title: notificationData.title,
+                  message: `Your ${order.network} ${order.volume_gb}GB data order has been completed. Phone: ${order.phone_number}`,
+                  type: notificationData.type,
+                  reference_id: order.id,
+                  action_url: `/dashboard/my-orders`,
+                  read: false,
                 }
-              } catch (notifError) {
-                console.warn(`[NOTIFICATION] Failed to send notification for shop order ${order.id}:`, notifError)
+              } else {
+                return {
+                  user_id: order.user_id,
+                  title: "Order Failed",
+                  message: `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support. Phone: ${order.phone_number}`,
+                  type: "order_update" as NotificationType,
+                  reference_id: order.id,
+                  action_url: `/dashboard/my-orders`,
+                  read: false,
+                }
               }
+            })
+
+            const { error: notifError } = await supabase
+              .from("notifications")
+              .insert(notifications)
+
+            if (notifError) {
+              console.warn(`[NOTIFICATION] Failed to send ${notifications.length} shop notifications:`, notifError)
+            } else {
+              console.log(`[NOTIFICATION] Sent ${notifications.length} shop order status notifications`)
             }
-            console.log(`[NOTIFICATION] Sent ${shopOrderDetails.length} shop order status notifications`)
           }
         } catch (error) {
           console.warn("[NOTIFICATION] Error sending shop order notifications:", error)
@@ -299,18 +283,33 @@ export async function POST(request: NextRequest) {
           const totalProfit = profitRecords.reduce((sum, p) => sum + p.profit_amount, 0)
           console.log(`[BULK-UPDATE] ✓ Credited ${profitRecords.length} profit records (GHS ${totalProfit.toFixed(2)})`)
 
-          // Sync available balance for each shop
-          const shopIds = [...new Set(profitRecords.map(p => p.shop_id))]
-          
+        // Sync available balance for each shop
+        const shopIds = [...new Set(profitRecords.map(p => p.shop_id))]
+        
+        // Batch fetch all profits and withdrawals for all shops at once
+        const [profitsResult, withdrawalsResult] = await Promise.all([
+          supabase
+            .from("shop_profits")
+            .select("shop_id, profit_amount, status")
+            .in("shop_id", shopIds),
+          supabase
+            .from("withdrawal_requests")
+            .select("shop_id, amount")
+            .in("shop_id", shopIds)
+            .eq("status", "approved")
+        ])
+
+        const { data: allShopProfits, error: allProfitsError } = profitsResult
+        const { data: allApprovedWithdrawals } = withdrawalsResult
+
+        // Process all shops without additional queries
+        if (!allProfitsError && allShopProfits) {
           for (const shopId of shopIds) {
             try {
-              // Get all profits for this shop to calculate available balance
-              const { data: profits, error: profitFetchError } = await supabase
-                .from("shop_profits")
-                .select("profit_amount, status")
-                .eq("shop_id", shopId)
+              // Filter profits for this shop from the already-fetched data
+              const profits = allShopProfits.filter(p => p.shop_id === shopId)
 
-              if (!profitFetchError && profits) {
+              if (profits.length > 0) {
                 // Calculate totals by status
                 const breakdown = {
                   totalProfit: 0,
@@ -329,19 +328,9 @@ export async function POST(request: NextRequest) {
                   }
                 })
 
-                // Get approved withdrawals to subtract from available balance
-                const { data: approvedWithdrawals, error: withdrawalError } = await supabase
-                  .from("withdrawal_requests")
-                  .select("amount")
-                  .eq("shop_id", shopId)
-                  .eq("status", "approved")
-
-                let totalApprovedWithdrawals = 0
-                if (!withdrawalError && approvedWithdrawals) {
-                  totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
-                }
-
-                // Available balance = credited profit - approved withdrawals
+                // Use already-fetched withdrawals for this shop
+                const shopWithdrawals = allApprovedWithdrawals ? allApprovedWithdrawals.filter(w => w.shop_id === shopId) : []
+                const totalApprovedWithdrawals = shopWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)                // Available balance = credited profit - approved withdrawals
                 const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
 
                 // Delete existing record and insert fresh (more reliable than upsert)
