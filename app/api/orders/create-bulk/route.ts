@@ -174,7 +174,9 @@ export async function POST(request: NextRequest) {
         const uniquePhones = [...new Set(orders.map((o: BulkOrderData) => o.phone_number))]
         
         for (const phoneNumber of uniquePhones) {
-          const smsMessage = `DATAGOD: ✓ Bulk order placed for ${network}. Total: GHS ${totalCost.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
+          // Find volume for this phone number
+          const volumeForPhone = orders.find((o: BulkOrderData) => o.phone_number === phoneNumber)?.volume_gb || 0
+          const smsMessage = `You have successfully placed an order of ${volumeForPhone}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
           
           await sendSMS({
             phone: phoneNumber,
