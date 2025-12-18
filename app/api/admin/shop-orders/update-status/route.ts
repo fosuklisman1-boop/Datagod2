@@ -231,7 +231,10 @@ export async function POST(request: NextRequest) {
             }
           }
         }
-      }    return NextResponse.json({
+      }
+    }
+
+    return NextResponse.json({
       success: true,
       count: orderIds.length,
       status,

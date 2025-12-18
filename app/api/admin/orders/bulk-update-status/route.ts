@@ -374,50 +374,6 @@ export async function POST(request: NextRequest) {
             }
           }
         }
-
-                // Use already-fetched withdrawals for this shop
-                  const shopWithdrawals = allApprovedWithdrawals ? allApprovedWithdrawals.filter(w => w.shop_id === shopId) : []
-                  const totalApprovedWithdrawals = shopWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)                // Available balance = credited profit - approved withdrawals
-                const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
-
-                // Delete existing record and insert fresh (more reliable than upsert)
-                const deleteResult = await supabase
-                  .from("shop_available_balance")
-                  .delete()
-                  .eq("shop_id", shopId)
-                
-                if (deleteResult.error) {
-                  console.warn(`[BULK-UPDATE] Warning deleting old balance:`, deleteResult.error)
-                }
-
-                const { data, error: insertError } = await supabase
-                  .from("shop_available_balance")
-                  .insert([
-                    {
-                      shop_id: shopId,
-                      available_balance: availableBalance,
-                      total_profit: breakdown.totalProfit,
-                      withdrawn_amount: breakdown.withdrawnProfit,
-                      credited_profit: breakdown.creditedProfit,
-                      withdrawn_profit: breakdown.withdrawnProfit,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
-                    }
-                  ])
-
-                if (insertError) {
-                  console.error(`[BULK-UPDATE] Error syncing balance for shop ${shopId}:`, insertError)
-                  throw new Error(`Failed to sync balance: ${insertError.message}`)
-                }
-
-                console.log(`[BULK-UPDATE] ✓ Synced available balance for shop: ${shopId} - Available: GHS ${availableBalance.toFixed(2)}`)
-              }
-            } catch (syncError) {
-              console.warn(`[BULK-UPDATE] Warning: Could not sync balance for shop ${shopId}:`, syncError)
-              // Don't throw - profit was already credited, this is just a sync
-            }
-          }
-        }
       }
     }
 
