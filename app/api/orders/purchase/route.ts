@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
     // Send SMS about successful purchase
     try {
-      const smsMessage = `DATAGOD: ✓ Order placed! ${network} ${size}GB for GHS ${price.toFixed(2)}. Order Code: ${order[0].order_code}. Track at datagod.com`
+      const smsMessage = `You have successfully placed an order of ${size}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
       
       await sendSMS({
         phone: phoneNumber,
