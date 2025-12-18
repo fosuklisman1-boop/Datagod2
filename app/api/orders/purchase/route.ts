@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
     // Send SMS about successful purchase
     try {
-      const smsMessage = `You have successfully placed an order of ${size}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
+      const smsMessage = `You have successfully placed an order of ${network} ${size}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
       
       await sendSMS({
         phone: phoneNumber,

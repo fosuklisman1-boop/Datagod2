@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
         for (const phoneNumber of uniquePhones) {
           // Find volume for this phone number
           const volumeForPhone = orders.find((o: BulkOrderData) => o.phone_number === phoneNumber)?.volume_gb || 0
-          const smsMessage = `You have successfully placed an order of ${volumeForPhone}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
+          const smsMessage = `You have successfully placed an order of ${network} ${volumeForPhone}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
           
           await sendSMS({
             phone: phoneNumber,

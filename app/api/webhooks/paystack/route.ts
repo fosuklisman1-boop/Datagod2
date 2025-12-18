@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
                 
                 const shopOwnerPhone = shopData?.phone_number || "Support"
                 
-                const smsMessage = `You have successfully placed an order of ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
+                const smsMessage = `You have successfully placed an order of ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
                 
                 await sendSMS({
                   phone: shopOrderData.customer_phone,
