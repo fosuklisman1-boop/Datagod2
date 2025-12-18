@@ -14,11 +14,12 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
  * Configure this URL in your Paystack dashboard settings
  */
 export async function POST(request: NextRequest) {
-  console.log("[WEBHOOK] Webhook called")
+  console.log("[WEBHOOK] ========== WEBHOOK CALLED ==========")
   try {
-    // Verify request is from Paystack
-    const signature = request.headers.get("x-paystack-signature")
-    console.log("[WEBHOOK] Signature present:", !!signature)
+    console.log("[WEBHOOK] Request headers:", {
+      signature: !!request.headers.get("x-paystack-signature"),
+      contentType: request.headers.get("content-type"),
+    })
 
     if (!signature) {
       console.warn("[WEBHOOK] Missing signature")
@@ -409,13 +410,17 @@ export async function POST(request: NextRequest) {
         console.log(`[WEBHOOK] ✓ Shop order payment - NOT credited to wallet (profit goes to shop instead)`)
       }
 
-      console.log(`Payment processed successfully: ${reference}`)
+      console.log(`[WEBHOOK] ✓ Payment processed successfully: ${reference}`)
+    } else {
+      console.log(`[WEBHOOK] ⚠️ Event type not handled: ${event.event}`)
     }
 
     // Acknowledge receipt of webhook
+    console.log("[WEBHOOK] ========== WEBHOOK COMPLETE ==========")
     return NextResponse.json({ received: true })
   } catch (error) {
-    console.error("Webhook error:", error)
+    console.error("[WEBHOOK] ✗ Error:", error)
+    console.log("[WEBHOOK] ========== WEBHOOK FAILED ==========")
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Webhook processing failed" },
       { status: 500 }
