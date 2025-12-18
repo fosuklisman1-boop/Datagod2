@@ -169,20 +169,22 @@ export async function POST(request: NextRequest) {
         console.log(`[BULK-ORDERS] ✓ Transaction record created for ₵${totalCost}`)
       }
 
-      // Send SMS to user about bulk order placement
+      // Send SMS to each phone number in the bulk order
       try {
-        // Get first phone number from the orders for SMS
-        const firstPhoneNumber = orders[0]?.phone_number
-        if (firstPhoneNumber) {
-          const smsMessage = `DATAGOD: ✓ Bulk order placed! ${orders.length} order(s) for ${network}. Total: GHS ${totalCost.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
+        const uniquePhones = [...new Set(orders.map((o: BulkOrderData) => o.phone_number))]
+        
+        for (const phoneNumber of uniquePhones) {
+          const smsMessage = `DATAGOD: ✓ Bulk order placed for ${network}. Total: GHS ${totalCost.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
           
           await sendSMS({
-            phone: firstPhoneNumber,
+            phone: phoneNumber,
             message: smsMessage,
             type: 'bulk_order_success',
             reference: `BULK-${Date.now()}`,
-          }).catch(err => console.error("[SMS] SMS error:", err))
+          }).catch(err => console.error("[SMS] SMS error for phone ${phoneNumber}:", err))
         }
+        
+        console.log(`[SMS] ✓ SMS sent to ${uniquePhones.length} unique phone number(s)`)
       } catch (smsError) {
         console.warn("[SMS] Failed to send bulk order SMS:", smsError)
         // Don't fail the bulk order if SMS fails
