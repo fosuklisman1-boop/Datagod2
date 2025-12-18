@@ -11,11 +11,11 @@ CREATE INDEX IF NOT EXISTS idx_user_shops_created_at ON user_shops(created_at DE
 CREATE INDEX IF NOT EXISTS idx_user_shops_is_active_created_at ON user_shops(is_active, created_at DESC);
 
 -- Additional indexes for other frequently queried tables
--- Shop orders indexes
+-- Shop orders indexes (shop_orders has shop_id, NOT user_id)
 CREATE INDEX IF NOT EXISTS idx_shop_orders_shop_id ON shop_orders(shop_id);
-CREATE INDEX IF NOT EXISTS idx_shop_orders_user_id ON shop_orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_shop_orders_order_status ON shop_orders(order_status);
 CREATE INDEX IF NOT EXISTS idx_shop_orders_shop_id_status ON shop_orders(shop_id, order_status);
+CREATE INDEX IF NOT EXISTS idx_shop_orders_payment_status ON shop_orders(payment_status);
 
 -- Shop profits indexes
 CREATE INDEX IF NOT EXISTS idx_shop_profits_shop_id ON shop_profits(shop_id);
