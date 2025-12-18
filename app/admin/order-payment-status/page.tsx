@@ -19,7 +19,7 @@ interface AllOrder {
   volume_gb: number
   price: number
   status: string
-  payment_status?: string
+  payment_status: string
   payment_reference: string
   created_at: string
 }
@@ -185,7 +185,8 @@ export default function OrderPaymentStatusPage() {
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Volume</th>
                       <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
-                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Status</th>
+                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Payment Status</th>
+                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Order Status</th>
                       <th className="px-4 py-2 text-center font-semibold text-gray-700">Date</th>
                     </tr>
                   </thead>
@@ -208,6 +209,21 @@ export default function OrderPaymentStatusPage() {
                         </td>
                         <td className="px-4 py-3">{order.volume_gb}GB</td>
                         <td className="px-4 py-3 text-right font-semibold">₦ {order.price.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge
+                            className={`text-xs border ${
+                              order.payment_status === "completed"
+                                ? "bg-green-100 text-green-800 border-green-200"
+                                : order.payment_status === "pending"
+                                ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                : order.payment_status === "failed"
+                                ? "bg-red-100 text-red-800 border-red-200"
+                                : "bg-gray-100 text-gray-800 border-gray-200"
+                            }`}
+                          >
+                            {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1) || "Unknown"}
+                          </Badge>
+                        </td>
                         <td className="px-4 py-3 text-center">
                           <Badge
                             className={`text-xs border ${

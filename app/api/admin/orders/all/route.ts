@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     // Fetch all bulk orders (any status)
     let bulkOrdersQuery = supabase
       .from("orders")
-      .select("id, created_at, phone_number, price, status, size, network, transaction_code, order_code")
+      .select("id, created_at, phone_number, price, status, size, network, transaction_code, order_code, payment_status")
       .order("created_at", { ascending: false })
 
     const { data: bulkOrders, error: bulkError } = await bulkOrdersQuery
@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
       volume_gb: order.size,
       price: order.price,
       status: order.status,
+      payment_status: order.payment_status,
       payment_reference: order.transaction_code || order.order_code || "-",
       created_at: order.created_at,
     }))
