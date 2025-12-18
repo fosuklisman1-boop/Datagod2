@@ -283,54 +283,101 @@ export async function POST(request: NextRequest) {
           const totalProfit = profitRecords.reduce((sum, p) => sum + p.profit_amount, 0)
           console.log(`[BULK-UPDATE] ✓ Credited ${profitRecords.length} profit records (GHS ${totalProfit.toFixed(2)})`)
 
-        // Sync available balance for each shop
-        const shopIds = [...new Set(profitRecords.map(p => p.shop_id))]
-        
-        // Batch fetch all profits and withdrawals for all shops at once
-        const [profitsResult, withdrawalsResult] = await Promise.all([
-          supabase
-            .from("shop_profits")
-            .select("shop_id, profit_amount, status")
-            .in("shop_id", shopIds),
-          supabase
-            .from("withdrawal_requests")
-            .select("shop_id, amount")
-            .in("shop_id", shopIds)
-            .eq("status", "approved")
-        ])
+          // Sync available balance for each shop
+          const shopIds = [...new Set(profitRecords.map(p => p.shop_id))]
+          
+          // Batch fetch all profits and withdrawals for all shops at once
+          const [profitsResult, withdrawalsResult] = await Promise.all([
+            supabase
+              .from("shop_profits")
+              .select("shop_id, profit_amount, status")
+              .in("shop_id", shopIds),
+            supabase
+              .from("withdrawal_requests")
+              .select("shop_id, amount")
+              .in("shop_id", shopIds)
+              .eq("status", "approved")
+          ])
 
-        const { data: allShopProfits, error: allProfitsError } = profitsResult
-        const { data: allApprovedWithdrawals } = withdrawalsResult
+          const { data: allShopProfits, error: allProfitsError } = profitsResult
+          const { data: allApprovedWithdrawals } = withdrawalsResult
 
-        // Process all shops without additional queries
-        if (!allProfitsError && allShopProfits) {
-          for (const shopId of shopIds) {
-            try {
-              // Filter profits for this shop from the already-fetched data
-              const profits = allShopProfits.filter(p => p.shop_id === shopId)
+          // Process all shops without additional queries
+          if (!allProfitsError && allShopProfits) {
+            for (const shopId of shopIds) {
+              try {
+                // Filter profits for this shop from the already-fetched data
+                const profits = allShopProfits.filter(p => p.shop_id === shopId)
 
-              if (profits.length > 0) {
-                // Calculate totals by status
-                const breakdown = {
-                  totalProfit: 0,
-                  creditedProfit: 0,
-                  withdrawnProfit: 0,
-                }
-
-                profits.forEach((p: any) => {
-                  const amount = p.profit_amount || 0
-                  breakdown.totalProfit += amount
-
-                  if (p.status === "credited") {
-                    breakdown.creditedProfit += amount
-                  } else if (p.status === "withdrawn") {
-                    breakdown.withdrawnProfit += amount
+                if (profits.length > 0) {
+                  // Calculate totals by status
+                  const breakdown = {
+                    totalProfit: 0,
+                    creditedProfit: 0,
+                    withdrawnProfit: 0,
                   }
-                })
+
+                  profits.forEach((p: any) => {
+                    const amount = p.profit_amount || 0
+                    breakdown.totalProfit += amount
+
+                    if (p.status === "credited") {
+                      breakdown.creditedProfit += amount
+                    } else if (p.status === "withdrawn") {
+                      breakdown.withdrawnProfit += amount
+                    }
+                  })
+
+                  // Use already-fetched withdrawals for this shop
+                  const shopWithdrawals = allApprovedWithdrawals ? allApprovedWithdrawals.filter(w => w.shop_id === shopId) : []
+                  const totalApprovedWithdrawals = shopWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+
+                  // Available balance = credited profit - approved withdrawals
+                  const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+
+                  // Delete existing record and insert fresh (more reliable than upsert)
+                  const deleteResult = await supabase
+                    .from("shop_available_balance")
+                    .delete()
+                    .eq("shop_id", shopId)
+                  
+                  if (deleteResult.error) {
+                    console.warn(`[BULK-UPDATE] Warning deleting old balance:`, deleteResult.error)
+                  }
+
+                  const { data, error: insertError } = await supabase
+                    .from("shop_available_balance")
+                    .insert([
+                      {
+                        shop_id: shopId,
+                        available_balance: availableBalance,
+                        total_profit: breakdown.totalProfit,
+                        withdrawn_amount: breakdown.withdrawnProfit,
+                        credited_profit: breakdown.creditedProfit,
+                        withdrawn_profit: breakdown.withdrawnProfit,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      }
+                    ])
+
+                  if (insertError) {
+                    console.error(`[BULK-UPDATE] Error syncing balance for shop ${shopId}:`, insertError)
+                    throw new Error(`Failed to sync balance: ${insertError.message}`)
+                  }
+
+                  console.log(`[BULK-UPDATE] ✓ Synced available balance for shop: ${shopId} - Available: GHS ${availableBalance.toFixed(2)}`)
+                }
+              } catch (syncError) {
+                console.warn(`[BULK-UPDATE] Warning: Could not sync balance for shop ${shopId}:`, syncError)
+                // Don't throw - profit was already credited, this is just a sync
+              }
+            }
+          }
+        }
 
                 // Use already-fetched withdrawals for this shop
-                const shopWithdrawals = allApprovedWithdrawals ? allApprovedWithdrawals.filter(w => w.shop_id === shopId) : []
-                const totalApprovedWithdrawals = shopWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)                // Available balance = credited profit - approved withdrawals
+                  const shopWithdrawals = allApprovedWithdrawals ? allApprovedWithdrawals.filter(w => w.shop_id === shopId) : []
+                  const totalApprovedWithdrawals = shopWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)                // Available balance = credited profit - approved withdrawals
                 const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
 
                 // Delete existing record and insert fresh (more reliable than upsert)
