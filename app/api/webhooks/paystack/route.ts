@@ -363,6 +363,28 @@ export async function POST(request: NextRequest) {
           console.warn("[NOTIFICATION] Failed to send wallet top-up notification:", notifError)
           // Don't fail the webhook if notification fails
         }
+
+        // Send SMS to user about wallet top-up
+        try {
+          // Get user's phone number from auth user metadata
+          const { data: { user }, error: userError } = await supabase.auth.admin.getUserById(paymentData.user_id)
+          
+          if (!userError && user?.phone) {
+            const smsMessage = `DATAGOD: ✓ Wallet topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
+            
+            await sendSMS({
+              phone: user.phone,
+              message: smsMessage,
+              type: 'wallet_topup_success',
+              reference: paymentData.id,
+            }).catch(err => console.error("[WEBHOOK] SMS error:", err))
+            
+            console.log(`[SMS] Wallet top-up SMS sent to user ${paymentData.user_id}`)
+          }
+        } catch (smsError) {
+          console.warn("[SMS] Failed to send wallet top-up SMS:", smsError)
+          // Don't fail the webhook if SMS fails
+        }
       } else {
         console.log(`[WEBHOOK] ✓ Shop order payment - NOT credited to wallet (profit goes to shop instead)`)
       }
