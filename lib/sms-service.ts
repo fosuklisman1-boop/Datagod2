@@ -95,7 +95,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     console.log('[SMS] Sending to:', normalizedPhone, '- Message:', payload.message.substring(0, 60))
 
     const moolreClient = axios.create({
-      baseURL: process.env.MOOLRE_API_URL || 'https://api.moolre.com/v1',
+      baseURL: process.env.MOOLRE_API_URL || 'https://api.moolre.com',
       headers: {
         'X-API-USER': process.env.MOOLRE_API_USER || '',
         'X-API-KEY': process.env.MOOLRE_API_KEY || '',
@@ -105,7 +105,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
       },
     })
 
-    const response = await moolreClient.post('/sms/send', {
+    const response = await moolreClient.post('/open/sms/send', {
       phone: normalizedPhone,
       message: payload.message,
       senderId: process.env.MOOLRE_SENDER_ID || 'DGOD',
