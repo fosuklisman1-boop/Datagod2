@@ -190,6 +190,10 @@ export async function POST(request: NextRequest) {
                   }
                 })
 
+                // Use already-fetched withdrawals for this shop
+                const shopWithdrawals = allApprovedWithdrawals ? allApprovedWithdrawals.filter(w => w.shop_id === shopId) : []
+                const totalApprovedWithdrawals = shopWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+
                 // Available balance = credited profit - approved withdrawals
                 const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
 
