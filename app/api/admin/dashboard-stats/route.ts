@@ -100,14 +100,14 @@ export async function GET(request: NextRequest) {
       return sum + (order.total_price || 0)
     }, 0) || 0
 
-    // Get pending shops
+    // Get pending shops count using efficient exact count query
     const { count: pendingShops, error: pendingError } = await supabase
       .from("user_shops")
       .select("id", { count: "exact", head: true })
       .eq("is_active", false)
 
-    // Get completed orders
-    const completedOrders = orders?.filter((o: any) => o.order_status === "completed") || []
+    // Get completed orders count
+    const completedOrdersCount = orders?.filter((o: any) => o.order_status === "completed").length || 0
 
     return NextResponse.json(
       {
@@ -116,8 +116,8 @@ export async function GET(request: NextRequest) {
         totalOrders: totalOrders,
         totalRevenue: totalRevenue,
         pendingShops: pendingShops || 0,
-        completedOrders: completedOrders.length,
-        successRate: totalOrders ? ((completedOrders.length / totalOrders) * 100).toFixed(2) : 0,
+        completedOrders: completedOrdersCount,
+        successRate: totalOrders ? ((completedOrdersCount / totalOrders) * 100).toFixed(2) : 0,
         totalWalletBalance,
         totalProfitBalance,
       },

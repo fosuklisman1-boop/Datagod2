@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
       let query = supabase
         .from("user_shops")
-        .select("*")
+        .select("id, shop_name, shop_slug, description, is_active, created_at, user_id")
 
       // Filter by status if specified
       if (status === "pending") {
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("user_shops")
-      .select("*")
+      .select("id, shop_name, shop_slug, description, is_active, created_at, user_id")
 
     if (status === "pending") {
       console.log("[ADMIN-SHOPS] Filtering for pending shops (is_active=false)")
