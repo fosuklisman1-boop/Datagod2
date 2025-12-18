@@ -243,9 +243,17 @@ export default function AdminOrdersPage() {
     try {
       setUpdatingBatch(batchKey)
 
+      if (!session?.access_token) {
+        toast.error("Authentication required. Please log in again.")
+        return
+      }
+
       const response = await fetch("/api/admin/orders/download", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ orderIds: batch.orders.map(o => o.id) })
       })
 
