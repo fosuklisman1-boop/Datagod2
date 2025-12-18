@@ -102,33 +102,33 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
 
     console.log('[SMS] Sending to:', normalizedPhone, '- Message:', payload.message.substring(0, 60))
 
-    const moolreClient = axios.create({
-      baseURL: process.env.MOOLRE_API_URL || 'https://api.moolre.com',
-      headers: {
-        'X-API-VASKEY': process.env.MOOLRE_API_VASKEY || '',
-        'Content-Type': 'application/json',
-      },
+    const vasKey = process.env.MOOLRE_API_VASKEY || ''
+    const senderId = process.env.MOOLRE_SENDER_ID || 'DGOD'
+    
+    // Build query parameters
+    const queryParams = new URLSearchParams({
+      type: '1',
+      senderid: senderId,
+      recipient: normalizedPhone,
+      message: payload.message,
     })
+    
+    if (payload.reference) {
+      queryParams.append('ref', payload.reference)
+    }
 
-    console.log('[SMS] Making request to:', `${process.env.MOOLRE_API_URL || 'https://api.moolre.com'}/open/sms/send`)
-    console.log('[SMS] Request payload:', {
+    const url = `https://api.moolre.com/open/sms/send?${queryParams.toString()}&X-API-VASKEY=${vasKey}`
+
+    console.log('[SMS] Making GET request to:', url.substring(0, 100) + '...')
+    console.log('[SMS] Request params:', {
+      type: '1',
+      senderid: senderId,
       recipient: normalizedPhone,
       message: payload.message.substring(0, 60) + '...',
-      senderid: process.env.MOOLRE_SENDER_ID || 'DGOD',
       ref: payload.reference || '',
     })
 
-    const response = await moolreClient.post('/open/sms/send', {
-      type: 1,
-      senderid: process.env.MOOLRE_SENDER_ID || 'DGOD',
-      messages: [
-        {
-          recipient: normalizedPhone,
-          message: payload.message,
-          ref: payload.reference || '',
-        }
-      ]
-    })
+    const response = await axios.get(url)
 
     console.log('[SMS] Response received:', response.data)
 
