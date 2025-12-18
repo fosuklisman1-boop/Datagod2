@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -70,6 +71,21 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[SHOP-ORDER] ✓ Order created:", data[0].id)
+
+    // Send SMS to customer with order details
+    try {
+      const orderMessage = `DATAGOD: Order confirmed! ID: ${data[0].reference_code} | ${network} ${volume_gb}GB | GHS ${total_price} | Status: Pending payment`
+      
+      await sendSMS({
+        phone: customer_phone,
+        message: orderMessage,
+        type: 'order_created',
+        reference: data[0].id,
+      }).catch(err => console.error("[SHOP-ORDER] SMS error:", err))
+    } catch (smsError) {
+      console.warn("[SHOP-ORDER] SMS notification failed:", smsError)
+      // Continue anyway - don't fail the order if SMS fails
+    }
 
     return NextResponse.json({
       success: true,

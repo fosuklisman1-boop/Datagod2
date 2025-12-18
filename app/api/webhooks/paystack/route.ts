@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { notificationTemplates } from "@/lib/notification-service"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
         // Get shop order details to create profit record
         const { data: shopOrderData, error: orderFetchError } = await supabase
           .from("shop_orders")
-          .select("id, shop_id, profit_amount")
+          .select("id, shop_id, profit_amount, customer_phone, customer_email, network, volume_gb, total_price, reference_code")
           .eq("id", paymentData.order_id)
           .single()
 
@@ -114,6 +115,22 @@ export async function POST(request: NextRequest) {
             console.error("Error updating shop order payment status:", shopOrderError)
           } else {
             console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} payment status updated to completed`)
+            
+            // Send SMS to customer about payment confirmation
+            if (shopOrderData?.customer_phone) {
+              try {
+                const smsMessage = `DATAGOD: ✓ Payment confirmed for order ${shopOrderData.reference_code}! ${shopOrderData.network} ${shopOrderData.volume_gb}GB - GHS ${shopOrderData.total_price}. Processing...`
+                
+                await sendSMS({
+                  phone: shopOrderData.customer_phone,
+                  message: smsMessage,
+                  type: 'order_payment_confirmed',
+                  reference: paymentData.order_id,
+                }).catch(err => console.error("[WEBHOOK] SMS error:", err))
+              } catch (smsError) {
+                console.warn("[WEBHOOK] SMS notification failed:", smsError)
+              }
+            }
           }
 
           // Create shop profit record
