@@ -366,20 +366,28 @@ export async function POST(request: NextRequest) {
 
         // Send SMS to user about wallet top-up
         try {
-          // Get user's phone number from auth user metadata
-          const { data: { user }, error: userError } = await supabase.auth.admin.getUserById(paymentData.user_id)
+          // Get user's phone number from users table
+          const { data: userData, error: userError } = await supabase
+            .from("users")
+            .select("phone_number")
+            .eq("id", paymentData.user_id)
+            .single()
           
-          if (!userError && user?.phone) {
+          if (!userError && userData?.phone_number) {
             const smsMessage = `DATAGOD: ✓ Wallet topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
             
             await sendSMS({
-              phone: user.phone,
+              phone: userData.phone_number,
               message: smsMessage,
               type: 'wallet_topup_success',
               reference: paymentData.id,
             }).catch(err => console.error("[WEBHOOK] SMS error:", err))
             
             console.log(`[SMS] Wallet top-up SMS sent to user ${paymentData.user_id}`)
+          } else if (userError) {
+            console.warn("[SMS] Failed to fetch user phone number:", userError)
+          } else {
+            console.warn("[SMS] User does not have a phone number on file")
           }
         } catch (smsError) {
           console.warn("[SMS] Failed to send wallet top-up SMS:", smsError)
