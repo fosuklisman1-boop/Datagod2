@@ -16,8 +16,9 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 export async function POST(request: NextRequest) {
   console.log("[WEBHOOK] ========== WEBHOOK CALLED ==========")
   try {
+    const signature = request.headers.get("x-paystack-signature")
     console.log("[WEBHOOK] Request headers:", {
-      signature: !!request.headers.get("x-paystack-signature"),
+      signature: !!signature,
       contentType: request.headers.get("content-type"),
     })
 
