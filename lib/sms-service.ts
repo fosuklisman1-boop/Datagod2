@@ -79,8 +79,10 @@ function normalizePhoneNumber(phone: string): string {
  * Send SMS via Moolre API
  */
 export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
+  console.log('[SMS] sendSMS called with:', { phone: payload.phone, type: payload.type })
+  
   if (process.env.SMS_ENABLED !== 'true') {
-    console.log('[SMS] SMS disabled, skipping:', payload.message.substring(0, 50))
+    console.log('[SMS] SMS disabled (SMS_ENABLED !== true), skipping:', payload.message.substring(0, 50))
     return { success: true, skipped: true }
   }
 
@@ -88,6 +90,14 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     console.warn('[SMS] Moolre API key not configured')
     return { success: false, error: 'SMS service not configured' }
   }
+
+  console.log('[SMS] SMS_ENABLED is true, proceeding with send')
+  console.log('[SMS] Environment variables check:', {
+    hasUser: !!process.env.MOOLRE_API_USER,
+    hasKey: !!process.env.MOOLRE_API_KEY,
+    hasPubKey: !!process.env.MOOLRE_API_PUBKEY,
+    hasVasKey: !!process.env.MOOLRE_API_VASKEY,
+  })
 
   try {
     const normalizedPhone = normalizePhoneNumber(payload.phone)
@@ -105,12 +115,21 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
       },
     })
 
+    console.log('[SMS] Making request to:', `${process.env.MOOLRE_API_URL || 'https://api.moolre.com'}/open/sms/send`)
+    console.log('[SMS] Request payload:', {
+      phone: normalizedPhone,
+      message: payload.message.substring(0, 60) + '...',
+      senderId: process.env.MOOLRE_SENDER_ID || 'DGOD',
+    })
+
     const response = await moolreClient.post('/open/sms/send', {
       phone: normalizedPhone,
       message: payload.message,
       senderId: process.env.MOOLRE_SENDER_ID || 'DGOD',
       scheduleTime: null,
     })
+
+    console.log('[SMS] Response received:', response.data)
 
     // Check if response indicates success
     if (response.data.status !== 1) {
