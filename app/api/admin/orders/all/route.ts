@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
         network,
         reference_code,
         payment_status,
+        transaction_id,
         user_id
       `)
       .order("created_at", { ascending: false })
@@ -128,7 +129,7 @@ export async function GET(request: NextRequest) {
       price: order.total_price,
       status: order.order_status,
       payment_status: order.payment_status,
-      payment_reference: order.reference_code || "-",
+      payment_reference: order.transaction_id || order.reference_code || "-",
       created_at: order.created_at,
     }))
 
