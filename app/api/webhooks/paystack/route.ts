@@ -389,7 +389,7 @@ export async function POST(request: NextRequest) {
           
           if (!userError && userData?.phone_number) {
             const firstName = userData.first_name || 'User'
-            const smsMessage = `Hi ${firstName}, DATAGOD: ✓ Wallet topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
+            const smsMessage = `Hi ${firstName}, your wallet has been topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
             
             await sendSMS({
               phone: userData.phone_number,
