@@ -119,13 +119,14 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
 
     const url = `https://api.moolre.com/open/sms/send?${queryParams.toString()}&X-API-VASKEY=${vasKey}`
 
-    console.log('[SMS] Making GET request to:', url.substring(0, 100) + '...')
-    console.log('[SMS] Request params:', {
+    console.log('[SMS] Making GET request to:', `https://api.moolre.com/open/sms/send?${queryParams.toString()}&X-API-VASKEY=***`)
+    console.log('[SMS] Request fields:', {
       type: '1',
       senderid: senderId,
       recipient: normalizedPhone,
       message: payload.message.substring(0, 60) + '...',
       ref: payload.reference || '',
+      hasVasKey: !!vasKey,
     })
 
     const response = await axios.get(url)
