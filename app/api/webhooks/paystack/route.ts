@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
             // Send SMS to customer about payment confirmation
             if (shopOrderData?.customer_phone) {
               try {
-                const smsMessage = `DATAGOD: ✓ Payment confirmed for order ${shopOrderData.reference_code}! ${shopOrderData.network} ${shopOrderData.volume_gb}GB - GHS ${shopOrderData.total_price}. Processing...`
+                const smsMessage = `DATAGOD: ✓ Payment confirmed for order ${shopOrderData.reference_code}! ${shopOrderData.network} ${shopOrderData.volume_gb}GB - GHS ${shopOrderData.total_price}`
                 
                 await sendSMS({
                   phone: shopOrderData.customer_phone,
