@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (!userError && userData?.phone_number) {
-          const smsMessage = `🎉 Congratulations! Your shop "${shop.shop_name}" has been approved. You can now start selling. Visit: datagod.com`
+          const smsMessage = `🎉 Congratulations! Your shop "${shop.shop_name}" has been approved. You can now start selling. Visit: www.datagod.store`
           
           await sendSMS({
             phone: userData.phone_number,
