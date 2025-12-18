@@ -127,23 +127,30 @@ export async function POST(request: NextRequest) {
             // Send SMS to customer about payment confirmation
             if (shopOrderData?.customer_phone) {
               try {
-                // Get shop name and owner's phone number for support contact
-                const { data: shopData, error: shopFetchError } = await supabase
+                // Get shop name from shop_orders table
+                const { data: shopDetailsData, error: shopDetailsError } = await supabase
                   .from("user_shops")
-                  .select("shop_name, phone_number")
+                  .select("shop_name, user_id")
                   .eq("id", paymentData.shop_id)
                   .single()
                 
-                console.log(`[WEBHOOK] Shop data fetched:`, { shopData, shopFetchError, shopId: paymentData.shop_id })
+                let shopName = shopDetailsData?.shop_name || "Shop"
+                let shopOwnerPhone = "Support"
                 
-                const shopName = shopData?.shop_name || "Shop"
-                const shopOwnerPhone = shopData?.phone_number || "Support"
-                
-                console.log(`[WEBHOOK] SMS values:`, { shopName, shopOwnerPhone })
+                // If shop found, fetch owner's phone number from users table
+                if (shopDetailsData?.user_id) {
+                  const { data: ownerData, error: ownerError } = await supabase
+                    .from("users")
+                    .select("phone_number")
+                    .eq("id", shopDetailsData.user_id)
+                    .single()
+                  
+                  if (ownerData?.phone_number) {
+                    shopOwnerPhone = ownerData.phone_number
+                  }
+                }
                 
                 const smsMessage = `${shopName}: You have successfully placed an order of ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
-                
-                console.log(`[WEBHOOK] Sending SMS:`, smsMessage)
                 
                 await sendSMS({
                   phone: shopOrderData.customer_phone,
