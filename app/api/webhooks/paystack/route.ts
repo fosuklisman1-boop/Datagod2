@@ -129,12 +129,12 @@ export async function POST(request: NextRequest) {
               try {
                 // Get shop name and owner's phone number for support contact
                 const { data: shopData, error: shopFetchError } = await supabase
-                  .from("shops")
-                  .select("name, phone_number")
+                  .from("user_shops")
+                  .select("shop_name, phone_number")
                   .eq("id", paymentData.shop_id)
                   .single()
                 
-                const shopName = shopData?.name || "Shop"
+                const shopName = shopData?.shop_name || "Shop"
                 const shopOwnerPhone = shopData?.phone_number || "Support"
                 
                 const smsMessage = `${shopName}: You have successfully placed an order of ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
