@@ -134,10 +134,16 @@ export async function POST(request: NextRequest) {
                   .eq("id", paymentData.shop_id)
                   .single()
                 
+                console.log(`[WEBHOOK] Shop data fetched:`, { shopData, shopFetchError, shopId: paymentData.shop_id })
+                
                 const shopName = shopData?.shop_name || "Shop"
                 const shopOwnerPhone = shopData?.phone_number || "Support"
                 
+                console.log(`[WEBHOOK] SMS values:`, { shopName, shopOwnerPhone })
+                
                 const smsMessage = `${shopName}: You have successfully placed an order of ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
+                
+                console.log(`[WEBHOOK] Sending SMS:`, smsMessage)
                 
                 await sendSMS({
                   phone: shopOrderData.customer_phone,
