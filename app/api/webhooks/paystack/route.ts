@@ -14,11 +14,14 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
  * Configure this URL in your Paystack dashboard settings
  */
 export async function POST(request: NextRequest) {
+  console.log("[WEBHOOK] Webhook called")
   try {
     // Verify request is from Paystack
     const signature = request.headers.get("x-paystack-signature")
+    console.log("[WEBHOOK] Signature present:", !!signature)
 
     if (!signature) {
+      console.warn("[WEBHOOK] Missing signature")
       return NextResponse.json(
         { error: "Invalid request: missing signature" },
         { status: 401 }
@@ -27,8 +30,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.text()
     const hash = crypto.createHmac("sha512", paystackSecretKey).update(body).digest("hex")
+    console.log("[WEBHOOK] Signature verified:", hash === signature)
 
     if (hash !== signature) {
+      console.warn("[WEBHOOK] Invalid signature")
       return NextResponse.json(
         { error: "Invalid signature" },
         { status: 401 }
@@ -36,6 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     const event = JSON.parse(body)
+    console.log("[WEBHOOK] Event type:", event.event)
 
     // Handle charge.success event
     if (event.event === "charge.success") {
@@ -244,8 +250,14 @@ export async function POST(request: NextRequest) {
       // Credit the wallet ONLY if this is a wallet top-up (not a shop order payment)
       // Shop orders go to shop profits, not user wallet
       const isShopOrderPayment = paymentData.order_id && paymentData.shop_id
+      console.log("[WEBHOOK] Payment type check:", {
+        isShopOrder: isShopOrderPayment,
+        hasOrderId: !!paymentData.order_id,
+        hasShopId: !!paymentData.shop_id,
+      })
       
       if (!isShopOrderPayment) {
+        console.log("[WEBHOOK] This is a WALLET payment - will credit wallet and send SMS")
         const amountInGHS = amount / 100
         
         // Calculate the actual credit amount (excluding the 3% fee)
