@@ -86,14 +86,14 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     return { success: true, skipped: true }
   }
 
-  if (!process.env.MOOLRE_API_VASKEY) {
-    console.warn('[SMS] Moolre API VASKEY not configured')
+  if (!process.env.MOOLRE_API_KEY) {
+    console.warn('[SMS] Moolre API key not configured')
     return { success: false, error: 'SMS service not configured' }
   }
 
   console.log('[SMS] SMS_ENABLED is true, proceeding with send')
   console.log('[SMS] Environment variables check:', {
-    hasVasKey: !!process.env.MOOLRE_API_VASKEY,
+    hasApiKey: !!process.env.MOOLRE_API_KEY,
     hasSenderId: !!process.env.MOOLRE_SENDER_ID,
   })
 
@@ -102,7 +102,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
 
     console.log('[SMS] Sending to:', normalizedPhone, '- Message:', payload.message.substring(0, 60))
 
-    const vasKey = process.env.MOOLRE_API_VASKEY || ''
+    const vasKey = process.env.MOOLRE_API_KEY || ''
     const senderId = process.env.MOOLRE_SENDER_ID || 'DGOD'
     
     // Build query parameters
