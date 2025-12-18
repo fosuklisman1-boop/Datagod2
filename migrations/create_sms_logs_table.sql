@@ -13,16 +13,16 @@ CREATE TABLE IF NOT EXISTS sms_logs (
   error_message TEXT,
   sent_at TIMESTAMP DEFAULT NOW(),
   delivered_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  
-  -- Indexes for common queries
-  INDEX idx_user_id (user_id),
-  INDEX idx_phone (phone_number),
-  INDEX idx_sent_at (sent_at),
-  INDEX idx_status (status),
-  INDEX idx_message_type (message_type),
-  INDEX idx_reference_id (reference_id)
+  created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Create indexes for common queries
+CREATE INDEX idx_sms_user_id ON sms_logs(user_id);
+CREATE INDEX idx_sms_phone ON sms_logs(phone_number);
+CREATE INDEX idx_sms_sent_at ON sms_logs(sent_at);
+CREATE INDEX idx_sms_status ON sms_logs(status);
+CREATE INDEX idx_sms_message_type ON sms_logs(message_type);
+CREATE INDEX idx_sms_reference_id ON sms_logs(reference_id);
 
 -- Enable RLS
 ALTER TABLE sms_logs ENABLE ROW LEVEL SECURITY;
