@@ -243,6 +243,8 @@ export default function AdminOrdersPage() {
     try {
       setUpdatingBatch(batchKey)
 
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      
       if (!session?.access_token) {
         toast.error("Authentication required. Please log in again.")
         return
