@@ -498,7 +498,7 @@ export default function AdminOrdersPage() {
                               </td>
                               <td className="px-4 py-3">{order.size}GB</td>
                               <td className="px-4 py-3 font-mono">{order.phone_number}</td>
-                              <td className="px-4 py-3 text-right font-semibold">₦ {order.price.toFixed(2)}</td>
+                              <td className="px-4 py-3 text-right font-semibold">₵ {order.price.toFixed(2)}</td>
                               <td className="px-4 py-3 text-center text-xs text-gray-500">
                                 <div>{new Date(order.created_at).toLocaleDateString()}</div>
                                 <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>

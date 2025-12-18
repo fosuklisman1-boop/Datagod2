@@ -208,7 +208,7 @@ export default function OrderPaymentStatusPage() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3">{order.volume_gb}GB</td>
-                        <td className="px-4 py-3 text-right font-semibold">₦ {order.price.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right font-semibold">₵ {order.price.toFixed(2)}</td>
                         <td className="px-4 py-3 text-center">
                           <Badge
                             className={`text-xs border ${
