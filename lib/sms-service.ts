@@ -112,8 +112,15 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
       scheduleTime: null,
     })
 
-    const messageId = response.data.messageId || response.data.id
+    // Check if response indicates success
+    if (response.data.status !== 1) {
+      throw new Error(`Moolre API Error: ${response.data.message || 'Unknown error'}`)
+    }
+
+    // Extract message ID from response data
+    const messageId = response.data.data?.id || response.data.data?.messageId || response.data.messageId || response.data.id
     console.log('[SMS] ✓ Success - Message ID:', messageId)
+    console.log('[SMS] Response:', response.data.message)
 
     // Log to database if user provided
     if (payload.userId) {
@@ -138,6 +145,17 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     }
   } catch (error) {
     console.error('[SMS] Error sending SMS:', error)
+    
+    // Extract error details
+    let errorMessage = 'Failed to send SMS'
+    if (axios.isAxiosError(error)) {
+      errorMessage = error.response?.data?.message || error.message
+      console.error('[SMS] Moolre Error:', {
+        status: error.response?.status,
+        code: error.response?.data?.code,
+        message: error.response?.data?.message,
+      })
+    }
 
     // Log failed SMS
     if (payload.userId) {
@@ -149,7 +167,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
           message_type: payload.type,
           reference_id: payload.reference,
           status: 'failed',
-          error_message: error instanceof Error ? error.message : 'Unknown error',
+          error_message: errorMessage,
         })
       } catch (logError) {
         console.warn('[SMS] Failed to log failed SMS:', logError)
@@ -158,7 +176,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
 
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to send SMS',
+      error: errorMessage,
     }
   }
 }
