@@ -51,21 +51,24 @@ export async function GET() {
       
       // Add type and current status to each order
       const enrichedOrders = batch.orders.map((order: any) => {
-        if (shopOrderMap.has(order.id)) {
-          const shopOrder = shopOrderMap.get(order.id)
+        const shopOrder = shopOrderMap.get(order.id)
+        if (shopOrder) {
           return {
             ...order,
             status: shopOrder.order_status,
             type: 'shop'
           }
-        } else if (bulkOrderMap.has(order.id)) {
-          const bulkOrder = bulkOrderMap.get(order.id)
+        }
+        
+        const bulkOrder = bulkOrderMap.get(order.id)
+        if (bulkOrder) {
           return {
             ...order,
             status: bulkOrder.status,
             type: 'bulk'
           }
         }
+        
         return {
           ...order,
           type: 'unknown'
