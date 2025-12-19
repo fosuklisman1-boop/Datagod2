@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
           .from("shop_orders")
           .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
           .in("id", orderIds)
-          .neq("network", "AT-iShare")
+          .not("network", "ilike", "%AT%iShare%")
 
         if (fetchError) {
           throw new Error(`Failed to fetch shop orders: ${fetchError.message}`)
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
           .from("orders")
           .select("id, created_at, phone_number, price, status, size, network")
           .in("id", orderIds)
-          .neq("network", "AT-iShare")
+          .not("network", "ilike", "%AT%iShare%")
 
         if (fetchError) {
           throw new Error(`Failed to fetch orders: ${fetchError.message}`)
@@ -92,12 +92,12 @@ export async function POST(request: NextRequest) {
           .from("orders")
           .select("id, created_at, phone_number, price, status, size, network")
           .in("id", orderIds)
-          .neq("network", "AT-iShare"),
+          .not("network", "ilike", "%AT%iShare%"),
         supabase
           .from("shop_orders")
           .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
           .in("id", orderIds)
-          .neq("network", "AT-iShare")
+          .not("network", "ilike", "%AT%iShare%")
       ])
 
       if (bulkResult.error) {
