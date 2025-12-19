@@ -19,14 +19,33 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    console.log(`[CUSTOMER-LIST] Looking for shop with user_id: ${userId}`)
+
     // Get user's shop
-    const { data: shop } = await supabase
+    const { data: shop, error: shopError } = await supabase
       .from("shops")
       .select("id")
       .eq("user_id", userId)
       .single()
 
+    console.log(`[CUSTOMER-LIST] Shop query error:`, shopError)
+    console.log(`[CUSTOMER-LIST] Shop data:`, shop)
+
     if (!shop) {
+      // Try to get ANY shop to see if the table is accessible
+      const { data: testShops, error: testError } = await supabase
+        .from("shops")
+        .select("id, user_id, name")
+        .limit(5)
+      
+      console.log(`[CUSTOMER-LIST] Test query - all shops:`, { testShops, testError })
+      console.log(`[CUSTOMER-LIST] Looking for user_id match in shops. User ID: ${userId}`)
+      if (testShops && testShops.length > 0) {
+        testShops.forEach(s => {
+          console.log(`[CUSTOMER-LIST] Shop: ${s.id}, name: ${s.name}, user_id: ${s.user_id}`)
+        })
+      }
+      
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 

@@ -35,10 +35,16 @@ export async function GET(request: NextRequest) {
       // Try to get ANY shop to see if the table is accessible
       const { data: testShops, error: testError } = await supabase
         .from("shops")
-        .select("id, user_id")
-        .limit(3)
+        .select("id, user_id, name")
+        .limit(5)
       
       console.log(`[CUSTOMER-ANALYTICS] Test query - all shops:`, { testShops, testError })
+      console.log(`[CUSTOMER-ANALYTICS] Looking for user_id match in shops. User ID: ${userId}`)
+      if (testShops && testShops.length > 0) {
+        testShops.forEach(s => {
+          console.log(`[CUSTOMER-ANALYTICS] Shop: ${s.id}, name: ${s.name}, user_id: ${s.user_id}`)
+        })
+      }
       
       return NextResponse.json({ 
         error: "Shop not found",
