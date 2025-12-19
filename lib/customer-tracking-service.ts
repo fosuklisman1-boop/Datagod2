@@ -393,6 +393,14 @@ export const customerTrackingService = {
 
         if (insertError) {
           console.error(`[BULK-CUSTOMER-TRACKING] ✗ Insert error for ${phoneNumber}:`, insertError)
+          console.error("[BULK-CUSTOMER-TRACKING] Insert payload:", {
+            shop_id: shopId,
+            phone_number: phoneNumber,
+            email: null,
+            customer_name: `${network} ${volumeGb}GB`,
+            first_source_slug: "bulk_order",
+            preferred_network: network,
+          })
           throw insertError
         }
 
