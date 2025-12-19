@@ -264,7 +264,17 @@ export default function DataPackagesPage() {
       pkg.network.toLowerCase().includes(searchTerm.toLowerCase())
     return networkMatch && searchMatch
   }).sort((a, b) => {
-    // Sort by data size (ascending)
+    // Network priority order when "All" is selected
+    const networkOrder = ["MTN", "Telecel", "AT-iShare", "AT-BigTime"]
+    const aNetworkIndex = networkOrder.indexOf(a.network)
+    const bNetworkIndex = networkOrder.indexOf(b.network)
+    
+    // If networks are different, sort by network priority
+    if (aNetworkIndex !== bNetworkIndex) {
+      return aNetworkIndex - bNetworkIndex
+    }
+    
+    // If same network, sort by data size (ascending)
     return extractSizeValue(a.size) - extractSizeValue(b.size)
   })
 
