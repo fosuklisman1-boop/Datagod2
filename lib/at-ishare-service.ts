@@ -156,6 +156,21 @@ class ATiShareService {
       const errorMessage = error instanceof Error ? error.message : String(error)
       console.error(`[CODECRAFT] Fulfillment error for order ${orderId}:`, error)
 
+      // Log the error to fulfillment_logs as well
+      try {
+        await this.logFulfillment(
+          orderId,
+          "failed",
+          { error: errorMessage },
+          errorMessage,
+          undefined,
+          phoneNumber,
+          network
+        )
+      } catch (logError) {
+        console.error(`[CODECRAFT] Failed to log fulfillment error:`, logError)
+      }
+
       return {
         success: false,
         errorCode: "FULFILLMENT_ERROR",
@@ -329,33 +344,40 @@ class ATiShareService {
       console.log(`[CODECRAFT-LOG] Phone: ${phoneNumber || "N/A"}`)
       console.log(`[CODECRAFT-LOG] Network: ${network || "N/A"}`)
       
+      // Validate required fields - these are NOT NULL in database
+      if (!phoneNumber || !phoneNumber.trim()) {
+        throw new Error(`Cannot log fulfillment: phoneNumber is required but got "${phoneNumber}"`)
+      }
+      if (!network || !network.trim()) {
+        throw new Error(`Cannot log fulfillment: network is required but got "${network}"`)
+      }
+      
       // Build the record with required fields
       const logRecord: any = {
         order_id: orderId,
         status,
+        phone_number: phoneNumber.trim(),
+        network: network.trim(),
         api_response: apiResponse,
         error_message: errorMessage,
         fulfilled_at: status === "success" ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
       }
 
-      // Add optional but required fields if provided
-      if (phoneNumber) {
-        logRecord.phone_number = phoneNumber
-      }
-      if (network) {
-        logRecord.network = network
-      }
-
-      const { error } = await this.supabase.from("fulfillment_logs").upsert(
-        [logRecord],
-        { onConflict: "order_id" }
-      )
+      console.log(`[CODECRAFT-LOG] Attempting to insert fulfillment log with record:`, logRecord)
+      
+      const { data, error } = await this.supabase.from("fulfillment_logs").insert(
+        [logRecord]
+      ).select()
 
       if (error) {
         console.error(`[CODECRAFT-LOG] Error inserting fulfillment log for order ${orderId}:`, error)
+        console.error(`[CODECRAFT-LOG] Error code: ${error.code}`)
+        console.error(`[CODECRAFT-LOG] Error details:`, error.details)
+        throw error
       } else {
         console.log(`[CODECRAFT-LOG] Successfully logged fulfillment status to database`)
+        console.log(`[CODECRAFT-LOG] Inserted record:`, data)
       }
 
       // Update order status
