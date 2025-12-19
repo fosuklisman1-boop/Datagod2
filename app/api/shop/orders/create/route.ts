@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { customerTrackingService } from "@/lib/customer-tracking-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest) {
       base_price,
       profit_amount,
       total_price,
+      shop_slug,
     } = body
 
     console.log("[SHOP-ORDER] Creating order for:", {
@@ -35,6 +37,24 @@ export async function POST(request: NextRequest) {
         { error: "Missing required fields" },
         { status: 400 }
       )
+    }
+
+    // Track customer BEFORE creating order
+    let shop_customer_id: string | undefined
+    try {
+      const trackingResult = await customerTrackingService.trackCustomer({
+        shopId: shop_id,
+        phoneNumber: customer_phone,
+        email: customer_email,
+        customerName: customer_name || "Guest",
+        totalPrice: parseFloat(total_price.toString()),
+        slug: shop_slug || "storefront",
+      })
+      shop_customer_id = trackingResult.customerId
+      console.log(`[SHOP-ORDER] Customer tracked: ${shop_customer_id}, Repeat: ${trackingResult.isRepeatCustomer}`)
+    } catch (trackingError) {
+      console.error('[SHOP-ORDER] Customer tracking error (non-blocking):', trackingError)
+      // Continue without tracking if it fails - order should still be created
     }
 
     const { data, error } = await supabase
@@ -55,6 +75,7 @@ export async function POST(request: NextRequest) {
           order_status: "pending",
           payment_status: "pending",
           reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+          shop_customer_id: shop_customer_id || null,
           created_at: new Date().toISOString(),
         },
       ])
@@ -70,6 +91,21 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[SHOP-ORDER] ✓ Order created:", data[0].id)
+
+    // Create tracking record after order is created
+    if (shop_customer_id) {
+      try {
+        await customerTrackingService.createTrackingRecord(
+          shop_id,
+          data[0].id,
+          shop_customer_id,
+          shop_slug || "storefront"
+        )
+        console.log(`[SHOP-ORDER] Tracking record created for order ${data[0].id}`)
+      } catch (trackingError) {
+        console.error('[SHOP-ORDER] Tracking record creation error (non-blocking):', trackingError)
+      }
+    }
 
     return NextResponse.json({
       success: true,

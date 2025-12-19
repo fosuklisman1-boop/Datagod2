@@ -184,6 +184,7 @@ export default function ShopStorefront() {
           base_price: basePrice,
           profit_amount: profitAmount,
           total_price: totalPrice,
+          shop_slug: shopSlug,
         }),
       })
 
