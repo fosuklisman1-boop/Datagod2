@@ -98,7 +98,6 @@ export async function POST(request: NextRequest) {
           .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
           .in("id", orderIds)
           .neq("network", "AT-iShare")
-      ])  .in("id", orderIds)
       ])
 
       if (bulkResult.error) {
