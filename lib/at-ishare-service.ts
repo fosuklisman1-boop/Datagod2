@@ -41,24 +41,32 @@ class ATiShareService {
     const { phoneNumber, sizeGb, orderId, network = "AT" } = request
 
     try {
-      console.log(`[CODECRAFT] Fulfilling order ${orderId} for ${phoneNumber} - ${sizeGb}GB on ${network}`)
+      console.log(`[CODECRAFT-FULFILL] Starting fulfillment request`)
+      console.log(`[CODECRAFT-FULFILL] Order ID: ${orderId}`)
+      console.log(`[CODECRAFT-FULFILL] Phone Number: ${phoneNumber}`)
+      console.log(`[CODECRAFT-FULFILL] Size: ${sizeGb}GB`)
+      console.log(`[CODECRAFT-FULFILL] Network: ${network}`)
 
       // Validate inputs
       if (!phoneNumber || !sizeGb || !orderId) {
+        const errorMsg = `Missing required fields: phoneNumber=${phoneNumber}, sizeGb=${sizeGb}, orderId=${orderId}`
+        console.error(`[CODECRAFT-FULFILL] ${errorMsg}`)
         return {
           success: false,
           errorCode: "INVALID_INPUT",
-          message: "Missing required fields: phoneNumber, sizeGb, orderId",
+          message: errorMsg,
         }
       }
 
       // Validate network (must be MTN, TELECEL, or AT)
       const validNetworks = ["MTN", "TELECEL", "AT"]
       if (!validNetworks.includes(network)) {
+        const errorMsg = `Invalid network: ${network}. Must be one of: ${validNetworks.join(", ")}`
+        console.error(`[CODECRAFT-FULFILL] ${errorMsg}`)
         return {
           success: false,
           errorCode: "INVALID_NETWORK",
-          message: `Invalid network: ${network}. Must be one of: ${validNetworks.join(", ")}`,
+          message: errorMsg,
         }
       }
 
@@ -71,7 +79,9 @@ class ATiShareService {
         reference_id: orderId,
       }
 
-      console.log(`[CODECRAFT] Calling API with reference: ${orderId}`)
+      console.log(`[CODECRAFT-FULFILL] Calling Code Craft API...`)
+      console.log(`[CODECRAFT-FULFILL] API URL: ${codecraftApiUrl}/initiate.php`)
+      console.log(`[CODECRAFT-FULFILL] Request payload: agent_api=***, recipient_number=${phoneNumber}, network=${network}, gig=${sizeGb}, reference_id=${orderId}`)
 
       // Call Code Craft Network API
       const response = await fetch(`${codecraftApiUrl}/initiate.php`, {
@@ -85,7 +95,9 @@ class ATiShareService {
       const responseData = await response.json()
       const httpStatus = response.status
 
-      console.log(`[CODECRAFT] API Response status: ${httpStatus}`, responseData)
+      console.log(`[CODECRAFT-FULFILL] API Response received`)
+      console.log(`[CODECRAFT-FULFILL] HTTP Status: ${httpStatus}`)
+      console.log(`[CODECRAFT-FULFILL] Response Data:`, responseData)
 
       // Handle specific status codes from API
       if (httpStatus === 200 && responseData.status === 200) {
@@ -305,6 +317,10 @@ class ATiShareService {
     reference?: string
   ): Promise<void> {
     try {
+      console.log(`[CODECRAFT-LOG] Logging fulfillment attempt for order ${orderId}`)
+      console.log(`[CODECRAFT-LOG] Status: ${status}`)
+      console.log(`[CODECRAFT-LOG] Error Message: ${errorMessage || "None"}`)
+      
       const { error } = await this.supabase.from("fulfillment_logs").upsert(
         [
           {
@@ -320,21 +336,31 @@ class ATiShareService {
       )
 
       if (error) {
-        console.error(`[CODECRAFT] Error logging fulfillment for order ${orderId}:`, error)
+        console.error(`[CODECRAFT-LOG] Error inserting fulfillment log for order ${orderId}:`, error)
+      } else {
+        console.log(`[CODECRAFT-LOG] Successfully logged fulfillment status to database`)
       }
 
       // Update order status
       // For Code Craft API, initial response means "processing" since delivery happens async
       const orderStatus = status === "processing" ? "processing" : status
-      await this.supabase
+      console.log(`[CODECRAFT-LOG] Updating order ${orderId} with fulfillment_status: ${orderStatus}`)
+      
+      const { error: updateError } = await this.supabase
         .from("orders")
         .update({
           fulfillment_status: orderStatus,
           updated_at: new Date().toISOString(),
         })
         .eq("id", orderId)
+      
+      if (updateError) {
+        console.error(`[CODECRAFT-LOG] Error updating order fulfillment_status:`, updateError)
+      } else {
+        console.log(`[CODECRAFT-LOG] Successfully updated order fulfillment_status in database`)
+      }
     } catch (error) {
-      console.error(`[CODECRAFT] Error in logFulfillment:`, error)
+      console.error(`[CODECRAFT-LOG] Error in logFulfillment:`, error)
     }
   }
 

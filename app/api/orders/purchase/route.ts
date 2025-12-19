@@ -156,13 +156,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Trigger fulfillment for AT-iShare orders only
-    const fulfillableNetworks = ["AT-iShare"]
+    const fulfillableNetworks = ["AT-iShare", "AT - iShare", "AT-ishare", "at-ishare"]
     const normalizedNetwork = network?.trim() || ""
-    console.log(`[FULFILLMENT] Network received: "${network}" | Normalized: "${normalizedNetwork}" | Should fulfill: ${fulfillableNetworks.includes(normalizedNetwork)}`)
-    if (fulfillableNetworks.includes(normalizedNetwork)) {
+    const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
+    console.log(`[FULFILLMENT] Network received: "${network}" | Normalized: "${normalizedNetwork}" | Should fulfill: ${shouldFulfill} | Order: ${order[0].id}`)
+    
+    if (shouldFulfill) {
       try {
-        console.log(`[FULFILLMENT] Triggering fulfillment for ${network} order ${order[0].id}`)
+        console.log(`[FULFILLMENT] Starting fulfillment trigger for ${network} order ${order[0].id} to ${phoneNumber}`)
         const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
+        console.log(`[FULFILLMENT] Order details - Network: ${network}, Size: ${sizeGb}GB, Phone: ${phoneNumber}, OrderID: ${order[0].id}`)
         
         // Normalize network name for API
         const networkMap: Record<string, string> = {
@@ -170,23 +173,31 @@ export async function POST(request: NextRequest) {
           "TELECEL": "TELECEL",
           "AT": "AT",
           "AT-iShare": "AT",
+          "AT - iShare": "AT",
+          "AT-ishare": "AT",
+          "at-ishare": "AT",
         }
-        const apiNetwork = networkMap[network] || network
+        const apiNetwork = networkMap[normalizedNetwork.toUpperCase()] || "AT"
         
         // Non-blocking fulfillment trigger
+        console.log(`[FULFILLMENT] Calling atishareService.fulfillOrder with network: ${apiNetwork}`)
         atishareService.fulfillOrder({
           phoneNumber,
           sizeGb,
           orderId: order[0].id,
           network: apiNetwork,
+        }).then(result => {
+          console.log(`[FULFILLMENT] Fulfillment response for order ${order[0].id}:`, result)
         }).catch(err => {
-          console.error("[FULFILLMENT] Error triggering fulfillment:", err)
+          console.error(`[FULFILLMENT] Error triggering fulfillment for order ${order[0].id}:`, err)
           // Non-blocking: don't fail purchase if fulfillment fails
         })
       } catch (fulfillmentError) {
-        console.error("[FULFILLMENT] Error in fulfillment trigger:", fulfillmentError)
+        console.error("[FULFILLMENT] Error in fulfillment trigger block:", fulfillmentError)
         // Non-blocking: continue with purchase even if fulfillment fails
       }
+    } else {
+      console.log(`[FULFILLMENT] Skipping fulfillment for network: ${normalizedNetwork} (not in fulfillable list)`)
     }
 
     // Send notification about successful purchase
