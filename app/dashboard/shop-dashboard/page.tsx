@@ -113,13 +113,25 @@ export default function ShopDashboardPage() {
       })
 
       if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Customer stats API error:', errorData)
         throw new Error('Failed to fetch customer stats')
       }
 
       const data = await response.json()
-      return data
+      console.log('[DASHBOARD] Customer stats response:', data)
+      
+      // Return the stats object with all fields
+      return {
+        total_customers: data.total_customers || 0,
+        repeat_customers: data.repeat_customers || 0,
+        repeat_percentage: data.repeat_percentage || 0,
+        new_customers_month: data.new_customers_month || 0,
+        average_ltv: data.average_ltv || 0,
+        total_revenue: data.total_revenue || 0,
+      }
     } catch (error) {
-      console.warn("Failed to fetch customer stats:", error)
+      console.error("[DASHBOARD] Failed to fetch customer stats:", error)
       return null
     }
   }
@@ -312,7 +324,7 @@ export default function ShopDashboardPage() {
         </div>
 
         {/* Customer Stats Section */}
-        {customerStats && (
+        {customerStats !== null && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4 pt-2">
             {/* Total Customers */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/60 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40">

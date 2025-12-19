@@ -11,13 +11,17 @@ export async function GET(request: NextRequest) {
     // Verify user is authenticated
     const authHeader = request.headers.get("Authorization")
     if (!authHeader?.startsWith("Bearer ")) {
+      console.log("[CUSTOMER-ANALYTICS] No auth header")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const userId = authHeader.slice(7)
     if (!userId) {
+      console.log("[CUSTOMER-ANALYTICS] Empty user ID")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    console.log(`[CUSTOMER-ANALYTICS] Fetching stats for user: ${userId}`)
 
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
@@ -26,12 +30,22 @@ export async function GET(request: NextRequest) {
       .eq("user_id", userId)
       .single()
 
-    if (shopError || !shop) {
+    if (shopError) {
+      console.error(`[CUSTOMER-ANALYTICS] Shop query error:`, shopError)
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
+    if (!shop) {
+      console.log(`[CUSTOMER-ANALYTICS] No shop found for user ${userId}`)
+      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+
+    console.log(`[CUSTOMER-ANALYTICS] Found shop: ${shop.id}`)
+
     // Fetch customer stats
     const stats = await customerTrackingService.getCustomerStats(shop.id)
+
+    console.log(`[CUSTOMER-ANALYTICS] Stats computed:`, stats)
 
     return NextResponse.json({
       success: true,
