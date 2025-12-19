@@ -27,13 +27,13 @@ export async function GET(request: NextRequest) {
 
     // Get total transaction count
     const { count: totalCount } = await supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
 
     // Get today's income (credits)
     const { data: todayCredits } = await supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .select("amount")
       .eq("user_id", userId)
       .eq("type", "credit")
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     // Get today's expenses (debits)
     const { data: todayDebits } = await supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .select("amount")
       .eq("user_id", userId)
       .eq("type", "debit")

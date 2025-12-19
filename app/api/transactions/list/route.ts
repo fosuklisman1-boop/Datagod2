@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     // Build the query
     let query = supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .select("*", { count: "exact" })
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
