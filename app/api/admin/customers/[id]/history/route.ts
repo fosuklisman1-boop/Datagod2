@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from "next/server"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { params } = context
+  const { id } = await params
   try {
     const authHeader = request.headers.get("Authorization")
     if (!authHeader?.startsWith("Bearer ")) {
@@ -23,7 +25,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const { data: customer } = await supabase
       .from("shop_customers")
       .select("id")
-      .eq("id", params.id)
+      .eq("id", id)
       .eq("shop_id", shop.id)
       .single()
 
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         created_at
       `
       )
-      .eq("shop_customer_id", params.id)
+      .eq("shop_customer_id", id)
       .eq("shop_id", shop.id)
       .order("created_at", { ascending: false })
 
