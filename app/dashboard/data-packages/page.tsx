@@ -266,16 +266,20 @@ export default function DataPackagesPage() {
   }).sort((a, b) => {
     // Network priority order when "All" is selected
     const networkOrder = ["MTN", "Telecel", "AT-iShare", "AT-BigTime"]
-    const aNetworkIndex = networkOrder.indexOf(a.network)
-    const bNetworkIndex = networkOrder.indexOf(b.network)
+    
+    // Get network indices (use 999 for unknown networks to sort them last)
+    const aNetworkIndex = networkOrder.indexOf(a.network) >= 0 ? networkOrder.indexOf(a.network) : 999
+    const bNetworkIndex = networkOrder.indexOf(b.network) >= 0 ? networkOrder.indexOf(b.network) : 999
     
     // If networks are different, sort by network priority
     if (aNetworkIndex !== bNetworkIndex) {
       return aNetworkIndex - bNetworkIndex
     }
     
-    // If same network, sort by data size (ascending)
-    return extractSizeValue(a.size) - extractSizeValue(b.size)
+    // If same network, sort by data size (ascending) - convert to MB for proper numeric comparison
+    const aSizeInMB = extractSizeValue(a.size)
+    const bSizeInMB = extractSizeValue(b.size)
+    return aSizeInMB - bSizeInMB
   })
 
   return (
