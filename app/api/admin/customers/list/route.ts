@@ -20,13 +20,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Get user's shop
-    const { data: shop, error: shopError } = await supabase
+    const { data: shop } = await supabase
       .from("shops")
       .select("id")
       .eq("user_id", userId)
       .single()
 
-    if (shopError || !shop) {
+    if (!shop) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 

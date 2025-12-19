@@ -112,10 +112,15 @@ export default function ShopDashboardPage() {
         },
       })
 
+      if (response.status === 404) {
+        console.log('[DASHBOARD] User has no shop or shop has no customers yet')
+        return null
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         console.error('Customer stats API error:', errorData)
-        throw new Error('Failed to fetch customer stats')
+        return null
       }
 
       const data = await response.json()
