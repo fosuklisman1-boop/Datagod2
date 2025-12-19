@@ -516,5 +516,3 @@ export const customerTrackingService = {
     }
   },
 }
-
-```
