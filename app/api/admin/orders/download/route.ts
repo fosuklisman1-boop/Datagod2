@@ -156,6 +156,13 @@ export async function POST(request: NextRequest) {
         if (updateError) {
           throw new Error(`Failed to update bulk order status: ${updateError.message}`)
         }
+
+        // Update in-memory orders to reflect the new status
+        orders.forEach((order: any) => {
+          if (bulkOrderIds.includes(order.id)) {
+            order.status = "processing"
+          }
+        })
       }
 
       if (shopOrderIds.length > 0) {
@@ -167,6 +174,13 @@ export async function POST(request: NextRequest) {
         if (updateError) {
           throw new Error(`Failed to update shop order status: ${updateError.message}`)
         }
+
+        // Update in-memory orders to reflect the new status
+        orders.forEach((order: any) => {
+          if (shopOrderIds.includes(order.id)) {
+            order.status = "processing"
+          }
+        })
       }
     }
 
