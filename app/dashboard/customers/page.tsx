@@ -155,7 +155,7 @@ export default function CustomersPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 pt-4">
+      <div className="space-y-6">
         {/* Header with Back Button */}
         <div className="flex items-center gap-4">
           <Button
