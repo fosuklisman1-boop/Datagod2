@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { AlertCircle, Search, Users, Loader2, TrendingUp, DollarSign, ShoppingCart } from "lucide-react"
+import { AlertCircle, Search, Users, Loader2, TrendingUp, DollarSign, ShoppingCart, ChevronLeft } from "lucide-react"
 import { toast } from "sonner"
 
 interface Customer {
@@ -39,6 +40,7 @@ interface Order {
 
 export default function CustomersPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
@@ -154,12 +156,22 @@ export default function CustomersPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-            Customers
-          </h1>
-          <p className="text-gray-500 mt-1">Manage and analyze your customer base</p>
+        {/* Header with Back Button */}
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.back()}
+            className="hover:bg-indigo-100"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
+          <div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+              Customers
+            </h1>
+            <p className="text-gray-500 mt-1">Manage and analyze your customer base</p>
+          </div>
         </div>
 
         {/* Stats Cards */}
