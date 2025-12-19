@@ -128,7 +128,7 @@ export function Sidebar() {
           onClick={() => setIsOpen(!isOpen)}
           variant="ghost"
           size="icon"
-          className="fixed top-4 left-4 z-50 md:hidden bg-blue-600 text-white hover:bg-blue-700"
+          className="fixed top-16 left-4 z-50 md:hidden bg-blue-600 text-white hover:bg-blue-700"
         >
           <Menu className="w-5 h-5" />
         </Button>
