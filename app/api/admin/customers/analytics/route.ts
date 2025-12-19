@@ -24,24 +24,27 @@ export async function GET(request: NextRequest) {
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
       .from("shops")
-      .select("id, user_id")
+      .select("*")
       .eq("user_id", userId)
       .single()
 
-    console.log(`[CUSTOMER-ANALYTICS] Shop query result:`, { shop, shopError })
+    console.log(`[CUSTOMER-ANALYTICS] Shop query error:`, shopError)
+    console.log(`[CUSTOMER-ANALYTICS] Shop data:`, shop)
 
     if (!shop) {
-      console.log(`[CUSTOMER-ANALYTICS] No shop found, trying alternative queries...`)
-      
-      // Try to see if there are ANY shops in the database for this user
-      const { data: allShops, error: allError } = await supabase
+      // Try to get ANY shop to see if the table is accessible
+      const { data: testShops, error: testError } = await supabase
         .from("shops")
         .select("id, user_id")
-        .limit(5)
+        .limit(3)
       
-      console.log(`[CUSTOMER-ANALYTICS] All shops sample:`, { allShops, allError })
+      console.log(`[CUSTOMER-ANALYTICS] Test query - all shops:`, { testShops, testError })
       
-      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+      return NextResponse.json({ 
+        error: "Shop not found",
+        userId,
+        debug: "Check server logs for detailed info"
+      }, { status: 404 })
     }
 
     console.log(`[CUSTOMER-ANALYTICS] Found shop: ${shop.id}`)
