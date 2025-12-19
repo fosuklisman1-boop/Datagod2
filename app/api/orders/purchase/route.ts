@@ -12,6 +12,13 @@ export async function POST(request: NextRequest) {
   try {
     const { packageId, network, size, price, phoneNumber } = await request.json()
 
+    console.log("[PURCHASE] ========== NEW ORDER REQUEST ==========")
+    console.log("[PURCHASE] Package ID:", packageId)
+    console.log("[PURCHASE] Network:", network)
+    console.log("[PURCHASE] Size:", size)
+    console.log("[PURCHASE] Price:", price)
+    console.log("[PURCHASE] Phone:", phoneNumber)
+
     // Validate required fields
     if (!phoneNumber) {
       return NextResponse.json({ error: "Phone number is required" }, { status: 400 })
@@ -154,6 +161,9 @@ export async function POST(request: NextRequest) {
       console.error("[DATA-PACKAGE-TRACKING] Error tracking customer:", trackingError)
       // Non-blocking: continue with the purchase even if tracking fails
     }
+
+    console.log(`[PURCHASE] ========== FULFILLMENT CHECK ==========`)
+    console.log(`[PURCHASE] About to check network for fulfillment`)
 
     // Trigger fulfillment for AT-iShare orders only
     const fulfillableNetworks = ["AT-iShare", "AT - iShare", "AT-ishare", "at-ishare"]
