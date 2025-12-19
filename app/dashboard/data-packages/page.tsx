@@ -170,10 +170,9 @@ export default function DataPackagesPage() {
     if (!match) return 0
 
     const value = parseFloat(match[1])
-    const unit = match[2]
-
-    // Convert to MB for consistent comparison (GB * 1024)
-    return unit === "GB" ? value * 1024 : value
+    
+    // Return raw numeric value without unit conversion
+    return value
   }
 
   const handlePurchase = async (pkg: Package) => {
