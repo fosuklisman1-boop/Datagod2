@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
+import { atishareService } from "@/lib/at-ishare-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -152,6 +153,38 @@ export async function POST(request: NextRequest) {
     } catch (trackingError) {
       console.error("[DATA-PACKAGE-TRACKING] Error tracking customer:", trackingError)
       // Non-blocking: continue with the purchase even if tracking fails
+    }
+
+    // Trigger fulfillment for AT-iShare orders only
+    const fulfillableNetworks = ["AT-iShare"]
+    if (fulfillableNetworks.includes(network)) {
+      try {
+        console.log(`[FULFILLMENT] Triggering fulfillment for ${network} order ${order[0].id}`)
+        const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
+        
+        // Normalize network name for API
+        const networkMap: Record<string, string> = {
+          "MTN": "MTN",
+          "TELECEL": "TELECEL",
+          "AT": "AT",
+          "AT-iShare": "AT",
+        }
+        const apiNetwork = networkMap[network] || network
+        
+        // Non-blocking fulfillment trigger
+        atishareService.fulfillOrder({
+          phoneNumber,
+          sizeGb,
+          orderId: order[0].id,
+          network: apiNetwork,
+        }).catch(err => {
+          console.error("[FULFILLMENT] Error triggering fulfillment:", err)
+          // Non-blocking: don't fail purchase if fulfillment fails
+        })
+      } catch (fulfillmentError) {
+        console.error("[FULFILLMENT] Error in fulfillment trigger:", fulfillmentError)
+        // Non-blocking: continue with purchase even if fulfillment fails
+      }
     }
 
     // Send notification about successful purchase
