@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyPayment } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { atishareService } from "@/lib/at-ishare-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -123,6 +124,39 @@ export async function POST(request: NextRequest) {
               console.error("[PAYMENT-VERIFY] Failed to create profit record:", profitError)
             } else {
               console.log("[PAYMENT-VERIFY] ✓ Profit record created:", profitAmount)
+            }
+
+            // Trigger fulfillment for AT-iShare orders
+            console.log("[PAYMENT-VERIFY] Checking if fulfillment needed for order:", shopOrderData.id)
+            const { data: orderDetails } = await supabase
+              .from("shop_orders")
+              .select("id, network, customer_phone, volume_gb")
+              .eq("id", shopOrderData.id)
+              .single()
+
+            if (orderDetails) {
+              const fulfillableNetworks = ["AT-iShare", "AT - iShare", "AT-ishare", "at-ishare"]
+              const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === (orderDetails.network || "").toLowerCase())
+              
+              console.log(`[PAYMENT-VERIFY] Shop order network: "${orderDetails.network}" | Should fulfill: ${shouldFulfill}`)
+              
+              if (shouldFulfill) {
+                console.log(`[PAYMENT-VERIFY] Triggering AT-iShare fulfillment for shop order ${shopOrderData.id}`)
+                const sizeGb = parseInt(orderDetails.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+                
+                // Non-blocking fulfillment trigger
+                atishareService.fulfillOrder({
+                  phoneNumber: orderDetails.customer_phone,
+                  sizeGb,
+                  orderId: shopOrderData.id,
+                  network: "AT",
+                }).then(result => {
+                  console.log(`[PAYMENT-VERIFY] Fulfillment triggered for shop order ${shopOrderData.id}:`, result)
+                }).catch(err => {
+                  console.error(`[PAYMENT-VERIFY] Error triggering fulfillment for shop order ${shopOrderData.id}:`, err)
+                  // Non-blocking: don't fail payment verification if fulfillment fails
+                })
+              }
             }
           }
         }
