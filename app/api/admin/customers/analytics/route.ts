@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
-      .from("user_shops")
+      .from("shops")
       .select("id")
       .eq("user_id", user.id)
       .single()

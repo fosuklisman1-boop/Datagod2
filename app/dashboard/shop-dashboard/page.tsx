@@ -106,9 +106,18 @@ export default function ShopDashboardPage() {
 
   const fetchCustomerStats = async (shopId: string) => {
     try {
-      const { customerTrackingService } = await import('@/lib/customer-tracking-service')
-      const stats = await customerTrackingService.getCustomerStats(shopId)
-      return stats
+      const response = await fetch('/api/admin/customers/analytics', {
+        headers: {
+          'Authorization': `Bearer ${user?.id}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch customer stats')
+      }
+
+      const data = await response.json()
+      return data
     } catch (error) {
       console.warn("Failed to fetch customer stats:", error)
       return null
