@@ -325,95 +325,24 @@ export const customerTrackingService = {
         `[BULK-CUSTOMER-TRACKING] Tracking bulk order customer: ${phoneNumber} for shop ${shopId}`
       )
 
-      // Check if customer already exists
-      const { data: existingCustomer, error: fetchError } = await supabase
-        .from("shop_customers")
-        .select("id, total_purchases, total_spent, repeat_customer")
-        .eq("shop_id", shopId)
-        .eq("phone_number", phoneNumber)
-        .single()
+      // Use the same trackCustomer logic but with "bulk_order" source
+      const trackingResult = await this.trackCustomer({
+        shopId,
+        phoneNumber,
+        email: null as any,
+        customerName: `${network} ${volumeGb}GB`,
+        totalPrice: amount,
+        slug: "bulk_order",
+      })
 
-      if (fetchError && fetchError.code !== "PGRST116") {
-        throw fetchError
-      }
-
-      let customerId: string
-
-      if (existingCustomer) {
-        // UPDATE existing customer (repeat purchase)
-        const newTotalSpent = (existingCustomer.total_spent || 0) + amount
-        const newPurchases = (existingCustomer.total_purchases || 0) + 1
-
-        console.log(
-          `[BULK-CUSTOMER-TRACKING] Repeat customer: ${phoneNumber} - Purchase #${newPurchases}`
-        )
-
-        const { data: updated, error: updateError } = await supabase
-          .from("shop_customers")
-          .update({
-            last_purchase_at: new Date().toISOString(),
-            total_purchases: newPurchases,
-            total_spent: newTotalSpent,
-            repeat_customer: newPurchases > 1,
-            preferred_network: network,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existingCustomer.id)
-          .select("id")
-          .single()
-
-        if (updateError) throw updateError
-
-        customerId = existingCustomer.id
-      } else {
-        // CREATE new customer from bulk order
-        console.log(`[BULK-CUSTOMER-TRACKING] New customer from bulk order: ${phoneNumber}`)
-
-        const { data: newCustomer, error: insertError } = await supabase
-          .from("shop_customers")
-          .insert([
-            {
-              shop_id: shopId,
-              phone_number: phoneNumber,
-              email: null,
-              customer_name: `${network} ${volumeGb}GB`,
-              first_purchase_at: new Date().toISOString(),
-              last_purchase_at: new Date().toISOString(),
-              total_purchases: 1,
-              total_spent: amount,
-              repeat_customer: false,
-              first_source_slug: "bulk_order",
-              preferred_network: network,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          ])
-          .select("id")
-          .single()
-
-        if (insertError) {
-          console.error(`[BULK-CUSTOMER-TRACKING] ✗ Insert error for ${phoneNumber}:`, insertError)
-          console.error("[BULK-CUSTOMER-TRACKING] Insert payload:", {
-            shop_id: shopId,
-            phone_number: phoneNumber,
-            email: null,
-            customer_name: `${network} ${volumeGb}GB`,
-            first_source_slug: "bulk_order",
-            preferred_network: network,
-          })
-          throw insertError
-        }
-
-        console.log(`[BULK-CUSTOMER-TRACKING] ✓ New customer created: ${newCustomer?.id}`)
-        customerId = newCustomer.id
-      }
-
-      console.log(`[BULK-CUSTOMER-TRACKING] ✓ Successfully tracked customer ${customerId}`)
+      console.log(
+        `[BULK-CUSTOMER-TRACKING] ✓ Tracked bulk order customer: ${phoneNumber}, customerId: ${trackingResult.customerId}`
+      )
 
       return {
         success: true,
-        customerId,
-        isRepeatCustomer: !!existingCustomer,
+        customerId: trackingResult.customerId,
+        isRepeatCustomer: trackingResult.isRepeatCustomer,
       }
     } catch (error) {
       console.error("[BULK-CUSTOMER-TRACKING] ✗ Error tracking bulk order customer:", error)
