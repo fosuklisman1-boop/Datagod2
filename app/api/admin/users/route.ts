@@ -97,6 +97,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: walletsError.message }, { status: 400 })
     }
 
+    // Get customer counts per shop
+    const { data: customerCounts, error: customerError } = await adminClient
+      .from("shop_customers")
+      .select("shop_id, id")
+
+    if (customerError) {
+      console.error("Error fetching customer counts:", customerError)
+      return NextResponse.json({ error: customerError.message }, { status: 400 })
+    }
+
+    // Group customer counts by shop_id
+    const customerCountMap = new Map<string, number>()
+    customerCounts?.forEach((record: any) => {
+      const count = customerCountMap.get(record.shop_id) || 0
+      customerCountMap.set(record.shop_id, count + 1)
+    })
+
     // Get user profiles with phone numbers and roles
     const { data: userProfiles, error: profilesError } = await adminClient
       .from("users")
@@ -129,6 +146,7 @@ export async function GET(req: NextRequest) {
             shopBalance: 0,
             balance: walletBalance, // For backwards compatibility
             role: role,
+            customerCount: 0,
           }
         }
 
@@ -160,6 +178,7 @@ export async function GET(req: NextRequest) {
         }
 
         const shopBalance = balanceData?.available_balance || 0
+        const customerCount = customerCountMap.get(shop.id) || 0
 
         return {
           id: authUser.id,
@@ -171,6 +190,7 @@ export async function GET(req: NextRequest) {
           shopBalance: shopBalance,
           balance: walletBalance + shopBalance, // Total balance for backwards compatibility
           role: role,
+          customerCount: customerCount,
         }
       })
     )

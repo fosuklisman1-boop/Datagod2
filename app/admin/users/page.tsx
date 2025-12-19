@@ -24,6 +24,7 @@ interface User {
   walletBalance: number
   shopBalance: number
   shop?: any
+  customerCount?: number
 }
 
 export default function AdminUsersPage() {
@@ -243,7 +244,7 @@ export default function AdminUsersPage() {
 
   const handleDownloadAll = () => {
     try {
-      const headers = ["Email", "Phone Number", "Role", "Wallet Balance (GHS)", "Shop Balance (GHS)", "Shop Name", "Joined Date"]
+      const headers = ["Email", "Phone Number", "Role", "Wallet Balance (GHS)", "Shop Balance (GHS)", "Shop Name", "Total Customers", "Joined Date"]
       const rows = filteredUsers.map((user) => [
         user.email,
         user.phoneNumber || "",
@@ -251,6 +252,7 @@ export default function AdminUsersPage() {
         user.walletBalance.toFixed(2),
         user.shopBalance.toFixed(2),
         user.shop?.shop_name || "",
+        user.customerCount || 0,
         new Date(user.created_at).toLocaleDateString(),
       ])
       const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n")
@@ -334,6 +336,7 @@ export default function AdminUsersPage() {
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Wallet Balance</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop Balance</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Total Customers</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Joined</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
                   </tr>
@@ -341,7 +344,7 @@ export default function AdminUsersPage() {
                 <tbody className="divide-y divide-emerald-100/40">
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
                         {searchTerm ? "No users found matching your search" : "No users found"}
                       </td>
                     </tr>
@@ -358,6 +361,11 @@ export default function AdminUsersPage() {
                       <td className="px-6 py-4 font-semibold text-blue-600">GHS {user.walletBalance.toFixed(2)}</td>
                       <td className="px-6 py-4 font-semibold text-emerald-600">GHS {user.shopBalance.toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{user.shop?.shop_name || "No shop"}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        <Badge className="bg-blue-500">
+                          {user.customerCount || 0}
+                        </Badge>
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-600">{new Date(user.created_at).toLocaleDateString()}</td>
                       <td className="px-6 py-4 flex gap-2">
                         <Button
