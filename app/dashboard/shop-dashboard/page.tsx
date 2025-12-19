@@ -23,7 +23,14 @@ export default function ShopDashboardPage() {
   const [totalProfit, setTotalProfit] = useState(0)
   const [withdrawals, setWithdrawals] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
-  const [customerStats, setCustomerStats] = useState<any>(null)
+  const [customerStats, setCustomerStats] = useState<any>({
+    total_customers: 0,
+    repeat_customers: 0,
+    repeat_percentage: 0,
+    new_customers_month: 0,
+    average_ltv: 0,
+    total_revenue: 0,
+  })
   const [withdrawalForm, setWithdrawalForm] = useState({
     amount: "",
     method: "mobile_money",
@@ -114,13 +121,29 @@ export default function ShopDashboardPage() {
 
       if (response.status === 404) {
         console.log('[DASHBOARD] User has no shop or shop has no customers yet')
-        return null
+        // Return default stats with zeros instead of null
+        return {
+          total_customers: 0,
+          repeat_customers: 0,
+          repeat_percentage: 0,
+          new_customers_month: 0,
+          average_ltv: 0,
+          total_revenue: 0,
+        }
       }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         console.error('Customer stats API error:', errorData)
-        return null
+        // Return default stats with zeros instead of null
+        return {
+          total_customers: 0,
+          repeat_customers: 0,
+          repeat_percentage: 0,
+          new_customers_month: 0,
+          average_ltv: 0,
+          total_revenue: 0,
+        }
       }
 
       const data = await response.json()
@@ -137,7 +160,15 @@ export default function ShopDashboardPage() {
       }
     } catch (error) {
       console.error("[DASHBOARD] Failed to fetch customer stats:", error)
-      return null
+      // Return default stats with zeros instead of null
+      return {
+        total_customers: 0,
+        repeat_customers: 0,
+        repeat_percentage: 0,
+        new_customers_month: 0,
+        average_ltv: 0,
+        total_revenue: 0,
+      }
     }
   }
 
@@ -329,8 +360,7 @@ export default function ShopDashboardPage() {
         </div>
 
         {/* Customer Stats Section */}
-        {customerStats !== null ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4 pt-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4 pt-2">
             {/* Total Customers */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/60 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -399,19 +429,7 @@ export default function ShopDashboardPage() {
                 <p className="text-xs text-gray-500">Total from customers</p>
               </CardContent>
             </Card>
-          </div>
-        ) : (
-          <Card className="border-yellow-200 bg-yellow-50/50">
-            <CardContent className="pt-6">
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Loading customer metrics... If this persists, check browser console for errors.
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
-        )}
+        </div>
 
         {/* Withdraw Button */}
         {balance > 0 && !showWithdrawalForm && (
