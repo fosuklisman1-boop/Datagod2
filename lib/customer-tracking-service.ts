@@ -78,29 +78,41 @@ export const customerTrackingService = {
         // CREATE new customer
         console.log(`[CUSTOMER-TRACKING] New customer: ${phoneNumber}`)
 
+        const insertPayload = {
+          shop_id: shopId,
+          phone_number: phoneNumber,
+          email: email,
+          customer_name: customerName,
+          first_purchase_at: new Date().toISOString(),
+          last_purchase_at: new Date().toISOString(),
+          total_purchases: 1,
+          total_spent: totalPrice,
+          repeat_customer: false,
+          first_source_slug: slug || "unknown",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+
+        console.log("[CUSTOMER-TRACKING] Insert payload:", insertPayload)
+
         const { data: newCustomer, error: insertError } = await supabase
           .from("shop_customers")
-          .insert([
-            {
-              shop_id: shopId,
-              phone_number: phoneNumber,
-              email: email,
-              customer_name: customerName,
-              first_purchase_at: new Date().toISOString(),
-              last_purchase_at: new Date().toISOString(),
-              total_purchases: 1,
-              total_spent: totalPrice,
-              repeat_customer: false,
-              first_source_slug: slug || "unknown",
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          ])
+          .insert([insertPayload])
           .select("id")
           .single()
 
-        if (insertError) throw insertError
+        if (insertError) {
+          console.error("[CUSTOMER-TRACKING] ✗ INSERT FAILED:", insertError)
+          console.error("[CUSTOMER-TRACKING] Error details:", {
+            code: insertError.code,
+            message: insertError.message,
+            hint: (insertError as any).hint,
+            details: (insertError as any).details,
+          })
+          throw insertError
+        }
 
+        console.log(`[CUSTOMER-TRACKING] ✓ New customer created: ${newCustomer?.id}`)
         customerId = newCustomer.id
       }
 
