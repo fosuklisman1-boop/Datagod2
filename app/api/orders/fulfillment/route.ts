@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
  */
 async function handleTriggerFulfillment(
   orderId: string,
-  supabaseAdmin: ReturnType<typeof createClient>
+  supabaseAdmin: any
 ) {
   try {
     console.log(`[FULFILLMENT] Triggering fulfillment for order ${orderId}`)
@@ -183,7 +183,7 @@ async function handleTriggerFulfillment(
  */
 async function handleRetryFulfillment(
   orderId: string,
-  supabaseAdmin: ReturnType<typeof createClient>
+  supabaseAdmin: any
 ) {
   try {
     console.log(`[FULFILLMENT] Retrying fulfillment for order ${orderId}`)
@@ -248,7 +248,7 @@ async function handleRetryFulfillment(
 async function createInitialFulfillmentLog(
   orderId: string,
   order: any,
-  supabaseAdmin: ReturnType<typeof createClient>,
+  supabaseAdmin: any,
   result: any
 ) {
   try {
