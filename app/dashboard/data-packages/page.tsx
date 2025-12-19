@@ -285,16 +285,16 @@ export default function DataPackagesPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div className="flex justify-between items-start">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 bg-clip-text text-transparent">Data Packages</h1>
-            <p className="text-gray-500 mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 bg-clip-text text-transparent">Data Packages</h1>
+            <p className="text-xs sm:text-sm text-gray-500 mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
           </div>
           {wallet && (
-            <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
-              <CardContent className="pt-6">
-                <p className="text-sm text-gray-600">Wallet Balance</p>
-                <p className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+            <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40 w-full sm:w-auto">
+              <CardContent className="pt-4 sm:pt-6">
+                <p className="text-xs sm:text-sm text-gray-600">Wallet Balance</p>
+                <p className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
                   GHS {wallet.balance.toFixed(2)}
                 </p>
               </CardContent>
@@ -320,13 +320,14 @@ export default function DataPackagesPage() {
             </div>
 
             {/* Network Filter */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1 sm:gap-2">
               {networks.map((network) => (
                 <Button
                   key={network}
                   variant={selectedNetwork === network ? "default" : "outline"}
+                  size="sm"
                   onClick={() => setSelectedNetwork(network)}
-                  className={`transition-all duration-200 ${selectedNetwork === network ? "bg-gradient-to-r from-cyan-600 to-blue-600 shadow-lg text-white" : "hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50/60 bg-cyan-50/30 backdrop-blur border-cyan-300/40 text-gray-700"}`}
+                  className={`text-xs sm:text-sm transition-all duration-200 ${selectedNetwork === network ? "bg-gradient-to-r from-cyan-600 to-blue-600 shadow-lg text-white" : "hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50/60 bg-cyan-50/30 backdrop-blur border-cyan-300/40 text-gray-700"}`}
                 >
                   {network}
                 </Button>
@@ -363,24 +364,24 @@ export default function DataPackagesPage() {
             {filteredPackages.map((pkg) => (
               <Card key={pkg.id} className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 cursor-pointer group border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60 overflow-hidden flex flex-col">
                 {/* Logo Section */}
-                <div className="h-32 w-full bg-gray-100 flex items-center justify-center overflow-hidden">
+                <div className="h-20 sm:h-24 md:h-32 w-full bg-gray-100 flex items-center justify-center overflow-hidden">
                   {getNetworkLogo(pkg.network) && (
                     <img 
                       src={getNetworkLogo(pkg.network)} 
                       alt={pkg.network}
-                      className="h-24 w-24 object-contain"
+                      className="h-16 sm:h-20 md:h-24 w-16 sm:w-20 md:w-24 object-contain"
                     />
                   )}
                 </div>
                 
                 <CardHeader>
-                  <div className="flex justify-between items-start">
+                  <div className="flex justify-between items-start gap-2">
                     <div>
-                      <Badge className="mb-2 bg-gradient-to-r from-cyan-400/40 to-blue-400/30 backdrop-blur text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-blue-600 group-hover:text-white transition-all border border-cyan-300/60">{pkg.network}</Badge>
-                      <CardTitle className="text-2xl group-hover:text-cyan-600 transition-colors">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
+                      <Badge className="mb-2 text-xs sm:text-sm bg-gradient-to-r from-cyan-400/40 to-blue-400/30 backdrop-blur text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-blue-600 group-hover:text-white transition-all border border-cyan-300/60">{pkg.network}</Badge>
+                      <CardTitle className="text-lg sm:text-xl md:text-2xl group-hover:text-cyan-600 transition-colors">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                     </div>
                     <div className="text-right">
-                      <p className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent group-hover:from-violet-600 group-hover:to-fuchsia-600 transition-colors">GHS {pkg.price.toFixed(2)}</p>
+                      <p className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent group-hover:from-violet-600 group-hover:to-fuchsia-600 transition-colors">GHS {pkg.price.toFixed(2)}</p>
                     </div>
                   </div>
                 </CardHeader>
