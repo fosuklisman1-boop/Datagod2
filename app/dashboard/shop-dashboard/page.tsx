@@ -324,7 +324,7 @@ export default function ShopDashboardPage() {
         </div>
 
         {/* Customer Stats Section */}
-        {customerStats !== null && (
+        {customerStats !== null ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4 pt-2">
             {/* Total Customers */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/60 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40">
@@ -395,6 +395,17 @@ export default function ShopDashboardPage() {
               </CardContent>
             </Card>
           </div>
+        ) : (
+          <Card className="border-yellow-200 bg-yellow-50/50">
+            <CardContent className="pt-6">
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Loading customer metrics... If this persists, check browser console for errors.
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+          </Card>
         )}
 
         {/* Withdraw Button */}
