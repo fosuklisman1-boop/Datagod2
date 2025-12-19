@@ -23,6 +23,7 @@ export default function ShopDashboardPage() {
   const [totalProfit, setTotalProfit] = useState(0)
   const [withdrawals, setWithdrawals] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
+  const [customerStats, setCustomerStats] = useState<any>(null)
   const [withdrawalForm, setWithdrawalForm] = useState({
     amount: "",
     method: "mobile_money",
@@ -74,13 +75,15 @@ export default function ShopDashboardPage() {
         totalProfit,
         profitHistory,
         withdrawalList,
-        orderList
+        orderList,
+        stats
       ] = await Promise.all([
         shopProfitService.getShopBalanceFromTable(userShop.id).catch(() => null),
         shopProfitService.getTotalProfit(userShop.id).catch(() => 0),
         shopProfitService.getProfitHistory(userShop.id).catch(() => []),
         withdrawalService.getWithdrawalRequests(user.id).catch(() => []),
         shopOrderService.getShopOrders(userShop.id).catch(() => []),
+        fetchCustomerStats(userShop.id).catch(() => null),
       ])
 
       // Use balance from table (should always exist now)
@@ -91,12 +94,24 @@ export default function ShopDashboardPage() {
       setProfits(profitHistory || [])
       setWithdrawals(withdrawalList || [])
       setOrders(orderList || [])
+      setCustomerStats(stats)
     } catch (error) {
       console.error("Error loading dashboard:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load shop dashboard"
       toast.error(errorMessage)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchCustomerStats = async (shopId: string) => {
+    try {
+      const { customerTrackingService } = await import('@/lib/customer-tracking-service')
+      const stats = await customerTrackingService.getCustomerStats(shopId)
+      return stats
+    } catch (error) {
+      console.warn("Failed to fetch customer stats:", error)
+      return null
     }
   }
 
@@ -286,6 +301,80 @@ export default function ShopDashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Customer Stats Section */}
+        {customerStats && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4 pt-2">
+            {/* Total Customers */}
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/60 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                  {customerStats.total_customers}
+                </div>
+                <p className="text-xs text-gray-500">Unique customers</p>
+              </CardContent>
+            </Card>
+
+            {/* Repeat Customers */}
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-gradient-to-br from-pink-50/60 to-rose-50/40 backdrop-blur-xl border border-pink-200/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
+                  {customerStats.repeat_customers}
+                </div>
+                <p className="text-xs text-gray-500">
+                  {customerStats.total_customers > 0 
+                    ? `${customerStats.repeat_percentage.toFixed(1)}% of customers`
+                    : "No customers yet"}
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* New This Month */}
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">New This Month</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                  {customerStats.new_customers_month}
+                </div>
+                <p className="text-xs text-gray-500">Recent acquisitions</p>
+              </CardContent>
+            </Card>
+
+            {/* Average LTV */}
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Avg. LTV</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  GHS {customerStats.average_ltv.toFixed(2)}
+                </div>
+                <p className="text-xs text-gray-500">Per customer</p>
+              </CardContent>
+            </Card>
+
+            {/* Customer Revenue */}
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-orange-500 bg-gradient-to-br from-orange-50/60 to-amber-50/40 backdrop-blur-xl border border-orange-200/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Customer Revenue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
+                  GHS {customerStats.total_revenue.toFixed(2)}
+                </div>
+                <p className="text-xs text-gray-500">Total from customers</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Withdraw Button */}
         {balance > 0 && !showWithdrawalForm && (

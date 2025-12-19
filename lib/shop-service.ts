@@ -192,6 +192,7 @@ export const shopOrderService = {
     base_price: number
     profit_amount: number
     total_price: number
+    shop_customer_id?: string
   }) {
     const { data, error } = await supabase
       .from("shop_orders")
