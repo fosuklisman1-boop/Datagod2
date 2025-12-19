@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
+import { customerTrackingService } from "@/lib/customer-tracking-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -128,6 +129,29 @@ export async function POST(request: NextRequest) {
 
     if (transactionError) {
       console.error("Failed to create transaction record:", transactionError)
+    }
+
+    // Track customer if user has a shop (data packages page orders)
+    try {
+      const { data: shop } = await supabaseAdmin
+        .from("user_shops")
+        .select("id")
+        .eq("user_id", userId)
+        .single()
+
+      if (shop?.id) {
+        await customerTrackingService.trackDataPackageCustomer({
+          shopId: shop.id,
+          phoneNumber,
+          orderId: order[0].id,
+          amount: price,
+          network,
+          sizeGb: parseInt(size.toString().replace(/[^0-9]/g, "")) || 0,
+        })
+      }
+    } catch (trackingError) {
+      console.error("[DATA-PACKAGE-TRACKING] Error tracking customer:", trackingError)
+      // Non-blocking: continue with the purchase even if tracking fails
     }
 
     // Send notification about successful purchase
