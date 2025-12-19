@@ -127,7 +127,7 @@ class ATiShareService {
         "failed",
         responseData,
         errorMessage,
-        null
+        undefined
       )
 
       return {
