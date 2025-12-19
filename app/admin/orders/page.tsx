@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2 } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -38,7 +38,7 @@ interface DownloadedOrders {
 export default function AdminOrdersPage() {
   const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
-  const [activeTab, setActiveTab] = useState<"pending" | "downloaded">("pending")
+  const [activeTab, setActiveTab] = useState<"pending" | "downloaded" | "fulfillment">("pending")
   
   const [pendingOrders, setPendingOrders] = useState<ShopOrder[]>([])
   const [downloadedOrders, setDownloadedOrders] = useState<DownloadedOrders>({})
@@ -436,8 +436,8 @@ export default function AdminOrdersPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "pending" | "downloaded")}>
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "pending" | "downloaded" | "fulfillment")}>
+          <TabsList className="grid w-full max-w-2xl grid-cols-3">
             <TabsTrigger value="pending" className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
               Pending ({pendingOrders.length})
@@ -445,6 +445,10 @@ export default function AdminOrdersPage() {
             <TabsTrigger value="downloaded" className="flex items-center gap-2">
               <CheckCircle className="h-4 w-4" />
               Downloaded ({Object.keys(downloadedOrders).length} batches)
+            </TabsTrigger>
+            <TabsTrigger value="fulfillment" className="flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Fulfillment
             </TabsTrigger>
           </TabsList>
 
@@ -738,6 +742,34 @@ export default function AdminOrdersPage() {
                 )}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="fulfillment" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>AT-iShare Order Fulfillment</CardTitle>
+                <CardDescription>
+                  Monitor and manage AT-iShare data bundle fulfillment through Code Craft Network API
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                  <Zap className="h-12 w-12 text-yellow-500" />
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold mb-2">Fulfillment Dashboard</h3>
+                    <p className="text-gray-600 mb-6">
+                      View real-time fulfillment status for AT-iShare orders
+                    </p>
+                    <a href="/dashboard/admin/fulfillment" target="_blank" rel="noopener noreferrer">
+                      <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white">
+                        <Zap className="h-4 w-4 mr-2" />
+                        Open Fulfillment Dashboard
+                      </Button>
+                    </a>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
 
