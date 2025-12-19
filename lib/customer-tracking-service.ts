@@ -307,49 +307,156 @@ export const customerTrackingService = {
   },
 
   /**
-   * Get analytics by slug (which slugs are bringing in customers)
+   * Track customer from bulk/wallet order
+   * Phone numbers from bulk orders are tracked as customers
    */
-  async getSlugAnalytics(shopId: string) {
+  async trackBulkOrderCustomer(input: {
+    shopId: string
+    phoneNumber: string
+    orderId: string
+    amount: number
+    network: string
+    volumeGb: number
+  }) {
     try {
-      console.log(`[SLUG-ANALYTICS] Fetching slug analytics for shop ${shopId}`)
+      const { shopId, phoneNumber, orderId, amount, network, volumeGb } = input
 
-      const { data: slugData, error } = await supabase
-        .from("customer_tracking")
-        .select("accessed_via_slug, purchase_completed", { count: "exact" })
+      console.log(
+        `[BULK-CUSTOMER-TRACKING] Tracking bulk order customer: ${phoneNumber} for shop ${shopId}`
+      )
+
+      // Check if customer already exists
+      const { data: existingCustomer, error: fetchError } = await supabase
+        .from("shop_customers")
+        .select("id, total_purchases, total_spent, repeat_customer")
         .eq("shop_id", shopId)
+        .eq("phone_number", phoneNumber)
+        .single()
+
+      if (fetchError && fetchError.code !== "PGRST116") {
+        throw fetchError
+      }
+
+      let customerId: string
+
+      if (existingCustomer) {
+        // UPDATE existing customer (repeat purchase)
+        const newTotalSpent = (existingCustomer.total_spent || 0) + amount
+        const newPurchases = (existingCustomer.total_purchases || 0) + 1
+
+        console.log(
+          `[BULK-CUSTOMER-TRACKING] Repeat customer: ${phoneNumber} - Purchase #${newPurchases}`
+        )
+
+        const { data: updated, error: updateError } = await supabase
+          .from("shop_customers")
+          .update({
+            last_purchase_at: new Date().toISOString(),
+            total_purchases: newPurchases,
+            total_spent: newTotalSpent,
+            repeat_customer: newPurchases > 1,
+            preferred_network: network,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingCustomer.id)
+          .select("id")
+          .single()
+
+        if (updateError) throw updateError
+
+        customerId = existingCustomer.id
+      } else {
+        // CREATE new customer from bulk order
+        console.log(`[BULK-CUSTOMER-TRACKING] New customer from bulk order: ${phoneNumber}`)
+
+        const { data: newCustomer, error: insertError } = await supabase
+          .from("shop_customers")
+          .insert([
+            {
+              shop_id: shopId,
+              phone_number: phoneNumber,
+              email: null,
+              customer_name: `${network} ${volumeGb}GB`,
+              first_purchase_at: new Date().toISOString(),
+              last_purchase_at: new Date().toISOString(),
+              total_purchases: 1,
+              total_spent: amount,
+              repeat_customer: false,
+              first_source_slug: "bulk_order",
+              preferred_network: network,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ])
+          .select("id")
+          .single()
+
+        if (insertError) throw insertError
+
+        customerId = newCustomer.id
+      }
+
+      return {
+        success: true,
+        customerId,
+        isRepeatCustomer: !!existingCustomer,
+      }
+    } catch (error) {
+      console.error("[BULK-CUSTOMER-TRACKING] Error tracking bulk order customer:", error)
+      throw error
+    }
+  },
+
+  /**
+   * Get slug analytics for bulk orders (which networks/volumes are popular)
+   */
+  async getBulkOrderAnalytics(shopId: string) {
+    try {
+      console.log(`[BULK-ANALYTICS] Fetching bulk order analytics for shop ${shopId}`)
+
+      const { data: customers, error } = await supabase
+        .from("shop_customers")
+        .select("preferred_network, total_purchases, total_spent")
+        .eq("shop_id", shopId)
+        .eq("first_source_slug", "bulk_order")
 
       if (error) throw error
 
-      // Group by slug
-      const slugStats: {
-        [key: string]: { total: number; completed: number; completion_rate: number }
+      // Group by network
+      const networkStats: {
+        [key: string]: { total_customers: number; total_revenue: number; repeat_rate: number }
       } = {}
 
-      slugData?.forEach((record: any) => {
-        const slug = record.accessed_via_slug || "unknown"
-        if (!slugStats[slug]) {
-          slugStats[slug] = { total: 0, completed: 0, completion_rate: 0 }
+      customers?.forEach((customer: any) => {
+        const network = customer.preferred_network || "Unknown"
+        if (!networkStats[network]) {
+          networkStats[network] = { total_customers: 0, total_revenue: 0, repeat_rate: 0 }
         }
-        slugStats[slug].total += 1
-        if (record.purchase_completed) {
-          slugStats[slug].completed += 1
+        networkStats[network].total_customers += 1
+        networkStats[network].total_revenue += customer.total_spent || 0
+        if (customer.total_purchases > 1) {
+          networkStats[network].repeat_rate += 1
         }
       })
 
-      // Calculate completion rates
-      Object.keys(slugStats).forEach((slug) => {
-        slugStats[slug].completion_rate =
-          slugStats[slug].total > 0
-            ? (slugStats[slug].completed / slugStats[slug].total) * 100
+      // Calculate repeat rates
+      Object.keys(networkStats).forEach((network) => {
+        networkStats[network].repeat_rate =
+          networkStats[network].total_customers > 0
+            ? (networkStats[network].repeat_rate / networkStats[network].total_customers) * 100
             : 0
       })
 
-      console.log(`[SLUG-ANALYTICS] ✓ Found stats for ${Object.keys(slugStats).length} slugs`)
+      console.log(
+        `[BULK-ANALYTICS] ✓ Found bulk order data for ${Object.keys(networkStats).length} networks`
+      )
 
-      return slugStats
+      return networkStats
     } catch (error) {
-      console.error("[SLUG-ANALYTICS] Error fetching slug analytics:", error)
+      console.error("[BULK-ANALYTICS] Error fetching bulk order analytics:", error)
       throw error
     }
   },
 }
+
+```

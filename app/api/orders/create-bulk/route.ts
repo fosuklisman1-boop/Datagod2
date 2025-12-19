@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
+import { customerTrackingService } from "@/lib/customer-tracking-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -167,6 +168,50 @@ export async function POST(request: NextRequest) {
         // Log but don't fail - transaction record is secondary
       } else {
         console.log(`[BULK-ORDERS] ✓ Transaction record created for ₵${totalCost}`)
+      }
+
+      // Track bulk order customers if user has a shop
+      try {
+        console.log("[BULK-ORDERS] Checking if user has a shop for customer tracking...")
+        
+        const { data: shop, error: shopError } = await supabase
+          .from("user_shops")
+          .select("id")
+          .eq("user_id", userId)
+          .single()
+
+        if (shopError && shopError.code !== "PGRST116") {
+          console.warn("[BULK-ORDERS] Error fetching shop:", shopError)
+        } else if (shop?.id) {
+          console.log(`[BULK-ORDERS] Found shop ${shop.id}, tracking bulk order customers...`)
+          
+          // Track each phone number as a customer
+          for (const order of orders) {
+            try {
+              await customerTrackingService.trackBulkOrderCustomer({
+                shopId: shop.id,
+                phoneNumber: order.phone_number,
+                orderId: createdOrders?.find((o: any) => o.phone_number === order.phone_number)?.id || "",
+                amount: order.price,
+                network: network,
+                volumeGb: order.volume_gb,
+              })
+            } catch (trackError) {
+              console.warn(
+                `[BULK-ORDERS] Failed to track customer ${order.phone_number}:`,
+                trackError
+              )
+              // Don't fail the bulk order if tracking fails
+            }
+          }
+          
+          console.log("[BULK-ORDERS] ✓ Bulk order customers tracked")
+        } else {
+          console.log("[BULK-ORDERS] User has no shop, skipping customer tracking")
+        }
+      } catch (trackingError) {
+        console.warn("[BULK-ORDERS] Error tracking bulk order customers:", trackingError)
+        // Don't fail the bulk order if customer tracking fails
       }
 
       // Send SMS to each phone number in the bulk order
