@@ -21,10 +21,10 @@ export async function GET(request: NextRequest) {
 
     console.log(`[CUSTOMER-ANALYTICS] Looking for shop with user_id: ${userId}`)
 
-    // Get user's shop
+    // Get user's shop (shops are in user_shops table, not shops table)
     const { data: shop, error: shopError } = await supabase
-      .from("shops")
-      .select("*")
+      .from("user_shops")
+      .select("id")
       .eq("user_id", userId)
       .single()
 
@@ -34,15 +34,15 @@ export async function GET(request: NextRequest) {
     if (!shop) {
       // Try to get ANY shop to see if the table is accessible
       const { data: testShops, error: testError } = await supabase
-        .from("shops")
-        .select("id, user_id, name")
+        .from("user_shops")
+        .select("id, user_id, shop_name")
         .limit(5)
       
       console.log(`[CUSTOMER-ANALYTICS] Test query - all shops:`, { testShops, testError })
       console.log(`[CUSTOMER-ANALYTICS] Looking for user_id match in shops. User ID: ${userId}`)
       if (testShops && testShops.length > 0) {
         testShops.forEach(s => {
-          console.log(`[CUSTOMER-ANALYTICS] Shop: ${s.id}, name: ${s.name}, user_id: ${s.user_id}`)
+          console.log(`[CUSTOMER-ANALYTICS] Shop: ${s.id}, shop_name: ${s.shop_name}, user_id: ${s.user_id}`)
         })
       }
       
