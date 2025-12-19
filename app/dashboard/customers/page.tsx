@@ -155,9 +155,9 @@ export default function CustomersPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 pt-4">
         {/* Header with Back Button */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 pb-4 border-b border-gray-200">
           <Button
             variant="ghost"
             size="icon"
