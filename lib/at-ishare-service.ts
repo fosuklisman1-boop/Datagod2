@@ -109,7 +109,9 @@ class ATiShareService {
           "processing",
           responseData,
           null,
-          orderId // Use order ID as reference
+          orderId, // Use order ID as reference
+          phoneNumber,
+          network
         )
 
         return {
@@ -139,7 +141,9 @@ class ATiShareService {
         "failed",
         responseData,
         errorMessage,
-        undefined
+        undefined,
+        phoneNumber,
+        network
       )
 
       return {
@@ -314,24 +318,37 @@ class ATiShareService {
     status: "pending" | "processing" | "success" | "failed",
     apiResponse: Record<string, any>,
     errorMessage?: string | null,
-    reference?: string
+    reference?: string,
+    phoneNumber?: string,
+    network?: string
   ): Promise<void> {
     try {
       console.log(`[CODECRAFT-LOG] Logging fulfillment attempt for order ${orderId}`)
       console.log(`[CODECRAFT-LOG] Status: ${status}`)
       console.log(`[CODECRAFT-LOG] Error Message: ${errorMessage || "None"}`)
+      console.log(`[CODECRAFT-LOG] Phone: ${phoneNumber || "N/A"}`)
+      console.log(`[CODECRAFT-LOG] Network: ${network || "N/A"}`)
       
+      // Build the record with required fields
+      const logRecord: any = {
+        order_id: orderId,
+        status,
+        api_response: apiResponse,
+        error_message: errorMessage,
+        fulfilled_at: status === "success" ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      }
+
+      // Add optional but required fields if provided
+      if (phoneNumber) {
+        logRecord.phone_number = phoneNumber
+      }
+      if (network) {
+        logRecord.network = network
+      }
+
       const { error } = await this.supabase.from("fulfillment_logs").upsert(
-        [
-          {
-            order_id: orderId,
-            status,
-            api_response: apiResponse,
-            error_message: errorMessage,
-            fulfilled_at: status === "success" ? new Date().toISOString() : null,
-            updated_at: new Date().toISOString(),
-          },
-        ],
+        [logRecord],
         { onConflict: "order_id" }
       )
 
