@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
           // Track each phone number as a customer
           for (const order of orders) {
             try {
-              await customerTrackingService.trackBulkOrderCustomer({
+              const result = await customerTrackingService.trackBulkOrderCustomer({
                 shopId: shop.id,
                 phoneNumber: order.phone_number,
                 orderId: createdOrders?.find((o: any) => o.phone_number === order.phone_number)?.id || "",
@@ -196,9 +196,10 @@ export async function POST(request: NextRequest) {
                 network: network,
                 volumeGb: order.volume_gb,
               })
+              console.log(`[BULK-ORDERS] ✓ Customer tracked: ${order.phone_number}`, result)
             } catch (trackError) {
-              console.warn(
-                `[BULK-ORDERS] Failed to track customer ${order.phone_number}:`,
+              console.error(
+                `[BULK-ORDERS] ✗ Failed to track customer ${order.phone_number}:`,
                 trackError
               )
               // Don't fail the bulk order if tracking fails
@@ -210,7 +211,7 @@ export async function POST(request: NextRequest) {
           console.log("[BULK-ORDERS] User has no shop, skipping customer tracking")
         }
       } catch (trackingError) {
-        console.warn("[BULK-ORDERS] Error tracking bulk order customers:", trackingError)
+        console.error("[BULK-ORDERS] ✗ Error tracking bulk order customers:", trackingError)
         // Don't fail the bulk order if customer tracking fails
       }
 

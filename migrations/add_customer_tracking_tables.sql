@@ -88,6 +88,21 @@ CREATE POLICY "Shop owners can view their customer tracking"
     )
   );
 
+-- RLS Policy: System can insert shop customers (for tracking)
+CREATE POLICY "System can insert shop customers"
+  ON shop_customers FOR INSERT
+  WITH CHECK (true);
+
+-- RLS Policy: System can update shop customers (for tracking)
+CREATE POLICY "System can update shop customers"
+  ON shop_customers FOR UPDATE
+  USING (true);
+
+-- RLS Policy: System can insert customer tracking records
+CREATE POLICY "System can insert customer tracking"
+  ON customer_tracking FOR INSERT
+  WITH CHECK (true);
+
 -- Comments for documentation
 COMMENT ON TABLE shop_customers IS 'Stores unique customer records per shop with aggregated purchase metrics';
 COMMENT ON TABLE customer_tracking IS 'Tracks detailed information about each purchase including which slug was used';

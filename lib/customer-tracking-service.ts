@@ -391,10 +391,16 @@ export const customerTrackingService = {
           .select("id")
           .single()
 
-        if (insertError) throw insertError
+        if (insertError) {
+          console.error(`[BULK-CUSTOMER-TRACKING] ✗ Insert error for ${phoneNumber}:`, insertError)
+          throw insertError
+        }
 
+        console.log(`[BULK-CUSTOMER-TRACKING] ✓ New customer created: ${newCustomer?.id}`)
         customerId = newCustomer.id
       }
+
+      console.log(`[BULK-CUSTOMER-TRACKING] ✓ Successfully tracked customer ${customerId}`)
 
       return {
         success: true,
@@ -402,7 +408,7 @@ export const customerTrackingService = {
         isRepeatCustomer: !!existingCustomer,
       }
     } catch (error) {
-      console.error("[BULK-CUSTOMER-TRACKING] Error tracking bulk order customer:", error)
+      console.error("[BULK-CUSTOMER-TRACKING] ✗ Error tracking bulk order customer:", error)
       throw error
     }
   },
