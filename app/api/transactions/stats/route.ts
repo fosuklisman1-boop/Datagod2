@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 
     // Get today's refunds
     const { data: todayRefunds } = await supabase
-      .from("wallet_transactions")
+      .from("transactions")
       .select("amount")
       .eq("user_id", userId)
       .eq("type", "refund")
