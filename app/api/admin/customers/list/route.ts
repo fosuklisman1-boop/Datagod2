@@ -14,10 +14,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const token = authHeader.slice(7)
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token)
-
-    if (userError || !user) {
+    const userId = authHeader.slice(7)
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -25,7 +23,7 @@ export async function GET(request: NextRequest) {
     const { data: shop, error: shopError } = await supabase
       .from("shops")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single()
 
     if (shopError || !shop) {
