@@ -26,7 +26,7 @@ export async function GET() {
 
     console.log(`Found ${data?.length || 0} download batches`)
 
-    // Determine order types for each batch
+    // Determine order types for each batch and fetch current statuses
     const enrichedData = await Promise.all((data || []).map(async (batch: any) => {
       if (!batch.orders || batch.orders.length === 0) {
         return batch
@@ -35,18 +35,42 @@ export async function GET() {
       // Check if these orders are shop orders or bulk orders
       const orderIds = batch.orders.map((o: any) => o.id)
       
-      const { data: shopOrders, error: shopError } = await supabase
-        .from("shop_orders")
-        .select("id")
-        .in("id", orderIds)
+      const [shopResult, bulkResult] = await Promise.all([
+        supabase
+          .from("shop_orders")
+          .select("id, order_status")
+          .in("id", orderIds),
+        supabase
+          .from("orders")
+          .select("id, status")
+          .in("id", orderIds)
+      ])
       
-      const shopOrderIds = new Set(shopOrders?.map(o => o.id) || [])
+      const shopOrderMap = new Map(shopResult.data?.map(o => [o.id, o]) || [])
+      const bulkOrderMap = new Map(bulkResult.data?.map(o => [o.id, o]) || [])
       
-      // Add type to each order
-      const enrichedOrders = batch.orders.map((order: any) => ({
-        ...order,
-        type: shopOrderIds.has(order.id) ? 'shop' : 'bulk'
-      }))
+      // Add type and current status to each order
+      const enrichedOrders = batch.orders.map((order: any) => {
+        if (shopOrderMap.has(order.id)) {
+          const shopOrder = shopOrderMap.get(order.id)
+          return {
+            ...order,
+            status: shopOrder.order_status,
+            type: 'shop'
+          }
+        } else if (bulkOrderMap.has(order.id)) {
+          const bulkOrder = bulkOrderMap.get(order.id)
+          return {
+            ...order,
+            status: bulkOrder.status,
+            type: 'bulk'
+          }
+        }
+        return {
+          ...order,
+          type: 'unknown'
+        }
+      })
       
       return {
         ...batch,
