@@ -157,7 +157,9 @@ export async function POST(request: NextRequest) {
 
     // Trigger fulfillment for AT-iShare orders only
     const fulfillableNetworks = ["AT-iShare"]
-    if (fulfillableNetworks.includes(network)) {
+    const normalizedNetwork = network?.trim() || ""
+    console.log(`[FULFILLMENT] Network received: "${network}" | Normalized: "${normalizedNetwork}" | Should fulfill: ${fulfillableNetworks.includes(normalizedNetwork)}`)
+    if (fulfillableNetworks.includes(normalizedNetwork)) {
       try {
         console.log(`[FULFILLMENT] Triggering fulfillment for ${network} order ${order[0].id}`)
         const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
