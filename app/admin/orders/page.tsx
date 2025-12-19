@@ -117,26 +117,33 @@ export default function AdminOrdersPage() {
       const allOrderIds = result.data?.flatMap((batch: any) => batch.orders?.map((o: any) => o.id) || []) || []
       if (allOrderIds.length > 0) {
         console.log("[LOADED-ORDERS] Fetching current statuses for", allOrderIds.length, "orders")
-        const statusResponse = await fetch("/api/admin/orders/batch-statuses", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orderIds: allOrderIds })
-        })
-
-        if (statusResponse.ok) {
-          const { statusMap } = await statusResponse.json()
-          console.log("[LOADED-ORDERS] Received status map for", Object.keys(statusMap).length, "orders")
-
-          // Update orders with current statuses
-          Object.keys(grouped).forEach((batchKey) => {
-            grouped[batchKey].orders.forEach((order: any) => {
-              if (statusMap[order.id]) {
-                order.status = statusMap[order.id]
-              }
-            })
+        try {
+          const statusResponse = await fetch("/api/admin/orders/batch-statuses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderIds: allOrderIds })
           })
-        } else {
-          console.warn("Failed to fetch order statuses, using cached data")
+
+          if (statusResponse.ok) {
+            const { statusMap } = await statusResponse.json()
+            console.log("[LOADED-ORDERS] Received status map for", Object.keys(statusMap).length, "orders")
+
+            // Update orders with current statuses from database
+            Object.keys(grouped).forEach((batchKey) => {
+              grouped[batchKey].orders.forEach((order: any) => {
+                if (statusMap[order.id]) {
+                  console.log(`[LOADED-ORDERS] Order ${order.id} status from DB: ${statusMap[order.id]}, was: ${order.status}`)
+                  order.status = statusMap[order.id]
+                } else {
+                  console.log(`[LOADED-ORDERS] Order ${order.id} not found in status map, keeping batch status: ${order.status}`)
+                }
+              })
+            })
+          } else {
+            console.warn("[LOADED-ORDERS] Failed to fetch order statuses, using cached data from batch")
+          }
+        } catch (statusError) {
+          console.warn("[LOADED-ORDERS] Error fetching statuses:", statusError, "using cached data from batch")
         }
       }
 
@@ -714,9 +721,10 @@ export default function AdminOrdersPage() {
                                     order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
                                     order.status === "failed" ? "bg-red-100 text-red-800 border-red-200" :
                                     order.status === "processing" ? "bg-blue-100 text-blue-800 border-blue-200" :
-                                    "bg-gray-100 text-gray-800 border-gray-200"
+                                    order.status ? "bg-gray-100 text-gray-800 border-gray-200" :
+                                    "bg-yellow-100 text-yellow-800 border-yellow-200"
                                   }`}>
-                                    {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Processing"}
+                                    {order.status ? (order.status.charAt(0).toUpperCase() + order.status.slice(1)) : "Unknown"}
                                   </Badge>
                                 </td>
                               </tr>
