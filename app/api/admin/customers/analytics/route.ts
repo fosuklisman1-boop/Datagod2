@@ -19,16 +19,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    console.log(`[CUSTOMER-ANALYTICS] Looking for shop with user_id: ${userId}`)
+
     // Get user's shop
-    const { data: shop } = await supabase
+    const { data: shop, error: shopError } = await supabase
       .from("shops")
-      .select("id")
+      .select("id, user_id")
       .eq("user_id", userId)
       .single()
 
+    console.log(`[CUSTOMER-ANALYTICS] Shop query result:`, { shop, shopError })
+
     if (!shop) {
+      console.log(`[CUSTOMER-ANALYTICS] No shop found, trying alternative queries...`)
+      
+      // Try to see if there are ANY shops in the database for this user
+      const { data: allShops, error: allError } = await supabase
+        .from("shops")
+        .select("id, user_id")
+        .limit(5)
+      
+      console.log(`[CUSTOMER-ANALYTICS] All shops sample:`, { allShops, allError })
+      
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
+
+    console.log(`[CUSTOMER-ANALYTICS] Found shop: ${shop.id}`)
 
     // Fetch customer stats
     const stats = await customerTrackingService.getCustomerStats(shop.id)
