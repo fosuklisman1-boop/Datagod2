@@ -165,13 +165,13 @@ export default function DataPackagesPage() {
     // Remove any whitespace and convert to uppercase for consistency
     const normalized = size.trim().toUpperCase()
     
-    // Extract the numeric part and unit (MB or GB)
-    const match = normalized.match(/(\d+(?:\.\d+)?)\s*(MB|GB)/)
+    // Extract the numeric part (handles any number of digits)
+    const match = normalized.match(/^(\d+)(?:\D|$)/)
     if (!match) return 0
 
-    const value = parseFloat(match[1])
+    const value = parseInt(match[1], 10)
     
-    // Return raw numeric value without unit conversion
+    // Return raw numeric value
     return value
   }
 
