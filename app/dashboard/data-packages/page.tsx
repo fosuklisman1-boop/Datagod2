@@ -360,7 +360,7 @@ export default function DataPackagesPage() {
 
         {/* Packages Display */}
         {viewMode === "grid" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPackages.map((pkg) => (
               <Card key={pkg.id} className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 cursor-pointer group border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60 overflow-hidden flex flex-col">
                 {/* Logo Section */}
