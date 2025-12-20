@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
+import { atishareService } from "@/lib/at-ishare-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -161,6 +162,33 @@ export async function POST(request: NextRequest) {
               } catch (smsError) {
                 console.warn("[WEBHOOK] SMS notification failed:", smsError)
               }
+            }
+
+            // Trigger AT-iShare fulfillment for shop orders
+            const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare"]
+            const networkLower = (shopOrderData?.network || "").toLowerCase()
+            const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === networkLower)
+            
+            console.log(`[WEBHOOK] Shop order network: "${shopOrderData?.network}" | Should fulfill: ${shouldFulfill}`)
+            
+            if (shouldFulfill && shopOrderData?.customer_phone) {
+              console.log(`[WEBHOOK] Triggering AT-iShare fulfillment for shop order ${paymentData.order_id}`)
+              const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+              
+              // Non-blocking fulfillment trigger
+              atishareService.fulfillOrder({
+                phoneNumber: shopOrderData.customer_phone,
+                sizeGb,
+                orderId: paymentData.order_id,
+                network: "AT",
+                orderType: "shop",
+              }).then(result => {
+                console.log(`[WEBHOOK] ✓ Fulfillment triggered for shop order ${paymentData.order_id}:`, result)
+              }).catch(err => {
+                console.error(`[WEBHOOK] ❌ Error triggering fulfillment for shop order ${paymentData.order_id}:`, err)
+              })
+            } else if (shouldFulfill && !shopOrderData?.customer_phone) {
+              console.error(`[WEBHOOK] ❌ Cannot fulfill shop order ${paymentData.order_id}: No customer_phone`)
             }
           }
 
