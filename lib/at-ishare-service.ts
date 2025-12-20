@@ -371,12 +371,15 @@ class ATiShareService {
       ).select()
 
       if (error) {
-        console.error(`[CODECRAFT-LOG] Error inserting fulfillment log for order ${orderId}:`, error)
+        console.error(`[CODECRAFT-LOG] ❌ Error inserting fulfillment log for order ${orderId}`)
+        console.error(`[CODECRAFT-LOG] Error message: ${error.message}`)
         console.error(`[CODECRAFT-LOG] Error code: ${error.code}`)
-        console.error(`[CODECRAFT-LOG] Error details:`, error.details)
-        throw error
+        console.error(`[CODECRAFT-LOG] Error status: ${error.status}`)
+        console.error(`[CODECRAFT-LOG] Error details:`, JSON.stringify(error, null, 2))
+        console.error(`[CODECRAFT-LOG] Full error object:`, error)
+        throw new Error(`Failed to insert fulfillment log: ${error.message}`)
       } else {
-        console.log(`[CODECRAFT-LOG] Successfully logged fulfillment status to database`)
+        console.log(`[CODECRAFT-LOG] ✅ Successfully logged fulfillment status to database`)
         console.log(`[CODECRAFT-LOG] Inserted record:`, data)
       }
 
@@ -394,9 +397,10 @@ class ATiShareService {
         .eq("id", orderId)
       
       if (updateError) {
-        console.error(`[CODECRAFT-LOG] Error updating order fulfillment_status:`, updateError)
+        console.error(`[CODECRAFT-LOG] ❌ Error updating order fulfillment_status:`, updateError)
+        console.error(`[CODECRAFT-LOG] Update error message: ${updateError.message}`)
       } else {
-        console.log(`[CODECRAFT-LOG] Successfully updated order fulfillment_status in database`)
+        console.log(`[CODECRAFT-LOG] ✅ Successfully updated order fulfillment_status in database`)
       }
     } catch (error) {
       console.error(`[CODECRAFT-LOG] Error in logFulfillment:`, error)

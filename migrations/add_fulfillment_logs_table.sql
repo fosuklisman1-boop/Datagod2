@@ -20,17 +20,21 @@ CREATE TABLE fulfillment_logs (
 -- Enable RLS
 ALTER TABLE fulfillment_logs ENABLE ROW LEVEL SECURITY;
 
--- Admin/System can read fulfillment logs
-CREATE POLICY "Admins can read fulfillment logs" ON fulfillment_logs
-  FOR SELECT USING (true);
-
--- System can insert fulfillment logs
+-- System can insert fulfillment logs (using service role)
 CREATE POLICY "System can insert fulfillment logs" ON fulfillment_logs
   FOR INSERT WITH CHECK (true);
+
+-- System can read fulfillment logs
+CREATE POLICY "System can read fulfillment logs" ON fulfillment_logs
+  FOR SELECT USING (true);
 
 -- System can update fulfillment logs
 CREATE POLICY "System can update fulfillment logs" ON fulfillment_logs
   FOR UPDATE USING (true);
+
+-- System can delete fulfillment logs
+CREATE POLICY "System can delete fulfillment logs" ON fulfillment_logs
+  FOR DELETE USING (true);
 
 -- Add fulfillment_status column to orders table
 ALTER TABLE orders ADD COLUMN fulfillment_status VARCHAR(50) DEFAULT 'pending';
