@@ -131,11 +131,14 @@ class ATiShareService {
       console.log(`[CODECRAFT-FULFILL] HTTP Status: ${httpStatus}`)
       console.log(`[CODECRAFT-FULFILL] Response Data:`, responseData)
 
-      // Handle specific status codes from API
-      if (httpStatus === 200 && responseData.status === 200) {
+      // Handle response based on HTTP status code
+      // HTTP 200 = Success (as per API documentation)
+      // Other codes = Failed
+      if (httpStatus === 200) {
         console.log(`[CODECRAFT] Order fulfilled successfully: ${orderId}`)
+        console.log(`[CODECRAFT] API Message: ${responseData.message || "Sent Successfully"}`)
         
-        // Log successful fulfillment
+        // Log successful fulfillment and update order status to "completed"
         await this.logFulfillment(
           orderId,
           "success",
@@ -150,23 +153,15 @@ class ATiShareService {
         return {
           success: true,
           reference: orderId,
-          message: "Order fulfilled successfully",
+          message: responseData.message || "Order fulfilled successfully",
         }
       }
 
-      // Map error codes to messages
-      const errorCodeMap: Record<number, string> = {
-        100: "Admin wallet balance is low",
-        101: "Service out of stock",
-        102: "Agent not found",
-        103: "Price not found",
-        555: "Network not found",
-        500: responseData.message || "Server error",
-      }
+      // HTTP status is not 200 - order failed
+      const errorMessage = responseData.message || `Order Failed: [${httpStatus}] Unknown error`
 
-      const errorMessage = errorCodeMap[responseData.status || httpStatus] || `API Error: ${responseData.message || "Unknown error"}`
-
-      console.error(`[CODECRAFT] API Error: ${responseData.status}`, responseData)
+      console.error(`[CODECRAFT] API Error: HTTP ${httpStatus}`, responseData)
+      console.error(`[CODECRAFT] Error Message: ${errorMessage}`)
 
       // Log failed fulfillment attempt
       await this.logFulfillment(
