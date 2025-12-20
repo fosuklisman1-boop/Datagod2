@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
             console.log("[PAYMENT-VERIFY] Checking if fulfillment needed for order:", shopOrderData.id)
             const { data: orderDetails } = await supabase
               .from("shop_orders")
-              .select("id, network, customer_phone, volume_gb")
+              .select("id, network, volume_gb, shop_customer_id")
               .eq("id", shopOrderData.id)
               .single()
 
@@ -144,18 +144,29 @@ export async function POST(request: NextRequest) {
                 console.log(`[PAYMENT-VERIFY] Triggering AT-iShare fulfillment for shop order ${shopOrderData.id}`)
                 const sizeGb = parseInt(orderDetails.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
                 
-                // Non-blocking fulfillment trigger
-                atishareService.fulfillOrder({
-                  phoneNumber: orderDetails.customer_phone,
-                  sizeGb,
-                  orderId: shopOrderData.id,
-                  network: "AT",
-                }).then(result => {
-                  console.log(`[PAYMENT-VERIFY] Fulfillment triggered for shop order ${shopOrderData.id}:`, result)
-                }).catch(err => {
-                  console.error(`[PAYMENT-VERIFY] Error triggering fulfillment for shop order ${shopOrderData.id}:`, err)
-                  // Non-blocking: don't fail payment verification if fulfillment fails
-                })
+                // Fetch customer phone from shop_customers table
+                const { data: customerData } = await supabase
+                  .from("shop_customers")
+                  .select("phone_number")
+                  .eq("id", orderDetails.shop_customer_id)
+                  .single()
+                
+                if (customerData?.phone_number) {
+                  // Non-blocking fulfillment trigger
+                  atishareService.fulfillOrder({
+                    phoneNumber: customerData.phone_number,
+                    sizeGb,
+                    orderId: shopOrderData.id,
+                    network: "AT",
+                  }).then(result => {
+                    console.log(`[PAYMENT-VERIFY] Fulfillment triggered for shop order ${shopOrderData.id}:`, result)
+                  }).catch(err => {
+                    console.error(`[PAYMENT-VERIFY] Error triggering fulfillment for shop order ${shopOrderData.id}:`, err)
+                    // Non-blocking: don't fail payment verification if fulfillment fails
+                  })
+                } else {
+                  console.error(`[PAYMENT-VERIFY] Could not find customer phone number for shop order ${shopOrderData.id}`)
+                }
               }
             }
           }
