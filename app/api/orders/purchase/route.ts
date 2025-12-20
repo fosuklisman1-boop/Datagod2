@@ -166,7 +166,8 @@ export async function POST(request: NextRequest) {
     console.log(`[PURCHASE] About to check network for fulfillment`)
 
     // Trigger fulfillment for AT-iShare orders only
-    const fulfillableNetworks = ["AT-iShare", "AT - iShare", "AT-ishare", "at-ishare"]
+    // The canonical name in database is "AT - iShare"
+    const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare"]
     const normalizedNetwork = network?.trim() || ""
     const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
     console.log(`[FULFILLMENT] Network received: "${network}" | Normalized: "${normalizedNetwork}" | Should fulfill: ${shouldFulfill} | Order: ${order[0].id}`)

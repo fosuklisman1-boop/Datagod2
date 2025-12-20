@@ -101,10 +101,11 @@ async function handleTriggerFulfillment(
       )
     }
 
-    // Check if order is a supported network (MTN, TELECEL, AT)
-    if (!["MTN", "TELECEL", "AT", "AT-iShare"].includes(order.network)) {
+    // Check if order is a supported network (MTN, TELECEL, AT, AT - iShare)
+    const supportedNetworks = ["MTN", "TELECEL", "AT", "AT-iShare", "AT - iShare", "AT - ishare", "at - ishare"]
+    if (!supportedNetworks.some(n => n.toLowerCase() === (order.network || "").toLowerCase())) {
       return NextResponse.json(
-        { error: "This order is not for a supported network", network: order.network, supported: ["MTN", "TELECEL", "AT"] },
+        { error: "This order is not for a supported network", network: order.network, supported: ["MTN", "TELECEL", "AT", "AT - iShare"] },
         { status: 400 }
       )
     }
@@ -134,6 +135,9 @@ async function handleTriggerFulfillment(
       "TELECEL": "TELECEL",
       "AT": "AT",
       "AT-iShare": "AT",
+      "AT - iShare": "AT",
+      "AT - ishare": "AT",
+      "at - ishare": "AT",
     }
     const apiNetwork = networkMap[order.network] || order.network
 
@@ -202,10 +206,12 @@ async function handleRetryFulfillment(
       )
     }
 
-    // Check if AT-iShare
-    if (order.network !== "AT-iShare") {
+    // Check if AT-iShare (case-insensitive)
+    const atishareNetworks = ["AT-iShare", "AT - iShare", "AT - ishare", "at - ishare"]
+    const isAtishare = atishareNetworks.some(n => n.toLowerCase() === (order.network || "").toLowerCase())
+    if (!isAtishare) {
       return NextResponse.json(
-        { error: "This order is not for AT-iShare network" },
+        { error: "This order is not for AT-iShare network", providedNetwork: order.network },
         { status: 400 }
       )
     }

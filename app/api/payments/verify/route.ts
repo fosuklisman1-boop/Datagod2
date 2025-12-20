@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
               .single()
 
             if (orderDetails) {
-              const fulfillableNetworks = ["AT-iShare", "AT - iShare", "AT-ishare", "at-ishare"]
+              const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare"]
               const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === (orderDetails.network || "").toLowerCase())
               
               console.log(`[PAYMENT-VERIFY] Shop order network: "${orderDetails.network}" | Should fulfill: ${shouldFulfill}`)
