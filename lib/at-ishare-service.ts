@@ -50,7 +50,21 @@ class ATiShareService {
       // Validate inputs
       if (!phoneNumber || !sizeGb || !orderId) {
         const errorMsg = `Missing required fields: phoneNumber=${phoneNumber}, sizeGb=${sizeGb}, orderId=${orderId}`
-        console.error(`[CODECRAFT-FULFILL] ${errorMsg}`)
+        console.error(`[CODECRAFT-FULFILL] ❌ ${errorMsg}`)
+        // Log this validation error
+        try {
+          await this.logFulfillment(
+            orderId || "unknown",
+            "failed",
+            { validation_error: true },
+            errorMsg,
+            undefined,
+            phoneNumber,
+            network
+          )
+        } catch (e) {
+          console.error(`[CODECRAFT-FULFILL] Could not log validation error:`, e)
+        }
         return {
           success: false,
           errorCode: "INVALID_INPUT",
@@ -62,7 +76,21 @@ class ATiShareService {
       const validNetworks = ["MTN", "TELECEL", "AT"]
       if (!validNetworks.includes(network)) {
         const errorMsg = `Invalid network: ${network}. Must be one of: ${validNetworks.join(", ")}`
-        console.error(`[CODECRAFT-FULFILL] ${errorMsg}`)
+        console.error(`[CODECRAFT-FULFILL] ❌ ${errorMsg}`)
+        // Log this validation error
+        try {
+          await this.logFulfillment(
+            orderId,
+            "failed",
+            { validation_error: true },
+            errorMsg,
+            undefined,
+            phoneNumber,
+            network
+          )
+        } catch (e) {
+          console.error(`[CODECRAFT-FULFILL] Could not log validation error:`, e)
+        }
         return {
           success: false,
           errorCode: "INVALID_NETWORK",
