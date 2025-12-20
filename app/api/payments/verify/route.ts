@@ -156,6 +156,7 @@ export async function POST(request: NextRequest) {
                     sizeGb,
                     orderId: shopOrderData.id,
                     network: "AT",
+                    orderType: "shop",  // Shop orders use shop_orders table
                   }).then(result => {
                     console.log(`[PAYMENT-VERIFY] Fulfillment triggered for shop order ${shopOrderData.id}:`, result)
                   }).catch(err => {

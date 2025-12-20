@@ -10,6 +10,7 @@ interface FulfillmentRequest {
   sizeGb: number
   orderId: string
   network?: string
+  orderType?: "wallet" | "shop"  // wallet = orders table, shop = shop_orders table
 }
 
 interface FulfillmentResponse {
@@ -38,11 +39,12 @@ class ATiShareService {
    * Fulfill an AT-iShare order by calling Code Craft Network API
    */
   async fulfillOrder(request: FulfillmentRequest): Promise<FulfillmentResponse> {
-    const { phoneNumber, sizeGb, orderId, network = "AT" } = request
+    const { phoneNumber, sizeGb, orderId, network = "AT", orderType = "wallet" } = request
 
     try {
       console.log(`[CODECRAFT-FULFILL] Starting fulfillment request`)
       console.log(`[CODECRAFT-FULFILL] Order ID: ${orderId}`)
+      console.log(`[CODECRAFT-FULFILL] Order Type: ${orderType}`)
       console.log(`[CODECRAFT-FULFILL] Phone Number: ${phoneNumber}`)
       console.log(`[CODECRAFT-FULFILL] Size: ${sizeGb}GB`)
       console.log(`[CODECRAFT-FULFILL] Network: ${network}`)
@@ -60,7 +62,8 @@ class ATiShareService {
             errorMsg,
             undefined,
             phoneNumber,
-            network
+            network,
+            orderType
           )
         } catch (e) {
           console.error(`[CODECRAFT-FULFILL] Could not log validation error:`, e)
@@ -86,7 +89,8 @@ class ATiShareService {
             errorMsg,
             undefined,
             phoneNumber,
-            network
+            network,
+            orderType
           )
         } catch (e) {
           console.error(`[CODECRAFT-FULFILL] Could not log validation error:`, e)
@@ -139,7 +143,8 @@ class ATiShareService {
           null,
           orderId, // Use order ID as reference
           phoneNumber,
-          network
+          network,
+          orderType
         )
 
         return {
@@ -171,7 +176,8 @@ class ATiShareService {
         errorMessage,
         undefined,
         phoneNumber,
-        network
+        network,
+        orderType
       )
 
       return {
@@ -193,7 +199,8 @@ class ATiShareService {
           errorMessage,
           undefined,
           phoneNumber,
-          network
+          network,
+          orderType
         )
       } catch (logError) {
         console.error(`[CODECRAFT] Failed to log fulfillment error:`, logError)
@@ -363,10 +370,12 @@ class ATiShareService {
     errorMessage?: string | null,
     reference?: string,
     phoneNumber?: string,
-    network?: string
+    network?: string,
+    orderType: "wallet" | "shop" = "wallet"
   ): Promise<void> {
     try {
       console.log(`[CODECRAFT-LOG] Logging fulfillment attempt for order ${orderId}`)
+      console.log(`[CODECRAFT-LOG] Order Type: ${orderType}`)
       console.log(`[CODECRAFT-LOG] Status: ${status}`)
       console.log(`[CODECRAFT-LOG] Error Message: ${errorMessage || "None"}`)
       console.log(`[CODECRAFT-LOG] Phone: ${phoneNumber || "N/A"}`)
@@ -383,6 +392,7 @@ class ATiShareService {
       // Build the record with required fields
       const logRecord: any = {
         order_id: orderId,
+        order_type: orderType,
         status,
         phone_number: phoneNumber.trim(),
         network: network.trim(),
@@ -410,24 +420,28 @@ class ATiShareService {
         console.log(`[CODECRAFT-LOG] Inserted record:`, data)
       }
 
-      // Update order status
+      // Update order status based on order type
       // For Code Craft API, initial response means "processing" since delivery happens async
       const orderStatus = status === "processing" ? "processing" : status
-      console.log(`[CODECRAFT-LOG] Updating order ${orderId} with fulfillment_status: ${orderStatus}`)
+      console.log(`[CODECRAFT-LOG] Updating order ${orderId} (type: ${orderType}) with fulfillment_status: ${orderStatus}`)
+      
+      // Use appropriate table based on order type
+      const tableName = orderType === "shop" ? "shop_orders" : "orders"
+      const statusColumn = orderType === "shop" ? "order_status" : "fulfillment_status"
       
       const { error: updateError } = await this.supabase
-        .from("orders")
+        .from(tableName)
         .update({
-          fulfillment_status: orderStatus,
+          [statusColumn]: orderStatus,
           updated_at: new Date().toISOString(),
         })
         .eq("id", orderId)
       
       if (updateError) {
-        console.error(`[CODECRAFT-LOG] ❌ Error updating order fulfillment_status:`, updateError)
+        console.error(`[CODECRAFT-LOG] ❌ Error updating ${tableName}.${statusColumn}:`, updateError)
         console.error(`[CODECRAFT-LOG] Update error message: ${updateError.message}`)
       } else {
-        console.log(`[CODECRAFT-LOG] ✅ Successfully updated order fulfillment_status in database`)
+        console.log(`[CODECRAFT-LOG] ✅ Successfully updated ${tableName}.${statusColumn} in database`)
       }
     } catch (error) {
       console.error(`[CODECRAFT-LOG] Error in logFulfillment:`, error)

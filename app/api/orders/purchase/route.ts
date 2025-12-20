@@ -199,6 +199,7 @@ export async function POST(request: NextRequest) {
           sizeGb,
           orderId: order[0].id,
           network: apiNetwork,
+          orderType: "wallet",  // Wallet orders use orders table
         }).then(result => {
           console.log(`[FULFILLMENT] Fulfillment response for order ${order[0].id}:`, result)
         }).catch(err => {
