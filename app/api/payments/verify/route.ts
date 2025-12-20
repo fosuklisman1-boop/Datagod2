@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
             console.log("[PAYMENT-VERIFY] Checking if fulfillment needed for order:", shopOrderData.id)
             const { data: orderDetails } = await supabase
               .from("shop_orders")
-              .select("id, network, volume_gb, customer_phone, shop_customer_id")
+              .select("id, network, volume_gb, customer_phone")
               .eq("id", shopOrderData.id)
               .single()
 
@@ -144,22 +144,10 @@ export async function POST(request: NextRequest) {
                 console.log(`[PAYMENT-VERIFY] Triggering AT-iShare fulfillment for shop order ${shopOrderData.id}`)
                 const sizeGb = parseInt(orderDetails.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
                 
-                // Get shop customer phone from shop_orders.customer_phone
-                const shopCustomerPhone = orderDetails.customer_phone
+                // Use customer_phone from shop_orders table (this is where shop customers' phone is stored)
+                const phoneNumber = orderDetails.customer_phone
                 
-                // Also get phone from orders table (linked by shop_order_id)
-                const { data: orderPhoneData } = await supabase
-                  .from("orders")
-                  .select("phone_number")
-                  .eq("id", shopOrderData.id)
-                  .single()
-                
-                const ordersTablePhone = orderPhoneData?.phone_number
-                
-                // Use shop_orders.customer_phone as primary, fall back to orders.phone_number
-                const phoneNumber = shopCustomerPhone || ordersTablePhone
-                
-                console.log(`[PAYMENT-VERIFY] Phone sources - shop_orders: ${shopCustomerPhone}, orders table: ${ordersTablePhone}, using: ${phoneNumber}`)
+                console.log(`[PAYMENT-VERIFY] Shop order phone: ${phoneNumber}`)
                 
                 if (phoneNumber) {
                   // Non-blocking fulfillment trigger
@@ -175,7 +163,7 @@ export async function POST(request: NextRequest) {
                     // Non-blocking: don't fail payment verification if fulfillment fails
                   })
                 } else {
-                  console.error(`[PAYMENT-VERIFY] Could not find phone number for shop order ${shopOrderData.id}`)
+                  console.error(`[PAYMENT-VERIFY] No customer_phone found for shop order ${shopOrderData.id}`)
                 }
               }
             }
