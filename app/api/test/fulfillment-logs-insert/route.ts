@@ -5,6 +5,19 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+export async function GET(request: NextRequest) {
+  return NextResponse.json(
+    {
+      status: "ok",
+      message: "Test endpoint is working",
+      url: "/api/test/fulfillment-logs-insert",
+      method: "POST",
+      usage: "Send POST request with order_id, network, phone_number",
+    },
+    { status: 200 }
+  )
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
