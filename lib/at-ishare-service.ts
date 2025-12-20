@@ -374,7 +374,6 @@ class ATiShareService {
         console.error(`[CODECRAFT-LOG] ❌ Error inserting fulfillment log for order ${orderId}`)
         console.error(`[CODECRAFT-LOG] Error message: ${error.message}`)
         console.error(`[CODECRAFT-LOG] Error code: ${error.code}`)
-        console.error(`[CODECRAFT-LOG] Error status: ${error.status}`)
         console.error(`[CODECRAFT-LOG] Error details:`, JSON.stringify(error, null, 2))
         console.error(`[CODECRAFT-LOG] Full error object:`, error)
         throw new Error(`Failed to insert fulfillment log: ${error.message}`)
