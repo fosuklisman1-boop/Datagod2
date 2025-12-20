@@ -144,18 +144,22 @@ export async function POST(request: NextRequest) {
                 console.log(`[PAYMENT-VERIFY] Triggering AT-iShare fulfillment for shop order ${shopOrderData.id}`)
                 const sizeGb = parseInt(orderDetails.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
                 
-                // Get phone number from shop_orders or fallback to shop_customers
-                let phoneNumber = orderDetails.customer_phone
+                // Get shop customer phone from shop_orders.customer_phone
+                const shopCustomerPhone = orderDetails.customer_phone
                 
-                // If no phone in shop_orders, try to fetch from shop_customers table
-                if (!phoneNumber && orderDetails.shop_customer_id) {
-                  const { data: customerData } = await supabase
-                    .from("shop_customers")
-                    .select("phone_number")
-                    .eq("id", orderDetails.shop_customer_id)
-                    .single()
-                  phoneNumber = customerData?.phone_number
-                }
+                // Also get phone from orders table (linked by shop_order_id)
+                const { data: orderPhoneData } = await supabase
+                  .from("orders")
+                  .select("phone_number")
+                  .eq("id", shopOrderData.id)
+                  .single()
+                
+                const ordersTablePhone = orderPhoneData?.phone_number
+                
+                // Use shop_orders.customer_phone as primary, fall back to orders.phone_number
+                const phoneNumber = shopCustomerPhone || ordersTablePhone
+                
+                console.log(`[PAYMENT-VERIFY] Phone sources - shop_orders: ${shopCustomerPhone}, orders table: ${ordersTablePhone}, using: ${phoneNumber}`)
                 
                 if (phoneNumber) {
                   // Non-blocking fulfillment trigger
