@@ -44,46 +44,54 @@ export async function POST(request: NextRequest) {
     let bulkOrderIds: string[] = []
     let shopOrderIds: string[] = []
 
-    // If orderType is specified (single type), use original logic
-    if (orderType === "shop" || orderType === "bulk") {
-      if (orderType === "shop") {
-        const { data: shopOrders, error: fetchError } = await supabase
-          .from("shop_orders")
-          .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
-          .in("id", orderIds)
-          .neq("network", "AT - iShare")
+    // If orderType is specified (single type), use specific table
+    if (orderType === "shop") {
+      const { data: shopOrders, error: fetchError } = await supabase
+        .from("shop_orders")
+        .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
+        .in("id", orderIds)
+        .neq("network", "AT - iShare")
 
-        if (fetchError) {
-          throw new Error(`Failed to fetch shop orders: ${fetchError.message}`)
-        }
-
-        orders = shopOrders?.map((order: any) => ({
-          id: order.id,
-          created_at: order.created_at,
-          phone_number: order.customer_phone,
-          price: order.total_price,
-          status: order.order_status,
-          size: order.volume_gb,
-          network: order.network,
-          type: "shop"
-        })) || []
-
-        shopOrderIds = shopOrders?.map(o => o.id) || []
-      } else {
-        const { data: bulkOrders, error: fetchError } = await supabase
-          .from("orders")
-          .select("id, created_at, phone_number, price, status, size, network")
-          .in("id", orderIds)
-          .neq("network", "AT - iShare")
-
-        if (fetchError) {
-          throw new Error(`Failed to fetch orders: ${fetchError.message}`)
-        }
-
-        orders = bulkOrders || []
-        bulkOrderIds = bulkOrders?.map(o => o.id) || []
+      if (fetchError) {
+        throw new Error(`Failed to fetch shop orders: ${fetchError.message}`)
       }
-      // Mixed order types - query both tables
+
+      orders = shopOrders?.map((order: any) => ({
+        id: order.id,
+        created_at: order.created_at,
+        phone_number: order.customer_phone,
+        price: order.total_price,
+        status: order.order_status,
+        size: order.volume_gb,
+        network: order.network,
+        type: "shop"
+      })) || []
+
+      shopOrderIds = shopOrders?.map(o => o.id) || []
+    } else if (orderType === "bulk") {
+      const { data: bulkOrders, error: fetchError } = await supabase
+        .from("orders")
+        .select("id, created_at, phone_number, price, status, size, network")
+        .in("id", orderIds)
+        .neq("network", "AT - iShare")
+
+      if (fetchError) {
+        throw new Error(`Failed to fetch orders: ${fetchError.message}`)
+      }
+
+      orders = bulkOrders?.map((order: any) => ({
+        id: order.id,
+        created_at: order.created_at,
+        phone_number: order.phone_number,
+        price: order.price,
+        status: order.status,
+        size: order.size,
+        network: order.network,
+        type: "bulk"
+      })) || []
+      bulkOrderIds = bulkOrders?.map(o => o.id) || []
+    } else {
+      // Mixed order types (or orderType not specified) - query both tables
       console.log("Fetching mixed bulk and shop orders...")
 
       // Try to fetch from both tables, excluding AT-iShare orders (handled by Code Craft API)
