@@ -188,7 +188,9 @@ export async function POST(request: NextRequest) {
           "AT-ishare": "AT",
           "at-ishare": "AT",
         }
-        const apiNetwork = networkMap[normalizedNetwork.toUpperCase()] || "AT"
+        // Normalize to uppercase before lookup for consistency
+        const normalizedForApi = normalizedNetwork.toUpperCase()
+        const apiNetwork = networkMap[normalizedForApi] || "AT"
         
         // Non-blocking fulfillment trigger
         console.log(`[FULFILLMENT] Calling atishareService.fulfillOrder with network: ${apiNetwork}`)

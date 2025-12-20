@@ -139,7 +139,9 @@ async function handleTriggerFulfillment(
       "AT - ishare": "AT",
       "at - ishare": "AT",
     }
-    const apiNetwork = networkMap[order.network] || order.network
+    // Normalize to uppercase before lookup
+    const normalizedNetwork = order.network?.trim().toUpperCase() || "AT"
+    const apiNetwork = networkMap[normalizedNetwork] || order.network || "AT"
 
     // Trigger fulfillment
     const result = await atishareService.fulfillOrder({
