@@ -437,18 +437,23 @@ export default function AdminOrdersPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "pending" | "downloaded" | "fulfillment")}>
-          <TabsList className="flex flex-col sm:flex-row w-full sm:w-auto sm:max-w-2xl h-auto gap-1 sm:gap-0 p-1">
-            <TabsTrigger value="pending" className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2 text-xs sm:text-sm">
-              <Clock className="h-4 w-4 shrink-0" />
-              <span className="truncate">Pending ({pendingOrders.length})</span>
+          <TabsList className="grid w-full grid-cols-3 h-auto">
+            <TabsTrigger value="pending" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
+              <Clock className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+              <span className="hidden sm:inline">Pending</span>
+              <span className="sm:hidden">Pend</span>
+              <span>({pendingOrders.length})</span>
             </TabsTrigger>
-            <TabsTrigger value="downloaded" className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2 text-xs sm:text-sm">
-              <CheckCircle className="h-4 w-4 shrink-0" />
-              <span className="truncate">Downloaded ({Object.keys(downloadedOrders).length})</span>
+            <TabsTrigger value="downloaded" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
+              <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+              <span className="hidden sm:inline">Downloaded</span>
+              <span className="sm:hidden">DL</span>
+              <span>({Object.keys(downloadedOrders).length})</span>
             </TabsTrigger>
-            <TabsTrigger value="fulfillment" className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2 text-xs sm:text-sm">
-              <Zap className="h-4 w-4 shrink-0" />
-              <span className="truncate">Fulfillment</span>
+            <TabsTrigger value="fulfillment" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
+              <Zap className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+              <span className="hidden sm:inline">Fulfillment</span>
+              <span className="sm:hidden">Fulfill</span>
             </TabsTrigger>
           </TabsList>
 
