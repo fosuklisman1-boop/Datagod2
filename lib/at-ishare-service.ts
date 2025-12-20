@@ -427,24 +427,36 @@ class ATiShareService {
       
       // Use appropriate table based on order type
       const tableName = orderType === "shop" ? "shop_orders" : "orders"
-      const statusColumn = orderType === "shop" ? "order_status" : "fulfillment_status"
       
-      console.log(`[CODECRAFT-LOG] Table: ${tableName}, Column: ${statusColumn}`)
+      console.log(`[CODECRAFT-LOG] Table: ${tableName}`)
+      
+      // Build update object based on order type
+      let updateData: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      }
+      
+      if (orderType === "shop") {
+        // For shop orders: update order_status
+        updateData.order_status = orderStatus
+      } else {
+        // For wallet/bulk orders: update BOTH status and fulfillment_status
+        updateData.status = orderStatus
+        updateData.fulfillment_status = orderStatus
+      }
+      
+      console.log(`[CODECRAFT-LOG] Update data:`, updateData)
       
       const { error: updateError } = await this.supabase
         .from(tableName)
-        .update({
-          [statusColumn]: orderStatus,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq("id", orderId)
       
       if (updateError) {
-        console.error(`[CODECRAFT-LOG] ❌ Error updating ${tableName}.${statusColumn}:`, updateError)
+        console.error(`[CODECRAFT-LOG] ❌ Error updating ${tableName}:`, updateError)
         console.error(`[CODECRAFT-LOG] Update error message: ${updateError.message}`)
         console.error(`[CODECRAFT-LOG] Update error code: ${updateError.code}`)
       } else {
-        console.log(`[CODECRAFT-LOG] ✅ Successfully updated ${tableName}.${statusColumn} to "${orderStatus}"`)
+        console.log(`[CODECRAFT-LOG] ✅ Successfully updated ${tableName} to "${orderStatus}"`)
       }
     } catch (error) {
       console.error(`[CODECRAFT-LOG] Error in logFulfillment:`, error)
