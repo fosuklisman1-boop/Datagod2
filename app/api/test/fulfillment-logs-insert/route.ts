@@ -21,19 +21,41 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { order_id, network, phone_number, status, error_message } = body
+    let { order_id, network, phone_number, status, error_message } = body
 
     console.log("[TEST-INSERT] Testing fulfillment_logs insert with:")
     console.log("[TEST-INSERT] order_id:", order_id)
     console.log("[TEST-INSERT] network:", network)
     console.log("[TEST-INSERT] phone_number:", phone_number)
     console.log("[TEST-INSERT] status:", status)
-    console.log("[TEST-INSERT] error_message:", error_message)
+
+    // If order_id not provided, fetch a real order from the database
+    if (!order_id) {
+      console.log("[TEST-INSERT] No order_id provided, fetching a real order from orders table...")
+      const { data: realOrder, error: fetchError } = await supabase
+        .from("orders")
+        .select("id")
+        .limit(1)
+        .single()
+
+      if (fetchError || !realOrder) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "No orders found in database. Please provide order_id or create an order first.",
+            hint: "Use the order UUID from the orders table",
+          },
+          { status: 400 }
+        )
+      }
+      order_id = realOrder.id
+      console.log("[TEST-INSERT] Using order_id from database:", order_id)
+    }
 
     // Validate required fields
-    if (!order_id || !network || !phone_number) {
+    if (!network || !phone_number) {
       return NextResponse.json(
-        { error: "Missing required fields: order_id, network, phone_number" },
+        { error: "Missing required fields: network, phone_number" },
         { status: 400 }
       )
     }
