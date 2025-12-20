@@ -437,18 +437,18 @@ export default function AdminOrdersPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "pending" | "downloaded" | "fulfillment")}>
-          <TabsList className="grid w-full max-w-2xl grid-cols-3">
-            <TabsTrigger value="pending" className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              Pending ({pendingOrders.length})
+          <TabsList className="flex flex-col sm:flex-row w-full sm:w-auto sm:max-w-2xl h-auto gap-1 sm:gap-0 p-1">
+            <TabsTrigger value="pending" className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2 text-xs sm:text-sm">
+              <Clock className="h-4 w-4 shrink-0" />
+              <span className="truncate">Pending ({pendingOrders.length})</span>
             </TabsTrigger>
-            <TabsTrigger value="downloaded" className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4" />
-              Downloaded ({Object.keys(downloadedOrders).length} batches)
+            <TabsTrigger value="downloaded" className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2 text-xs sm:text-sm">
+              <CheckCircle className="h-4 w-4 shrink-0" />
+              <span className="truncate">Downloaded ({Object.keys(downloadedOrders).length})</span>
             </TabsTrigger>
-            <TabsTrigger value="fulfillment" className="flex items-center gap-2">
-              <Zap className="h-4 w-4" />
-              Fulfillment
+            <TabsTrigger value="fulfillment" className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2 text-xs sm:text-sm">
+              <Zap className="h-4 w-4 shrink-0" />
+              <span className="truncate">Fulfillment</span>
             </TabsTrigger>
           </TabsList>
 
