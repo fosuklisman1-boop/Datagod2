@@ -413,8 +413,8 @@ class ATiShareService {
         console.error(`[CODECRAFT-LOG] Error message: ${error.message}`)
         console.error(`[CODECRAFT-LOG] Error code: ${error.code}`)
         console.error(`[CODECRAFT-LOG] Error details:`, JSON.stringify(error, null, 2))
-        console.error(`[CODECRAFT-LOG] Full error object:`, error)
-        throw new Error(`Failed to insert fulfillment log: ${error.message}`)
+        // Don't throw - continue to update order status even if log insert fails
+        console.error(`[CODECRAFT-LOG] Continuing to update order status despite log insert failure`)
       } else {
         console.log(`[CODECRAFT-LOG] ✅ Successfully logged fulfillment status to database`)
         console.log(`[CODECRAFT-LOG] Inserted record:`, data)
@@ -423,11 +423,13 @@ class ATiShareService {
       // Update order status based on order type
       // For Code Craft API, initial response means "processing" since delivery happens async
       const orderStatus = status === "processing" ? "processing" : status
-      console.log(`[CODECRAFT-LOG] Updating order ${orderId} (type: ${orderType}) with fulfillment_status: ${orderStatus}`)
+      console.log(`[CODECRAFT-LOG] Updating order ${orderId} (type: ${orderType}) with status: ${orderStatus}`)
       
       // Use appropriate table based on order type
       const tableName = orderType === "shop" ? "shop_orders" : "orders"
       const statusColumn = orderType === "shop" ? "order_status" : "fulfillment_status"
+      
+      console.log(`[CODECRAFT-LOG] Table: ${tableName}, Column: ${statusColumn}`)
       
       const { error: updateError } = await this.supabase
         .from(tableName)
@@ -440,8 +442,9 @@ class ATiShareService {
       if (updateError) {
         console.error(`[CODECRAFT-LOG] ❌ Error updating ${tableName}.${statusColumn}:`, updateError)
         console.error(`[CODECRAFT-LOG] Update error message: ${updateError.message}`)
+        console.error(`[CODECRAFT-LOG] Update error code: ${updateError.code}`)
       } else {
-        console.log(`[CODECRAFT-LOG] ✅ Successfully updated ${tableName}.${statusColumn} in database`)
+        console.log(`[CODECRAFT-LOG] ✅ Successfully updated ${tableName}.${statusColumn} to "${orderStatus}"`)
       }
     } catch (error) {
       console.error(`[CODECRAFT-LOG] Error in logFulfillment:`, error)
