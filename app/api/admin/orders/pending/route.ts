@@ -30,7 +30,7 @@ export async function GET() {
       .from("orders")
       .select("id, created_at, phone_number, price, status, size, network")
       .eq("status", "pending")
-      .neq("network", "AT-iShare")
+      .neq("network", "AT - iShare")
       .order("created_at", { ascending: false })
 
     if (bulkError) {
@@ -65,7 +65,7 @@ export async function GET() {
       .eq("order_status", "pending")
       .eq("payment_status", "completed")
       .not("payment_status", "is", null)
-      .neq("network", "AT-iShare")
+      .neq("network", "AT - iShare")
       .order("created_at", { ascending: false })
 
     if (shopError) {
