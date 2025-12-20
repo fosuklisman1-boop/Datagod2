@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { notificationService } from "./notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -452,6 +453,53 @@ class ATiShareService {
         console.error(`[CODECRAFT-LOG] Update error code: ${updateError.code}`)
       } else {
         console.log(`[CODECRAFT-LOG] ✅ Successfully updated ${tableName} to "${orderStatus}"`)
+        
+        // Send in-app notification when fulfillment is successful
+        if (orderStatus === "completed") {
+          try {
+            let userId: string | null = null
+            
+            if (orderType === "shop") {
+              // For shop orders, get shop owner's user_id
+              const { data: shopOrder } = await this.supabase
+                .from("shop_orders")
+                .select("shop_id")
+                .eq("id", orderId)
+                .single()
+              
+              if (shopOrder?.shop_id) {
+                const { data: shop } = await this.supabase
+                  .from("user_shops")
+                  .select("user_id")
+                  .eq("id", shopOrder.shop_id)
+                  .single()
+                userId = shop?.user_id
+              }
+            } else {
+              // For wallet orders, get user_id from order
+              const { data: order } = await this.supabase
+                .from("orders")
+                .select("user_id")
+                .eq("id", orderId)
+                .single()
+              userId = order?.user_id
+            }
+            
+            if (userId) {
+              await notificationService.createNotification(
+                userId,
+                "Order Fulfilled Successfully",
+                `Your AT-iShare data order to ${phoneNumber} has been delivered successfully.`,
+                "order_update",
+                { reference_id: orderId }
+              )
+              console.log(`[CODECRAFT-LOG] ✅ Notification sent to user ${userId}`)
+            }
+          } catch (notifError) {
+            console.error(`[CODECRAFT-LOG] Failed to send notification:`, notifError)
+            // Non-blocking: don't fail fulfillment if notification fails
+          }
+        }
       }
     } catch (error) {
       console.error(`[CODECRAFT-LOG] Error in logFulfillment:`, error)
