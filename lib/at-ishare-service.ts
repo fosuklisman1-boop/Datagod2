@@ -498,9 +498,10 @@ class ATiShareService {
         return false
       }
 
-      // Fulfill orders for MTN, TELECEL, AT, and AT - iShare networks that haven't been fulfilled
-      const fulfillableNetworks = ["MTN", "TELECEL", "AT", "AT-iShare", "AT - iShare", "AT - ishare"]
-      const networkMatches = fulfillableNetworks.some(n => n.toLowerCase() === (data.network || "").toLowerCase())
+      // Fulfill orders ONLY for AT - iShare network that haven't been fulfilled
+      // Do NOT fulfill MTN, TELECEL, or other networks - they're handled differently
+      const atishareNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare"]
+      const networkMatches = atishareNetworks.some(n => n.toLowerCase() === (data.network || "").toLowerCase())
       return (
         networkMatches && 
         (data.fulfillment_status === "pending" || !data.fulfillment_status)
