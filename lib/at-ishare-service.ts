@@ -133,12 +133,12 @@ class ATiShareService {
 
       // Handle specific status codes from API
       if (httpStatus === 200 && responseData.status === 200) {
-        console.log(`[CODECRAFT] Order initiated successfully: ${orderId}`)
+        console.log(`[CODECRAFT] Order fulfilled successfully: ${orderId}`)
         
-        // Log successful fulfillment initiation
+        // Log successful fulfillment
         await this.logFulfillment(
           orderId,
-          "processing",
+          "success",
           responseData,
           null,
           orderId, // Use order ID as reference
@@ -150,7 +150,7 @@ class ATiShareService {
         return {
           success: true,
           reference: orderId,
-          message: "Order initiated successfully, awaiting delivery",
+          message: "Order fulfilled successfully",
         }
       }
 
@@ -421,8 +421,8 @@ class ATiShareService {
       }
 
       // Update order status based on order type
-      // For Code Craft API, initial response means "processing" since delivery happens async
-      const orderStatus = status === "processing" ? "processing" : status
+      // Map fulfillment status to order status: success -> completed
+      const orderStatus = status === "success" ? "completed" : status
       console.log(`[CODECRAFT-LOG] Updating order ${orderId} (type: ${orderType}) with status: ${orderStatus}`)
       
       // Use appropriate table based on order type
