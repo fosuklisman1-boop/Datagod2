@@ -1,6 +1,7 @@
 -- Add fulfillment_logs table for tracking AT-iShare order fulfillment
+-- NOTE: If table already exists, this migration will be skipped by Supabase
 
-CREATE TABLE fulfillment_logs (
+CREATE TABLE IF NOT EXISTS fulfillment_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   network VARCHAR(100) NOT NULL,
@@ -17,32 +18,13 @@ CREATE TABLE fulfillment_logs (
   UNIQUE(order_id)
 );
 
--- Enable RLS
-ALTER TABLE fulfillment_logs ENABLE ROW LEVEL SECURITY;
-
--- System can insert fulfillment logs (using service role)
-CREATE POLICY "System can insert fulfillment logs" ON fulfillment_logs
-  FOR INSERT WITH CHECK (true);
-
--- System can read fulfillment logs
-CREATE POLICY "System can read fulfillment logs" ON fulfillment_logs
-  FOR SELECT USING (true);
-
--- System can update fulfillment logs
-CREATE POLICY "System can update fulfillment logs" ON fulfillment_logs
-  FOR UPDATE USING (true);
-
--- System can delete fulfillment logs
-CREATE POLICY "System can delete fulfillment logs" ON fulfillment_logs
-  FOR DELETE USING (true);
-
--- Add fulfillment_status column to orders table
-ALTER TABLE orders ADD COLUMN fulfillment_status VARCHAR(50) DEFAULT 'pending';
+-- Add fulfillment_status column to orders table if it doesn't exist
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfillment_status VARCHAR(50) DEFAULT 'pending';
 
 -- Create indexes for performance
-CREATE INDEX idx_fulfillment_logs_status ON fulfillment_logs(status);
-CREATE INDEX idx_fulfillment_logs_network ON fulfillment_logs(network);
-CREATE INDEX idx_fulfillment_logs_created_at ON fulfillment_logs(created_at DESC);
-CREATE INDEX idx_fulfillment_logs_retry_after ON fulfillment_logs(retry_after);
-CREATE INDEX idx_orders_fulfillment_status ON orders(fulfillment_status);
-CREATE INDEX idx_orders_network_fulfillment ON orders(network, fulfillment_status);
+CREATE INDEX IF NOT EXISTS idx_fulfillment_logs_status ON fulfillment_logs(status);
+CREATE INDEX IF NOT EXISTS idx_fulfillment_logs_network ON fulfillment_logs(network);
+CREATE INDEX IF NOT EXISTS idx_fulfillment_logs_created_at ON fulfillment_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_fulfillment_logs_retry_after ON fulfillment_logs(retry_after);
+CREATE INDEX IF NOT EXISTS idx_orders_fulfillment_status ON orders(fulfillment_status);
+CREATE INDEX IF NOT EXISTS idx_orders_network_fulfillment ON orders(network, fulfillment_status);
