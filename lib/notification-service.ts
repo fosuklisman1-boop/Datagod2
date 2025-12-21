@@ -200,19 +200,20 @@ export const notificationService = {
       
       console.log(`[NOTIFICATION] Cleaning up notifications older than ${seventyTwoHoursAgo}`)
 
-      const { error, count } = await supabase
+      const { data, error } = await supabase
         .from("notifications")
         .delete()
         .lt("created_at", seventyTwoHoursAgo)
-        .select("id", { count: "exact", head: true })
+        .select("id")
 
       if (error) {
         console.error("[NOTIFICATION] Error cleaning up old notifications:", error)
         return 0
       }
 
-      console.log(`[NOTIFICATION] Cleaned up ${count || 0} old notifications`)
-      return count || 0
+      const count = data?.length || 0
+      console.log(`[NOTIFICATION] Cleaned up ${count} old notifications`)
+      return count
     } catch (error) {
       console.error("[NOTIFICATION] Failed to cleanup old notifications:", error)
       return 0
