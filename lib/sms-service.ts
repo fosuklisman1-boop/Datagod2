@@ -230,28 +230,65 @@ export async function sendSMSWithRetry(
 }
 
 /**
- * Get admin phone numbers from settings or environment
+ * Get admin phone numbers automatically from users with admin role
+ * Phone numbers are stored in auth.users.user_metadata.phone_number
+ * Falls back to admin_settings table or environment variable
  */
 async function getAdminPhoneNumbers(): Promise<string[]> {
+  const phones: string[] = []
+  
+  // First, try to get phone numbers from admin users via Supabase Auth Admin API
   try {
-    // First try from admin_settings table
+    // List all users and filter for admins with phone numbers
+    const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers()
+    
+    if (!usersError && usersData?.users) {
+      for (const user of usersData.users) {
+        const isAdmin = user.user_metadata?.role === 'admin'
+        const phoneNumber = user.user_metadata?.phone_number || user.phone
+        
+        if (isAdmin && phoneNumber) {
+          phones.push(phoneNumber)
+          console.log(`[SMS] Found admin phone: ${user.email} -> ${phoneNumber.substring(0, 6)}***`)
+        }
+      }
+    }
+    
+    if (phones.length > 0) {
+      console.log(`[SMS] Found ${phones.length} admin phone number(s) from auth.users`)
+      return phones
+    }
+  } catch (e) {
+    console.warn('[SMS] Could not fetch admin phones from auth.users:', e)
+  }
+  
+  // Fallback: try from admin_settings table
+  try {
     const { data, error } = await supabase
       .from('admin_settings')
       .select('value')
       .eq('key', 'admin_notification_phones')
       .single()
     
-    if (!error && data?.value?.phones) {
-      return data.value.phones as string[]
+    if (!error && data?.value?.phones && Array.isArray(data.value.phones)) {
+      const settingsPhones = data.value.phones as string[]
+      if (settingsPhones.length > 0) {
+        console.log(`[SMS] Found ${settingsPhones.length} admin phone(s) from admin_settings`)
+        return settingsPhones
+      }
     }
   } catch (e) {
-    console.warn('[SMS] Could not fetch admin phones from DB:', e)
+    console.warn('[SMS] Could not fetch admin phones from admin_settings:', e)
   }
   
-  // Fallback to environment variable (comma-separated)
+  // Final fallback: environment variable (comma-separated)
   const envPhones = process.env.ADMIN_NOTIFICATION_PHONES
   if (envPhones) {
-    return envPhones.split(',').map((p: string) => p.trim()).filter(Boolean)
+    const envPhonesList = envPhones.split(',').map((p: string) => p.trim()).filter(Boolean)
+    if (envPhonesList.length > 0) {
+      console.log(`[SMS] Using ${envPhonesList.length} admin phone(s) from environment variable`)
+      return envPhonesList
+    }
   }
   
   return []
