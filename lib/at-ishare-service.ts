@@ -185,7 +185,7 @@ class ATiShareService {
 
         // Poll for status up to 3 times (5s, 10s, 15s = 30 seconds total)
         const pollIntervals = [5000, 10000, 15000] // Wait 5s, then 10s, then 15s
-        let verifyResult = { actualStatus: "processing", message: "Order still processing" }
+        let verifyResult: { actualStatus: string; message?: string } = { actualStatus: "processing", message: "Order still processing" }
 
         for (let i = 0; i < pollIntervals.length; i++) {
           console.log(`[CODECRAFT] Waiting ${pollIntervals[i] / 1000}s before verification attempt ${i + 1}...`)
