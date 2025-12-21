@@ -230,36 +230,36 @@ export async function sendSMSWithRetry(
 }
 
 /**
- * Get admin phone numbers automatically from users with admin role
- * Phone numbers are stored in auth.users.user_metadata.phone_number
+ * Get admin phone numbers automatically from public.users table
+ * Queries users with role='admin' and a valid phone_number
  * Falls back to admin_settings table or environment variable
  */
 async function getAdminPhoneNumbers(): Promise<string[]> {
   const phones: string[] = []
   
-  // First, try to get phone numbers from admin users via Supabase Auth Admin API
+  // Primary: Query the public.users table for admins with phone numbers
   try {
-    // List all users and filter for admins with phone numbers
-    const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers()
+    const { data: adminUsers, error: usersError } = await supabase
+      .from('users')
+      .select('id, phone_number, role')
+      .eq('role', 'admin')
+      .not('phone_number', 'is', null)
     
-    if (!usersError && usersData?.users) {
-      for (const user of usersData.users) {
-        const isAdmin = user.user_metadata?.role === 'admin'
-        const phoneNumber = user.user_metadata?.phone_number || user.phone
-        
-        if (isAdmin && phoneNumber) {
-          phones.push(phoneNumber)
-          console.log(`[SMS] Found admin phone: ${user.email} -> ${phoneNumber.substring(0, 6)}***`)
+    if (!usersError && adminUsers && adminUsers.length > 0) {
+      for (const user of adminUsers) {
+        if (user.phone_number) {
+          phones.push(user.phone_number)
+          console.log(`[SMS] Found admin phone from users table: ${user.phone_number.substring(0, 6)}***`)
         }
       }
     }
     
     if (phones.length > 0) {
-      console.log(`[SMS] Found ${phones.length} admin phone number(s) from auth.users`)
+      console.log(`[SMS] Found ${phones.length} admin phone number(s) from public.users table`)
       return phones
     }
   } catch (e) {
-    console.warn('[SMS] Could not fetch admin phones from auth.users:', e)
+    console.warn('[SMS] Could not fetch admin phones from users table:', e)
   }
   
   // Fallback: try from admin_settings table
