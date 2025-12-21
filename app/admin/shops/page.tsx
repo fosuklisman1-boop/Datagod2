@@ -121,7 +121,7 @@ export default function AdminShopsPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">Shop Management</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">Shop Management</h1>
           <p className="text-gray-500 mt-1">Approve or reject shop creation requests</p>
         </div>
 

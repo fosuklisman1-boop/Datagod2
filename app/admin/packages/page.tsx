@@ -194,7 +194,7 @@ export default function AdminPackagesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">Package Management</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">Package Management</h1>
             <p className="text-gray-500 mt-1">Create, edit, and delete data packages</p>
           </div>
           <Button

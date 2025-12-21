@@ -183,7 +183,7 @@ export default function WithdrawalsPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
             Withdrawal Approvals
           </h1>
           <p className="text-gray-500 mt-1 font-medium">Manage shop withdrawal requests</p>

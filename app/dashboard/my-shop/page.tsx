@@ -302,7 +302,7 @@ export default function MyShopPage() {
       <DashboardLayout>
         <div className="space-y-6">
           <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">My Shop</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">My Shop</h1>
             <p className="text-gray-500 mt-1">Create your store and start reselling data packages</p>
           </div>
           

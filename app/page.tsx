@@ -28,15 +28,15 @@ export default function HomePage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="max-w-6xl mx-auto px-6 py-20">
-        <div className="text-center space-y-6 mb-16">
-          <h2 className="text-5xl font-bold text-gray-900">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-20">
+        <div className="text-center space-y-4 sm:space-y-6 mb-12 sm:mb-16">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900">
             Your Data Hub Solution
           </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+          <p className="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto">
             Buy data packages from multiple networks, manage your wallet, and track your orders all in one place.
           </p>
-          <div className="flex gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
             <Link href="/auth/login">
               <Button size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 gap-2">
                 Login to Dashboard
@@ -86,10 +86,10 @@ export default function HomePage() {
       </section>
 
       {/* CTA Section */}
-      <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-16 mt-20">
-        <div className="max-w-4xl mx-auto px-6 text-center space-y-6">
-          <h2 className="text-4xl font-bold">Ready to Get Started?</h2>
-          <p className="text-lg text-blue-100">
+      <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-12 sm:py-16 mt-12 sm:mt-20">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center space-y-4 sm:space-y-6">
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold">Ready to Get Started?</h2>
+          <p className="text-base sm:text-lg text-blue-100">
             Join thousands of users who trust DATAGOD for their data needs
           </p>
           <Link href="/auth/signup">
@@ -101,9 +101,9 @@ export default function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-gray-400 py-12">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+      <footer className="bg-gray-900 text-gray-400 py-8 sm:py-12">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <Lock className="w-5 h-5 text-blue-400" />

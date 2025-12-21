@@ -265,7 +265,7 @@ export default function DashboardPage() {
 
         {/* Page Header */}
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Dashboard</h1>
           <p className="text-gray-500 mt-1 font-medium">Welcome back! Here's your account overview.</p>
         </div>
 

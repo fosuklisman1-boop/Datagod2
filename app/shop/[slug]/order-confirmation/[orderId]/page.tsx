@@ -75,7 +75,7 @@ export default function OrderConfirmation() {
               <CheckCircle className="w-12 h-12 text-white" />
             </div>
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Order Placed Successfully!</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2">Order Placed Successfully!</h1>
           <p className="text-gray-600">
             Your order has been received. Check your email for updates and payment instructions.
           </p>

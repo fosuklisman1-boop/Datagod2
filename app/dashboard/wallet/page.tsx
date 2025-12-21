@@ -223,7 +223,7 @@ export default function WalletPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100 text-sm">Available Balance</p>
-                <p className="text-4xl font-bold">GHS {walletData.balance.toFixed(2)}</p>
+                <p className="text-2xl sm:text-3xl md:text-4xl font-bold">GHS {walletData.balance.toFixed(2)}</p>
               </div>
               <Wallet className="w-16 h-16 text-blue-100 opacity-50" />
             </div>

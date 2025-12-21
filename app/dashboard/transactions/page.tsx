@@ -122,8 +122,8 @@ export default function TransactionsPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">My Transactions</h1>
-          <p className="text-gray-600 mt-1">Track and manage your financial activities</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Transactions</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">Track and manage your financial activities</p>
         </div>
 
         {/* Stats Cards */}

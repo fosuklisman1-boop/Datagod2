@@ -257,7 +257,7 @@ Occupation: ${submission.occupation || "N/A"}`
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 bg-clip-text text-transparent">
             AFA Management
           </h1>
           <p className="text-gray-500 mt-1 font-medium">Configure pricing and manage AFA registrations</p>
