@@ -852,6 +852,7 @@ export default function AdminOrdersPage() {
                     <span className="text-sm text-gray-600">Affected networks:</span>
                     <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200">AT - iShare</Badge>
                     <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
+                    <Badge className="bg-purple-100 text-purple-800 border border-purple-200">AT - BigTime</Badge>
                   </div>
                   
                   {/* Status Description */}
@@ -860,14 +861,14 @@ export default function AdminOrdersPage() {
                     <AlertDescription className={autoFulfillmentEnabled ? 'text-green-800' : 'text-orange-800'}>
                       {autoFulfillmentEnabled ? (
                         <>
-                          <strong>Auto-fulfillment is ON:</strong> AT-iShare and Telecel orders are automatically 
+                          <strong>Auto-fulfillment is ON:</strong> AT-iShare, Telecel, and AT-BigTime orders are automatically 
                           fulfilled via Code Craft API when payment is confirmed. These orders will NOT appear 
                           in the admin download queue.
                         </>
                       ) : (
                         <>
-                          <strong>Auto-fulfillment is OFF:</strong> AT-iShare and Telecel orders will be sent to 
-                          the admin download queue for manual processing, just like MTN and AT-BigTime orders.
+                          <strong>Auto-fulfillment is OFF:</strong> AT-iShare, Telecel, and AT-BigTime orders will be sent to 
+                          the admin download queue for manual processing, just like MTN orders.
                         </>
                       )}
                     </AlertDescription>
