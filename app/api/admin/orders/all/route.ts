@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
       volume_gb: order.size,
       price: order.price,
       status: order.status,
-      payment_status: order.status, // Use status as payment_status for bulk orders
+      payment_status: "completed", // Bulk orders are paid via wallet balance at order creation
       payment_reference: order.transaction_code || order.order_code || "-",
       created_at: order.created_at,
     }))
