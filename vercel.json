@@ -3,15 +3,5 @@
   "outputDirectory": ".next",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "regions": ["iad1"],
-  "crons": [
-    {
-      "path": "/api/cron/sync-at-ishare",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-networks",
-      "schedule": "*/10 * * * *"
-    }
-  ]
+  "regions": ["iad1"]
 }
