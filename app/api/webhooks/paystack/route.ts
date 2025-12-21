@@ -188,9 +188,9 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // Trigger Code Craft fulfillment for shop orders (AT-iShare and Telecel)
+            // Trigger Code Craft fulfillment for shop orders (AT-iShare, Telecel, AT-BigTime)
             // Only if auto-fulfillment is enabled in admin settings
-            const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL"]
+            const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
             const networkLower = (shopOrderData?.network || "").toLowerCase()
             const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === networkLower)
             
@@ -204,7 +204,8 @@ export async function POST(request: NextRequest) {
               console.log(`[WEBHOOK] Triggering Code Craft fulfillment for shop order ${paymentData.order_id}`)
               const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
               
-              // Determine the network for Code Craft API
+              // Determine the network and endpoint for Code Craft API
+              const isBigTime = networkLower.includes("bigtime")
               const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
               
               // Non-blocking fulfillment trigger
@@ -214,6 +215,7 @@ export async function POST(request: NextRequest) {
                 orderId: paymentData.order_id,
                 network: apiNetwork,
                 orderType: "shop",
+                isBigTime,
               }).then(result => {
                 console.log(`[WEBHOOK] ✓ Fulfillment triggered for shop order ${paymentData.order_id}:`, result)
               }).catch(err => {

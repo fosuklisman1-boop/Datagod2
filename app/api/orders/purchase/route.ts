@@ -190,9 +190,9 @@ export async function POST(request: NextRequest) {
     console.log(`[PURCHASE] ========== FULFILLMENT CHECK ==========`)
     console.log(`[PURCHASE] About to check network for fulfillment`)
 
-    // Trigger fulfillment for AT-iShare and Telecel orders (auto-fulfilled via Code Craft API)
+    // Trigger fulfillment for AT-iShare, Telecel, and AT-BigTime orders (auto-fulfilled via Code Craft API)
     // Only if auto-fulfillment is enabled in admin settings
-    const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL"]
+    const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
     const normalizedNetwork = network?.trim() || ""
     const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
     
@@ -208,18 +208,20 @@ export async function POST(request: NextRequest) {
         const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
         console.log(`[FULFILLMENT] Order details - Network: ${network}, Size: ${sizeGb}GB, Phone: ${phoneNumber}, OrderID: ${order[0].id}`)
         
-        // Determine API network based on order network
+        // Determine API network and endpoint based on order network
         const networkLower = normalizedNetwork.toLowerCase()
+        const isBigTime = networkLower.includes("bigtime")
         const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
         
         // Non-blocking fulfillment trigger
-        console.log(`[FULFILLMENT] Calling atishareService.fulfillOrder with network: ${apiNetwork}`)
+        console.log(`[FULFILLMENT] Calling atishareService.fulfillOrder with network: ${apiNetwork}, isBigTime: ${isBigTime}`)
         atishareService.fulfillOrder({
           phoneNumber,
           sizeGb,
           orderId: order[0].id,
           network: apiNetwork,
           orderType: "wallet",  // Wallet orders use orders table
+          isBigTime,
         }).then(result => {
           console.log(`[FULFILLMENT] Fulfillment response for order ${order[0].id}:`, result)
         }).catch(err => {

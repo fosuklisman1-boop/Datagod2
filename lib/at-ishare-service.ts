@@ -12,6 +12,7 @@ interface FulfillmentRequest {
   orderId: string
   network?: string
   orderType?: "wallet" | "shop"  // wallet = orders table, shop = shop_orders table
+  isBigTime?: boolean  // true for AT-BigTime orders (uses special.php endpoint)
 }
 
 interface FulfillmentResponse {
@@ -38,9 +39,10 @@ class ATiShareService {
 
   /**
    * Fulfill an AT-iShare order by calling Code Craft Network API
+   * For AT-BigTime orders, uses the special.php endpoint
    */
   async fulfillOrder(request: FulfillmentRequest): Promise<FulfillmentResponse> {
-    const { phoneNumber, sizeGb, orderId, network = "AT", orderType = "wallet" } = request
+    const { phoneNumber, sizeGb, orderId, network = "AT", orderType = "wallet", isBigTime = false } = request
 
     try {
       console.log(`[CODECRAFT-FULFILL] Starting fulfillment request`)
@@ -49,6 +51,7 @@ class ATiShareService {
       console.log(`[CODECRAFT-FULFILL] Phone Number: ${phoneNumber}`)
       console.log(`[CODECRAFT-FULFILL] Size: ${sizeGb}GB`)
       console.log(`[CODECRAFT-FULFILL] Network: ${network}`)
+      console.log(`[CODECRAFT-FULFILL] Is BigTime: ${isBigTime}`)
 
       // Validate inputs
       if (!phoneNumber || !sizeGb || !orderId) {
@@ -112,12 +115,15 @@ class ATiShareService {
         reference_id: orderId,
       }
 
+      // Use different endpoint for BigTime orders
+      const apiEndpoint = isBigTime ? `${codecraftApiUrl}/special.php` : `${codecraftApiUrl}/initiate.php`
+
       console.log(`[CODECRAFT-FULFILL] Calling Code Craft API...`)
-      console.log(`[CODECRAFT-FULFILL] API URL: ${codecraftApiUrl}/initiate.php`)
+      console.log(`[CODECRAFT-FULFILL] API URL: ${apiEndpoint}`)
       console.log(`[CODECRAFT-FULFILL] Request payload: agent_api=***, recipient_number=${phoneNumber}, network=${network}, gig=${sizeGb}, reference_id=${orderId}`)
 
       // Call Code Craft Network API
-      const response = await fetch(`${codecraftApiUrl}/initiate.php`, {
+      const response = await fetch(apiEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

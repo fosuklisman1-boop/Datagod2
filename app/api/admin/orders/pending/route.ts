@@ -64,6 +64,7 @@ export async function GET() {
       bulkQuery = bulkQuery
         .neq("network", "AT - iShare")
         .neq("network", "Telecel")
+        .neq("network", "AT - BigTime")
     }
     
     const { data: bulkOrders, error: bulkError } = await bulkQuery.order("created_at", { ascending: false })
@@ -106,6 +107,7 @@ export async function GET() {
       shopQuery = shopQuery
         .neq("network", "AT - iShare")
         .neq("network", "Telecel")
+        .neq("network", "AT - BigTime")
     }
     
     const { data: shopOrders, error: shopError } = await shopQuery.order("created_at", { ascending: false })

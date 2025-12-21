@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
         shopQuery = shopQuery
           .neq("network", "AT - iShare")
           .neq("network", "Telecel")
+          .neq("network", "AT - BigTime")
       }
 
       const { data: shopOrders, error: fetchError } = await shopQuery
@@ -115,6 +116,7 @@ export async function POST(request: NextRequest) {
         bulkQuery = bulkQuery
           .neq("network", "AT - iShare")
           .neq("network", "Telecel")
+          .neq("network", "AT - BigTime")
       }
 
       const { data: bulkOrders, error: fetchError } = await bulkQuery
@@ -153,9 +155,11 @@ export async function POST(request: NextRequest) {
         bulkQueryBuilder = bulkQueryBuilder
           .neq("network", "AT - iShare")
           .neq("network", "Telecel")
+          .neq("network", "AT - BigTime")
         shopQueryBuilder = shopQueryBuilder
           .neq("network", "AT - iShare")
           .neq("network", "Telecel")
+          .neq("network", "AT - BigTime")
       }
 
       const [bulkResult, shopResult] = await Promise.all([bulkQueryBuilder, shopQueryBuilder])
