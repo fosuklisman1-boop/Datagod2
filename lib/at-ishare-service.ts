@@ -221,12 +221,25 @@ class ATiShareService {
             message: verifyResult.message || "Order delivery failed after verification",
           }
         } else {
-          // Still pending after all retries - return success but order stays as "processing"
-          console.log(`[CODECRAFT] Order ${orderId} still processing after ${pollIntervals.length} verification attempts`)
+          // Still pending after initial retries - schedule for later checks
+          // Attempt 4: 30 min, Attempt 5: 60 min, Attempt 6: 24 hrs
+          console.log(`[CODECRAFT] Order ${orderId} still processing after ${pollIntervals.length} verification attempts - scheduling for later checks`)
+          
+          // Update fulfillment log with next check time (30 minutes from now)
+          const nextCheckTime = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+          await this.supabase
+            .from("fulfillment_logs")
+            .update({ 
+              attempt_number: 3,
+              retry_after: nextCheckTime,
+              updated_at: new Date().toISOString()
+            })
+            .eq("order_id", orderId)
+
           return {
             success: true,
             reference: orderId,
-            message: "Order submitted, awaiting confirmation from network",
+            message: "Order submitted, awaiting confirmation from network (will be checked again in 30 min)",
           }
         }
       }
@@ -383,6 +396,110 @@ class ATiShareService {
     } catch (error) {
       console.error(`[CODECRAFT] Verification error:`, error)
       return { actualStatus: "processing", message: "Could not verify status" }
+    }
+  }
+
+  /**
+   * Check and update status of orders that are due for re-verification
+   * Called from dashboard or API to process scheduled checks
+   * Attempt schedule: 4 = 30min, 5 = 60min, 6 = 24hrs
+   */
+  async checkScheduledOrders(): Promise<{ checked: number; updated: number }> {
+    try {
+      console.log(`[CODECRAFT] Checking scheduled orders for status updates...`)
+
+      const now = new Date().toISOString()
+
+      // Get orders that are due for checking (retry_after has passed)
+      const { data: dueLogs, error } = await this.supabase
+        .from("fulfillment_logs")
+        .select("order_id, attempt_number, phone_number, network, order_type")
+        .eq("status", "processing")
+        .lte("retry_after", now)
+        .lt("attempt_number", 6) // Max 6 attempts
+        .limit(10) // Process max 10 per call to avoid timeout
+
+      if (error || !dueLogs || dueLogs.length === 0) {
+        console.log(`[CODECRAFT] No scheduled orders due for checking`)
+        return { checked: 0, updated: 0 }
+      }
+
+      console.log(`[CODECRAFT] Found ${dueLogs.length} orders due for status check`)
+
+      let checked = 0
+      let updated = 0
+
+      for (const log of dueLogs) {
+        try {
+          checked++
+          const networkLower = (log.network || "").toLowerCase()
+          const isBigTime = networkLower.includes("bigtime") || networkLower.includes("big time")
+          const apiNetwork = networkLower.includes("mtn") ? "MTN" : 
+                             networkLower.includes("telecel") ? "TELECEL" : "AT"
+
+          // Verify status
+          const result = await this.verifyAndUpdateStatus(
+            log.order_id, 
+            apiNetwork, 
+            log.order_type || "wallet",
+            isBigTime
+          )
+
+          if (result.actualStatus === "completed" || result.actualStatus === "failed") {
+            updated++
+            console.log(`[CODECRAFT] Order ${log.order_id} updated to ${result.actualStatus}`)
+            
+            // If failed, send SMS notification
+            if (result.actualStatus === "failed") {
+              try {
+                const sizeGb = 0 // We don't have size in log, but message has details
+                await notifyFulfillmentFailure(log.order_id, log.phone_number || "", log.network || "", sizeGb, result.message || "Delivery failed")
+              } catch (smsError) {
+                console.error(`[CODECRAFT] Failed to send SMS notification:`, smsError)
+              }
+            }
+          } else {
+            // Still processing - schedule next check based on attempt number
+            const attemptNumber = (log.attempt_number || 3) + 1
+            let nextCheckMs: number
+
+            switch (attemptNumber) {
+              case 4:
+                nextCheckMs = 30 * 60 * 1000 // 30 minutes
+                break
+              case 5:
+                nextCheckMs = 60 * 60 * 1000 // 60 minutes
+                break
+              case 6:
+                nextCheckMs = 24 * 60 * 60 * 1000 // 24 hours
+                break
+              default:
+                nextCheckMs = 24 * 60 * 60 * 1000 // Default to 24 hours
+            }
+
+            const nextCheckTime = new Date(Date.now() + nextCheckMs).toISOString()
+
+            await this.supabase
+              .from("fulfillment_logs")
+              .update({ 
+                attempt_number: attemptNumber,
+                retry_after: nextCheckTime,
+                updated_at: new Date().toISOString()
+              })
+              .eq("order_id", log.order_id)
+
+            console.log(`[CODECRAFT] Order ${log.order_id} still processing - next check at ${nextCheckTime} (attempt ${attemptNumber})`)
+          }
+        } catch (orderError) {
+          console.error(`[CODECRAFT] Error checking order ${log.order_id}:`, orderError)
+        }
+      }
+
+      console.log(`[CODECRAFT] Scheduled check complete. Checked: ${checked}, Updated: ${updated}`)
+      return { checked, updated }
+    } catch (error) {
+      console.error(`[CODECRAFT] Error checking scheduled orders:`, error)
+      return { checked: 0, updated: 0 }
     }
   }
 

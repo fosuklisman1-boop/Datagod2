@@ -32,8 +32,20 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (isAdmin && !adminLoading) {
       loadStats()
+      // Trigger background check for scheduled order status updates
+      checkScheduledOrders()
     }
   }, [isAdmin, adminLoading])
+
+  const checkScheduledOrders = async () => {
+    try {
+      // Silently check for scheduled order updates in background
+      await fetch("/api/orders/check-status", { method: "GET" })
+    } catch (error) {
+      // Silently fail - this is a background task
+      console.error("Background order check failed:", error)
+    }
+  }
 
   const loadStats = async () => {
     try {
