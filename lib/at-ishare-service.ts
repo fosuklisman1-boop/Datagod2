@@ -334,9 +334,9 @@ class ATiShareService {
       if (orderStatus.includes("successful") || orderStatus.includes("delivered") || orderStatus.includes("completed")) {
         actualStatus = "completed"
         message = "Order delivered successfully"
-      } else if (orderStatus.includes("failed") || orderStatus.includes("error")) {
+      } else if (orderStatus.includes("failed") || orderStatus.includes("error") || orderStatus.includes("cancelled") || orderStatus.includes("canceled") || orderStatus.includes("rejected") || orderStatus.includes("refund")) {
         actualStatus = "failed"
-        message = data.order_details?.order_status || "Delivery failed"
+        message = data.order_details?.order_status || "Delivery failed/cancelled"
       } else if (orderStatus.includes("pending") || orderStatus.includes("processing") || orderStatus === "") {
         actualStatus = "processing"
         message = "Order still processing"

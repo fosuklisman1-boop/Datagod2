@@ -161,7 +161,7 @@ export async function GET(request: NextRequest) {
 
         if (orderStatus.includes("successful") || orderStatus.includes("delivered") || orderStatus.includes("completed")) {
           newStatus = "completed"
-        } else if (orderStatus.includes("failed") || orderStatus.includes("error") || apiStatus === "failed") {
+        } else if (orderStatus.includes("failed") || orderStatus.includes("error") || orderStatus.includes("cancelled") || orderStatus.includes("canceled") || orderStatus.includes("rejected") || orderStatus.includes("refund") || apiStatus === "failed") {
           newStatus = "failed"
         } else if (orderStatus.includes("pending") || orderStatus.includes("processing")) {
           // API says still pending - if we marked it completed, revert to pending
