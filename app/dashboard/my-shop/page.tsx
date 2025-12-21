@@ -432,24 +432,24 @@ export default function MyShopPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">My Shop</h1>
-          <p className="text-gray-500 mt-1">Manage your store and resell data packages</p>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">My Shop</h1>
+          <p className="text-sm sm:text-base text-gray-500 mt-1">Manage your store and resell data packages</p>
         </div>
 
         {/* Shop Info Card */}
         <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40 hover:border-violet-300/60">
-          <CardHeader className="flex flex-row items-start justify-between">
-            <div className="flex items-center gap-4">
+          <CardHeader className="flex flex-col sm:flex-row items-start justify-between gap-3">
+            <div className="flex items-center gap-3 sm:gap-4">
               {shop.logo_url && (
                 <img
                   src={shop.logo_url}
                   alt={shop.shop_name}
-                  className="w-16 h-16 rounded-lg object-cover"
+                  className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg object-cover"
                 />
               )}
               <div>
-                <CardTitle className="text-2xl">{shop.shop_name}</CardTitle>
-                <CardDescription className="mt-2">{shop.description || "No description"}</CardDescription>
+                <CardTitle className="text-xl sm:text-2xl">{shop.shop_name}</CardTitle>
+                <CardDescription className="mt-1 sm:mt-2 text-sm">{shop.description || "No description"}</CardDescription>
               </div>
             </div>
             <Badge className="bg-gradient-to-r from-green-600 to-emerald-600">
@@ -457,25 +457,27 @@ export default function MyShopPage() {
             </Badge>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center gap-2 p-3 bg-white/40 rounded-lg border border-white/20">
-              <code className="text-sm font-mono flex-1">{`${window.location.origin}/shop/${shop.shop_slug}`}</code>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={copyShopLink}
-                className="hover:bg-violet-100"
-              >
-                <Copy className="w-4 h-4" />
-              </Button>
-              <Link href={`/shop/${shop.shop_slug}`} target="_blank">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-3 bg-white/40 rounded-lg border border-white/20">
+              <code className="text-xs sm:text-sm font-mono flex-1 break-all">{`${window.location.origin}/shop/${shop.shop_slug}`}</code>
+              <div className="flex gap-2">
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="hover:bg-violet-100"
+                  onClick={copyShopLink}
+                  className="hover:bg-violet-100 flex-1 sm:flex-none"
                 >
-                  <ExternalLink className="w-4 h-4" />
+                  <Copy className="w-4 h-4" />
                 </Button>
-              </Link>
+                <Link href={`/shop/${shop.shop_slug}`} target="_blank">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="hover:bg-violet-100"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </Button>
+                </Link>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4">
@@ -676,7 +678,7 @@ export default function MyShopPage() {
           {/* Products Tab */}
           <TabsContent value="products">
             <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <CardTitle>Shop Products</CardTitle>
                   <CardDescription>Manage products available in your store</CardDescription>
@@ -871,7 +873,7 @@ export default function MyShopPage() {
                               Your Profit: GHS {shopPkg.profit_margin.toFixed(2)}
                             </p>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-col sm:flex-row gap-2">
                             <Button
                               onClick={() => handleToggleAvailability(shopPkg.id, shopPkg.is_available)}
                               disabled={togglingPackageId === shopPkg.id}
@@ -912,7 +914,7 @@ export default function MyShopPage() {
           <TabsContent value="orders">
             <div className="space-y-6">
               {/* Stats Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
                 <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
