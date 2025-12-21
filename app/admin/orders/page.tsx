@@ -268,13 +268,24 @@ export default function AdminOrdersPage() {
 
       if (!response.ok) {
         let errorMessage = "Failed to download orders"
+        let isConflict = false
         try {
           const errorData = await response.json()
           errorMessage = errorData.error || errorMessage
+          isConflict = errorData.alreadyDownloaded === true || response.status === 409
         } catch (e) {
           // If response isn't JSON, use status text
           errorMessage = response.statusText || errorMessage
         }
+        
+        // If orders were already downloaded by another admin, show specific message and refresh
+        if (isConflict) {
+          toast.error("These orders were already downloaded by another admin. Refreshing list...")
+          await loadPendingOrders()
+          setShowNetworkSelection(false)
+          return
+        }
+        
         throw new Error(errorMessage)
       }
 

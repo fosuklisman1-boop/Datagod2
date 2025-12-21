@@ -211,43 +211,77 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update order statuses - handle both types
+    // RACE CONDITION PREVENTION:
+    // Update order statuses atomically with status check to prevent duplicate downloads
+    // Only orders still in "pending" status will be updated and included
     // Only update status to "processing" on initial download, not on redownloads
     if (!isRedownload) {
+      let actualBulkOrderIds: string[] = []
+      let actualShopOrderIds: string[] = []
+
       if (bulkOrderIds.length > 0) {
-        const { error: updateError } = await supabase
+        // Use update with WHERE clause to only update pending orders
+        // This returns only the orders that were actually updated (still pending)
+        const { data: updatedBulk, error: updateError } = await supabase
           .from("orders")
-          .update({ status: "processing" })
+          .update({ status: "processing", updated_at: new Date().toISOString() })
           .in("id", bulkOrderIds)
+          .eq("status", "pending")  // Only update if still pending!
+          .select("id")
 
         if (updateError) {
           throw new Error(`Failed to update bulk order status: ${updateError.message}`)
         }
 
-        // Update in-memory orders to reflect the new status
-        orders.forEach((order: any) => {
-          if (bulkOrderIds.includes(order.id)) {
-            order.status = "processing"
-          }
-        })
+        actualBulkOrderIds = updatedBulk?.map(o => o.id) || []
+        console.log(`[DOWNLOAD] Bulk orders claimed: ${actualBulkOrderIds.length} of ${bulkOrderIds.length} requested`)
+
+        // Filter orders to only include those that were actually claimed
+        if (actualBulkOrderIds.length < bulkOrderIds.length) {
+          const skippedCount = bulkOrderIds.length - actualBulkOrderIds.length
+          console.warn(`[DOWNLOAD] ${skippedCount} bulk orders were already downloaded by another admin`)
+        }
       }
 
       if (shopOrderIds.length > 0) {
-        const { error: updateError } = await supabase
+        // Use update with WHERE clause to only update pending orders
+        const { data: updatedShop, error: updateError } = await supabase
           .from("shop_orders")
-          .update({ order_status: "processing" })
+          .update({ order_status: "processing", updated_at: new Date().toISOString() })
           .in("id", shopOrderIds)
+          .eq("order_status", "pending")  // Only update if still pending!
+          .select("id")
 
         if (updateError) {
           throw new Error(`Failed to update shop order status: ${updateError.message}`)
         }
 
-        // Update in-memory orders to reflect the new status
-        orders.forEach((order: any) => {
-          if (shopOrderIds.includes(order.id)) {
-            order.status = "processing"
-          }
-        })
+        actualShopOrderIds = updatedShop?.map(o => o.id) || []
+        console.log(`[DOWNLOAD] Shop orders claimed: ${actualShopOrderIds.length} of ${shopOrderIds.length} requested`)
+
+        if (actualShopOrderIds.length < shopOrderIds.length) {
+          const skippedCount = shopOrderIds.length - actualShopOrderIds.length
+          console.warn(`[DOWNLOAD] ${skippedCount} shop orders were already downloaded by another admin`)
+        }
+      }
+
+      // Filter the orders list to only include successfully claimed orders
+      const claimedOrderIds = new Set([...actualBulkOrderIds, ...actualShopOrderIds])
+      orders = orders.filter((order: any) => claimedOrderIds.has(order.id))
+      bulkOrderIds = actualBulkOrderIds
+      shopOrderIds = actualShopOrderIds
+
+      // Update status in the filtered orders
+      orders.forEach((order: any) => {
+        order.status = "processing"
+      })
+
+      // If no orders were claimed (all taken by another admin), return appropriate error
+      if (orders.length === 0) {
+        return NextResponse.json(
+          { error: "These orders were already downloaded by another admin", alreadyDownloaded: true },
+          { status: 409 }  // 409 Conflict
+        )
       }
     }
 
