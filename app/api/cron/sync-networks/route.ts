@@ -29,22 +29,36 @@ export async function GET(request: NextRequest) {
 
     // Get pending orders from the last 24 hours
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    // Also check recently completed orders (last 30 min) to verify they actually delivered
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
 
-    // Query orders table (wallet orders) - MTN, Telecel, and AT-BigTime
-    const { data: walletOrders, error: walletError } = await supabase
+    // Query orders table (wallet orders) - MTN, Telecel, and AT-BigTime - pending/processing
+    const { data: pendingWalletOrders, error: walletError } = await supabase
       .from("orders")
       .select("id, reference_code, network, phone_number, data_size_gb, status")
       .in("status", ["pending", "processing"])
       .or("network.ilike.%MTN%,network.ilike.%Telecel%,network.ilike.%TELECEL%,network.ilike.%BigTime%,network.ilike.%Big Time%")
       .gte("created_at", twentyFourHoursAgo)
-      .limit(50) // Process max 50 per run
+      .limit(50)
+
+    // Also verify recently "completed" orders
+    const { data: recentCompletedWallet, error: recentWalletError } = await supabase
+      .from("orders")
+      .select("id, reference_code, network, phone_number, data_size_gb, status")
+      .eq("status", "completed")
+      .or("network.ilike.%MTN%,network.ilike.%Telecel%,network.ilike.%TELECEL%,network.ilike.%BigTime%,network.ilike.%Big Time%")
+      .gte("updated_at", thirtyMinutesAgo)
+      .limit(20)
 
     if (walletError) {
       console.error("[CRON-NETWORKS] Error fetching wallet orders:", walletError)
     }
+    if (recentWalletError) {
+      console.error("[CRON-NETWORKS] Error fetching recent completed wallet orders:", recentWalletError)
+    }
 
-    // Query shop_orders table
-    const { data: shopOrders, error: shopError } = await supabase
+    // Query shop_orders table - pending/processing
+    const { data: pendingShopOrders, error: shopError } = await supabase
       .from("shop_orders")
       .select("id, reference_code, network, customer_phone, volume_gb, order_status")
       .in("order_status", ["pending", "processing"])
@@ -52,20 +66,39 @@ export async function GET(request: NextRequest) {
       .gte("created_at", twentyFourHoursAgo)
       .limit(50)
 
+    // Also verify recently "completed" shop orders
+    const { data: recentCompletedShop, error: recentShopError } = await supabase
+      .from("shop_orders")
+      .select("id, reference_code, network, customer_phone, volume_gb, order_status")
+      .eq("order_status", "completed")
+      .or("network.ilike.%MTN%,network.ilike.%Telecel%,network.ilike.%TELECEL%,network.ilike.%BigTime%,network.ilike.%Big Time%")
+      .gte("updated_at", thirtyMinutesAgo)
+      .limit(20)
+
     if (shopError) {
       console.error("[CRON-NETWORKS] Error fetching shop orders:", shopError)
     }
+    if (recentShopError) {
+      console.error("[CRON-NETWORKS] Error fetching recent completed shop orders:", recentShopError)
+    }
 
     const allOrders = [
-      ...(walletOrders || []).map(o => ({ ...o, orderType: "wallet" as const })),
-      ...(shopOrders || []).map(o => ({ 
+      ...(pendingWalletOrders || []).map(o => ({ ...o, orderType: "wallet" as const })),
+      ...(recentCompletedWallet || []).map(o => ({ ...o, orderType: "wallet" as const, needsVerification: true })),
+      ...(pendingShopOrders || []).map(o => ({ 
         ...o, 
         orderType: "shop" as const,
         status: o.order_status
       })),
+      ...(recentCompletedShop || []).map(o => ({ 
+        ...o, 
+        orderType: "shop" as const,
+        status: o.order_status,
+        needsVerification: true
+      })),
     ]
 
-    console.log(`[CRON-NETWORKS] Found ${allOrders.length} pending orders to check`)
+    console.log(`[CRON-NETWORKS] Found ${allOrders.length} orders to check`)
 
     if (allOrders.length === 0) {
       return NextResponse.json({ 
@@ -130,10 +163,17 @@ export async function GET(request: NextRequest) {
           newStatus = "completed"
         } else if (orderStatus.includes("failed") || orderStatus.includes("error") || apiStatus === "failed") {
           newStatus = "failed"
+        } else if (orderStatus.includes("pending") || orderStatus.includes("processing")) {
+          // API says still pending - if we marked it completed, revert to pending
+          if ((order as any).needsVerification && order.status === "completed") {
+            newStatus = "pending"
+            console.log(`[CRON-NETWORKS] Order ${referenceId} was marked completed but API says pending - reverting`)
+          }
         }
 
-        if (newStatus) {
-          console.log(`[CRON-NETWORKS] Updating order ${referenceId} to ${newStatus}`)
+        // Only update if status actually changed
+        if (newStatus && newStatus !== order.status) {
+          console.log(`[CRON-NETWORKS] Updating order ${referenceId} from ${order.status} to ${newStatus}`)
 
           if (order.orderType === "wallet") {
             await supabase
