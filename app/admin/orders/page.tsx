@@ -548,7 +548,11 @@ export default function AdminOrdersPage() {
                     disabled={downloading || pendingOrders.length === 0}
                     className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold"
                   >
-                    <Download className="h-4 w-4 mr-2" />
+                    {downloading ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4 mr-2" />
+                    )}
                     {downloading ? "Downloading..." : `Download All (${pendingOrders.length})`}
                   </Button>
                 </div>
@@ -754,8 +758,12 @@ export default function AdminOrdersPage() {
                             disabled={updatingBatch === batchKey}
                             className="w-full sm:w-auto"
                           >
-                            <Download className="h-4 w-4 mr-2" />
-                            Redownload
+                            {updatingBatch === batchKey ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Download className="h-4 w-4 mr-2" />
+                            )}
+                            {updatingBatch === batchKey ? "Downloading..." : "Redownload"}
                           </Button>
                           <select
                             className="px-3 py-2 border rounded-md text-sm w-full sm:w-auto"
@@ -843,6 +851,9 @@ export default function AdminOrdersPage() {
                       <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
                     ) : (
                       <>
+                        {togglingAutoFulfillment && (
+                          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                        )}
                         <span className={`text-sm font-medium ${autoFulfillmentEnabled ? 'text-green-600' : 'text-gray-500'}`}>
                           {autoFulfillmentEnabled ? 'Enabled' : 'Disabled'}
                         </span>
@@ -990,7 +1001,14 @@ export default function AdminOrdersPage() {
                 disabled={downloading || selectedNetworks.length === 0}
                 className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
               >
-                {downloading ? "Downloading..." : "Download Selected"}
+                {downloading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Downloading...
+                  </>
+                ) : (
+                  "Download Selected"
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
