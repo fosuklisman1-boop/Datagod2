@@ -478,12 +478,20 @@ class ATiShareService {
       // Extract size in GB
       const sizeGb = parseInt(order.size.toString().replace(/[^0-9]/g, "")) || 0
 
+      // Determine network type for API
+      const networkLower = (order.network || "").toLowerCase()
+      const isBigTime = networkLower.includes("bigtime") || networkLower.includes("big time")
+      const apiNetwork = networkLower.includes("mtn") ? "MTN" : 
+                         networkLower.includes("telecel") ? "TELECEL" : "AT"
+
       // Retry the fulfillment
       const result = await this.fulfillOrder({
         phoneNumber: order.phone_number,
         sizeGb,
         orderId,
-        network: order.network,
+        network: apiNetwork,
+        orderType: "wallet",
+        isBigTime,
       })
 
       if (result.success) {

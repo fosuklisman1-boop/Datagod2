@@ -197,7 +197,7 @@ async function handleRetryFulfillment(
     // Check if order exists
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
-      .select("network")
+      .select("network, phone_number, size")
       .eq("id", orderId)
       .single()
 
@@ -208,18 +208,33 @@ async function handleRetryFulfillment(
       )
     }
 
-    // Check if AT-iShare (case-insensitive)
-    const atishareNetworks = ["AT-iShare", "AT - iShare", "AT - ishare", "at - ishare"]
-    const isAtishare = atishareNetworks.some(n => n.toLowerCase() === (order.network || "").toLowerCase())
-    if (!isAtishare) {
+    // Check if network is supported for auto-fulfillment
+    const networkLower = (order.network || "").toLowerCase()
+    const supportedNetworks = ["at", "mtn", "telecel", "bigtime", "ishare"]
+    const isSupported = supportedNetworks.some(n => networkLower.includes(n))
+    
+    if (!isSupported) {
       return NextResponse.json(
-        { error: "This order is not for AT-iShare network", providedNetwork: order.network },
+        { error: "This network is not supported for auto-fulfillment", providedNetwork: order.network },
         { status: 400 }
       )
     }
 
-    // Attempt retry
-    const result = await atishareService.handleRetry(orderId)
+    // Determine if BigTime
+    const isBigTime = networkLower.includes("bigtime") || networkLower.includes("big time")
+
+    // Attempt retry using fulfillOrder directly (handleRetry has issues with new networks)
+    const sizeGb = parseInt(order.size?.toString().replace(/[^0-9]/g, "")) || 0
+    
+    const result = await atishareService.fulfillOrder({
+      phoneNumber: order.phone_number,
+      sizeGb,
+      orderId,
+      network: networkLower.includes("mtn") ? "MTN" : 
+               networkLower.includes("telecel") ? "TELECEL" : "AT",
+      orderType: "wallet",
+      isBigTime,
+    })
 
     if (result.success) {
       return NextResponse.json({
