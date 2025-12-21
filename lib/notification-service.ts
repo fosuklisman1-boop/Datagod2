@@ -98,6 +98,9 @@ export const notificationService = {
 
   // Get all notifications
   async getAllNotifications(userId: string, limit = 100) {
+    // Cleanup old notifications for this user first (non-blocking)
+    this.cleanupUserNotifications(userId).catch(() => {})
+
     const { data, error } = await supabase
       .from("notifications")
       .select("*")
@@ -188,6 +191,51 @@ export const notificationService = {
     }
 
     return count || 0
+  },
+
+  // Delete notifications older than 72 hours
+  async cleanupOldNotifications() {
+    try {
+      const seventyTwoHoursAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
+      
+      console.log(`[NOTIFICATION] Cleaning up notifications older than ${seventyTwoHoursAgo}`)
+
+      const { error, count } = await supabase
+        .from("notifications")
+        .delete()
+        .lt("created_at", seventyTwoHoursAgo)
+        .select("id", { count: "exact", head: true })
+
+      if (error) {
+        console.error("[NOTIFICATION] Error cleaning up old notifications:", error)
+        return 0
+      }
+
+      console.log(`[NOTIFICATION] Cleaned up ${count || 0} old notifications`)
+      return count || 0
+    } catch (error) {
+      console.error("[NOTIFICATION] Failed to cleanup old notifications:", error)
+      return 0
+    }
+  },
+
+  // Delete old notifications for a specific user (called when fetching notifications)
+  async cleanupUserNotifications(userId: string) {
+    try {
+      const seventyTwoHoursAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
+
+      const { error } = await supabase
+        .from("notifications")
+        .delete()
+        .eq("user_id", userId)
+        .lt("created_at", seventyTwoHoursAgo)
+
+      if (error) {
+        console.error("[NOTIFICATION] Error cleaning up user notifications:", error)
+      }
+    } catch (error) {
+      console.error("[NOTIFICATION] Failed to cleanup user notifications:", error)
+    }
   },
 }
 

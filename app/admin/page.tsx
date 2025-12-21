@@ -34,6 +34,8 @@ export default function AdminDashboardPage() {
       loadStats()
       // Trigger background check for scheduled order status updates
       checkScheduledOrders()
+      // Cleanup old notifications (older than 72 hours)
+      cleanupOldNotifications()
     }
   }, [isAdmin, adminLoading])
 
@@ -44,6 +46,16 @@ export default function AdminDashboardPage() {
     } catch (error) {
       // Silently fail - this is a background task
       console.error("Background order check failed:", error)
+    }
+  }
+
+  const cleanupOldNotifications = async () => {
+    try {
+      // Silently cleanup notifications older than 72 hours
+      await fetch("/api/notifications/cleanup", { method: "GET" })
+    } catch (error) {
+      // Silently fail - this is a background task
+      console.error("Background notification cleanup failed:", error)
     }
   }
 
