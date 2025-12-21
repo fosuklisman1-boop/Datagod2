@@ -302,7 +302,7 @@ Occupation: ${submission.occupation || "N/A"}`
         </Card>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-4">
           <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-gray-900">Total Submissions</CardTitle>
