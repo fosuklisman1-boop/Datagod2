@@ -73,7 +73,7 @@ export default function AdminDashboardPage() {
 
         {/* Stats Cards */}
         {stats && (
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
             {/* Total Users */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
