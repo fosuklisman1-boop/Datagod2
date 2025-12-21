@@ -165,9 +165,8 @@ export async function POST(request: NextRequest) {
     console.log(`[PURCHASE] ========== FULFILLMENT CHECK ==========`)
     console.log(`[PURCHASE] About to check network for fulfillment`)
 
-    // Trigger fulfillment for AT-iShare orders only
-    // The canonical name in database is "AT - iShare"
-    const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare"]
+    // Trigger fulfillment for AT-iShare and Telecel orders (auto-fulfilled via Code Craft API)
+    const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL"]
     const normalizedNetwork = network?.trim() || ""
     const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
     console.log(`[FULFILLMENT] Network received: "${network}" | Normalized: "${normalizedNetwork}" | Should fulfill: ${shouldFulfill} | Order: ${order[0].id}`)
@@ -178,19 +177,9 @@ export async function POST(request: NextRequest) {
         const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
         console.log(`[FULFILLMENT] Order details - Network: ${network}, Size: ${sizeGb}GB, Phone: ${phoneNumber}, OrderID: ${order[0].id}`)
         
-        // Normalize network name for API
-        const networkMap: Record<string, string> = {
-          "MTN": "MTN",
-          "TELECEL": "TELECEL",
-          "AT": "AT",
-          "AT-iShare": "AT",
-          "AT - iShare": "AT",
-          "AT-ishare": "AT",
-          "at-ishare": "AT",
-        }
-        // Normalize to uppercase before lookup for consistency
-        const normalizedForApi = normalizedNetwork.toUpperCase()
-        const apiNetwork = networkMap[normalizedForApi] || "AT"
+        // Determine API network based on order network
+        const networkLower = normalizedNetwork.toLowerCase()
+        const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
         
         // Non-blocking fulfillment trigger
         console.log(`[FULFILLMENT] Calling atishareService.fulfillOrder with network: ${apiNetwork}`)
