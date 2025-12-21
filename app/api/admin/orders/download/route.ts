@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
         .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
         .in("id", orderIds)
         .neq("network", "AT - iShare")
+        .neq("network", "Telecel")
 
       if (fetchError) {
         throw new Error(`Failed to fetch shop orders: ${fetchError.message}`)
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
         .select("id, created_at, phone_number, price, status, size, network")
         .in("id", orderIds)
         .neq("network", "AT - iShare")
+        .neq("network", "Telecel")
 
       if (fetchError) {
         throw new Error(`Failed to fetch orders: ${fetchError.message}`)
@@ -94,18 +96,20 @@ export async function POST(request: NextRequest) {
       // Mixed order types (or orderType not specified) - query both tables
       console.log("Fetching mixed bulk and shop orders...")
 
-      // Try to fetch from both tables, excluding AT-iShare orders (handled by Code Craft API)
+      // Try to fetch from both tables, excluding auto-fulfilled networks (AT-iShare, Telecel)
       const [bulkResult, shopResult] = await Promise.all([
         supabase
           .from("orders")
           .select("id, created_at, phone_number, price, status, size, network")
           .in("id", orderIds)
-          .neq("network", "AT - iShare"),
+          .neq("network", "AT - iShare")
+          .neq("network", "Telecel"),
         supabase
           .from("shop_orders")
           .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
           .in("id", orderIds)
           .neq("network", "AT - iShare")
+          .neq("network", "Telecel")
       ])
 
       if (bulkResult.error) {

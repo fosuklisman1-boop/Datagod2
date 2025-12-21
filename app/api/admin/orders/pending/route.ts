@@ -25,12 +25,13 @@ export async function GET() {
   try {
     console.log("Fetching pending orders (bulk + shop orders)...")
     
-    // Fetch bulk orders from orders table
+    // Fetch bulk orders from orders table (exclude auto-fulfilled networks)
     const { data: bulkOrders, error: bulkError } = await supabase
       .from("orders")
       .select("id, created_at, phone_number, price, status, size, network")
       .eq("status", "pending")
       .neq("network", "AT - iShare")
+      .neq("network", "Telecel")
       .order("created_at", { ascending: false })
 
     if (bulkError) {
@@ -66,6 +67,7 @@ export async function GET() {
       .eq("payment_status", "completed")
       .not("payment_status", "is", null)
       .neq("network", "AT - iShare")
+      .neq("network", "Telecel")
       .order("created_at", { ascending: false })
 
     if (shopError) {

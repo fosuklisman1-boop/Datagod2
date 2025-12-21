@@ -164,23 +164,26 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // Trigger AT-iShare fulfillment for shop orders
-            const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare"]
+            // Trigger Code Craft fulfillment for shop orders (AT-iShare and Telecel)
+            const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL"]
             const networkLower = (shopOrderData?.network || "").toLowerCase()
             const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === networkLower)
             
             console.log(`[WEBHOOK] Shop order network: "${shopOrderData?.network}" | Should fulfill: ${shouldFulfill}`)
             
             if (shouldFulfill && shopOrderData?.customer_phone) {
-              console.log(`[WEBHOOK] Triggering AT-iShare fulfillment for shop order ${paymentData.order_id}`)
+              console.log(`[WEBHOOK] Triggering Code Craft fulfillment for shop order ${paymentData.order_id}`)
               const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+              
+              // Determine the network for Code Craft API
+              const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
               
               // Non-blocking fulfillment trigger
               atishareService.fulfillOrder({
                 phoneNumber: shopOrderData.customer_phone,
                 sizeGb,
                 orderId: paymentData.order_id,
-                network: "AT",
+                network: apiNetwork,
                 orderType: "shop",
               }).then(result => {
                 console.log(`[WEBHOOK] ✓ Fulfillment triggered for shop order ${paymentData.order_id}:`, result)
