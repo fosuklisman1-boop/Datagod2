@@ -36,6 +36,8 @@ export default function AdminDashboardPage() {
       checkScheduledOrders()
       // Cleanup old notifications (older than 72 hours)
       cleanupOldNotifications()
+      // Cleanup old completed download batches (older than 14 days)
+      cleanupOldBatches()
     }
   }, [isAdmin, adminLoading])
 
@@ -56,6 +58,16 @@ export default function AdminDashboardPage() {
     } catch (error) {
       // Silently fail - this is a background task
       console.error("Background notification cleanup failed:", error)
+    }
+  }
+
+  const cleanupOldBatches = async () => {
+    try {
+      // Silently cleanup completed download batches older than 14 days
+      await fetch("/api/admin/batches/cleanup", { method: "GET" })
+    } catch (error) {
+      // Silently fail - this is a background task
+      console.error("Background batch cleanup failed:", error)
     }
   }
 
