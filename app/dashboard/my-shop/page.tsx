@@ -478,7 +478,7 @@ export default function MyShopPage() {
               </Link>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 pt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4">
               <div className="p-3 bg-white/40 rounded-lg border border-white/20">
                 <p className="text-xs text-gray-600">Total Products</p>
                 <p className="text-2xl font-bold text-violet-600">{packages.length}</p>
@@ -912,7 +912,7 @@ export default function MyShopPage() {
           <TabsContent value="orders">
             <div className="space-y-6">
               {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
