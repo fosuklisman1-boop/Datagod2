@@ -7,6 +7,31 @@ import { atishareService } from "@/lib/at-ishare-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
+
+/**
+ * Check if auto-fulfillment is enabled in admin settings
+ */
+async function isAutoFulfillmentEnabled(): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "auto_fulfillment_enabled")
+      .single()
+    
+    if (error || !data) {
+      // Default to enabled if setting doesn't exist
+      return true
+    }
+    
+    return data.value?.enabled ?? true
+  } catch (error) {
+    console.warn("[PURCHASE] Error checking auto-fulfillment setting:", error)
+    // Default to enabled on error
+    return true
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -166,10 +191,16 @@ export async function POST(request: NextRequest) {
     console.log(`[PURCHASE] About to check network for fulfillment`)
 
     // Trigger fulfillment for AT-iShare and Telecel orders (auto-fulfilled via Code Craft API)
+    // Only if auto-fulfillment is enabled in admin settings
     const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL"]
     const normalizedNetwork = network?.trim() || ""
-    const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
-    console.log(`[FULFILLMENT] Network received: "${network}" | Normalized: "${normalizedNetwork}" | Should fulfill: ${shouldFulfill} | Order: ${order[0].id}`)
+    const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
+    
+    // Check if auto-fulfillment is enabled
+    const autoFulfillEnabled = await isAutoFulfillmentEnabled()
+    const shouldFulfill = isAutoFulfillable && autoFulfillEnabled
+    
+    console.log(`[FULFILLMENT] Network received: "${network}" | Auto-fulfillable: ${isAutoFulfillable} | Auto-fulfill enabled: ${autoFulfillEnabled} | Should fulfill: ${shouldFulfill} | Order: ${order[0].id}`)
     
     if (shouldFulfill) {
       try {
@@ -199,6 +230,8 @@ export async function POST(request: NextRequest) {
         console.error("[FULFILLMENT] Error in fulfillment trigger block:", fulfillmentError)
         // Non-blocking: continue with purchase even if fulfillment fails
       }
+    } else if (isAutoFulfillable && !autoFulfillEnabled) {
+      console.log(`[FULFILLMENT] Auto-fulfillment disabled. Order ${order[0].id} will go to admin queue.`)
     } else {
       console.log(`[FULFILLMENT] Skipping fulfillment for network: ${normalizedNetwork} (not in fulfillable list)`)
     }

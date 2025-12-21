@@ -21,18 +21,52 @@ function normalizeNetwork(network: string): string {
   return networkMap[lower] || network.toUpperCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
+/**
+ * Check if auto-fulfillment is enabled in admin settings
+ */
+async function isAutoFulfillmentEnabled(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "auto_fulfillment_enabled")
+      .single()
+    
+    if (error || !data) {
+      // Default to enabled if setting doesn't exist
+      return true
+    }
+    
+    return data.value?.enabled ?? true
+  } catch (error) {
+    console.warn("[PENDING-ORDERS] Error checking auto-fulfillment setting:", error)
+    // Default to enabled on error
+    return true
+  }
+}
+
 export async function GET() {
   try {
     console.log("Fetching pending orders (bulk + shop orders)...")
     
-    // Fetch bulk orders from orders table (exclude auto-fulfilled networks)
-    const { data: bulkOrders, error: bulkError } = await supabase
+    // Check if auto-fulfillment is enabled
+    const autoFulfillEnabled = await isAutoFulfillmentEnabled()
+    console.log(`[PENDING-ORDERS] Auto-fulfillment enabled: ${autoFulfillEnabled}`)
+    
+    // Build bulk orders query
+    let bulkQuery = supabase
       .from("orders")
       .select("id, created_at, phone_number, price, status, size, network")
       .eq("status", "pending")
-      .neq("network", "AT - iShare")
-      .neq("network", "Telecel")
-      .order("created_at", { ascending: false })
+    
+    // If auto-fulfillment is enabled, exclude auto-fulfilled networks
+    if (autoFulfillEnabled) {
+      bulkQuery = bulkQuery
+        .neq("network", "AT - iShare")
+        .neq("network", "Telecel")
+    }
+    
+    const { data: bulkOrders, error: bulkError } = await bulkQuery.order("created_at", { ascending: false })
 
     if (bulkError) {
       console.error("Supabase error fetching bulk orders:", bulkError)
@@ -44,8 +78,8 @@ export async function GET() {
       console.log("Bulk orders networks:", bulkOrders.map(o => o.network))
     }
 
-    // Fetch shop orders (with confirmed payment only - exclude null payment_status)
-    const { data: shopOrders, error: shopError } = await supabase
+    // Build shop orders query (with confirmed payment only)
+    let shopQuery = supabase
       .from("shop_orders")
       .select(`
         id,
@@ -66,9 +100,15 @@ export async function GET() {
       .eq("order_status", "pending")
       .eq("payment_status", "completed")
       .not("payment_status", "is", null)
-      .neq("network", "AT - iShare")
-      .neq("network", "Telecel")
-      .order("created_at", { ascending: false })
+    
+    // If auto-fulfillment is enabled, exclude auto-fulfilled networks
+    if (autoFulfillEnabled) {
+      shopQuery = shopQuery
+        .neq("network", "AT - iShare")
+        .neq("network", "Telecel")
+    }
+    
+    const { data: shopOrders, error: shopError } = await shopQuery.order("created_at", { ascending: false })
 
     if (shopError) {
       console.error("Supabase error fetching shop orders:", shopError)

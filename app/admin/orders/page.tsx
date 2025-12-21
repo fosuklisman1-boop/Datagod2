@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -53,13 +54,72 @@ export default function AdminOrdersPage() {
   const [downloadedBatchFilter, setDownloadedBatchFilter] = useState("all")
   const [downloadedBatchStatusFilter, setDownloadedBatchStatusFilter] = useState("all")
   const allNetworks = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
+  
+  // Auto-fulfillment toggle state
+  const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(true)
+  const [loadingAutoFulfillment, setLoadingAutoFulfillment] = useState(true)
+  const [togglingAutoFulfillment, setTogglingAutoFulfillment] = useState(false)
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
       loadPendingOrders()
       loadDownloadedOrders()
+      loadAutoFulfillmentSetting()
     }
   }, [isAdmin, adminLoading])
+
+  const loadAutoFulfillmentSetting = async () => {
+    try {
+      setLoadingAutoFulfillment(true)
+      const response = await fetch("/api/admin/settings/auto-fulfillment")
+      if (response.ok) {
+        const data = await response.json()
+        setAutoFulfillmentEnabled(data.setting?.enabled ?? true)
+      }
+    } catch (error) {
+      console.error("Error loading auto-fulfillment setting:", error)
+    } finally {
+      setLoadingAutoFulfillment(false)
+    }
+  }
+
+  const toggleAutoFulfillment = async () => {
+    try {
+      setTogglingAutoFulfillment(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/settings/auto-fulfillment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ enabled: !autoFulfillmentEnabled }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to update setting")
+      }
+
+      const data = await response.json()
+      setAutoFulfillmentEnabled(data.setting.enabled)
+      toast.success(data.message)
+      
+      // Reload pending orders since the list may have changed
+      loadPendingOrders()
+    } catch (error) {
+      console.error("Error toggling auto-fulfillment:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update setting")
+    } finally {
+      setTogglingAutoFulfillment(false)
+    }
+  }
 
   const loadPendingOrders = async () => {
     try {
@@ -750,11 +810,78 @@ export default function AdminOrdersPage() {
           </TabsContent>
 
           <TabsContent value="fulfillment" className="space-y-4">
+            {/* Auto-Fulfillment Toggle Card */}
+            <Card className="border-2 border-dashed">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      {autoFulfillmentEnabled ? (
+                        <ToggleRight className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <ToggleLeft className="h-5 w-5 text-gray-400" />
+                      )}
+                      Auto-Fulfillment
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Automatically fulfill orders via Code Craft Network API
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {loadingAutoFulfillment ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                    ) : (
+                      <>
+                        <span className={`text-sm font-medium ${autoFulfillmentEnabled ? 'text-green-600' : 'text-gray-500'}`}>
+                          {autoFulfillmentEnabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                        <Switch
+                          checked={autoFulfillmentEnabled}
+                          onCheckedChange={toggleAutoFulfillment}
+                          disabled={togglingAutoFulfillment}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* Affected Networks */}
+                  <div className="flex flex-wrap gap-2">
+                    <span className="text-sm text-gray-600">Affected networks:</span>
+                    <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200">AT - iShare</Badge>
+                    <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
+                  </div>
+                  
+                  {/* Status Description */}
+                  <Alert className={autoFulfillmentEnabled ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'}>
+                    <AlertCircle className={`h-4 w-4 ${autoFulfillmentEnabled ? 'text-green-600' : 'text-orange-600'}`} />
+                    <AlertDescription className={autoFulfillmentEnabled ? 'text-green-800' : 'text-orange-800'}>
+                      {autoFulfillmentEnabled ? (
+                        <>
+                          <strong>Auto-fulfillment is ON:</strong> AT-iShare and Telecel orders are automatically 
+                          fulfilled via Code Craft API when payment is confirmed. These orders will NOT appear 
+                          in the admin download queue.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Auto-fulfillment is OFF:</strong> AT-iShare and Telecel orders will be sent to 
+                          the admin download queue for manual processing, just like MTN and AT-BigTime orders.
+                        </>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Fulfillment Dashboard Card */}
             <Card>
               <CardHeader>
-                <CardTitle>AT-iShare Order Fulfillment</CardTitle>
+                <CardTitle>Code Craft Fulfillment Dashboard</CardTitle>
                 <CardDescription>
-                  Monitor and manage AT-iShare data bundle fulfillment through Code Craft Network API
+                  Monitor and manage data bundle fulfillment through Code Craft Network API
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -763,7 +890,7 @@ export default function AdminOrdersPage() {
                   <div className="text-center">
                     <h3 className="text-lg font-semibold mb-2">Fulfillment Dashboard</h3>
                     <p className="text-gray-600 mb-6">
-                      View real-time fulfillment status for AT-iShare orders
+                      View real-time fulfillment status for auto-fulfilled orders
                     </p>
                     <a href="/dashboard/admin/fulfillment" target="_blank" rel="noopener noreferrer">
                       <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white">

@@ -8,6 +8,30 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+/**
+ * Check if auto-fulfillment is enabled in admin settings
+ */
+async function isAutoFulfillmentEnabled(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "auto_fulfillment_enabled")
+      .single()
+    
+    if (error || !data) {
+      // Default to enabled if setting doesn't exist
+      return true
+    }
+    
+    return data.value?.enabled ?? true
+  } catch (error) {
+    console.warn("[DOWNLOAD] Error checking auto-fulfillment setting:", error)
+    // Default to enabled on error
+    return true
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Verify user is authenticated and is an admin
@@ -40,18 +64,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if auto-fulfillment is enabled (affects which networks can be downloaded)
+    const autoFulfillEnabled = await isAutoFulfillmentEnabled()
+    console.log(`[DOWNLOAD] Auto-fulfillment enabled: ${autoFulfillEnabled}`)
+
     let orders: any[] = []
     let bulkOrderIds: string[] = []
     let shopOrderIds: string[] = []
 
     // If orderType is specified (single type), use specific table
     if (orderType === "shop") {
-      const { data: shopOrders, error: fetchError } = await supabase
+      let shopQuery = supabase
         .from("shop_orders")
         .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
         .in("id", orderIds)
-        .neq("network", "AT - iShare")
-        .neq("network", "Telecel")
+      
+      // If auto-fulfillment is enabled, exclude auto-fulfilled networks
+      if (autoFulfillEnabled) {
+        shopQuery = shopQuery
+          .neq("network", "AT - iShare")
+          .neq("network", "Telecel")
+      }
+
+      const { data: shopOrders, error: fetchError } = await shopQuery
 
       if (fetchError) {
         throw new Error(`Failed to fetch shop orders: ${fetchError.message}`)
@@ -70,12 +105,19 @@ export async function POST(request: NextRequest) {
 
       shopOrderIds = shopOrders?.map(o => o.id) || []
     } else if (orderType === "bulk") {
-      const { data: bulkOrders, error: fetchError } = await supabase
+      let bulkQuery = supabase
         .from("orders")
         .select("id, created_at, phone_number, price, status, size, network")
         .in("id", orderIds)
-        .neq("network", "AT - iShare")
-        .neq("network", "Telecel")
+      
+      // If auto-fulfillment is enabled, exclude auto-fulfilled networks
+      if (autoFulfillEnabled) {
+        bulkQuery = bulkQuery
+          .neq("network", "AT - iShare")
+          .neq("network", "Telecel")
+      }
+
+      const { data: bulkOrders, error: fetchError } = await bulkQuery
 
       if (fetchError) {
         throw new Error(`Failed to fetch orders: ${fetchError.message}`)
@@ -96,21 +138,27 @@ export async function POST(request: NextRequest) {
       // Mixed order types (or orderType not specified) - query both tables
       console.log("Fetching mixed bulk and shop orders...")
 
-      // Try to fetch from both tables, excluding auto-fulfilled networks (AT-iShare, Telecel)
-      const [bulkResult, shopResult] = await Promise.all([
-        supabase
-          .from("orders")
-          .select("id, created_at, phone_number, price, status, size, network")
-          .in("id", orderIds)
-          .neq("network", "AT - iShare")
-          .neq("network", "Telecel"),
-        supabase
-          .from("shop_orders")
-          .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
-          .in("id", orderIds)
+      // Build queries - conditionally exclude auto-fulfilled networks
+      let bulkQueryBuilder = supabase
+        .from("orders")
+        .select("id, created_at, phone_number, price, status, size, network")
+        .in("id", orderIds)
+      
+      let shopQueryBuilder = supabase
+        .from("shop_orders")
+        .select("id, created_at, customer_phone, total_price, order_status, network, volume_gb")
+        .in("id", orderIds)
+      
+      if (autoFulfillEnabled) {
+        bulkQueryBuilder = bulkQueryBuilder
           .neq("network", "AT - iShare")
           .neq("network", "Telecel")
-      ])
+        shopQueryBuilder = shopQueryBuilder
+          .neq("network", "AT - iShare")
+          .neq("network", "Telecel")
+      }
+
+      const [bulkResult, shopResult] = await Promise.all([bulkQueryBuilder, shopQueryBuilder])
 
       if (bulkResult.error) {
         throw new Error(`Failed to fetch bulk orders: ${bulkResult.error.message}`)

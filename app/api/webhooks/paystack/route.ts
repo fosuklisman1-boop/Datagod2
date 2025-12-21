@@ -11,6 +11,30 @@ const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 /**
+ * Check if auto-fulfillment is enabled in admin settings
+ */
+async function isAutoFulfillmentEnabled(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "auto_fulfillment_enabled")
+      .single()
+    
+    if (error || !data) {
+      // Default to enabled if setting doesn't exist
+      return true
+    }
+    
+    return data.value?.enabled ?? true
+  } catch (error) {
+    console.warn("[WEBHOOK] Error checking auto-fulfillment setting:", error)
+    // Default to enabled on error
+    return true
+  }
+}
+
+/**
  * Webhook endpoint for Paystack payment notifications
  * Configure this URL in your Paystack dashboard settings
  */
@@ -165,11 +189,16 @@ export async function POST(request: NextRequest) {
             }
 
             // Trigger Code Craft fulfillment for shop orders (AT-iShare and Telecel)
+            // Only if auto-fulfillment is enabled in admin settings
             const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL"]
             const networkLower = (shopOrderData?.network || "").toLowerCase()
-            const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === networkLower)
+            const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === networkLower)
             
-            console.log(`[WEBHOOK] Shop order network: "${shopOrderData?.network}" | Should fulfill: ${shouldFulfill}`)
+            // Check if auto-fulfillment is enabled
+            const autoFulfillEnabled = await isAutoFulfillmentEnabled()
+            const shouldFulfill = isAutoFulfillable && autoFulfillEnabled
+            
+            console.log(`[WEBHOOK] Shop order network: "${shopOrderData?.network}" | Auto-fulfillable: ${isAutoFulfillable} | Auto-fulfill enabled: ${autoFulfillEnabled} | Should fulfill: ${shouldFulfill}`)
             
             if (shouldFulfill && shopOrderData?.customer_phone) {
               console.log(`[WEBHOOK] Triggering Code Craft fulfillment for shop order ${paymentData.order_id}`)
@@ -190,6 +219,8 @@ export async function POST(request: NextRequest) {
               }).catch(err => {
                 console.error(`[WEBHOOK] ❌ Error triggering fulfillment for shop order ${paymentData.order_id}:`, err)
               })
+            } else if (isAutoFulfillable && !autoFulfillEnabled) {
+              console.log(`[WEBHOOK] ℹ Auto-fulfillment disabled. Shop order ${paymentData.order_id} will go to admin queue.`)
             } else if (shouldFulfill && !shopOrderData?.customer_phone) {
               console.error(`[WEBHOOK] ❌ Cannot fulfill shop order ${paymentData.order_id}: No customer_phone`)
             }
