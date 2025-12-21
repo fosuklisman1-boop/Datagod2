@@ -51,6 +51,10 @@ export const SMSTemplates = {
 
   passwordReset: (link: string) =>
     `DATAGOD: Click to reset password: ${link}. Valid for 1 hour. Don't share!`,
+
+  // Admin notifications
+  fulfillmentFailed: (orderId: string, phone: string, network: string, sizeGb: string, reason: string) =>
+    `[ADMIN] Fulfillment FAILED! Order: ${orderId.substring(0, 8)} | ${phone} | ${network} ${sizeGb}GB | Reason: ${reason.substring(0, 50)}`,
 }
 
 /**
@@ -223,4 +227,82 @@ export async function sendSMSWithRetry(
     success: false,
     error: 'Max retries exceeded',
   }
+}
+
+/**
+ * Get admin phone numbers from settings or environment
+ */
+async function getAdminPhoneNumbers(): Promise<string[]> {
+  try {
+    // First try from admin_settings table
+    const { data, error } = await supabase
+      .from('admin_settings')
+      .select('value')
+      .eq('key', 'admin_notification_phones')
+      .single()
+    
+    if (!error && data?.value?.phones) {
+      return data.value.phones as string[]
+    }
+  } catch (e) {
+    console.warn('[SMS] Could not fetch admin phones from DB:', e)
+  }
+  
+  // Fallback to environment variable (comma-separated)
+  const envPhones = process.env.ADMIN_NOTIFICATION_PHONES
+  if (envPhones) {
+    return envPhones.split(',').map((p: string) => p.trim()).filter(Boolean)
+  }
+  
+  return []
+}
+
+/**
+ * Send SMS notification to all admin users
+ * Used for critical alerts like fulfillment failures
+ */
+export async function notifyAdmins(message: string, type: string, reference?: string): Promise<void> {
+  const adminPhones = await getAdminPhoneNumbers()
+  
+  if (adminPhones.length === 0) {
+    console.warn('[SMS] No admin phone numbers configured for notifications')
+    return
+  }
+  
+  console.log(`[SMS] Notifying ${adminPhones.length} admin(s): ${type}`)
+  
+  // Send to all admins in parallel (non-blocking)
+  const sendPromises = adminPhones.map(phone => 
+    sendSMS({
+      phone,
+      message,
+      type,
+      reference,
+    }).catch(err => {
+      console.error(`[SMS] Failed to notify admin ${phone}:`, err)
+    })
+  )
+  
+  await Promise.allSettled(sendPromises)
+}
+
+/**
+ * Notify admins of a fulfillment failure
+ */
+export async function notifyFulfillmentFailure(
+  orderId: string,
+  customerPhone: string,
+  network: string,
+  sizeGb: number,
+  reason: string
+): Promise<void> {
+  const message = SMSTemplates.fulfillmentFailed(
+    orderId,
+    customerPhone,
+    network,
+    sizeGb.toString(),
+    reason
+  )
+  
+  await notifyAdmins(message, 'fulfillment_failure', orderId)
 }

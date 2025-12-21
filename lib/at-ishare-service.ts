@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { notificationService } from "./notification-service"
+import { notifyFulfillmentFailure } from "./sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -182,6 +183,13 @@ class ATiShareService {
         orderType
       )
 
+      // Send SMS notification to admin(s) about the failure
+      try {
+        await notifyFulfillmentFailure(orderId, phoneNumber, network, sizeGb, errorMessage)
+      } catch (smsError) {
+        console.error(`[CODECRAFT] Failed to send SMS notification:`, smsError)
+      }
+
       return {
         success: false,
         statusCode: httpStatus,
@@ -206,6 +214,13 @@ class ATiShareService {
         )
       } catch (logError) {
         console.error(`[CODECRAFT] Failed to log fulfillment error:`, logError)
+      }
+
+      // Send SMS notification to admin(s) about the failure
+      try {
+        await notifyFulfillmentFailure(orderId, phoneNumber, network, sizeGb, errorMessage)
+      } catch (smsError) {
+        console.error(`[CODECRAFT] Failed to send SMS notification:`, smsError)
       }
 
       return {
