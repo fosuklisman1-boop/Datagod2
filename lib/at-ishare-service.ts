@@ -183,12 +183,24 @@ class ATiShareService {
           orderType
         )
 
-        // Wait 5 seconds then verify actual delivery status
-        console.log(`[CODECRAFT] Waiting 5 seconds before verifying delivery...`)
-        await new Promise(resolve => setTimeout(resolve, 5000))
+        // Poll for status up to 3 times (5s, 10s, 15s = 30 seconds total)
+        const pollIntervals = [5000, 10000, 15000] // Wait 5s, then 10s, then 15s
+        let verifyResult = { actualStatus: "processing", message: "Order still processing" }
 
-        // Verify the actual status from Code Craft
-        const verifyResult = await this.verifyAndUpdateStatus(orderId, network, orderType, isBigTime)
+        for (let i = 0; i < pollIntervals.length; i++) {
+          console.log(`[CODECRAFT] Waiting ${pollIntervals[i] / 1000}s before verification attempt ${i + 1}...`)
+          await new Promise(resolve => setTimeout(resolve, pollIntervals[i]))
+
+          // Verify the actual status from Code Craft
+          verifyResult = await this.verifyAndUpdateStatus(orderId, network, orderType, isBigTime)
+          
+          console.log(`[CODECRAFT] Verification attempt ${i + 1}: ${verifyResult.actualStatus}`)
+
+          // If we got a final status, stop polling
+          if (verifyResult.actualStatus === "completed" || verifyResult.actualStatus === "failed") {
+            break
+          }
+        }
         
         if (verifyResult.actualStatus === "completed") {
           return {
@@ -209,11 +221,12 @@ class ATiShareService {
             message: verifyResult.message || "Order delivery failed after verification",
           }
         } else {
-          // Still pending - return success but order stays as "processing"
+          // Still pending after all retries - return success but order stays as "processing"
+          console.log(`[CODECRAFT] Order ${orderId} still processing after ${pollIntervals.length} verification attempts`)
           return {
             success: true,
             reference: orderId,
-            message: "Order submitted, awaiting confirmation",
+            message: "Order submitted, awaiting confirmation from network",
           }
         }
       }
