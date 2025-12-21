@@ -168,25 +168,53 @@ class ATiShareService {
       // HTTP 200 = Success (as per API documentation)
       // Other codes = Failed
       if (httpStatus === 200) {
-        console.log(`[CODECRAFT] Order fulfilled successfully: ${orderId}`)
+        console.log(`[CODECRAFT] Order request accepted: ${orderId}`)
         console.log(`[CODECRAFT] API Message: ${responseData.message || "Sent Successfully"}`)
         
-        // Log successful fulfillment and update order status to "completed"
+        // Log fulfillment attempt (initially as "processing")
         await this.logFulfillment(
           orderId,
-          "success",
+          "processing",
           responseData,
           null,
-          orderId, // Use order ID as reference
+          orderId,
           phoneNumber,
           network,
           orderType
         )
 
-        return {
-          success: true,
-          reference: orderId,
-          message: responseData.message || "Order fulfilled successfully",
+        // Wait 5 seconds then verify actual delivery status
+        console.log(`[CODECRAFT] Waiting 5 seconds before verifying delivery...`)
+        await new Promise(resolve => setTimeout(resolve, 5000))
+
+        // Verify the actual status from Code Craft
+        const verifyResult = await this.verifyAndUpdateStatus(orderId, network, orderType, isBigTime)
+        
+        if (verifyResult.actualStatus === "completed") {
+          return {
+            success: true,
+            reference: orderId,
+            message: "Order fulfilled and verified successfully",
+          }
+        } else if (verifyResult.actualStatus === "failed") {
+          // Notify admin of failure
+          try {
+            await notifyFulfillmentFailure(orderId, phoneNumber, network, sizeGb, verifyResult.message || "Delivery failed")
+          } catch (smsError) {
+            console.error(`[CODECRAFT] Failed to send SMS notification:`, smsError)
+          }
+          return {
+            success: false,
+            errorCode: "DELIVERY_FAILED",
+            message: verifyResult.message || "Order delivery failed after verification",
+          }
+        } else {
+          // Still pending - return success but order stays as "processing"
+          return {
+            success: true,
+            reference: orderId,
+            message: "Order submitted, awaiting confirmation",
+          }
         }
       }
 
@@ -253,6 +281,95 @@ class ATiShareService {
         errorCode: "FULFILLMENT_ERROR",
         message: errorMessage,
       }
+    }
+  }
+
+  /**
+   * Verify order status and update database accordingly
+   * Called after initial fulfillment to confirm actual delivery
+   */
+  async verifyAndUpdateStatus(
+    orderId: string, 
+    network: string, 
+    orderType: "wallet" | "shop",
+    isBigTime: boolean = false
+  ): Promise<{ actualStatus: string; message?: string }> {
+    try {
+      console.log(`[CODECRAFT] Verifying actual delivery status for order ${orderId}`)
+
+      // Determine correct endpoint
+      const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
+
+      const response = await fetch(`${codecraftApiUrl}/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reference_id: orderId,
+          agent_api: codecraftApiKey,
+        }),
+      })
+
+      const responseText = await response.text()
+      let data: any = {}
+
+      try {
+        data = JSON.parse(responseText)
+      } catch {
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          try {
+            data = JSON.parse(jsonMatch[0])
+          } catch {
+            console.error(`[CODECRAFT] Could not parse verification response`)
+          }
+        }
+      }
+
+      console.log(`[CODECRAFT] Verification response:`, data)
+
+      const orderStatus = data.order_details?.order_status?.toLowerCase() || ""
+      let actualStatus = "processing"
+      let message = ""
+
+      if (orderStatus.includes("successful") || orderStatus.includes("delivered") || orderStatus.includes("completed")) {
+        actualStatus = "completed"
+        message = "Order delivered successfully"
+      } else if (orderStatus.includes("failed") || orderStatus.includes("error")) {
+        actualStatus = "failed"
+        message = data.order_details?.order_status || "Delivery failed"
+      } else if (orderStatus.includes("pending") || orderStatus.includes("processing") || orderStatus === "") {
+        actualStatus = "processing"
+        message = "Order still processing"
+      }
+
+      // Update the order status in database
+      if (orderType === "wallet") {
+        await this.supabase
+          .from("orders")
+          .update({ status: actualStatus, updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+      } else {
+        await this.supabase
+          .from("shop_orders")
+          .update({ order_status: actualStatus, updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+      }
+
+      // Also update fulfillment log
+      await this.supabase
+        .from("fulfillment_logs")
+        .update({ 
+          status: actualStatus === "completed" ? "success" : actualStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq("order_id", orderId)
+
+      console.log(`[CODECRAFT] Order ${orderId} verified as: ${actualStatus}`)
+
+      return { actualStatus, message }
+    } catch (error) {
+      console.error(`[CODECRAFT] Verification error:`, error)
+      return { actualStatus: "processing", message: "Could not verify status" }
     }
   }
 
