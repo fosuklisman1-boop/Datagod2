@@ -132,11 +132,36 @@ class ATiShareService {
         body: JSON.stringify(apiRequest),
       })
 
-      const responseData = await response.json()
       const httpStatus = response.status
-
+      const responseText = await response.text()
+      
       console.log(`[CODECRAFT-FULFILL] API Response received`)
       console.log(`[CODECRAFT-FULFILL] HTTP Status: ${httpStatus}`)
+      console.log(`[CODECRAFT-FULFILL] Raw Response Text:`, responseText)
+
+      // Try to parse JSON from response, handling PHP warnings/errors mixed in
+      let responseData: any = {}
+      try {
+        // First try direct JSON parse
+        responseData = JSON.parse(responseText)
+      } catch (parseError) {
+        // If direct parse fails, try to extract JSON from mixed content
+        // PHP sometimes outputs warnings before JSON: <br /> <b>Warning...</b>{"status": ...}
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          try {
+            responseData = JSON.parse(jsonMatch[0])
+            console.log(`[CODECRAFT-FULFILL] Extracted JSON from mixed response:`, responseData)
+          } catch (innerParseError) {
+            console.error(`[CODECRAFT-FULFILL] Could not extract valid JSON from response`)
+            responseData = { message: "Invalid response from API", raw: responseText.substring(0, 500) }
+          }
+        } else {
+          console.error(`[CODECRAFT-FULFILL] Response is not JSON:`, responseText.substring(0, 500))
+          responseData = { message: "Non-JSON response from API", raw: responseText.substring(0, 500) }
+        }
+      }
+
       console.log(`[CODECRAFT-FULFILL] Response Data:`, responseData)
 
       // Handle response based on HTTP status code
