@@ -61,8 +61,20 @@ export default function DashboardPage() {
       fetchDashboardStats()
       fetchRecentActivity()
       fetchWalletBalance()
+      // Trigger background check for scheduled order status updates
+      checkScheduledOrders()
     }
   }, [user])
+
+  const checkScheduledOrders = async () => {
+    try {
+      // Silently check for scheduled order updates in background
+      await fetch("/api/orders/check-status", { method: "GET" })
+    } catch (error) {
+      // Silently fail - this is a background task
+      console.error("Background order check failed:", error)
+    }
+  }
 
   const fetchUserInfo = async () => {
     try {

@@ -421,7 +421,7 @@ class ATiShareService {
   /**
    * Check and update status of orders that are due for re-verification
    * Called from dashboard or API to process scheduled checks
-   * Attempt schedule: 4 = 30min, 5 = 60min, 6 = 24hrs
+   * Attempt schedule: Every 15 minutes for 24 hours (max 96 attempts after initial 3)
    */
   async checkScheduledOrders(): Promise<{ checked: number; updated: number }> {
     try {
@@ -430,12 +430,13 @@ class ATiShareService {
       const now = new Date().toISOString()
 
       // Get orders that are due for checking (retry_after has passed)
+      // Max 99 attempts: 3 initial + 96 scheduled (every 15 min for 24 hrs)
       const { data: dueLogs, error } = await this.supabase
         .from("fulfillment_logs")
         .select("order_id, attempt_number, phone_number, network, order_type")
         .eq("status", "processing")
         .lte("retry_after", now)
-        .lt("attempt_number", 6) // Max 6 attempts
+        .lt("attempt_number", 99) // Max 99 attempts (3 initial + 96 scheduled)
         .limit(10) // Process max 10 per call to avoid timeout
 
       if (error || !dueLogs || dueLogs.length === 0) {
@@ -478,24 +479,41 @@ class ATiShareService {
               }
             }
           } else {
-            // Still processing - schedule next check based on attempt number
+            // Still processing - schedule next check every 15 minutes for 24 hours
             const attemptNumber = (log.attempt_number || 3) + 1
-            let nextCheckMs: number
-
-            switch (attemptNumber) {
-              case 4:
-                nextCheckMs = 30 * 60 * 1000 // 30 minutes
-                break
-              case 5:
-                nextCheckMs = 60 * 60 * 1000 // 60 minutes
-                break
-              case 6:
-                nextCheckMs = 24 * 60 * 60 * 1000 // 24 hours
-                break
-              default:
-                nextCheckMs = 24 * 60 * 60 * 1000 // Default to 24 hours
+            
+            // Every 15 minutes for 24 hours = 96 attempts max
+            // After 99 total attempts (3 initial + 96 scheduled), stop checking
+            if (attemptNumber >= 99) {
+              console.log(`[CODECRAFT] Order ${log.order_id} max attempts reached (${attemptNumber}), marking as failed`)
+              await this.supabase
+                .from("fulfillment_logs")
+                .update({ 
+                  status: "failed",
+                  error_message: "Max retry attempts reached after 24 hours",
+                  updated_at: new Date().toISOString()
+                })
+                .eq("order_id", log.order_id)
+              
+              // Update order status to failed
+              const tableName = log.order_type === "shop" ? "shop_orders" : "orders"
+              const statusField = log.order_type === "shop" ? "order_status" : "status"
+              await this.supabase
+                .from(tableName)
+                .update({ [statusField]: "failed", updated_at: new Date().toISOString() })
+                .eq("id", log.order_id)
+              
+              // Send failure notification
+              try {
+                await notifyFulfillmentFailure(log.order_id, log.phone_number || "", log.network || "", 0, "Order failed after 24 hours of retry attempts")
+              } catch (smsError) {
+                console.error(`[CODECRAFT] Failed to send SMS notification:`, smsError)
+              }
+              continue
             }
 
+            // Schedule next check in 15 minutes
+            const nextCheckMs = 15 * 60 * 1000 // 15 minutes
             const nextCheckTime = new Date(Date.now() + nextCheckMs).toISOString()
 
             await this.supabase
