@@ -325,8 +325,11 @@ class ATiShareService {
 
       // Determine correct endpoint
       const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
+      const url = `${codecraftApiUrl}/${endpoint}`
 
-      const response = await fetch(`${codecraftApiUrl}/${endpoint}`, {
+      console.log(`[CODECRAFT] Calling ${url} for order ${orderId}`)
+
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -335,7 +338,11 @@ class ATiShareService {
         }),
       })
 
+      console.log(`[CODECRAFT] HTTP Status: ${response.status}`)
+
       const responseText = await response.text()
+      console.log(`[CODECRAFT] Raw response (first 500 chars):`, responseText.substring(0, 500))
+      
       let data: any = {}
 
       try {
@@ -345,28 +352,40 @@ class ATiShareService {
         if (jsonMatch) {
           try {
             data = JSON.parse(jsonMatch[0])
+            console.log(`[CODECRAFT] Extracted JSON from mixed response`)
           } catch {
             console.error(`[CODECRAFT] Could not parse verification response`)
           }
         }
       }
 
-      console.log(`[CODECRAFT] Verification response:`, data)
+      console.log(`[CODECRAFT] Parsed verification response:`, JSON.stringify(data, null, 2))
 
-      const orderStatus = data.order_details?.order_status?.toLowerCase() || ""
+      // Check multiple possible status locations
+      const orderStatus = (
+        data.order_details?.order_status || 
+        data.order_status || 
+        data.status || 
+        ""
+      ).toLowerCase()
+
+      console.log(`[CODECRAFT] Order status value: "${orderStatus}"`)
+
       let actualStatus = "processing"
       let message = ""
 
-      if (orderStatus.includes("successful") || orderStatus.includes("delivered") || orderStatus.includes("completed")) {
+      if (orderStatus.includes("successful") || orderStatus.includes("delivered") || orderStatus.includes("completed") || orderStatus === "success") {
         actualStatus = "completed"
         message = "Order delivered successfully"
       } else if (orderStatus.includes("failed") || orderStatus.includes("error") || orderStatus.includes("cancelled") || orderStatus.includes("canceled") || orderStatus.includes("rejected") || orderStatus.includes("refund")) {
         actualStatus = "failed"
-        message = data.order_details?.order_status || "Delivery failed/cancelled"
+        message = data.order_details?.order_status || data.message || "Delivery failed/cancelled"
       } else if (orderStatus.includes("pending") || orderStatus.includes("processing") || orderStatus === "") {
         actualStatus = "processing"
         message = "Order still processing"
       }
+
+      console.log(`[CODECRAFT] Determined status: ${actualStatus}, message: ${message}`)
 
       // Update the order status in database
       if (orderType === "wallet") {
