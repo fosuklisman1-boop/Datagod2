@@ -483,32 +483,27 @@ class ATiShareService {
             const attemptNumber = (log.attempt_number || 3) + 1
             
             // Every 15 minutes for 24 hours = 96 attempts max
-            // After 99 total attempts (3 initial + 96 scheduled), stop checking
+            // After 99 total attempts (3 initial + 96 scheduled), assume completed
             if (attemptNumber >= 99) {
-              console.log(`[CODECRAFT] Order ${log.order_id} max attempts reached (${attemptNumber}), marking as failed`)
+              console.log(`[CODECRAFT] Order ${log.order_id} max attempts reached (${attemptNumber}), marking as completed`)
               await this.supabase
                 .from("fulfillment_logs")
                 .update({ 
-                  status: "failed",
-                  error_message: "Max retry attempts reached after 24 hours",
+                  status: "success",
                   updated_at: new Date().toISOString()
                 })
                 .eq("order_id", log.order_id)
               
-              // Update order status to failed
+              // Update order status to completed
               const tableName = log.order_type === "shop" ? "shop_orders" : "orders"
               const statusField = log.order_type === "shop" ? "order_status" : "status"
               await this.supabase
                 .from(tableName)
-                .update({ [statusField]: "failed", updated_at: new Date().toISOString() })
+                .update({ [statusField]: "completed", updated_at: new Date().toISOString() })
                 .eq("id", log.order_id)
               
-              // Send failure notification
-              try {
-                await notifyFulfillmentFailure(log.order_id, log.phone_number || "", log.network || "", 0, "Order failed after 24 hours of retry attempts")
-              } catch (smsError) {
-                console.error(`[CODECRAFT] Failed to send SMS notification:`, smsError)
-              }
+              updated++
+              console.log(`[CODECRAFT] Order ${log.order_id} auto-completed after 24 hours`)
               continue
             }
 
