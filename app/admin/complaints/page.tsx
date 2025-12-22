@@ -617,7 +617,47 @@ export default function AdminComplaintsPage() {
                             (selectedComplaint?.priority || 'medium').slice(1)}
                         </Badge>
                       </div>
-                    </div>                  {selectedComplaint?.user && (
+                    </div>
+
+                  {/* Timestamps */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
+                    <div>
+                      <Label className="text-xs font-semibold text-gray-600 uppercase">
+                        Submitted
+                      </Label>
+                      <p className="text-sm mt-1 text-gray-700">
+                        {selectedComplaint?.created_at 
+                          ? new Date(selectedComplaint.created_at).toLocaleString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: true
+                            })
+                          : 'N/A'}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold text-gray-600 uppercase">
+                        Last Updated
+                      </Label>
+                      <p className="text-sm mt-1 text-gray-700">
+                        {selectedComplaint?.updated_at 
+                          ? new Date(selectedComplaint.updated_at).toLocaleString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: true
+                            })
+                          : 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedComplaint?.user && (
                     <div>
                       <Label className="text-xs font-semibold text-gray-600 uppercase">
                         Customer
