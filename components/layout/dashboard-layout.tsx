@@ -29,21 +29,28 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
     const fetchAnnouncement = async () => {
       try {
-        // Check if user has already seen this announcement in this session
-        const sessionKey = `announcement_seen_${user.id}`
-        const hasSeenInSession = sessionStorage.getItem(sessionKey)
-        
-        if (hasSeenInSession) {
-          return
-        }
-
         const response = await fetch("/api/admin/settings")
         const data = await response.json()
 
         if (data.announcement_enabled && data.announcement_title && data.announcement_message) {
+          // Create a unique key based on the announcement content
+          // This ensures users see new announcements even if they've dismissed previous ones
+          const announcementHash = btoa(unescape(encodeURIComponent(`${data.announcement_title}:${data.announcement_message}`))).substring(0, 16)
+          const sessionKey = `announcement_seen_${user.id}_${announcementHash}`
+          
+          // Check if user has already seen THIS specific announcement in this session
+          const hasSeenInSession = sessionStorage.getItem(sessionKey)
+          
+          if (hasSeenInSession) {
+            return
+          }
+
           setAnnouncementTitle(data.announcement_title)
           setAnnouncementMessage(data.announcement_message)
           setShowAnnouncement(true)
+          
+          // Store the session key for later use when closing
+          sessionStorage.setItem("current_announcement_key", sessionKey)
         }
       } catch (error) {
         console.error("Error fetching announcement:", error)
@@ -55,9 +62,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   const handleCloseAnnouncement = () => {
     setShowAnnouncement(false)
-    // Mark as seen in this session so it won't show again until next login
-    if (user) {
-      sessionStorage.setItem(`announcement_seen_${user.id}`, "true")
+    // Mark this specific announcement as seen in this session
+    const sessionKey = sessionStorage.getItem("current_announcement_key")
+    if (sessionKey) {
+      sessionStorage.setItem(sessionKey, "true")
     }
   }
 
