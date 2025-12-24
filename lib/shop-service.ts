@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { getPriceAdjustments, getAdjustmentForNetwork, applyPriceAdjustment } from "./price-adjustment-service"
 
 // Shop operations
 export const shopService = {
@@ -139,7 +140,26 @@ export const shopPackageService = {
     
     // Filter out packages that are disabled by admin (packages.is_available = false)
     const availableData = data?.filter(item => item.packages?.is_available !== false) || []
-    return availableData
+    
+    // Apply price adjustments to the base package prices
+    const priceAdjustments = await getPriceAdjustments()
+    
+    const adjustedData = availableData.map(item => {
+      if (item.packages) {
+        const adjustmentPercentage = getAdjustmentForNetwork(item.packages.network, priceAdjustments)
+        const adjustedBasePrice = applyPriceAdjustment(item.packages.price, adjustmentPercentage)
+        return {
+          ...item,
+          packages: {
+            ...item.packages,
+            price: adjustedBasePrice
+          }
+        }
+      }
+      return item
+    })
+    
+    return adjustedData
   },
 
   // Update package profit margin

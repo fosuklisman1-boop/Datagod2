@@ -18,6 +18,7 @@ import { toast } from "sonner"
 import { Download, CheckCircle, AlertCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { validatePhoneNumber } from "@/lib/phone-validation"
+import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
 import {
   Dialog,
   DialogContent,
@@ -72,8 +73,11 @@ export function BulkOrdersForm() {
       if (error) throw error
 
       if (data) {
+        // Apply price adjustments based on network settings
+        const adjustedData = await applyPriceAdjustmentsToPackages(data)
+        
         // Transform data to match our format
-        const transformedPackages = data.map((pkg: any) => ({
+        const transformedPackages = adjustedData.map((pkg: any) => ({
           network: pkg.network,
           size: parseFloat(pkg.size),
           price: pkg.price,
@@ -82,7 +86,7 @@ export function BulkOrdersForm() {
         setPackages(transformedPackages)
 
         // Extract unique networks and create network list
-        const uniqueNetworks = [...new Set(data.map((pkg: any) => pkg.network))]
+        const uniqueNetworks = [...new Set(adjustedData.map((pkg: any) => pkg.network))]
         const networkList = uniqueNetworks.map((network: string) => ({
           id: network.toLowerCase().replace(/\s+/g, ""),
           label: network,

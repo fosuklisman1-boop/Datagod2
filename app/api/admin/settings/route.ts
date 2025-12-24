@@ -29,7 +29,11 @@ export async function GET(request: NextRequest) {
           announcement_message: "",
           paystack_fee_percentage: 3.0,
           wallet_topup_fee_percentage: 0,
-          withdrawal_fee_percentage: 0
+          withdrawal_fee_percentage: 0,
+          price_adjustment_mtn: 0,
+          price_adjustment_telecel: 0,
+          price_adjustment_at_ishare: 0,
+          price_adjustment_at_bigtime: 0
         }])
         .select()
         .single()
@@ -101,7 +105,11 @@ export async function PUT(request: NextRequest) {
       announcement_message,
       paystack_fee_percentage,
       wallet_topup_fee_percentage,
-      withdrawal_fee_percentage
+      withdrawal_fee_percentage,
+      price_adjustment_mtn,
+      price_adjustment_telecel,
+      price_adjustment_at_ishare,
+      price_adjustment_at_bigtime
     } = body
 
     if (!join_community_link) {
@@ -131,6 +139,23 @@ export async function PUT(request: NextRequest) {
         { error: "withdrawal_fee_percentage must be between 0 and 100" },
         { status: 400 }
       )
+    }
+
+    // Validate price adjustments (-100 to +100)
+    const priceAdjustments = [
+      { name: 'price_adjustment_mtn', value: price_adjustment_mtn },
+      { name: 'price_adjustment_telecel', value: price_adjustment_telecel },
+      { name: 'price_adjustment_at_ishare', value: price_adjustment_at_ishare },
+      { name: 'price_adjustment_at_bigtime', value: price_adjustment_at_bigtime }
+    ]
+    
+    for (const adj of priceAdjustments) {
+      if (adj.value !== undefined && (adj.value < -100 || adj.value > 100)) {
+        return NextResponse.json(
+          { error: `${adj.name} must be between -100 and 100` },
+          { status: 400 }
+        )
+      }
     }
 
     // Validate URL format
@@ -163,6 +188,10 @@ export async function PUT(request: NextRequest) {
           paystack_fee_percentage: paystack_fee_percentage ?? 3.0,
           wallet_topup_fee_percentage: wallet_topup_fee_percentage ?? 0,
           withdrawal_fee_percentage: withdrawal_fee_percentage ?? 0,
+          price_adjustment_mtn: price_adjustment_mtn ?? 0,
+          price_adjustment_telecel: price_adjustment_telecel ?? 0,
+          price_adjustment_at_ishare: price_adjustment_at_ishare ?? 0,
+          price_adjustment_at_bigtime: price_adjustment_at_bigtime ?? 0,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingSettings.id)
@@ -187,6 +216,10 @@ export async function PUT(request: NextRequest) {
             paystack_fee_percentage: paystack_fee_percentage ?? 3.0,
             wallet_topup_fee_percentage: wallet_topup_fee_percentage ?? 0,
             withdrawal_fee_percentage: withdrawal_fee_percentage ?? 0,
+            price_adjustment_mtn: price_adjustment_mtn ?? 0,
+            price_adjustment_telecel: price_adjustment_telecel ?? 0,
+            price_adjustment_at_ishare: price_adjustment_at_ishare ?? 0,
+            price_adjustment_at_bigtime: price_adjustment_at_bigtime ?? 0,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },

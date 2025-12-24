@@ -13,6 +13,7 @@ import { Grid3x3, List, Search, Loader2 } from "lucide-react"
 import { PhoneNumberModal } from "@/components/phone-number-modal"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
+import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
 import { toast } from "sonner"
 
 interface Package {
@@ -132,10 +133,12 @@ export default function DataPackagesPage() {
         return
       }
 
-      setPackages(data || [])
+      // Apply price adjustments based on network settings
+      const adjustedPackages = await applyPriceAdjustmentsToPackages(data || [])
+      setPackages(adjustedPackages)
 
       // Extract unique networks
-      const uniqueNetworks = ["All", ...Array.from(new Set(data?.map((pkg: Package) => pkg.network) || []))]
+      const uniqueNetworks = ["All", ...Array.from(new Set(adjustedPackages?.map((pkg: Package) => pkg.network) || []))]
       setNetworks(uniqueNetworks as string[])
     } catch (error) {
       console.error("Error loading packages:", error)

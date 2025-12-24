@@ -36,6 +36,12 @@ export default function AdminSettingsPage() {
   const [walletTopupFeePercentage, setWalletTopupFeePercentage] = useState(0)
   const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
   
+  // Price adjustment settings (per network)
+  const [priceAdjustmentMtn, setPriceAdjustmentMtn] = useState(0)
+  const [priceAdjustmentTelecel, setPriceAdjustmentTelecel] = useState(0)
+  const [priceAdjustmentAtIshare, setPriceAdjustmentAtIshare] = useState(0)
+  const [priceAdjustmentAtBigtime, setPriceAdjustmentAtBigtime] = useState(0)
+  
   // Christmas theme settings
   const [christmasThemeEnabled, setChristmasThemeEnabled] = useState(false)
   const [savingChristmasTheme, setSavingChristmasTheme] = useState(false)
@@ -94,6 +100,20 @@ export default function AdminSettingsPage() {
         }
         if (data.withdrawal_fee_percentage !== undefined) {
           setWithdrawalFeePercentage(data.withdrawal_fee_percentage)
+        }
+
+        // Load price adjustment settings
+        if (data.price_adjustment_mtn !== undefined) {
+          setPriceAdjustmentMtn(data.price_adjustment_mtn)
+        }
+        if (data.price_adjustment_telecel !== undefined) {
+          setPriceAdjustmentTelecel(data.price_adjustment_telecel)
+        }
+        if (data.price_adjustment_at_ishare !== undefined) {
+          setPriceAdjustmentAtIshare(data.price_adjustment_at_ishare)
+        }
+        if (data.price_adjustment_at_bigtime !== undefined) {
+          setPriceAdjustmentAtBigtime(data.price_adjustment_at_bigtime)
         }
 
         // Load Christmas theme setting
@@ -212,6 +232,10 @@ export default function AdminSettingsPage() {
           paystack_fee_percentage: paystackFeePercentage,
           wallet_topup_fee_percentage: walletTopupFeePercentage,
           withdrawal_fee_percentage: withdrawalFeePercentage,
+          price_adjustment_mtn: priceAdjustmentMtn,
+          price_adjustment_telecel: priceAdjustmentTelecel,
+          price_adjustment_at_ishare: priceAdjustmentAtIshare,
+          price_adjustment_at_bigtime: priceAdjustmentAtBigtime,
         }),
       })
 
@@ -526,6 +550,171 @@ export default function AdminSettingsPage() {
                       GHS {(100 - (100 * withdrawalFeePercentage / 100)).toFixed(2)}
                     </span>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save Settings
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Price Adjustment Settings */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-orange-600" />
+              Package Price Adjustments
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Adjust package prices by percentage for each network. Positive values increase prices (markup), 
+              negative values decrease prices (discount). Applied at display time without changing base prices.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* MTN */}
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <Label htmlFor="priceAdjMtn" className="text-sm font-medium text-yellow-900">
+                  MTN Price Adjustment
+                </Label>
+                <div className="flex items-center gap-2 mt-2">
+                  <Input
+                    id="priceAdjMtn"
+                    type="number"
+                    min="-100"
+                    max="100"
+                    step="0.01"
+                    value={priceAdjustmentMtn}
+                    onChange={(e) => setPriceAdjustmentMtn(parseFloat(e.target.value) || 0)}
+                    className="flex-1 bg-white"
+                    placeholder="0"
+                  />
+                  <span className="text-sm font-medium text-yellow-800">%</span>
+                </div>
+                <p className="text-xs text-yellow-700 mt-1">
+                  {priceAdjustmentMtn > 0 ? `+${priceAdjustmentMtn}% markup` : priceAdjustmentMtn < 0 ? `${priceAdjustmentMtn}% discount` : 'No adjustment'}
+                </p>
+              </div>
+
+              {/* Telecel */}
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <Label htmlFor="priceAdjTelecel" className="text-sm font-medium text-red-900">
+                  Telecel Price Adjustment
+                </Label>
+                <div className="flex items-center gap-2 mt-2">
+                  <Input
+                    id="priceAdjTelecel"
+                    type="number"
+                    min="-100"
+                    max="100"
+                    step="0.01"
+                    value={priceAdjustmentTelecel}
+                    onChange={(e) => setPriceAdjustmentTelecel(parseFloat(e.target.value) || 0)}
+                    className="flex-1 bg-white"
+                    placeholder="0"
+                  />
+                  <span className="text-sm font-medium text-red-800">%</span>
+                </div>
+                <p className="text-xs text-red-700 mt-1">
+                  {priceAdjustmentTelecel > 0 ? `+${priceAdjustmentTelecel}% markup` : priceAdjustmentTelecel < 0 ? `${priceAdjustmentTelecel}% discount` : 'No adjustment'}
+                </p>
+              </div>
+
+              {/* AT - iShare */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <Label htmlFor="priceAdjAtIshare" className="text-sm font-medium text-blue-900">
+                  AT - iShare Price Adjustment
+                </Label>
+                <div className="flex items-center gap-2 mt-2">
+                  <Input
+                    id="priceAdjAtIshare"
+                    type="number"
+                    min="-100"
+                    max="100"
+                    step="0.01"
+                    value={priceAdjustmentAtIshare}
+                    onChange={(e) => setPriceAdjustmentAtIshare(parseFloat(e.target.value) || 0)}
+                    className="flex-1 bg-white"
+                    placeholder="0"
+                  />
+                  <span className="text-sm font-medium text-blue-800">%</span>
+                </div>
+                <p className="text-xs text-blue-700 mt-1">
+                  {priceAdjustmentAtIshare > 0 ? `+${priceAdjustmentAtIshare}% markup` : priceAdjustmentAtIshare < 0 ? `${priceAdjustmentAtIshare}% discount` : 'No adjustment'}
+                </p>
+              </div>
+
+              {/* AT - BigTime */}
+              <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                <Label htmlFor="priceAdjAtBigtime" className="text-sm font-medium text-purple-900">
+                  AT - BigTime Price Adjustment
+                </Label>
+                <div className="flex items-center gap-2 mt-2">
+                  <Input
+                    id="priceAdjAtBigtime"
+                    type="number"
+                    min="-100"
+                    max="100"
+                    step="0.01"
+                    value={priceAdjustmentAtBigtime}
+                    onChange={(e) => setPriceAdjustmentAtBigtime(parseFloat(e.target.value) || 0)}
+                    className="flex-1 bg-white"
+                    placeholder="0"
+                  />
+                  <span className="text-sm font-medium text-purple-800">%</span>
+                </div>
+                <p className="text-xs text-purple-700 mt-1">
+                  {priceAdjustmentAtBigtime > 0 ? `+${priceAdjustmentAtBigtime}% markup` : priceAdjustmentAtBigtime < 0 ? `${priceAdjustmentAtBigtime}% discount` : 'No adjustment'}
+                </p>
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+              <h4 className="font-semibold text-sm text-gray-900 mb-3">Price Preview (GHS 10.00 base price)</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div className="text-center p-2 bg-yellow-100 rounded">
+                  <p className="text-yellow-800 font-medium">MTN</p>
+                  <p className="text-yellow-900 font-bold">
+                    GHS {(10 * (1 + priceAdjustmentMtn / 100)).toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-center p-2 bg-red-100 rounded">
+                  <p className="text-red-800 font-medium">Telecel</p>
+                  <p className="text-red-900 font-bold">
+                    GHS {(10 * (1 + priceAdjustmentTelecel / 100)).toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-center p-2 bg-blue-100 rounded">
+                  <p className="text-blue-800 font-medium">AT-iShare</p>
+                  <p className="text-blue-900 font-bold">
+                    GHS {(10 * (1 + priceAdjustmentAtIshare / 100)).toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-center p-2 bg-purple-100 rounded">
+                  <p className="text-purple-800 font-medium">AT-BigTime</p>
+                  <p className="text-purple-900 font-bold">
+                    GHS {(10 * (1 + priceAdjustmentAtBigtime / 100)).toFixed(2)}
+                  </p>
                 </div>
               </div>
             </div>
