@@ -55,6 +55,13 @@ export const SMSTemplates = {
   // Admin notifications
   fulfillmentFailed: (orderId: string, phone: string, network: string, sizeGb: string, reason: string) =>
     `[ADMIN] Fulfillment FAILED! Order: ${orderId.substring(0, 8)} | ${phone} | ${network} ${sizeGb}GB | Reason: ${reason.substring(0, 50)}`,
+
+  // Admin credit/debit notifications to user
+  adminCredited: (amount: string, balance: string) =>
+    `DATAGOD: ✓ Your wallet has been credited GHS ${amount} by admin. New balance: GHS ${balance}`,
+
+  adminDebited: (amount: string, balance: string) =>
+    `DATAGOD: Your wallet has been debited GHS ${amount} by admin. New balance: GHS ${balance}`,
 }
 
 /**

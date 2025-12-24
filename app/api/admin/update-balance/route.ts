@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -154,6 +155,37 @@ export async function POST(request: NextRequest) {
     } catch (notificationError) {
       console.warn("[NOTIFICATION] Error sending notification:", notificationError)
       // Don't fail the operation if notification fails
+    }
+
+    // Send SMS to user about the balance update
+    try {
+      // Get user's phone number
+      const { data: userProfile } = await supabase
+        .from("users")
+        .select("phone_number")
+        .eq("id", userId)
+        .single()
+
+      if (userProfile?.phone_number) {
+        const smsMessage = type === "credit"
+          ? SMSTemplates.adminCredited(amount.toFixed(2), newBalance.toFixed(2))
+          : SMSTemplates.adminDebited(amount.toFixed(2), newBalance.toFixed(2))
+
+        await sendSMS({
+          phone: userProfile.phone_number,
+          message: smsMessage,
+          type: type === "credit" ? "admin_credit" : "admin_debit",
+          reference: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
+          userId: userId,
+        })
+
+        console.log(`[SMS] Admin ${type} SMS sent to user ${userId}`)
+      } else {
+        console.warn(`[SMS] User ${userId} has no phone number, skipping SMS`)
+      }
+    } catch (smsError) {
+      console.warn("[SMS] Error sending admin balance SMS:", smsError)
+      // Don't fail the operation if SMS fails
     }
 
     return NextResponse.json({
