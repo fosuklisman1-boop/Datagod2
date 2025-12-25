@@ -41,6 +41,8 @@ interface Transaction {
   user_first_name: string | null
   user_last_name: string | null
   user_phone: string | null
+  balance_before: number | null
+  balance_after: number | null
 }
 
 interface Stats {
@@ -425,6 +427,7 @@ export default function AdminTransactionsPage() {
                       <TableHead>User</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Amount</TableHead>
+                      <TableHead>Balance</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Description</TableHead>
                       <TableHead>Reference</TableHead>
@@ -451,6 +454,12 @@ export default function AdminTransactionsPage() {
                         <TableCell>{getTypeBadge(transaction.type)}</TableCell>
                         <TableCell className={`font-medium ${transaction.type === "credit" ? "text-green-600" : "text-red-600"}`}>
                           {transaction.type === "credit" ? "+" : "-"}{formatCurrency(transaction.amount)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col text-xs">
+                            <span className="text-muted-foreground">Before: {transaction.balance_before != null ? formatCurrency(transaction.balance_before) : "-"}</span>
+                            <span className="font-medium">After: {transaction.balance_after != null ? formatCurrency(transaction.balance_after) : "-"}</span>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">{getSourceLabel(transaction.source)}</span>
