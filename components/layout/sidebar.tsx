@@ -27,6 +27,7 @@ import {
   Menu,
   Loader2,
   Lock,
+  ArrowRightLeft,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -336,6 +337,26 @@ export function Sidebar() {
                       )}
                     </div>
                   )}
+                </Button>
+              </Link>
+              <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
+                    pathname === "/admin/transactions" && "bg-blue-500",
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/transactions" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Transactions" : undefined}
+                  disabled={loadingPath === "/admin/transactions"}
+                >
+                  {loadingPath === "/admin/transactions" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <ArrowRightLeft className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Transactions"}
                 </Button>
               </Link>
             </div>
