@@ -23,7 +23,9 @@ import {
 } from "@/components/ui/table"
 import { Search, ArrowUpCircle, ArrowDownCircle, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
-import { formatCurrency } from "@/lib/utils"
+
+// Format currency helper
+const formatCurrency = (amount: number) => `GHS ${amount.toFixed(2)}`
 
 interface Transaction {
   id: string
