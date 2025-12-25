@@ -146,7 +146,7 @@ export default function AdminTransactionsPage() {
         t.status,
       ])
 
-      const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n")
+      const csv = [headers, ...rows].map((row: (string | number)[]) => row.map((cell: string | number) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n")
       
       const blob = new Blob([csv], { type: "text/csv" })
       const url = URL.createObjectURL(blob)
