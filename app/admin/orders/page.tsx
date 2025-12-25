@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
@@ -59,6 +59,9 @@ export default function AdminOrdersPage() {
   const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(true)
   const [loadingAutoFulfillment, setLoadingAutoFulfillment] = useState(true)
   const [togglingAutoFulfillment, setTogglingAutoFulfillment] = useState(false)
+  
+  // Sync with CodeCraft state
+  const [syncingWithCodeCraft, setSyncingWithCodeCraft] = useState(false)
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -118,6 +121,39 @@ export default function AdminOrdersPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update setting")
     } finally {
       setTogglingAutoFulfillment(false)
+    }
+  }
+
+  const syncWithCodeCraft = async () => {
+    try {
+      setSyncingWithCodeCraft(true)
+      toast.info("Syncing orders with CodeCraft... This may take a moment.")
+      
+      const response = await fetch("/api/admin/sync-orders", {
+        method: "POST",
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to sync orders")
+      }
+
+      if (data.updated > 0) {
+        toast.success(`Synced! ${data.completed} completed, ${data.failed} failed, ${data.stillProcessing} still processing`)
+        // Reload orders
+        loadPendingOrders()
+        loadDownloadedOrders()
+      } else if (data.checked === 0) {
+        toast.info("No processing orders found to sync")
+      } else {
+        toast.info(`Checked ${data.checked} orders - all still processing at CodeCraft`)
+      }
+    } catch (error) {
+      console.error("Error syncing with CodeCraft:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to sync orders")
+    } finally {
+      setSyncingWithCodeCraft(false)
     }
   }
 
@@ -915,12 +951,30 @@ export default function AdminOrdersPage() {
                     <p className="text-gray-600 mb-6">
                       View real-time fulfillment status for auto-fulfilled orders
                     </p>
-                    <a href="/dashboard/admin/fulfillment" target="_blank" rel="noopener noreferrer">
-                      <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white">
-                        <Zap className="h-4 w-4 mr-2" />
-                        Open Fulfillment Dashboard
+                    <div className="flex flex-wrap gap-3 justify-center">
+                      <a href="/dashboard/admin/fulfillment" target="_blank" rel="noopener noreferrer">
+                        <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white">
+                          <Zap className="h-4 w-4 mr-2" />
+                          Open Fulfillment Dashboard
+                        </Button>
+                      </a>
+                      <Button 
+                        variant="outline"
+                        onClick={syncWithCodeCraft}
+                        disabled={syncingWithCodeCraft}
+                        className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                      >
+                        {syncingWithCodeCraft ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                        )}
+                        {syncingWithCodeCraft ? "Syncing..." : "Sync Processing Orders"}
                       </Button>
-                    </a>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-4">
+                      Use "Sync Processing Orders" to check all orders stuck at "processing" status with CodeCraft
+                    </p>
                   </div>
                 </div>
               </CardContent>
