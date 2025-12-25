@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { verifyUserPendingPayments } from "@/lib/payment-cleanup-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,6 +44,15 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = user.id
+
+    // Verify any pending payments for this user (in background, don't block response)
+    verifyUserPendingPayments(userId).then(result => {
+      if (result.credited > 0 || result.failed > 0) {
+        console.log(`[WALLET-BALANCE] Verified pending payments for ${userId}:`, result)
+      }
+    }).catch(err => {
+      console.warn("[WALLET-BALANCE] Error verifying pending payments:", err)
+    })
 
     // Get wallet balance data from wallets table
     const { data: walletData, error: walletError } = await supabase
