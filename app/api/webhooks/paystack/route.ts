@@ -500,6 +500,136 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[WEBHOOK] ✓ Payment processed successfully: ${reference}`)
+    } else if (event.event === "charge.failed") {
+      // Handle failed payment
+      const { reference, customer, amount, gateway_response } = event.data
+      const amountInGHS = amount / 100
+
+      console.log(`[WEBHOOK] Processing failed payment: ${reference}`, {
+        email: customer?.email,
+        amount: amountInGHS,
+        reason: gateway_response,
+      })
+
+      // Find payment record
+      const { data: paymentData, error: fetchError } = await supabase
+        .from("wallet_payments")
+        .select("id, user_id, status, shop_id, order_id, reference")
+        .eq("reference", reference)
+        .single()
+
+      if (fetchError || !paymentData) {
+        console.warn(`[WEBHOOK] Failed payment record not found for reference: ${reference}`)
+        return NextResponse.json({ received: true, warning: "payment_record_not_found" })
+      }
+
+      // Update payment status to failed
+      const { error: updateError } = await supabase
+        .from("wallet_payments")
+        .update({
+          status: "failed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", paymentData.id)
+
+      if (updateError) {
+        console.error("[WEBHOOK] Error updating payment to failed:", updateError)
+      }
+
+      // Create failed transaction record for tracking (only for wallet top-ups, not shop orders)
+      if (!paymentData.shop_id) {
+        const { error: transactionError } = await supabase
+          .from("transactions")
+          .insert([
+            {
+              user_id: paymentData.user_id,
+              type: "credit",
+              amount: amountInGHS,
+              reference_id: reference,
+              source: "wallet_topup",
+              description: `Failed wallet top-up: ${gateway_response || "Payment declined"}`,
+              status: "failed",
+              created_at: new Date().toISOString(),
+            },
+          ])
+
+        if (transactionError) {
+          // Check for duplicate
+          if (transactionError.code === "23505") {
+            console.warn(`[WEBHOOK] Failed transaction record already exists for ${reference}`)
+          } else {
+            console.error("[WEBHOOK] Error creating failed transaction record:", transactionError)
+          }
+        } else {
+          console.log(`[WEBHOOK] ✓ Failed transaction record created for ${reference}`)
+        }
+
+        // Send notification to user about failed payment
+        try {
+          const { error: notifError } = await supabase
+            .from("notifications")
+            .insert([
+              {
+                user_id: paymentData.user_id,
+                title: "Payment Failed",
+                message: `Your wallet top-up of GHS ${amountInGHS.toFixed(2)} failed. Reason: ${gateway_response || "Payment declined"}. Please try again.`,
+                type: "payment_failed",
+                is_read: false,
+                created_at: new Date().toISOString(),
+              },
+            ])
+
+          if (notifError) {
+            console.warn("[WEBHOOK] Failed to create failure notification:", notifError)
+          }
+        } catch (notifError) {
+          console.warn("[WEBHOOK] Error creating failure notification:", notifError)
+        }
+
+        // Send SMS for failed payment
+        try {
+          const { data: userData } = await supabase
+            .from("users")
+            .select("phone_number, first_name")
+            .eq("id", paymentData.user_id)
+            .single()
+
+          if (userData?.phone_number) {
+            const firstName = userData.first_name || "Customer"
+            const smsMessage = `Hi ${firstName}, your wallet top-up of GHS ${amountInGHS.toFixed(2)} failed. ${gateway_response || "Please try again."}`
+            
+            await sendSMS({
+              phone: userData.phone_number,
+              message: smsMessage,
+              type: 'wallet_topup_failed',
+              reference: paymentData.id,
+            }).catch(err => console.error("[WEBHOOK] Failed payment SMS error:", err))
+            
+            console.log(`[SMS] Failed payment SMS sent to user ${paymentData.user_id}`)
+          }
+        } catch (smsError) {
+          console.warn("[SMS] Failed to send payment failure SMS:", smsError)
+        }
+      } else {
+        // Update shop order payment status to failed
+        if (paymentData.order_id) {
+          const { error: orderUpdateError } = await supabase
+            .from("shop_orders")
+            .update({
+              payment_status: "failed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", paymentData.order_id)
+
+          if (orderUpdateError) {
+            console.error("[WEBHOOK] Error updating shop order to failed:", orderUpdateError)
+          } else {
+            console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} marked as payment failed`)
+          }
+        }
+      }
+
+      console.log(`[WEBHOOK] ✓ Failed payment processed: ${reference}`)
     } else {
       console.log(`[WEBHOOK] ⚠️ Event type not handled: ${event.event}`)
     }
