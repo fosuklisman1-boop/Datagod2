@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Search, ArrowUpCircle, ArrowDownCircle, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
-import { useToast } from "@/components/ui/use-toast"
+import { toast } from "sonner"
 import { formatCurrency } from "@/lib/utils"
 
 interface Transaction {
@@ -55,7 +55,6 @@ export default function AdminTransactionsPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
-  const { toast } = useToast()
 
   // Filters
   const [search, setSearch] = useState("")
@@ -99,15 +98,11 @@ export default function AdminTransactionsPage() {
       setTotalCount(data.pagination.totalCount)
     } catch (error) {
       console.error("Error fetching transactions:", error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to fetch transactions",
-        variant: "destructive",
-      })
+      toast.error(error instanceof Error ? error.message : "Failed to fetch transactions")
     } finally {
       setLoading(false)
     }
-  }, [page, search, typeFilter, sourceFilter, statusFilter, startDate, endDate, toast])
+  }, [page, search, typeFilter, sourceFilter, statusFilter, startDate, endDate])
 
   useEffect(() => {
     fetchTransactions()
@@ -159,16 +154,9 @@ export default function AdminTransactionsPage() {
       a.click()
       URL.revokeObjectURL(url)
 
-      toast({
-        title: "Export Complete",
-        description: `Exported ${data.transactions.length} transactions`,
-      })
+      toast.success(`Exported ${data.transactions.length} transactions`)
     } catch (error) {
-      toast({
-        title: "Export Failed",
-        description: error instanceof Error ? error.message : "Failed to export transactions",
-        variant: "destructive",
-      })
+      toast.error(error instanceof Error ? error.message : "Failed to export transactions")
     } finally {
       setExporting(false)
     }
