@@ -194,19 +194,46 @@ async function handleRetryFulfillment(
   try {
     console.log(`[FULFILLMENT] Retrying fulfillment for order ${orderId}`)
 
-    // Check if order exists
-    const { data: order, error: orderError } = await supabaseAdmin
+    // Check if order exists in orders table (wallet orders)
+    let order: any = null
+    let orderType: "wallet" | "shop" = "wallet"
+    
+    const { data: walletOrder, error: walletOrderError } = await supabaseAdmin
       .from("orders")
       .select("network, phone_number, size")
       .eq("id", orderId)
       .single()
 
-    if (orderError || !order) {
+    if (walletOrder) {
+      order = walletOrder
+      orderType = "wallet"
+    } else {
+      // Check shop_orders table
+      const { data: shopOrder, error: shopOrderError } = await supabaseAdmin
+        .from("shop_orders")
+        .select("network, customer_phone, volume_gb")
+        .eq("id", orderId)
+        .single()
+
+      if (shopOrder) {
+        order = {
+          network: shopOrder.network,
+          phone_number: shopOrder.customer_phone,
+          size: shopOrder.volume_gb,
+        }
+        orderType = "shop"
+      }
+    }
+
+    if (!order) {
+      console.error(`[FULFILLMENT] Order ${orderId} not found in orders or shop_orders table`)
       return NextResponse.json(
-        { error: "Order not found" },
+        { error: "Order not found in any table" },
         { status: 404 }
       )
     }
+
+    console.log(`[FULFILLMENT] Found ${orderType} order:`, order)
 
     // Check if network is supported for auto-fulfillment
     const networkLower = (order.network || "").toLowerCase()
@@ -223,16 +250,18 @@ async function handleRetryFulfillment(
     // Determine if BigTime
     const isBigTime = networkLower.includes("bigtime") || networkLower.includes("big time")
 
-    // Attempt retry using fulfillOrder directly (handleRetry has issues with new networks)
+    // Attempt retry using fulfillOrder directly
     const sizeGb = parseInt(order.size?.toString().replace(/[^0-9]/g, "")) || 0
     
+    console.log(`[FULFILLMENT] Retrying with: phone=${order.phone_number}, size=${sizeGb}GB, network=${order.network}, isBigTime=${isBigTime}`)
+
     const result = await atishareService.fulfillOrder({
       phoneNumber: order.phone_number,
       sizeGb,
       orderId,
       network: networkLower.includes("mtn") ? "MTN" : 
                networkLower.includes("telecel") ? "TELECEL" : "AT",
-      orderType: "wallet",
+      orderType,
       isBigTime,
     })
 
