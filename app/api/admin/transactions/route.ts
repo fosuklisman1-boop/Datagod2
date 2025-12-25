@@ -67,14 +67,13 @@ export async function GET(request: NextRequest) {
       query = query.lt("created_at", endDateObj.toISOString())
     }
 
-    // Search by email, reference_id, or description
+    // Search by email, phone, name, reference_id, or description
     if (search) {
-      // We need to do search differently since we can't do OR with joins easily
       // First try to find users matching the search
       const { data: matchingUsers } = await supabase
         .from("users")
         .select("id")
-        .or(`email.ilike.%${search}%,phone_number.ilike.%${search}%`)
+        .or(`email.ilike.%${search}%,phone_number.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%`)
 
       const userIds = matchingUsers?.map(u => u.id) || []
 
@@ -98,6 +97,16 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Flatten user data for frontend
+    const flattenedTransactions = transactions?.map(t => ({
+      ...t,
+      user_email: t.users?.email || "Unknown",
+      user_first_name: t.users?.first_name || null,
+      user_last_name: t.users?.last_name || null,
+      user_phone: t.users?.phone_number || null,
+      users: undefined, // Remove nested object
+    })) || []
+
     // Calculate stats
     const { data: statsData } = await supabase
       .from("transactions")
@@ -119,11 +128,11 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json({
-      transactions,
+      transactions: flattenedTransactions,
       pagination: {
         page,
         limit,
-        total: count || 0,
+        totalCount: count || 0,
         totalPages: Math.ceil((count || 0) / limit)
       },
       stats: {
