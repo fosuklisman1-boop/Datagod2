@@ -58,9 +58,19 @@ interface Stats {
   totalTransactions: number
 }
 
+// Default stats to prevent null errors
+const defaultStats: Stats = {
+  totalCredits: 0,
+  totalDebits: 0,
+  netFlow: 0,
+  pendingCount: 0,
+  failedCount: 0,
+  totalTransactions: 0,
+}
+
 export default function AdminTransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [stats, setStats] = useState<Stats | null>(null)
+  const [stats, setStats] = useState<Stats>(defaultStats)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
 
@@ -100,9 +110,16 @@ export default function AdminTransactionsPage() {
         throw new Error(data.error || "Failed to fetch transactions")
       }
 
-      setTransactions(data.transactions)
-      setStats(data.stats)
-      setTotalPages(data.pagination.totalPages)
+      setTransactions(data.transactions || [])
+      setStats({
+        totalCredits: data.stats?.totalCredits ?? 0,
+        totalDebits: data.stats?.totalDebits ?? 0,
+        netFlow: data.stats?.netFlow ?? 0,
+        pendingCount: data.stats?.pendingCount ?? 0,
+        failedCount: data.stats?.failedCount ?? 0,
+        totalTransactions: data.stats?.totalTransactions ?? 0,
+      })
+      setTotalPages(data.pagination?.totalPages || 1)
       setTotalCount(data.pagination.totalCount)
     } catch (error) {
       console.error("Error fetching transactions:", error)
@@ -233,14 +250,13 @@ export default function AdminTransactionsPage() {
       </div>
 
       {/* Stats Cards */}
-      {stats && (
-        <div className="grid gap-4 md:grid-cols-5">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Credits</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
+      <div className="grid gap-4 md:grid-cols-5">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Credits</CardTitle>
+            <TrendingUp className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
               <div className="text-2xl font-bold text-green-600">{formatCurrency(stats.totalCredits)}</div>
               <p className="text-xs text-muted-foreground">Money in</p>
             </CardContent>
@@ -296,7 +312,6 @@ export default function AdminTransactionsPage() {
             </CardContent>
           </Card>
         </div>
-      )}
 
       {/* Filters */}
       <Card>
