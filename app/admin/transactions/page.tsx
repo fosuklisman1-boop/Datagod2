@@ -24,14 +24,17 @@ import {
 import { Search, ArrowUpCircle, ArrowDownCircle, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 
-// Format currency helper
-const formatCurrency = (amount: number) => `GHS ${amount.toFixed(2)}`
+// Format currency helper - handles null/undefined
+const formatCurrency = (amount: number | null | undefined) => {
+  if (amount == null) return "GHS 0.00"
+  return `GHS ${amount.toFixed(2)}`
+}
 
 interface Transaction {
   id: string
   user_id: string
   type: "credit" | "debit"
-  amount: number
+  amount: number | null
   source: string
   description: string | null
   reference: string | null
