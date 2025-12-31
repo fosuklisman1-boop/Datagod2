@@ -100,6 +100,7 @@ export async function GET(request: NextRequest) {
     // Flatten user data for frontend
     const flattenedTransactions = transactions?.map(t => ({
       ...t,
+      amount: t.amount ?? 0, // Ensure amount is never null
       user_email: t.users?.email || "Unknown",
       user_first_name: t.users?.first_name || null,
       user_last_name: t.users?.last_name || null,
