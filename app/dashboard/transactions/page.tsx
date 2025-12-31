@@ -11,6 +11,12 @@ import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
+// Safe format currency helper
+const formatAmount = (amount: number | null | undefined): string => {
+  if (amount == null) return "0.00"
+  return amount.toFixed(2)
+}
+
 interface TransactionStats {
   totalTransactions: number
   todayIncome: number
@@ -145,7 +151,7 @@ export default function TransactionsPage() {
               <TrendingUp className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">GHS {stats.todayIncome.toFixed(2)}</div>
+              <div className="text-2xl font-bold">GHS {formatAmount(stats.todayIncome)}</div>
               <p className="text-xs text-gray-600">Credits</p>
             </CardContent>
           </Card>
@@ -156,7 +162,7 @@ export default function TransactionsPage() {
               <TrendingDown className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">GHS {stats.todayExpenses.toFixed(2)}</div>
+              <div className="text-2xl font-bold">GHS {formatAmount(stats.todayExpenses)}</div>
               <p className="text-xs text-gray-600">Debits</p>
             </CardContent>
           </Card>
@@ -167,7 +173,7 @@ export default function TransactionsPage() {
               <DollarSign className="h-4 w-4 text-orange-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">GHS {stats.todayRefunds.toFixed(2)}</div>
+              <div className="text-2xl font-bold">GHS {formatAmount(stats.todayRefunds)}</div>
               <p className="text-xs text-gray-600">Refunded</p>
             </CardContent>
           </Card>
@@ -268,10 +274,10 @@ export default function TransactionsPage() {
                         <td className={`px-6 py-4 text-sm font-semibold ${
                           txn.type === "credit" ? "text-green-600" : "text-red-600"
                         }`}>
-                          {txn.type === "credit" ? "+" : "-"}GHS {txn.amount.toFixed(2)}
+                          {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
                         </td>
-                        <td className="px-6 py-4 text-sm">GHS {txn.balance_before.toFixed(2)}</td>
-                        <td className="px-6 py-4 text-sm font-semibold">GHS {txn.balance_after.toFixed(2)}</td>
+                        <td className="px-6 py-4 text-sm">GHS {formatAmount(txn.balance_before)}</td>
+                        <td className="px-6 py-4 text-sm font-semibold">GHS {formatAmount(txn.balance_after)}</td>
                         <td className="px-6 py-4 text-sm">
                           <Badge className={
                             txn.status === "completed" ? "bg-green-100 text-green-800" :
