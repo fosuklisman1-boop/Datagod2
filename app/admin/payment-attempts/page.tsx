@@ -2,6 +2,7 @@
 
 import type { ChangeEvent } from "react"
 import { useState, useEffect, useCallback } from "react"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -178,6 +179,7 @@ export default function PaymentAttemptsPage() {
   const conversionRate = stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(1) : "0.0"
 
   return (
+    <DashboardLayout>
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
@@ -449,5 +451,6 @@ export default function PaymentAttemptsPage() {
         </CardContent>
       </Card>
     </div>
+    </DashboardLayout>
   )
 }
