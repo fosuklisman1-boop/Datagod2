@@ -6,6 +6,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Cleanup threshold: Mark pending attempts older than this as abandoned (in minutes)
+const ABANDONED_THRESHOLD_MINUTES = 30
+
 interface PaymentAttemptRecord {
   id: string
   user_id: string
@@ -24,8 +27,40 @@ interface PaymentAttemptRecord {
   completed_at: string | null
 }
 
+/**
+ * Automatically mark stale pending payment attempts as abandoned
+ * Runs on each GET request (non-blocking)
+ */
+async function cleanupAbandonedAttempts() {
+  try {
+    const cutoffTime = new Date(Date.now() - ABANDONED_THRESHOLD_MINUTES * 60 * 1000).toISOString()
+    
+    const { data, error } = await supabase
+      .from("payment_attempts")
+      .update({
+        status: "abandoned",
+        gateway_response: `Auto-marked as abandoned after ${ABANDONED_THRESHOLD_MINUTES} minutes`,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("status", "pending")
+      .lt("created_at", cutoffTime)
+      .select("id")
+
+    if (error) {
+      console.warn("[PAYMENT-ATTEMPTS] Cleanup error:", error.message)
+    } else if (data && data.length > 0) {
+      console.log(`[PAYMENT-ATTEMPTS] ✓ Marked ${data.length} stale attempts as abandoned`)
+    }
+  } catch (err) {
+    console.warn("[PAYMENT-ATTEMPTS] Cleanup failed:", err)
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
+    // Run cleanup in background (non-blocking)
+    cleanupAbandonedAttempts()
+
     const { searchParams } = new URL(request.url)
     
     // Pagination
