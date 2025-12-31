@@ -9,10 +9,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { Trash2, Eye, Shield, Download } from "lucide-react"
+import { Trash2, Eye, Shield, Download, Loader2, Wallet, ShoppingCart, Store, ArrowDownCircle, TrendingUp, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react"
 import { adminUserService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 interface User {
   id: string
@@ -25,6 +27,50 @@ interface User {
   shopBalance: number
   shop?: any
   customerCount?: number
+}
+
+interface UserStats {
+  userId: string
+  wallet: {
+    balance: number
+    totalTopUps: number
+    totalSpent: number
+    transactionCount: number
+  }
+  orders: {
+    total: number
+    completed: number
+    failed: number
+    pending: number
+  }
+  shop: {
+    shopId: string
+    shopName: string
+    shopSlug: string
+    createdAt: string
+    totalOrders: number
+    completedOrders: number
+    totalSales: number
+    totalProfit: number
+    availableBalance: number
+    withdrawnAmount: number
+    pendingProfit: number
+  } | null
+  withdrawals: {
+    history: Array<{
+      id: string
+      amount: number
+      feeAmount: number
+      netAmount: number
+      status: string
+      method: string
+      createdAt: string
+      referenceCode: string
+    }>
+    totalWithdrawn: number
+    pendingCount: number
+    completedCount: number
+  }
 }
 
 export default function AdminUsersPage() {
@@ -44,6 +90,8 @@ export default function AdminUsersPage() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [userStats, setUserStats] = useState<UserStats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
 
   useEffect(() => {
     checkAdminAccess()
@@ -100,6 +148,37 @@ export default function AdminUsersPage() {
     })
 
     setFilteredUsers(filtered)
+  }
+
+  const loadUserStats = async (userId: string) => {
+    try {
+      setStatsLoading(true)
+      setUserStats(null)
+      
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        toast.error("Session expired")
+        return
+      }
+
+      const response = await fetch(`/api/admin/users/${userId}/stats`, {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to load user stats")
+      }
+
+      const stats = await response.json()
+      setUserStats(stats)
+    } catch (error) {
+      console.error("Error loading user stats:", error)
+      toast.error("Failed to load user statistics")
+    } finally {
+      setStatsLoading(false)
+    }
   }
 
   const handleUpdateRole = async () => {
@@ -375,6 +454,7 @@ export default function AdminUsersPage() {
                             setSelectedUser(user)
                             setNewRole(user.role)
                             setShowDetailsDialog(true)
+                            loadUserStats(user.id)
                           }}
                           className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
                         >
@@ -409,59 +489,308 @@ export default function AdminUsersPage() {
           </CardContent>
         </Card>
 
-        {/* User Details Dialog */}
-        <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-          <DialogContent className="max-w-md">
+        {/* User Details & Stats Dialog */}
+        <Dialog open={showDetailsDialog} onOpenChange={(open) => {
+          setShowDetailsDialog(open)
+          if (!open) {
+            setUserStats(null)
+          }
+        }}>
+          <DialogContent className="max-w-3xl max-h-[90vh]">
             <DialogHeader>
-              <DialogTitle>User Details & Role Management</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <Eye className="w-5 h-5" />
+                User Statistics & Management
+              </DialogTitle>
+              <DialogDescription>
+                {selectedUser?.email}
+              </DialogDescription>
             </DialogHeader>
             {selectedUser && (
-              <div className="space-y-4">
-                <div>
-                  <Label className="text-xs text-gray-600">Email</Label>
-                  <p className="font-semibold mt-1">{selectedUser.email}</p>
+              <ScrollArea className="max-h-[70vh] pr-4">
+                <div className="space-y-6">
+                  {/* User Info Header */}
+                  <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
+                    <div>
+                      <p className="font-semibold text-lg">{selectedUser.email}</p>
+                      <p className="text-sm text-gray-600">{selectedUser.phoneNumber || "No phone"}</p>
+                      <p className="text-xs text-gray-500">Joined: {new Date(selectedUser.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <Badge className={`${selectedUser.role === "admin" ? "bg-red-600" : "bg-blue-600"}`}>
+                      {selectedUser.role.toUpperCase()}
+                    </Badge>
+                  </div>
+
+                  {statsLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                      <span className="ml-2 text-gray-500">Loading statistics...</span>
+                    </div>
+                  ) : userStats ? (
+                    <Tabs defaultValue="wallet" className="w-full">
+                      <TabsList className="grid w-full grid-cols-4">
+                        <TabsTrigger value="wallet" className="text-xs sm:text-sm">
+                          <Wallet className="w-4 h-4 mr-1 hidden sm:inline" />
+                          Wallet
+                        </TabsTrigger>
+                        <TabsTrigger value="orders" className="text-xs sm:text-sm">
+                          <ShoppingCart className="w-4 h-4 mr-1 hidden sm:inline" />
+                          Orders
+                        </TabsTrigger>
+                        <TabsTrigger value="shop" className="text-xs sm:text-sm">
+                          <Store className="w-4 h-4 mr-1 hidden sm:inline" />
+                          Shop
+                        </TabsTrigger>
+                        <TabsTrigger value="withdrawals" className="text-xs sm:text-sm">
+                          <ArrowDownCircle className="w-4 h-4 mr-1 hidden sm:inline" />
+                          Withdrawals
+                        </TabsTrigger>
+                      </TabsList>
+
+                      {/* Wallet Stats */}
+                      <TabsContent value="wallet" className="space-y-4 mt-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <Card className="bg-blue-50 border-blue-200">
+                            <CardContent className="p-4">
+                              <p className="text-xs text-blue-600 font-medium">Current Balance</p>
+                              <p className="text-xl font-bold text-blue-700">GHS {userStats.wallet.balance.toFixed(2)}</p>
+                            </CardContent>
+                          </Card>
+                          <Card className="bg-green-50 border-green-200">
+                            <CardContent className="p-4">
+                              <p className="text-xs text-green-600 font-medium">Total Top-ups</p>
+                              <p className="text-xl font-bold text-green-700">GHS {userStats.wallet.totalTopUps.toFixed(2)}</p>
+                            </CardContent>
+                          </Card>
+                          <Card className="bg-orange-50 border-orange-200">
+                            <CardContent className="p-4">
+                              <p className="text-xs text-orange-600 font-medium">Total Spent</p>
+                              <p className="text-xl font-bold text-orange-700">GHS {userStats.wallet.totalSpent.toFixed(2)}</p>
+                            </CardContent>
+                          </Card>
+                          <Card className="bg-purple-50 border-purple-200">
+                            <CardContent className="p-4">
+                              <p className="text-xs text-purple-600 font-medium">Transactions</p>
+                              <p className="text-xl font-bold text-purple-700">{userStats.wallet.transactionCount}</p>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </TabsContent>
+
+                      {/* Orders Stats */}
+                      <TabsContent value="orders" className="space-y-4 mt-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <Card className="bg-blue-50 border-blue-200">
+                            <CardContent className="p-4">
+                              <p className="text-xs text-blue-600 font-medium">Total Orders</p>
+                              <p className="text-xl font-bold text-blue-700">{userStats.orders.total}</p>
+                            </CardContent>
+                          </Card>
+                          <Card className="bg-green-50 border-green-200">
+                            <CardContent className="p-4">
+                              <div className="flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3 text-green-600" />
+                                <p className="text-xs text-green-600 font-medium">Completed</p>
+                              </div>
+                              <p className="text-xl font-bold text-green-700">{userStats.orders.completed}</p>
+                            </CardContent>
+                          </Card>
+                          <Card className="bg-orange-50 border-orange-200">
+                            <CardContent className="p-4">
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-orange-600" />
+                                <p className="text-xs text-orange-600 font-medium">Pending</p>
+                              </div>
+                              <p className="text-xl font-bold text-orange-700">{userStats.orders.pending}</p>
+                            </CardContent>
+                          </Card>
+                          <Card className="bg-red-50 border-red-200">
+                            <CardContent className="p-4">
+                              <div className="flex items-center gap-1">
+                                <XCircle className="w-3 h-3 text-red-600" />
+                                <p className="text-xs text-red-600 font-medium">Failed</p>
+                              </div>
+                              <p className="text-xl font-bold text-red-700">{userStats.orders.failed}</p>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </TabsContent>
+
+                      {/* Shop Stats */}
+                      <TabsContent value="shop" className="space-y-4 mt-4">
+                        {userStats.shop ? (
+                          <>
+                            <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                              <p className="font-semibold text-purple-700">{userStats.shop.shopName}</p>
+                              <p className="text-xs text-purple-600">/{userStats.shop.shopSlug}</p>
+                              <p className="text-xs text-gray-500 mt-1">Created: {new Date(userStats.shop.createdAt).toLocaleDateString()}</p>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                              <Card className="bg-blue-50 border-blue-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-blue-600 font-medium">Shop Orders</p>
+                                  <p className="text-xl font-bold text-blue-700">{userStats.shop.totalOrders}</p>
+                                  <p className="text-xs text-gray-500">{userStats.shop.completedOrders} completed</p>
+                                </CardContent>
+                              </Card>
+                              <Card className="bg-green-50 border-green-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-green-600 font-medium">Total Sales</p>
+                                  <p className="text-xl font-bold text-green-700">GHS {userStats.shop.totalSales.toFixed(2)}</p>
+                                </CardContent>
+                              </Card>
+                              <Card className="bg-emerald-50 border-emerald-200">
+                                <CardContent className="p-4">
+                                  <div className="flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3 text-emerald-600" />
+                                    <p className="text-xs text-emerald-600 font-medium">Total Profit</p>
+                                  </div>
+                                  <p className="text-xl font-bold text-emerald-700">GHS {userStats.shop.totalProfit.toFixed(2)}</p>
+                                </CardContent>
+                              </Card>
+                              <Card className="bg-purple-50 border-purple-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-purple-600 font-medium">Available Balance</p>
+                                  <p className="text-xl font-bold text-purple-700">GHS {userStats.shop.availableBalance.toFixed(2)}</p>
+                                </CardContent>
+                              </Card>
+                              <Card className="bg-orange-50 border-orange-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-orange-600 font-medium">Pending Profit</p>
+                                  <p className="text-xl font-bold text-orange-700">GHS {userStats.shop.pendingProfit.toFixed(2)}</p>
+                                </CardContent>
+                              </Card>
+                              <Card className="bg-gray-50 border-gray-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-gray-600 font-medium">Total Withdrawn</p>
+                                  <p className="text-xl font-bold text-gray-700">GHS {userStats.shop.withdrawnAmount.toFixed(2)}</p>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-center py-8 text-gray-500">
+                            <Store className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                            <p>This user does not own a shop</p>
+                          </div>
+                        )}
+                      </TabsContent>
+
+                      {/* Withdrawals */}
+                      <TabsContent value="withdrawals" className="space-y-4 mt-4">
+                        {userStats.shop ? (
+                          <>
+                            <div className="grid grid-cols-3 gap-3">
+                              <Card className="bg-green-50 border-green-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-green-600 font-medium">Total Withdrawn</p>
+                                  <p className="text-xl font-bold text-green-700">GHS {userStats.withdrawals.totalWithdrawn.toFixed(2)}</p>
+                                </CardContent>
+                              </Card>
+                              <Card className="bg-blue-50 border-blue-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-blue-600 font-medium">Completed</p>
+                                  <p className="text-xl font-bold text-blue-700">{userStats.withdrawals.completedCount}</p>
+                                </CardContent>
+                              </Card>
+                              <Card className="bg-orange-50 border-orange-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-orange-600 font-medium">Pending</p>
+                                  <p className="text-xl font-bold text-orange-700">{userStats.withdrawals.pendingCount}</p>
+                                </CardContent>
+                              </Card>
+                            </div>
+
+                            {userStats.withdrawals.history.length > 0 ? (
+                              <div className="border rounded-lg overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left font-medium">Date</th>
+                                      <th className="px-3 py-2 text-left font-medium">Amount</th>
+                                      <th className="px-3 py-2 text-left font-medium">Method</th>
+                                      <th className="px-3 py-2 text-left font-medium">Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y">
+                                    {userStats.withdrawals.history.slice(0, 10).map((w) => (
+                                      <tr key={w.id} className="hover:bg-gray-50">
+                                        <td className="px-3 py-2 text-xs">{new Date(w.createdAt).toLocaleDateString()}</td>
+                                        <td className="px-3 py-2 font-medium">GHS {w.netAmount.toFixed(2)}</td>
+                                        <td className="px-3 py-2 text-xs capitalize">{w.method.replace("_", " ")}</td>
+                                        <td className="px-3 py-2">
+                                          <Badge className={
+                                            w.status === "completed" || w.status === "approved" ? "bg-green-600" :
+                                            w.status === "pending" ? "bg-orange-500" :
+                                            w.status === "rejected" ? "bg-red-600" : "bg-gray-500"
+                                          }>
+                                            {w.status}
+                                          </Badge>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="text-center py-6 text-gray-500">
+                                <p>No withdrawal history</p>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="text-center py-8 text-gray-500">
+                            <ArrowDownCircle className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                            <p>User does not own a shop</p>
+                          </div>
+                        )}
+                      </TabsContent>
+                    </Tabs>
+                  ) : null}
+
+                  {/* Actions Section */}
+                  <div className="border-t pt-4 space-y-3">
+                    <p className="text-sm font-semibold text-gray-700">Account Management</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label htmlFor="role" className="text-xs">Change Role</Label>
+                        <div className="flex gap-2 mt-1">
+                          <select
+                            id="role"
+                            aria-label="Change user role"
+                            value={newRole}
+                            onChange={(e) => setNewRole(e.target.value)}
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                          >
+                            <option value="user">User</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                          <Button
+                            onClick={handleUpdateRole}
+                            size="sm"
+                            className="bg-emerald-600 hover:bg-emerald-700"
+                          >
+                            Update
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          onClick={() => {
+                            setNewPassword("")
+                            setConfirmPassword("")
+                            setShowChangePasswordDialog(true)
+                          }}
+                          variant="outline"
+                          className="w-full"
+                        >
+                          Change Password
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <Label className="text-xs text-gray-600">Current Role</Label>
-                  <Badge className={`${selectedUser.role === "admin" ? "bg-red-600" : "bg-blue-600"} mt-1`}>
-                    {selectedUser.role}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-600">Balance</Label>
-                  <p className="font-semibold mt-1 text-emerald-600">GHS {selectedUser.balance.toFixed(2)}</p>
-                </div>
-                <div>
-                  <Label htmlFor="role" className="text-xs">Change Role</Label>
-                  <select
-                    id="role"
-                    aria-label="Change user role"
-                    value={newRole}
-                    onChange={(e) => setNewRole(e.target.value)}
-                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                <Button
-                  onClick={handleUpdateRole}
-                  className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
-                >
-                  Update Role
-                </Button>
-                <Button
-                  onClick={() => {
-                    setNewPassword("")
-                    setConfirmPassword("")
-                    setShowChangePasswordDialog(true)
-                  }}
-                  variant="outline"
-                  className="w-full"
-                >
-                  Change Password
-                </Button>
-              </div>
+              </ScrollArea>
             )}
           </DialogContent>
         </Dialog>
