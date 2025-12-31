@@ -234,6 +234,9 @@ export default function WithdrawalsPage() {
                           </Badge>
                         </div>
                         <p className="text-xs text-gray-500">{withdrawal.reference_code}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          📅 {new Date(withdrawal.created_at).toLocaleString()}
+                        </p>
                       </div>
                       <div className="text-right">
                         <p className="text-2xl font-bold text-gray-900">GHS {withdrawal.amount.toFixed(2)}</p>
