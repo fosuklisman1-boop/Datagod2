@@ -107,22 +107,33 @@ export async function GET(
       const shopId = shopResult.data.id
 
       // Fetch shop-related data
-      const [shopBalanceData, shopOrdersData, withdrawalsData] = await Promise.all([
+      const [shopBalanceData, shopOrdersData, shopProfitsData, withdrawalsData] = await Promise.all([
         adminClient.from("shop_available_balance").select("*").eq("shop_id", shopId).single(),
         adminClient.from("shop_orders").select("id, total_amount, profit_amount, status, created_at").eq("shop_id", shopId),
+        adminClient.from("shop_profits").select("id, profit_amount, status, created_at").eq("shop_id", shopId),
         adminClient.from("withdrawal_requests").select("*").eq("shop_id", shopId).order("created_at", { ascending: false })
       ])
 
       const shopOrders = shopOrdersData.data || []
+      const shopProfits = shopProfitsData.data || []
       const completedShopOrders = shopOrders.filter((o: any) => o.status === "completed" || o.status === "delivered")
       
+      // Calculate total sales from completed orders
       const totalSales = completedShopOrders.reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0)
-      const totalProfit = completedShopOrders.reduce((sum: number, o: any) => sum + (o.profit_amount || 0), 0)
+      
+      // Calculate total profit from shop_profits table (more accurate)
+      const totalProfitFromProfits = shopProfits.reduce((sum: number, p: any) => sum + (p.profit_amount || 0), 0)
 
       const balanceRecord = shopBalanceData.data
+      // Use the pre-calculated values from shop_available_balance table
       const availableBalance = balanceRecord?.available_balance || 0
       const withdrawnAmount = balanceRecord?.withdrawn_profit || 0
       const pendingProfit = balanceRecord?.pending_profit || 0
+      const totalProfitFromBalance = balanceRecord?.total_profit || 0
+      const creditedProfit = balanceRecord?.credited_profit || 0
+      
+      // Use the higher of the two totals (in case shop_profits has more records)
+      const totalProfit = Math.max(totalProfitFromProfits, totalProfitFromBalance)
 
       shopStats = {
         shopId: shopId,
@@ -135,7 +146,9 @@ export async function GET(
         totalProfit,
         availableBalance,
         withdrawnAmount,
-        pendingProfit
+        pendingProfit,
+        creditedProfit,
+        profitRecords: shopProfits.length
       }
 
       // Withdrawal history

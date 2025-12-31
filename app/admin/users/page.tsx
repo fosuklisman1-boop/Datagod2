@@ -55,6 +55,8 @@ interface UserStats {
     availableBalance: number
     withdrawnAmount: number
     pendingProfit: number
+    creditedProfit: number
+    profitRecords: number
   } | null
   withdrawals: {
     history: Array<{
@@ -624,6 +626,7 @@ export default function AdminUsersPage() {
                               <p className="font-semibold text-purple-700">{userStats.shop.shopName}</p>
                               <p className="text-xs text-purple-600">/{userStats.shop.shopSlug}</p>
                               <p className="text-xs text-gray-500 mt-1">Created: {new Date(userStats.shop.createdAt).toLocaleDateString()}</p>
+                              <p className="text-xs text-gray-400 mt-1">{userStats.shop.profitRecords} profit records</p>
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                               <Card className="bg-blue-50 border-blue-200">
@@ -652,6 +655,12 @@ export default function AdminUsersPage() {
                                 <CardContent className="p-4">
                                   <p className="text-xs text-purple-600 font-medium">Available Balance</p>
                                   <p className="text-xl font-bold text-purple-700">GHS {userStats.shop.availableBalance.toFixed(2)}</p>
+                                </CardContent>
+                              </Card>
+                              <Card className="bg-teal-50 border-teal-200">
+                                <CardContent className="p-4">
+                                  <p className="text-xs text-teal-600 font-medium">Credited Profit</p>
+                                  <p className="text-xl font-bold text-teal-700">GHS {userStats.shop.creditedProfit.toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-orange-50 border-orange-200">
