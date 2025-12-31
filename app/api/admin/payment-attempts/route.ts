@@ -22,12 +22,6 @@ interface PaymentAttemptRecord {
   created_at: string
   updated_at: string
   completed_at: string | null
-  users?: {
-    email: string
-    first_name: string | null
-    last_name: string | null
-    phone_number: string | null
-  } | null
 }
 
 export async function GET(request: NextRequest) {
@@ -46,19 +40,10 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get("startDate") || ""
     const endDate = searchParams.get("endDate") || ""
 
-    // Build query
+    // Build query - no join to users since payment_attempts stores email directly
     let query = supabase
       .from("payment_attempts")
-      .select(`
-        *,
-        users (
-          id,
-          email,
-          first_name,
-          last_name,
-          phone_number
-        )
-      `, { count: "exact" })
+      .select(`*`, { count: "exact" })
       .order("created_at", { ascending: false })
 
     // Apply filters
@@ -95,16 +80,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
-    // Flatten user data
+    // Format data - email is stored directly in payment_attempts
     const flattenedAttempts = (attempts as PaymentAttemptRecord[] | null)?.map((a: PaymentAttemptRecord) => ({
       ...a,
       amount: a.amount ?? 0,
       fee: a.fee ?? 0,
-      user_email: a.users?.email || a.email || "Unknown",
-      user_first_name: a.users?.first_name || null,
-      user_last_name: a.users?.last_name || null,
-      user_phone: a.users?.phone_number || null,
-      users: undefined,
+      user_email: a.email || "Unknown",
     })) || []
 
     // Calculate stats
