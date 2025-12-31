@@ -7,7 +7,7 @@ const supabase = createClient(
 )
 
 // Cleanup threshold: Mark pending attempts older than this as abandoned (in minutes)
-const ABANDONED_THRESHOLD_MINUTES = 30
+const ABANDONED_THRESHOLD_MINUTES = 10
 
 interface PaymentAttemptRecord {
   id: string
