@@ -31,6 +31,7 @@ interface WithdrawalRequest {
     shop_name: string
     shop_slug: string
   }
+  current_available_balance?: number
 }
 
 export default function WithdrawalsPage() {
@@ -243,6 +244,20 @@ export default function WithdrawalsPage() {
                         {withdrawal.net_amount && (
                           <p className="text-xs text-green-600 font-semibold mt-1">Payout: GHS {withdrawal.net_amount.toFixed(2)}</p>
                         )}
+                        {/* Available Balance for verification */}
+                        <div className="mt-2 pt-2 border-t border-gray-200">
+                          <p className="text-xs text-gray-500">Current Balance</p>
+                          <p className={`text-sm font-bold ${
+                            (withdrawal.current_available_balance ?? 0) >= withdrawal.amount 
+                              ? 'text-green-600' 
+                              : 'text-red-600'
+                          }`}>
+                            GHS {(withdrawal.current_available_balance ?? 0).toFixed(2)}
+                            {(withdrawal.current_available_balance ?? 0) < withdrawal.amount && (
+                              <span className="ml-1 text-xs">⚠️ Insufficient</span>
+                            )}
+                          </p>
+                        </div>
                       </div>
                     </div>
 

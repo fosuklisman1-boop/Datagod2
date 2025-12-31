@@ -27,22 +27,31 @@ export async function GET(request: NextRequest) {
 
     console.log(`[WITHDRAWALS-API] Status: ${status}, Count: ${data?.length || 0}`)
 
-    // Fetch shop details for each withdrawal
+    // Fetch shop details and available balance for each withdrawal
     if (data && data.length > 0) {
       const shopIds = [...new Set(data.map((w: any) => w.shop_id))]
+      
+      // Fetch shop details
       const { data: shops, error: shopsError } = await supabase
         .from("user_shops")
         .select("id, shop_name, shop_slug")
         .in("id", shopIds)
 
-      if (!shopsError && shops) {
-        const shopMap = new Map(shops.map((s: any) => [s.id, s]))
-        const enrichedData = data.map((w: any) => ({
-          ...w,
-          user_shops: shopMap.get(w.shop_id)
-        }))
-        return NextResponse.json(enrichedData)
-      }
+      // Fetch available balance for each shop
+      const { data: balances, error: balancesError } = await supabase
+        .from("shop_available_balance")
+        .select("shop_id, available_balance")
+        .in("shop_id", shopIds)
+
+      const shopMap = shops ? new Map(shops.map((s: any) => [s.id, s])) : new Map()
+      const balanceMap = balances ? new Map(balances.map((b: any) => [b.shop_id, b.available_balance])) : new Map()
+
+      const enrichedData = data.map((w: any) => ({
+        ...w,
+        user_shops: shopMap.get(w.shop_id),
+        current_available_balance: balanceMap.get(w.shop_id) || 0
+      }))
+      return NextResponse.json(enrichedData)
     }
 
     return NextResponse.json(data || [])
