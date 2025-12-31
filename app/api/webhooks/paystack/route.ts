@@ -111,6 +111,22 @@ export async function POST(request: NextRequest) {
         throw updateError
       }
 
+      // Update payment_attempts to completed (non-blocking)
+      supabase
+        .from("payment_attempts")
+        .update({
+          status: "completed",
+          paystack_transaction_id: event.data.id,
+          gateway_response: event.data.gateway_response || "success",
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("reference", reference)
+        .then(({ error }) => {
+          if (error) console.warn("[WEBHOOK] Failed to update payment_attempts:", error.message)
+          else console.log("[WEBHOOK] ✓ payment_attempts updated to completed")
+        })
+
       // IMPORTANT: Check if payment was already processed to prevent double crediting
       // If status was already "completed" before this webhook, skip crediting
       const wasAlreadyCompleted = paymentData.status === "completed"
@@ -535,6 +551,21 @@ export async function POST(request: NextRequest) {
       if (updateError) {
         console.error("[WEBHOOK] Error updating payment to failed:", updateError)
       }
+
+      // Update payment_attempts to failed (non-blocking)
+      supabase
+        .from("payment_attempts")
+        .update({
+          status: "failed",
+          gateway_response: gateway_response || "Payment declined",
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("reference", reference)
+        .then(({ error }) => {
+          if (error) console.warn("[WEBHOOK] Failed to update payment_attempts to failed:", error.message)
+          else console.log("[WEBHOOK] ✓ payment_attempts updated to failed")
+        })
 
       // Create failed transaction record for tracking (only for wallet top-ups, not shop orders)
       if (!paymentData.shop_id) {

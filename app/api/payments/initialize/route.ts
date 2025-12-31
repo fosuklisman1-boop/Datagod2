@@ -108,6 +108,29 @@ export async function POST(request: NextRequest) {
 
     console.log("[PAYMENT-INIT] ✓ Success")
 
+    // Track payment attempt in payment_attempts table (non-blocking)
+    supabase
+      .from("payment_attempts")
+      .insert([{
+        user_id: userId,
+        reference,
+        amount: amount,
+        fee: paystackFee,
+        email,
+        status: "pending",
+        payment_type: shopId ? "shop_order" : "wallet_topup",
+        shop_id: shopId || null,
+        order_id: orderId || null,
+        created_at: new Date().toISOString(),
+      }])
+      .then(({ error }) => {
+        if (error) {
+          console.warn("[PAYMENT-INIT] Failed to create payment attempt record:", error.message)
+        } else {
+          console.log("[PAYMENT-INIT] ✓ Payment attempt tracked")
+        }
+      })
+
     // Add Safari-compatible CORS headers
     const response = NextResponse.json({
       success: true,
