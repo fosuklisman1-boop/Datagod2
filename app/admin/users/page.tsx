@@ -49,6 +49,7 @@ interface UserStats {
     shopSlug: string
     createdAt: string
     totalOrders: number
+    paidOrders: number
     completedOrders: number
     totalSales: number
     totalProfit: number
@@ -633,7 +634,7 @@ export default function AdminUsersPage() {
                                 <CardContent className="p-4">
                                   <p className="text-xs text-blue-600 font-medium">Shop Orders</p>
                                   <p className="text-xl font-bold text-blue-700">{userStats.shop.totalOrders}</p>
-                                  <p className="text-xs text-gray-500">{userStats.shop.completedOrders} completed</p>
+                                  <p className="text-xs text-gray-500">{userStats.shop.paidOrders} paid, {userStats.shop.completedOrders} fulfilled</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-green-50 border-green-200">

@@ -80,8 +80,9 @@ export async function GET(
     const walletBalance = walletResult.data?.balance || 0
     const transactions = transactionsResult.data || []
     
+    // Total top-ups: credit transactions from wallet_topup source
     const totalTopUps = transactions
-      .filter((t: any) => t.type === "credit" && t.source === "paystack" && t.status === "completed")
+      .filter((t: any) => t.type === "credit" && t.source === "wallet_topup" && t.status === "completed")
       .reduce((sum: number, t: any) => sum + (t.amount || 0), 0)
     
     const totalSpent = transactions
@@ -109,17 +110,24 @@ export async function GET(
       // Fetch shop-related data
       const [shopBalanceData, shopOrdersData, shopProfitsData, withdrawalsData] = await Promise.all([
         adminClient.from("shop_available_balance").select("*").eq("shop_id", shopId).single(),
-        adminClient.from("shop_orders").select("id, total_amount, profit_amount, status, created_at").eq("shop_id", shopId),
+        adminClient.from("shop_orders").select("id, total_amount, profit_amount, status, order_status, payment_status, created_at").eq("shop_id", shopId),
         adminClient.from("shop_profits").select("id, profit_amount, status, created_at").eq("shop_id", shopId),
         adminClient.from("withdrawal_requests").select("*").eq("shop_id", shopId).order("created_at", { ascending: false })
       ])
 
       const shopOrders = shopOrdersData.data || []
       const shopProfits = shopProfitsData.data || []
-      const completedShopOrders = shopOrders.filter((o: any) => o.status === "completed" || o.status === "delivered")
       
-      // Calculate total sales from completed orders
-      const totalSales = completedShopOrders.reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0)
+      // Paid orders are those with payment_status = "completed" 
+      const paidShopOrders = shopOrders.filter((o: any) => o.payment_status === "completed")
+      // Delivered/completed orders for order fulfillment tracking
+      const completedShopOrders = shopOrders.filter((o: any) => 
+        o.order_status === "completed" || o.order_status === "delivered" || 
+        o.status === "completed" || o.status === "delivered"
+      )
+      
+      // Calculate total sales from PAID orders (not just delivered ones)
+      const totalSales = paidShopOrders.reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0)
       
       // Calculate total profit from shop_profits table (more accurate)
       const totalProfitFromProfits = shopProfits.reduce((sum: number, p: any) => sum + (p.profit_amount || 0), 0)
@@ -141,6 +149,7 @@ export async function GET(
         shopSlug: shopResult.data.shop_slug,
         createdAt: shopResult.data.created_at,
         totalOrders: shopOrders.length,
+        paidOrders: paidShopOrders.length,
         completedOrders: completedShopOrders.length,
         totalSales,
         totalProfit,
