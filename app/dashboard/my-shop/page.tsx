@@ -966,7 +966,9 @@ export default function MyShopPage() {
                               <CardContent className="p-4 space-y-3">
                                 <div>
                                   <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
-                                  <p className="text-sm text-gray-600">Base Price: GHS {pkg.price}</p>
+                                  <p className="text-sm text-gray-600">
+                                    {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {pkg.price}
+                                  </p>
                                 </div>
                                 
                                 {(() => {
