@@ -66,7 +66,8 @@ export function Sidebar() {
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
   const [userPendingOrderCount, setUserPendingOrderCount] = useState(0)
   const [adminPendingOrderCount, setAdminPendingOrderCount] = useState(0)
-  const [userRole, setUserRole] = useState<string>("user")
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [roleLoading, setRoleLoading] = useState(true)
 
   const handleLogout = async () => {
     await logout()
@@ -74,10 +75,14 @@ export function Sidebar() {
 
   // Fetch user role
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      setRoleLoading(false)
+      return
+    }
 
     const fetchRole = async () => {
       try {
+        setRoleLoading(true)
         const { data: userData } = await supabase
           .from("users")
           .select("role")
@@ -94,10 +99,15 @@ export function Sidebar() {
           if (metadataRole) {
             setUserRole(metadataRole)
             console.log("[SIDEBAR] User role from metadata:", metadataRole)
+          } else {
+            setUserRole("user")
           }
         }
       } catch (error) {
         console.error("Error fetching user role:", error)
+        setUserRole("user")
+      } finally {
+        setRoleLoading(false)
       }
     }
 
@@ -230,7 +240,15 @@ export function Sidebar() {
 
         {/* Navigation Menu */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-2 scrollbar-thin scrollbar-thumb-blue-400 scrollbar-track-blue-600 hover:scrollbar-thumb-blue-300">
-          {menuItems.filter(item => item.roles.includes(userRole)).map((item) => {
+          {roleLoading ? (
+            // Show loading skeleton while fetching role
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-10 bg-blue-500/30 rounded animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            menuItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href
             const isLoading = loadingPath === item.href
@@ -268,14 +286,16 @@ export function Sidebar() {
                 </Button>
               </Link>
             )
-          })}
+          })
+          )}
 
           {/* Shop Section */}
+          {!roleLoading && (
           <div className="pt-4 mt-4 border-t border-blue-400">
             {isOpen && (
               <p className="text-xs font-semibold text-blue-100 px-3 mb-2">SHOP</p>
             )}
-            {shopItems.filter(item => item.roles.includes(userRole)).map((item) => {
+            {shopItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
               const Icon = item.icon
               const isActive = pathname === item.href
               const isLoading = loadingPath === item.href
@@ -303,6 +323,7 @@ export function Sidebar() {
               )
             })}
           </div>
+          )}
 
           {/* Admin Section */}
           {isAdmin && (
