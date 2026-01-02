@@ -74,18 +74,36 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch catalog" }, { status: 500 })
     }
 
-    // If this is a sub-agent, get parent's catalog to get parent's margins
+    // If this is a sub-agent, get parent's margins from their catalog
     let parentMargins: Record<string, number> = {}
     if (shop.parent_shop_id) {
+      // Get parent's catalog entries (what parent charges for these packages)
       const { data: parentCatalog } = await supabase
         .from("sub_agent_catalog")
         .select("package_id, wholesale_margin")
         .eq("shop_id", shop.parent_shop_id)
+        .eq("is_active", true)
 
-      parentMargins = (parentCatalog || []).reduce((acc: any, item: any) => {
-        acc[item.package_id] = item.wholesale_margin
-        return acc
-      }, {})
+      if (parentCatalog && parentCatalog.length > 0) {
+        parentMargins = (parentCatalog || []).reduce((acc: any, item: any) => {
+          acc[item.package_id] = item.wholesale_margin
+          return acc
+        }, {})
+      } else {
+        // If parent doesn't have items in their catalog, check their shop_packages as fallback
+        const { data: parentShopPkgs } = await supabase
+          .from("shop_packages")
+          .select("package_id, profit_margin")
+          .eq("shop_id", shop.parent_shop_id)
+          .eq("is_available", true)
+
+        if (parentShopPkgs && parentShopPkgs.length > 0) {
+          parentMargins = (parentShopPkgs || []).reduce((acc: any, item: any) => {
+            acc[item.package_id] = item.profit_margin
+            return acc
+          }, {})
+        }
+      }
     }
 
     // Transform to include calculated prices
