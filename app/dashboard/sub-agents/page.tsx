@@ -243,7 +243,14 @@ export default function SubAgentsPage() {
             </h1>
             <p className="text-gray-500 mt-1">Manage your reseller network</p>
           </div>
-          <Button onClick={() => { setShowInviteModal(true); setNewInviteUrl(null); setInviteEmail(""); }}>
+          <Button 
+            onClick={() => { 
+              setShowInviteModal(true); 
+              setNewInviteUrl(null); 
+              setInviteEmail(""); 
+            }}
+            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white"
+          >
             <Plus className="w-4 h-4 mr-2" />
             Invite Sub-Agent
           </Button>
