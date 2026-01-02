@@ -74,25 +74,49 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
       }
 
+      // If sub-agent, also get parent's margins to calculate correct selling prices
+      let parentMargins: Record<string, number> = {}
+      if (shop.parent_shop_id) {
+        const { data: parentCatalog } = await supabase
+          .from("sub_agent_catalog")
+          .select("package_id, wholesale_margin")
+          .eq("shop_id", shop.parent_shop_id)
+          .eq("is_active", true)
+
+        if (parentCatalog && parentCatalog.length > 0) {
+          parentMargins = (parentCatalog || []).reduce((acc: any, item: any) => {
+            acc[item.package_id] = item.wholesale_margin
+            return acc
+          }, {})
+        }
+      }
+
       // Transform catalog items to match expected format
-      // Sub-agent's selling price = admin price + their wholesale_margin
+      // Sub-agent's selling price = parent's wholesale price (admin + parent margin) + sub-agent's margin
       packages = (catalogItems || [])
         .filter((item: any) => item.package?.active)
-        .map((item: any) => ({
-          id: item.id,
-          package_id: item.package.id,
-          profit_margin: item.wholesale_margin,
-          is_available: item.is_active,
-          packages: {
-            id: item.package.id,
-            network: item.package.network,
-            size: item.package.size,
-            price: item.package.price,  // Base admin price
-            description: item.package.description
-          },
-          // Calculated selling price for display
-          selling_price: item.package.price + item.wholesale_margin
-        }))
+        .map((item: any) => {
+          const adminPrice = item.package.price
+          const parentMargin = parentMargins[item.package_id] || 0
+          const parentWholesalePrice = adminPrice + parentMargin
+          const sellingPrice = parentWholesalePrice + item.wholesale_margin
+          
+          return {
+            id: item.id,
+            package_id: item.package.id,
+            profit_margin: item.wholesale_margin,
+            is_available: item.is_active,
+            packages: {
+              id: item.package.id,
+              network: item.package.network,
+              size: item.package.size,
+              price: adminPrice,
+              description: item.package.description
+            },
+            // Calculated selling price: parent's wholesale price + sub-agent's margin
+            selling_price: sellingPrice
+          }
+        })
 
     } else {
       // Regular shop owner: get packages from shop_packages
