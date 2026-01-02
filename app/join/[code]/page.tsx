@@ -372,7 +372,11 @@ export default function JoinPage() {
                 </AlertDescription>
               </Alert>
 
-              <Button type="submit" className="w-full" disabled={submitting}>
+              <Button 
+                type="submit" 
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 text-lg" 
+                disabled={submitting}
+              >
                 {submitting ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
