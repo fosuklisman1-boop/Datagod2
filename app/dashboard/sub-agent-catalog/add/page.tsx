@@ -21,6 +21,8 @@ interface AdminPackage {
   price: number
   description?: string
   active: boolean
+  _original_admin_price?: number  // For sub-agents: admin base price
+  _parent_wholesale_margin?: number  // For sub-agents: parent's margin
 }
 
 interface CatalogItem {
@@ -140,7 +142,10 @@ export default function AddToCatalogPage() {
       return
     }
 
+    // For sub-agents: margin = selling_price - parent's wholesale price (shown as pkg.price)
+    // This is ONLY their profit, not including parent's margin
     const margin = sellingPrice - pkg.price
+    
     if (margin < 0) {
       toast.error("Selling price must be higher than base price")
       return

@@ -111,7 +111,8 @@ export async function GET(request: NextRequest) {
       const adminPrice = item.package?.price || 0
       const parentMargin = parentMargins[item.package_id] || 0
       const parentWholesalePrice = adminPrice + parentMargin
-      const sellingPrice = parentWholesalePrice + (item.wholesale_margin - parentMargin)
+      // sub-agent's wholesale_margin is ONLY their profit on top of parent price
+      const sellingPrice = parentWholesalePrice + item.wholesale_margin
       
       return {
         ...item,
@@ -119,8 +120,8 @@ export async function GET(request: NextRequest) {
         parent_wholesale_price: parentWholesalePrice,
         // wholesale_price: what this sub-agent sells at
         wholesale_price: sellingPrice,
-        // profit_margin for display: their actual margin on top of parent's price
-        profit_margin: item.wholesale_margin - parentMargin
+        // profit_margin for display: this is what they store (their margin only)
+        profit_margin: item.wholesale_margin
       }
     })
 
