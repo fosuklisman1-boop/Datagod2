@@ -67,11 +67,16 @@ export default function ShopStorefront() {
 
       setShop(shopData)
 
-      // Get available packages using the shop service
+      // Get available packages using the public-packages API
+      // This handles both regular shops and sub-agents
       try {
-        const shopPkgs = await shopPackageService.getAvailableShopPackages(shopData.shop_slug)
-        if (shopPkgs) {
-          setPackages(shopPkgs)
+        const response = await fetch(`/api/shop/public-packages?slug=${shopSlug}`)
+        const data = await response.json()
+        
+        if (data.packages && data.packages.length > 0) {
+          setPackages(data.packages)
+        } else {
+          setPackages([])
         }
       } catch (pkgError: any) {
         console.error("Error loading packages:", pkgError)
