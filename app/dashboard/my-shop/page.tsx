@@ -100,36 +100,29 @@ export default function MyShopPage() {
         console.log("Shop Name:", userShop.shop_name)
         console.log("Parent Shop ID:", userShop.parent_shop_id)
         console.log("Is Sub-agent:", !!userShop.parent_shop_id)
-        console.log("Full shop object:", userShop)
         
         if (userShop.parent_shop_id) {
-          // Sub-agent: get parent shop's packages
-          console.log("=== LOADING PARENT PACKAGES ===")
+          // Sub-agent: get parent shop's packages via API (bypasses RLS)
+          console.log("=== LOADING PARENT PACKAGES VIA API ===")
           try {
-            const { data: parentPackages, error: parentError } = await supabase
-              .from("shop_packages")
-              .select(`
-                package_id,
-                profit_margin,
-                is_available,
-                package:packages (*)
-              `)
-              .eq("shop_id", userShop.parent_shop_id)
-              .eq("is_available", true)
+            const session = await supabase.auth.getSession()
+            const token = session.data.session?.access_token
             
-            console.log("Parent packages result:", parentPackages)
-            console.log("Parent packages error:", parentError)
+            const response = await fetch("/api/shop/parent-packages", {
+              headers: {
+                "Authorization": `Bearer ${token}`
+              }
+            })
             
-            if (!parentError && parentPackages) {
-              // Transform to match expected format - include parent's profit in base price
-              const parentPkgsFormatted = parentPackages.map((pp: any) => ({
-                ...pp.package,
-                // Sub-agent's base price = package price + parent's profit margin
-                price: pp.package.price + pp.profit_margin,
-                parent_profit_margin: pp.profit_margin
-              }))
-              console.log("Formatted packages:", parentPkgsFormatted)
-              setAllPackages(parentPkgsFormatted)
+            const data = await response.json()
+            console.log("Parent packages API response:", data)
+            
+            if (data.packages && data.packages.length > 0) {
+              setAllPackages(data.packages)
+              console.log("Set allPackages to parent's packages:", data.packages.length)
+            } else {
+              console.log("No parent packages found, sub-agent has nothing to sell yet")
+              setAllPackages([])
             }
           } catch (parentPkgError: any) {
             console.error("Error loading parent packages:", parentPkgError)

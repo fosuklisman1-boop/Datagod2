@@ -1,0 +1,95 @@
+import { NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabase = createClient(supabaseUrl, serviceRoleKey)
+
+// GET: Get packages available for a sub-agent (from their parent shop)
+export async function GET(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Get user's shop
+    const { data: shop, error: shopError } = await supabase
+      .from("user_shops")
+      .select("id, parent_shop_id, tier_level")
+      .eq("user_id", user.id)
+      .single()
+
+    if (shopError || !shop) {
+      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+
+    // If no parent shop, return empty (not a sub-agent)
+    if (!shop.parent_shop_id) {
+      return NextResponse.json({ 
+        is_sub_agent: false,
+        packages: [] 
+      })
+    }
+
+    // Get parent shop's packages
+    const { data: parentPackages, error: packagesError } = await supabase
+      .from("shop_packages")
+      .select(`
+        id,
+        package_id,
+        profit_margin,
+        is_available,
+        custom_name,
+        package:packages (
+          id,
+          network,
+          size,
+          price,
+          description,
+          is_active
+        )
+      `)
+      .eq("shop_id", shop.parent_shop_id)
+      .eq("is_available", true)
+
+    if (packagesError) {
+      console.error("Error fetching parent packages:", packagesError)
+      return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
+    }
+
+    // Transform packages: sub-agent's base price = admin price + parent's profit margin
+    const transformedPackages = (parentPackages || []).map((pp: any) => ({
+      id: pp.package.id,
+      network: pp.package.network,
+      size: pp.package.size,
+      // Sub-agent's wholesale price = package price + parent's profit margin
+      price: pp.package.price + pp.profit_margin,
+      description: pp.package.description,
+      is_active: pp.package.is_active,
+      // Keep track of parent's profit for reference
+      _parent_profit_margin: pp.profit_margin,
+      _original_admin_price: pp.package.price
+    }))
+
+    return NextResponse.json({
+      is_sub_agent: true,
+      parent_shop_id: shop.parent_shop_id,
+      packages: transformedPackages
+    })
+
+  } catch (error) {
+    console.error("Error in parent-packages API:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to fetch packages" },
+      { status: 500 }
+    )
+  }
+}
