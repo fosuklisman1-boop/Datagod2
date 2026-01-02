@@ -20,7 +20,7 @@ interface AdminPackage {
   size: string
   price: number
   description?: string
-  is_active: boolean
+  active: boolean
 }
 
 interface CatalogItem {
@@ -98,7 +98,7 @@ export default function AddToCatalogPage() {
         console.log("Fetched packages:", pkgData.packages?.length || 0)
         
         if (pkgData.packages && pkgData.packages.length > 0) {
-          setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.is_active))
+          setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.active))
         } else {
           console.log("No packages returned from API")
           toast.error("No packages found. Admin needs to add packages first.")
