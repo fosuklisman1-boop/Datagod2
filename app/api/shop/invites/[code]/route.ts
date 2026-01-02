@@ -170,6 +170,25 @@ export async function POST(request: NextRequest, { params }: Params) {
     const newUserId = authData.user.id
     const parentTierLevel = invite.inviter_shop?.tier_level || 1
 
+    // Create/update profile with sub_agent role
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .upsert({
+        id: newUserId,
+        email: email,
+        first_name: first_name || "",
+        last_name: last_name || "",
+        phone: phone || "",
+        role: "sub_agent",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+
+    if (profileError) {
+      console.error("Error creating profile:", profileError)
+      // Continue anyway - profile might be created by trigger
+    }
+
     // Create shop for sub-agent
     const { data: newShop, error: shopError } = await supabase
       .from("user_shops")
