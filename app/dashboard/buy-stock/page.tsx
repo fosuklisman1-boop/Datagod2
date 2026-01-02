@@ -26,12 +26,12 @@ import { supabase } from "@/lib/supabase"
 
 interface WholesalePackage {
   id: string
-  package_name: string
-  package_type: string
-  data_amount: string
-  wholesale_price: number  // Price you pay (parent's selling price)
-  selling_price: number    // Your selling price to customers
   network: string
+  size: string
+  price: number           // Your wholesale cost (admin price + parent's margin)
+  description?: string
+  _parent_wholesale_margin?: number
+  _original_admin_price?: number
 }
 
 export default function BuyStockPage() {
@@ -82,12 +82,6 @@ export default function BuyStockPage() {
 
       setShopId(shop.id)
 
-      if (!shop.parent_shop_id) {
-        // Not a sub-agent, shouldn't be on this page
-        toast.error("This page is for sub-agents only")
-        return
-      }
-
       // Get wallet balance
       const { data: wallet } = await supabase
         .from("wallets")
@@ -97,43 +91,27 @@ export default function BuyStockPage() {
 
       setWalletBalance(wallet?.balance || 0)
 
-      // Get packages from parent shop (parent's selling price = your wholesale cost)
-      const { data: parentPackages, error: pkgError } = await supabase
-        .from("shop_packages")
-        .select(`
-          id,
-          package_name,
-          package_type,
-          data_amount,
-          selling_price,
-          network
-        `)
-        .eq("shop_id", shop.parent_shop_id)
-        .eq("is_active", true)
-        .order("network")
-        .order("selling_price", { ascending: true })
+      // Get packages from parent's sub_agent_catalog via API
+      const token = session.access_token
+      if (!token) {
+        toast.error("Authentication error")
+        return
+      }
 
-      if (!pkgError && parentPackages) {
-        // Map parent's selling price to your wholesale price
-        // Your selling price would be from your own shop_packages
-        const { data: myPackages } = await supabase
-          .from("shop_packages")
-          .select("id, package_name, selling_price")
-          .eq("shop_id", shop.id)
+      const response = await fetch("/api/shop/parent-packages", {
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+      const data = await response.json()
 
-        const myPriceMap = new Map(myPackages?.map(p => [p.package_name, p.selling_price]) || [])
+      if (!data.is_sub_agent) {
+        toast.error("This page is for sub-agents only")
+        return
+      }
 
-        const wholesalePackages = parentPackages.map(pkg => ({
-          id: pkg.id,
-          package_name: pkg.package_name,
-          package_type: pkg.package_type,
-          data_amount: pkg.data_amount,
-          wholesale_price: pkg.selling_price,  // Parent's price = your cost
-          selling_price: myPriceMap.get(pkg.package_name) || pkg.selling_price,  // Your price
-          network: pkg.network
-        }))
-
-        setPackages(wholesalePackages)
+      if (data.packages && data.packages.length > 0) {
+        setPackages(data.packages)
+      } else {
+        toast.info("No packages available. Your parent shop needs to add packages to their catalog.")
       }
     } catch (error) {
       console.error("Error loading data:", error)
@@ -164,21 +142,12 @@ export default function BuyStockPage() {
   const getCartTotal = () => {
     return Object.entries(cart).reduce((total, [packageId, qty]) => {
       const pkg = packages.find(p => p.id === packageId)
-      return total + (pkg?.wholesale_price || 0) * qty
+      return total + (pkg?.price || 0) * qty
     }, 0)
   }
 
   const getCartItemCount = () => {
     return Object.values(cart).reduce((sum, qty) => sum + qty, 0)
-  }
-
-  const getPotentialProfit = () => {
-    return Object.entries(cart).reduce((total, [packageId, qty]) => {
-      const pkg = packages.find(p => p.id === packageId)
-      if (!pkg) return total
-      const profit = (pkg.selling_price - pkg.wholesale_price) * qty
-      return total + profit
-    }, 0)
   }
 
   const handlePurchase = async () => {
@@ -275,21 +244,14 @@ export default function BuyStockPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <Badge variant="outline">{pkg.network}</Badge>
-                  <Badge className="bg-green-100 text-green-800">
-                    Profit: GHS {(pkg.selling_price - pkg.wholesale_price).toFixed(2)}
-                  </Badge>
                 </div>
-                <CardTitle className="text-lg">{pkg.package_name}</CardTitle>
-                <CardDescription>{pkg.data_amount}</CardDescription>
+                <CardTitle className="text-lg">{pkg.size}</CardTitle>
+                <CardDescription>{pkg.description || pkg.network}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Your Cost:</span>
-                  <span className="font-semibold text-purple-600">GHS {pkg.wholesale_price.toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Your Selling Price:</span>
-                  <span className="font-medium">GHS {pkg.selling_price.toFixed(2)}</span>
+                  <span className="text-gray-500">Wholesale Price:</span>
+                  <span className="font-semibold text-purple-600">GHS {pkg.price.toFixed(2)}</span>
                 </div>
 
                 {/* Quantity Controls */}
@@ -325,13 +287,9 @@ export default function BuyStockPage() {
         {getCartItemCount() > 0 && (
           <Card className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 shadow-lg border-2 border-purple-200 z-50">
             <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-3">
                 <span className="font-semibold">Cart ({getCartItemCount()} items)</span>
                 <span className="text-lg font-bold">GHS {getCartTotal().toFixed(2)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm text-green-600 mb-3">
-                <span>Potential Profit:</span>
-                <span className="font-medium">GHS {getPotentialProfit().toFixed(2)}</span>
               </div>
               
               {getCartTotal() > walletBalance ? (
@@ -373,8 +331,8 @@ export default function BuyStockPage() {
                   if (!pkg) return null
                   return (
                     <div key={packageId} className="flex items-center justify-between text-sm">
-                      <span>{pkg.package_name} x{qty}</span>
-                      <span className="font-medium">GHS {(pkg.wholesale_price * qty).toFixed(2)}</span>
+                      <span>{pkg.network} - {pkg.size} x{qty}</span>
+                      <span className="font-medium">GHS {(pkg.price * qty).toFixed(2)}</span>
                     </div>
                   )
                 })}
@@ -384,10 +342,6 @@ export default function BuyStockPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500">Subtotal:</span>
                   <span className="font-semibold">GHS {getCartTotal().toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between text-green-600">
-                  <span>Potential Profit:</span>
-                  <span className="font-medium">GHS {getPotentialProfit().toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500">Wallet Balance:</span>
