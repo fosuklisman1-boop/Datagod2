@@ -38,7 +38,7 @@ export default function AddToCatalogPage() {
   const [saving, setSaving] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [networkFilter, setNetworkFilter] = useState<string>("all")
-  const [margins, setMargins] = useState<Record<string, string>>({})
+  const [sellingPrices, setSellingPrices] = useState<Record<string, string>>({})
 
   // Get unique networks for filtering
   const networks = [...new Set(allPackages.map(p => p.network))]
@@ -77,12 +77,13 @@ export default function AddToCatalogPage() {
               package_id: c.package_id,
               wholesale_margin: c.wholesale_margin
             })))
-            // Pre-fill margins for existing items
-            const existingMargins: Record<string, string> = {}
+            // Pre-fill selling prices for existing items
+            const existingPrices: Record<string, string> = {}
             data.catalog.forEach((c: any) => {
-              existingMargins[c.package_id] = c.wholesale_margin.toString()
+              const basePrice = c.package?.price || 0
+              existingPrices[c.package_id] = (basePrice + c.wholesale_margin).toFixed(2)
             })
-            setMargins(existingMargins)
+            setSellingPrices(existingPrices)
           }
         }
       } catch (catalogError) {
@@ -117,15 +118,21 @@ export default function AddToCatalogPage() {
   }
 
   const handleAddToCatalog = async (pkg: AdminPackage) => {
-    const marginStr = margins[pkg.id]
-    if (!marginStr) {
-      toast.error("Please enter a margin first")
+    const sellingPriceStr = sellingPrices[pkg.id]
+    if (!sellingPriceStr) {
+      toast.error("Please enter a selling price first")
       return
     }
 
-    const margin = parseFloat(marginStr)
-    if (isNaN(margin) || margin < 0) {
-      toast.error("Please enter a valid margin (0 or greater)")
+    const sellingPrice = parseFloat(sellingPriceStr)
+    if (isNaN(sellingPrice) || sellingPrice <= 0) {
+      toast.error("Please enter a valid selling price")
+      return
+    }
+
+    const margin = sellingPrice - pkg.price
+    if (margin < 0) {
+      toast.error("Selling price must be higher than base price")
       return
     }
 
@@ -284,8 +291,8 @@ export default function AddToCatalogPage() {
         <Alert className="bg-blue-50 border-blue-200">
           <Package className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-blue-800">
-            <strong>How it works:</strong> Enter your margin for each package. Your sub-agents will pay 
-            <strong> Admin Price + Your Margin</strong> as their wholesale cost.
+            <strong>How it works:</strong> Enter the selling price for each package. Your sub-agents will pay 
+            this price as their wholesale cost.
           </AlertDescription>
         </Alert>
 
@@ -314,9 +321,9 @@ export default function AddToCatalogPage() {
                 <div className="space-y-3">
                   {packages.map((pkg) => {
                     const inCatalog = isInCatalog(pkg.id)
-                    const marginValue = margins[pkg.id] || ""
-                    const wholesalePrice = marginValue 
-                      ? pkg.price + parseFloat(marginValue || "0") 
+                    const sellingPriceValue = sellingPrices[pkg.id] || ""
+                    const margin = sellingPriceValue 
+                      ? parseFloat(sellingPriceValue) - pkg.price 
                       : null
 
                     return (
@@ -341,33 +348,33 @@ export default function AddToCatalogPage() {
                               )}
                             </div>
                             <p className="text-sm text-gray-500 mt-1">
-                              Admin Base Price: <span className="font-medium">GHS {pkg.price.toFixed(2)}</span>
+                              Your Cost (Admin Price): <span className="font-medium">GHS {pkg.price.toFixed(2)}</span>
                             </p>
                           </div>
 
-                          {/* Margin Input */}
+                          {/* Selling Price Input */}
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1">
-                              <span className="text-sm text-gray-500">+</span>
+                              <span className="text-sm text-gray-500">Sell at:</span>
                               <Input
                                 type="number"
                                 step="0.01"
-                                min="0"
-                                placeholder="Margin"
-                                value={marginValue}
-                                onChange={(e) => setMargins(prev => ({
+                                min={pkg.price}
+                                placeholder="Selling Price"
+                                value={sellingPriceValue}
+                                onChange={(e) => setSellingPrices(prev => ({
                                   ...prev,
                                   [pkg.id]: e.target.value
                                 }))}
-                                className="w-24"
+                                className="w-28"
                               />
                             </div>
 
-                            {wholesalePrice !== null && !isNaN(wholesalePrice) && (
+                            {margin !== null && !isNaN(margin) && margin >= 0 && (
                               <div className="text-sm">
-                                <span className="text-gray-500">= </span>
-                                <span className="font-bold text-violet-600">
-                                  GHS {wholesalePrice.toFixed(2)}
+                                <span className="text-gray-500">Profit: </span>
+                                <span className="font-bold text-green-600">
+                                  GHS {margin.toFixed(2)}
                                 </span>
                               </div>
                             )}
@@ -377,7 +384,7 @@ export default function AddToCatalogPage() {
                               variant={inCatalog ? "outline" : "default"}
                               className={inCatalog ? "" : "bg-violet-600 hover:bg-violet-700"}
                               onClick={() => handleAddToCatalog(pkg)}
-                              disabled={saving === pkg.id || !marginValue}
+                              disabled={saving === pkg.id || !sellingPriceValue || (margin !== null && margin < 0)}
                             >
                               {saving === pkg.id 
                                 ? "Saving..." 
