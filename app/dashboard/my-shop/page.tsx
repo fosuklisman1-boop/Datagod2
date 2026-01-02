@@ -92,14 +92,56 @@ export default function MyShopPage() {
         } catch (settingsError) {
           console.error("Error loading shop settings:", settingsError)
         }
-      }
 
-      try {
-        const allPkgs = await packageService.getPackages()
-        setAllPackages(allPkgs || [])
-      } catch (allPkgError: any) {
-        console.error("Error loading all packages:", allPkgError)
-        setAllPackages([])
+        // For sub-agents (shops with parent_shop_id), get packages from parent shop
+        // For regular shops, get all admin packages
+        if (userShop.parent_shop_id) {
+          // Sub-agent: get parent shop's packages
+          try {
+            const { data: parentPackages, error: parentError } = await supabase
+              .from("shop_packages")
+              .select(`
+                package_id,
+                profit_margin,
+                is_available,
+                package:packages (*)
+              `)
+              .eq("shop_id", userShop.parent_shop_id)
+              .eq("is_available", true)
+            
+            if (!parentError && parentPackages) {
+              // Transform to match expected format - include parent's profit in base price
+              const parentPkgsFormatted = parentPackages.map((pp: any) => ({
+                ...pp.package,
+                // Sub-agent's base price = package price + parent's profit margin
+                price: pp.package.price + pp.profit_margin,
+                parent_profit_margin: pp.profit_margin
+              }))
+              setAllPackages(parentPkgsFormatted)
+            }
+          } catch (parentPkgError: any) {
+            console.error("Error loading parent packages:", parentPkgError)
+            setAllPackages([])
+          }
+        } else {
+          // Regular shop owner: get all admin packages
+          try {
+            const allPkgs = await packageService.getPackages()
+            setAllPackages(allPkgs || [])
+          } catch (allPkgError: any) {
+            console.error("Error loading all packages:", allPkgError)
+            setAllPackages([])
+          }
+        }
+      } else {
+        // No shop yet, get all packages for reference
+        try {
+          const allPkgs = await packageService.getPackages()
+          setAllPackages(allPkgs || [])
+        } catch (allPkgError: any) {
+          console.error("Error loading all packages:", allPkgError)
+          setAllPackages([])
+        }
       }
 
       // Load orders and calculate stats
