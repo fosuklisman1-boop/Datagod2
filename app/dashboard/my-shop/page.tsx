@@ -1069,7 +1069,10 @@ export default function MyShopPage() {
                   <div className="space-y-3">
                     {packages.map((shopPkg) => {
                       const pkg = shopPkg.packages
-                      const sellingPrice = (pkg?.price || 0) + shopPkg.profit_margin
+                      // For sub-agents, show wholesale_price (their actual cost)
+                      // For regular shops, show packages price + profit margin
+                      const displayBasePrice = shopPkg.wholesale_price || pkg?.price || 0
+                      const sellingPrice = displayBasePrice + shopPkg.profit_margin
                       return (
                         <div
                           key={shopPkg.id}
@@ -1086,7 +1089,7 @@ export default function MyShopPage() {
                               )}
                             </div>
                             <p className="text-sm text-gray-600">
-                              Base: GHS {pkg?.price} | Your Price: GHS {sellingPrice.toFixed(2)}
+                              Base: GHS {displayBasePrice.toFixed(2)} | Your Price: GHS {sellingPrice.toFixed(2)}
                             </p>
                             <p className="text-xs text-emerald-600 font-semibold">
                               Your Profit: GHS {shopPkg.profit_margin.toFixed(2)}
