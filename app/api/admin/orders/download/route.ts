@@ -353,7 +353,9 @@ export async function POST(request: NextRequest) {
       batch_time: batchTime,
       orders: networkOrders,
       order_count: networkOrders.length,
-      created_at: batchTime
+      created_at: batchTime,
+      downloaded_by: callerUser.id,
+      downloaded_by_email: callerUser.email || "Unknown"
     }))
 
     // Insert batch records

@@ -30,6 +30,7 @@ interface DownloadBatch {
   network: string
   downloadedAt: string
   orders: ShopOrder[]
+  downloadedByEmail?: string
 }
 
 interface DownloadedOrders {
@@ -205,7 +206,8 @@ export default function AdminOrdersPage() {
         grouped[key] = {
           network: batch.network,
           downloadedAt: batch.batch_time,
-          orders: batch.orders || []
+          orders: batch.orders || [],
+          downloadedByEmail: batch.downloaded_by_email || undefined
         }
       })
 
@@ -781,6 +783,9 @@ export default function AdminOrdersPage() {
                           </CardTitle>
                           <CardDescription>
                             Downloaded: {new Date(batch.downloadedAt).toLocaleString()}
+                            {batch.downloadedByEmail && (
+                              <span className="ml-2 text-blue-600">by {batch.downloadedByEmail}</span>
+                            )}
                           </CardDescription>
                         </div>
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
