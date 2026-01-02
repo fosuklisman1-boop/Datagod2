@@ -91,10 +91,20 @@ export default function AddToCatalogPage() {
         // Continue anyway - catalog table might not exist yet
       }
 
-      // Get all admin packages via API (bypasses RLS)
-      console.log("Fetching admin packages...")
+      // Get parent's packages (what this sub-agent can buy at)
+      // For sub-agents: use parent-packages API which shows parent's wholesale prices
+      // For regular shops: use admin-packages API (fallback)
+      console.log("Fetching available packages...")
       try {
-        const pkgResponse = await fetch("/api/shop/admin-packages")
+        let apiEndpoint = "/api/shop/admin-packages"
+        
+        // Check if this is a sub-agent
+        if (userShop?.parent_shop_id) {
+          apiEndpoint = "/api/shop/parent-packages"
+          console.log("Sub-agent detected, using parent-packages API")
+        }
+        
+        const pkgResponse = await fetch(apiEndpoint)
         const pkgData = await pkgResponse.json()
         console.log("Fetched packages:", pkgData.packages?.length || 0)
         
@@ -348,7 +358,7 @@ export default function AddToCatalogPage() {
                               )}
                             </div>
                             <p className="text-sm text-gray-500 mt-1">
-                              Your Cost (Admin Price): <span className="font-medium">GHS {pkg.price.toFixed(2)}</span>
+                              Your Cost: <span className="font-medium">GHS {pkg.price.toFixed(2)}</span>
                             </p>
                           </div>
 
