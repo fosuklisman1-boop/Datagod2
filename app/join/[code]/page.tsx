@@ -347,19 +347,19 @@ export default function JoinPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="shop_slug">Shop URL *</Label>
+                <Label htmlFor="shop_slug">Shop URL</Label>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-500">yoursite.com/shop/</span>
                   <Input
                     id="shop_slug"
                     name="shop_slug"
                     value={formData.shop_slug}
-                    onChange={handleInputChange}
-                    placeholder="my-data-shop"
-                    required
-                    className="flex-1"
+                    readOnly
+                    placeholder="auto-generated-from-name"
+                    className="flex-1 bg-gray-50"
                   />
                 </div>
+                <p className="text-xs text-gray-500">Automatically generated from your shop name</p>
               </div>
 
               <Alert>
