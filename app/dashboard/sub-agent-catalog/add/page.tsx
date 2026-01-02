@@ -9,8 +9,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { supabase } from "@/lib/supabase"
-import { packageService } from "@/lib/database"
 import { shopService } from "@/lib/shop-service"
 import { AlertCircle, ArrowLeft, Check, Search, Package } from "lucide-react"
 import { toast } from "sonner"
@@ -91,16 +89,22 @@ export default function AddToCatalogPage() {
         // Continue anyway - catalog table might not exist yet
       }
 
-      // Get all admin packages
+      // Get all admin packages via API (bypasses RLS)
       console.log("Fetching admin packages...")
-      const packages = await packageService.getPackages()
-      console.log("Fetched packages:", packages?.length || 0)
-      
-      if (packages && packages.length > 0) {
-        setAllPackages(packages.filter((p: AdminPackage) => p.is_active))
-      } else {
-        console.log("No packages returned from packageService")
-        toast.error("No packages found. Admin needs to add packages first.")
+      try {
+        const pkgResponse = await fetch("/api/shop/admin-packages")
+        const pkgData = await pkgResponse.json()
+        console.log("Fetched packages:", pkgData.packages?.length || 0)
+        
+        if (pkgData.packages && pkgData.packages.length > 0) {
+          setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.is_active))
+        } else {
+          console.log("No packages returned from API")
+          toast.error("No packages found. Admin needs to add packages first.")
+        }
+      } catch (pkgError) {
+        console.error("Error fetching packages:", pkgError)
+        toast.error("Failed to load packages")
       }
 
     } catch (error) {
