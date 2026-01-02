@@ -480,8 +480,7 @@ export default function AdminOrdersPage() {
       // Check search filter - search in phone numbers, admin email, or network
       if (searchLower) {
         const phoneMatch = batch.orders.some(o => 
-          o.phone_number?.toLowerCase().includes(searchLower) ||
-          o.customer_phone?.toLowerCase().includes(searchLower)
+          o.phone_number?.toLowerCase().includes(searchLower)
         )
         const adminMatch = batch.downloadedByEmail?.toLowerCase().includes(searchLower)
         const networkMatch = batch.network.toLowerCase().includes(searchLower)
