@@ -86,6 +86,15 @@ export function Sidebar() {
         
         if (profile?.role) {
           setUserRole(profile.role)
+          console.log("[SIDEBAR] User role from profiles:", profile.role)
+        } else {
+          // Fallback: check user_metadata
+          const { data: { user: authUser } } = await supabase.auth.getUser()
+          const metadataRole = authUser?.user_metadata?.role
+          if (metadataRole) {
+            setUserRole(metadataRole)
+            console.log("[SIDEBAR] User role from metadata:", metadataRole)
+          }
         }
       } catch (error) {
         console.error("Error fetching user role:", error)

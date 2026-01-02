@@ -24,7 +24,13 @@ export function useUserRole() {
           .eq("id", session.user.id)
           .single()
 
-        setRole(profile?.role || "user")
+        if (profile?.role) {
+          setRole(profile.role)
+        } else {
+          // Fallback: check user_metadata
+          const metadataRole = session.user.user_metadata?.role
+          setRole(metadataRole || "user")
+        }
       } catch (error) {
         console.error("Error fetching user role:", error)
         setRole("user")
