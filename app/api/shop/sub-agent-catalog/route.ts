@@ -37,10 +37,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get user's shop
+    // Get shop with parent info
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id")
+      .select("id, parent_shop_id")
       .eq("user_id", user.id)
       .single()
 
@@ -74,13 +74,37 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch catalog" }, { status: 500 })
     }
 
-    // Transform to include calculated wholesale price (what this user pays)
-    const catalogWithPrices = (catalog || []).map((item: any) => ({
-      ...item,
-      // For sub-agents: wholesale_price = admin_price + wholesale_margin
-      // wholesale_margin here is the TOTAL margin (includes parent's margin)
-      wholesale_price: (item.package?.price || 0) + item.wholesale_margin
-    }))
+    // If this is a sub-agent, get parent's catalog to get parent's margins
+    let parentMargins: Record<string, number> = {}
+    if (shop.parent_shop_id) {
+      const { data: parentCatalog } = await supabase
+        .from("sub_agent_catalog")
+        .select("package_id, wholesale_margin")
+        .eq("shop_id", shop.parent_shop_id)
+
+      parentMargins = (parentCatalog || []).reduce((acc: any, item: any) => {
+        acc[item.package_id] = item.wholesale_margin
+        return acc
+      }, {})
+    }
+
+    // Transform to include calculated prices
+    const catalogWithPrices = (catalog || []).map((item: any) => {
+      const adminPrice = item.package?.price || 0
+      const parentMargin = parentMargins[item.package_id] || 0
+      const parentWholesalePrice = adminPrice + parentMargin
+      const sellingPrice = parentWholesalePrice + (item.wholesale_margin - parentMargin)
+      
+      return {
+        ...item,
+        // parent_wholesale_price: what the parent charges this sub-agent
+        parent_wholesale_price: parentWholesalePrice,
+        // wholesale_price: what this sub-agent sells at
+        wholesale_price: sellingPrice,
+        // profit_margin for display: their actual margin on top of parent's price
+        profit_margin: item.wholesale_margin - parentMargin
+      }
+    })
 
     return NextResponse.json({ catalog: catalogWithPrices })
 
