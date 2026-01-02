@@ -976,7 +976,10 @@ export default function MyShopPage() {
                                       {isAdded && (
                                         <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
                                           <p className="text-blue-700">
-                                            <span className="font-semibold">Current Selling Price:</span> GHS {((isAdded.packages?.price || pkg.price) + isAdded.profit_margin).toFixed(2)}
+                                            <span className="font-semibold">Your Cost (Wholesale):</span> GHS {(isAdded.wholesale_price || pkg.price).toFixed(2)}
+                                          </p>
+                                          <p className="text-blue-700">
+                                            <span className="font-semibold">Current Selling Price:</span> GHS {(isAdded.wholesale_price || pkg.price).toFixed(2)}
                                           </p>
                                           <p className="text-blue-600">
                                             Your Profit: GHS {isAdded.profit_margin.toFixed(2)}

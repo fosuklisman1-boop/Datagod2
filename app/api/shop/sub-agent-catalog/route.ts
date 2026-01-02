@@ -74,10 +74,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch catalog" }, { status: 500 })
     }
 
-    // Transform to include calculated wholesale price
+    // Transform to include calculated wholesale price (what this user pays)
     const catalogWithPrices = (catalog || []).map((item: any) => ({
       ...item,
-      wholesale_price: item.package.price + item.wholesale_margin
+      // For sub-agents: wholesale_price = admin_price + wholesale_margin
+      // wholesale_margin here is the TOTAL margin (includes parent's margin)
+      wholesale_price: (item.package?.price || 0) + item.wholesale_margin
     }))
 
     return NextResponse.json({ catalog: catalogWithPrices })
