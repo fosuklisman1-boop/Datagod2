@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, Loader2, Search } from "lucide-react"
+import { AlertCircle, Loader2, Search, Edit } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
+import { supabase } from "@/lib/supabase"
 
 interface AllOrder {
   id: string
@@ -41,6 +42,7 @@ export default function OrderPaymentStatusPage() {
   
   const [allOrders, setAllOrders] = useState<AllOrder[]>([])
   const [loadingAllOrders, setLoadingAllOrders] = useState(false)
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   
   const [searchQuery, setSearchQuery] = useState("")
   const [searchType, setSearchType] = useState<"all" | "reference" | "phone">("all")
@@ -84,6 +86,50 @@ export default function OrderPaymentStatusPage() {
       toast.error(errorMessage)
     } finally {
       setLoadingAllOrders(false)
+    }
+  }
+
+  const handleStatusUpdate = async (orderId: string, orderType: string, newStatus: string) => {
+    if (!newStatus) return
+    
+    try {
+      setUpdatingOrderId(orderId)
+      
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/orders/bulk-update-status", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          orderIds: [orderId],
+          status: newStatus,
+          orderType: orderType === "shop" ? "shop" : "bulk"
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update status")
+      }
+
+      toast.success(`Order status updated to ${newStatus}`)
+      
+      // Update local state
+      setAllOrders(prev => prev.map(order => 
+        order.id === orderId ? { ...order, status: newStatus } : order
+      ))
+    } catch (error) {
+      console.error("Error updating order status:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update status")
+    } finally {
+      setUpdatingOrderId(null)
     }
   }
 
@@ -188,6 +234,7 @@ export default function OrderPaymentStatusPage() {
                       <th className="px-4 py-2 text-center font-semibold text-gray-700">Payment Status</th>
                       <th className="px-4 py-2 text-center font-semibold text-gray-700">Order Status</th>
                       <th className="px-4 py-2 text-center font-semibold text-gray-700">Date</th>
+                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -242,6 +289,21 @@ export default function OrderPaymentStatusPage() {
                         <td className="px-4 py-3 text-center text-xs text-gray-500">
                           <div>{new Date(order.created_at).toLocaleDateString()}</div>
                           <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <select
+                            className="px-2 py-1 text-xs border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                            onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
+                            disabled={updatingOrderId === order.id}
+                            defaultValue=""
+                            aria-label="Update order status"
+                          >
+                            <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
+                            <option value="pending">Pending</option>
+                            <option value="processing">Processing</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                          </select>
                         </td>
                       </tr>
                     ))}
