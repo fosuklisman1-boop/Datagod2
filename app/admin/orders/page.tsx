@@ -287,11 +287,11 @@ export default function AdminOrdersPage() {
       setDownloading(true)
 
       // Fetch fresh pending orders to include any new orders that came in
-      const response = await fetch("/api/admin/orders/pending")
-      if (!response.ok) {
+      const pendingResponse = await fetch("/api/admin/orders/pending")
+      if (!pendingResponse.ok) {
         throw new Error("Failed to fetch latest orders")
       }
-      const result = await response.json()
+      const result = await pendingResponse.json()
       const freshOrders = result.data || []
 
       // Filter fresh orders by selected networks
