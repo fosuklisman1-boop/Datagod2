@@ -78,14 +78,17 @@ export default function JoinPage() {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
 
-    // Auto-generate slug from shop name
+    // Auto-generate slug from shop name with random suffix
     if (name === "shop_name") {
-      const slug = value
+      const baseSlug = value
         .toLowerCase()
         .replace(/[^a-z0-9\s-]/g, "")
         .replace(/\s+/g, "-")
         .replace(/-+/g, "-")
         .trim()
+      // Add random 4-character suffix to prevent duplicates
+      const randomSuffix = Math.random().toString(36).substring(2, 6)
+      const slug = baseSlug ? `${baseSlug}-${randomSuffix}` : ""
       setFormData(prev => ({ ...prev, shop_slug: slug }))
     }
   }
