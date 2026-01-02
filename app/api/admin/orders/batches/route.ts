@@ -50,12 +50,15 @@ export async function GET() {
       const bulkOrderMap = new Map(bulkResult.data?.map(o => [o.id, o]) || [])
       
       // Add type and current status to each order
+      // Priority: 1) Use stored status from batch if available (snapshot at download time)
+      //           2) Fall back to current DB status only if not stored
       const enrichedOrders = batch.orders.map((order: any) => {
         const shopOrder = shopOrderMap.get(order.id)
         if (shopOrder) {
           return {
             ...order,
-            status: shopOrder.order_status,
+            // Use stored status from batch, fallback to current DB status
+            status: order.status || shopOrder.order_status,
             type: 'shop'
           }
         }
@@ -64,7 +67,8 @@ export async function GET() {
         if (bulkOrder) {
           return {
             ...order,
-            status: bulkOrder.status,
+            // Use stored status from batch, fallback to current DB status
+            status: order.status || bulkOrder.status,
             type: 'bulk'
           }
         }
