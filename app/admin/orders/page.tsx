@@ -262,12 +262,19 @@ export default function AdminOrdersPage() {
       return
     }
 
-    // Reload pending orders to ensure fresh data
-    await loadPendingOrders()
+    // Show loading state while refreshing data
+    setDownloading(true)
     
-    // Open network selection dialog
-    setSelectedNetworks([]) // Reset selection
-    setShowNetworkSelection(true)
+    try {
+      // Reload pending orders to ensure fresh data
+      await loadPendingOrders()
+      
+      // Open network selection dialog
+      setSelectedNetworks([]) // Reset selection
+      setShowNetworkSelection(true)
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const handleConfirmDownload = async () => {
