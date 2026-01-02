@@ -317,7 +317,7 @@ export default function AdminOrdersPage() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ 
-          orderIds: filteredOrders.map(o => o.id)
+          orderIds: filteredOrders.map((o: any) => o.id)
         })
       })
 
