@@ -1,31 +1,51 @@
-import { NextResponse } from "next/server"
-import { createServerComponentClient } from "@/lib/supabase-server"
-import { supabase } from "@/lib/supabase"
+import { NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 // Debug endpoint to check sub-agent shop data
-export async function GET() {
+// Usage: /api/debug/shop?user_id=xxx or with Bearer token
+export async function GET(request: NextRequest) {
   try {
-    const serverSupabase = await createServerComponentClient()
+    let userId: string | null = null
     
-    // Get current user
-    const { data: { user }, error: authError } = await serverSupabase.auth.getUser()
+    // Try to get user from Authorization header first
+    const authHeader = request.headers.get("Authorization")
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice(7)
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+      if (!authError && user) {
+        userId = user.id
+      }
+    }
     
-    if (authError || !user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    // Fallback: get user_id from query param (for easy debugging)
+    if (!userId) {
+      const url = new URL(request.url)
+      userId = url.searchParams.get("user_id")
+    }
+    
+    if (!userId) {
+      return NextResponse.json({ 
+        error: "No user found. Pass ?user_id=xxx or use Bearer token",
+        hint: "Get user ID from Supabase Auth > Users" 
+      }, { status: 400 })
     }
 
-    // Get user's shop with explicit column selection
+    // Get user info
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .single()
+
+    // Get user's shop
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
       .select("*")
-      .eq("user_id", user.id)
-      .single()
-
-    // Get user's role
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
+      .eq("user_id", userId)
       .single()
 
     // If shop has parent_shop_id, get parent's packages
@@ -60,10 +80,9 @@ export async function GET() {
 
     return NextResponse.json({
       user: {
-        id: user.id,
-        email: user.email,
-        role_from_users_table: userData?.role || "NOT FOUND",
-        role_from_metadata: user.user_metadata?.role || "NOT SET",
+        id: userId,
+        email: userData?.email || "N/A",
+        role: userData?.role || "NOT FOUND",
       },
       shop: {
         ...shop,
