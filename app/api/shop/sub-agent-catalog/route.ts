@@ -282,7 +282,7 @@ export async function DELETE(request: NextRequest) {
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id")
+      .select("id, parent_shop_id")
       .eq("user_id", user.id)
       .single()
 
@@ -290,15 +290,47 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
-    // Delete (only if belongs to user's shop)
+    // Get the catalog item to be deleted to find which package it is
+    const { data: catalogItem, error: itemError } = await supabase
+      .from("sub_agent_catalog")
+      .select("id, shop_id, package_id")
+      .eq("id", catalogId)
+      .single()
+
+    if (itemError || !catalogItem) {
+      return NextResponse.json({ error: "Catalog item not found" }, { status: 404 })
+    }
+
+    // Only allow deletion if it belongs to the user's shop
+    if (catalogItem.shop_id !== shop.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
+    }
+
+    // Delete the item
     const { error: deleteError } = await supabase
       .from("sub_agent_catalog")
       .delete()
       .eq("id", catalogId)
-      .eq("shop_id", shop.id)
 
     if (deleteError) {
       return NextResponse.json({ error: "Failed to delete from catalog" }, { status: 500 })
+    }
+
+    // If this is a parent shop deleting from their catalog, 
+    // also deactivate the same package for all sub-agents
+    if (!shop.parent_shop_id) {
+      // This is a parent shop, so deactivate for all sub-agents
+      const { error: deactivateError } = await supabase
+        .from("sub_agent_catalog")
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq("package_id", catalogItem.package_id)
+        .in("shop_id", 
+          (await supabase
+            .from("user_shops")
+            .select("id")
+            .eq("parent_shop_id", shop.id)
+          ).data?.map((s: any) => s.id) || []
+        )
     }
 
     return NextResponse.json({ success: true })
