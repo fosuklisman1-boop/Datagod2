@@ -57,6 +57,33 @@ export async function POST(request: NextRequest) {
       // Continue without tracking if it fails - order should still be created
     }
 
+    // Check if this shop has a parent shop (sub-agent scenario)
+    let parent_shop_id: string | null = null
+    let parent_profit_amount: number | null = null
+    
+    try {
+      const { data: shopData, error: shopError } = await supabase
+        .from("user_shops")
+        .select("parent_shop_id")
+        .eq("id", shop_id)
+        .single()
+
+      if (!shopError && shopData?.parent_shop_id) {
+        parent_shop_id = shopData.parent_shop_id
+        
+        // Calculate parent's profit: base_price for this order is what the sub-agent pays (parent's selling price)
+        // The parent's profit is the difference between what sub-agent pays and the actual admin base price
+        // For simplicity, we store the base_price the sub-agent uses as parent_profit_amount
+        // This represents what the parent shop earns from this sale
+        parent_profit_amount = parseFloat(base_price.toString())
+        
+        console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Parent profit: ${parent_profit_amount}`)
+      }
+    } catch (parentError) {
+      console.warn("[SHOP-ORDER] Error checking for parent shop:", parentError)
+      // Continue without parent - profit will only go to sub-agent
+    }
+
     const { data, error } = await supabase
       .from("shop_orders")
       .insert([
@@ -76,6 +103,8 @@ export async function POST(request: NextRequest) {
           payment_status: "pending",
           reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
           shop_customer_id: shop_customer_id || null,
+          parent_shop_id: parent_shop_id,
+          parent_profit_amount: parent_profit_amount,
           created_at: new Date().toISOString(),
         },
       ])

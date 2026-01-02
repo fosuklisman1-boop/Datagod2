@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
         // Get shop order details to create profit record
         const { data: shopOrderData, error: orderFetchError } = await supabase
           .from("shop_orders")
-          .select("id, shop_id, profit_amount, customer_phone, customer_email, network, volume_gb, total_price, reference_code")
+          .select("id, shop_id, profit_amount, customer_phone, customer_email, network, volume_gb, total_price, reference_code, parent_shop_id, parent_profit_amount")
           .eq("id", paymentData.order_id)
           .single()
 
@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Create shop profit record
+          // Create shop profit record for the sub-agent/shop owner
           if (shopOrderData?.profit_amount > 0) {
             const { error: profitError } = await supabase
               .from("shop_profits")
@@ -268,6 +268,8 @@ export async function POST(request: NextRequest) {
                 // Get all profits to calculate available balance
                 const { data: profits, error: profitFetchError } = await supabase
                   .from("shop_profits")
+                  .select("profit_amount, status")
+                  .eq("shop_id", paymentData.shop_id)
                   .select("profit_amount, status")
                   .eq("shop_id", paymentData.shop_id)
 
@@ -299,7 +301,7 @@ export async function POST(request: NextRequest) {
 
                   let totalApprovedWithdrawals = 0
                   if (!withdrawalError && approvedWithdrawals) {
-                    totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+                    totalApprovedWithdrawals = approvedWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
                   }
 
                   // Available balance = credited profit - approved withdrawals
@@ -346,6 +348,95 @@ export async function POST(request: NextRequest) {
               } catch (syncError) {
                 console.error("Error syncing available balance:", syncError)
                 // Don't throw - profit record was already created
+              }
+            }
+          }
+
+          // Create parent shop profit record if this is a sub-agent sale
+          if (shopOrderData?.parent_shop_id && shopOrderData?.parent_profit_amount > 0) {
+            console.log(`[WEBHOOK] Sub-agent sale detected. Crediting parent shop ${shopOrderData.parent_shop_id} with GHS ${shopOrderData.parent_profit_amount}`)
+            
+            const { error: parentProfitError } = await supabase
+              .from("shop_profits")
+              .insert([
+                {
+                  shop_id: shopOrderData.parent_shop_id,
+                  shop_order_id: paymentData.order_id,
+                  profit_amount: shopOrderData.parent_profit_amount,
+                  status: "credited",
+                  created_at: new Date().toISOString(),
+                }
+              ])
+
+            if (parentProfitError) {
+              console.error("Error creating parent shop profit record:", parentProfitError)
+            } else {
+              console.log(`[WEBHOOK] ✓ Parent shop profit record created: GHS ${shopOrderData.parent_profit_amount.toFixed(2)}`)
+              
+              // Sync parent shop available balance
+              try {
+                const { data: parentProfits, error: parentProfitFetchError } = await supabase
+                  .from("shop_profits")
+                  .select("profit_amount, status")
+                  .eq("shop_id", shopOrderData.parent_shop_id)
+
+                if (!parentProfitFetchError && parentProfits) {
+                  const parentBreakdown = {
+                    totalProfit: 0,
+                    creditedProfit: 0,
+                    withdrawnProfit: 0,
+                  }
+
+                  parentProfits.forEach((p: any) => {
+                    const amount = p.profit_amount || 0
+                    parentBreakdown.totalProfit += amount
+                    if (p.status === "credited") {
+                      parentBreakdown.creditedProfit += amount
+                    } else if (p.status === "withdrawn") {
+                      parentBreakdown.withdrawnProfit += amount
+                    }
+                  })
+
+                  const { data: parentWithdrawals } = await supabase
+                    .from("withdrawal_requests")
+                    .select("amount")
+                    .eq("shop_id", shopOrderData.parent_shop_id)
+                    .eq("status", "approved")
+
+                  let totalParentWithdrawals = 0
+                  if (parentWithdrawals) {
+                    totalParentWithdrawals = parentWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
+                  }
+
+                  const parentAvailableBalance = Math.max(0, parentBreakdown.creditedProfit - totalParentWithdrawals)
+
+                  // Delete and insert fresh balance
+                  await supabase
+                    .from("shop_available_balance")
+                    .delete()
+                    .eq("shop_id", shopOrderData.parent_shop_id)
+
+                  const { error: parentBalanceInsertError } = await supabase
+                    .from("shop_available_balance")
+                    .insert([
+                      {
+                        shop_id: shopOrderData.parent_shop_id,
+                        available_balance: parentAvailableBalance,
+                        total_profit: parentBreakdown.totalProfit,
+                        withdrawn_amount: parentBreakdown.withdrawnProfit,
+                        credited_profit: parentBreakdown.creditedProfit,
+                        withdrawn_profit: parentBreakdown.withdrawnProfit,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      }
+                    ])
+
+                  if (!parentBalanceInsertError) {
+                    console.log(`[WEBHOOK] ✓ Parent shop balance synced: ${shopOrderData.parent_shop_id} - Available: GHS ${parentAvailableBalance.toFixed(2)}`)
+                  }
+                }
+              } catch (parentSyncError) {
+                console.error("Error syncing parent shop balance:", parentSyncError)
               }
             }
           }

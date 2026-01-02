@@ -29,25 +29,31 @@ import {
   Lock,
   ArrowRightLeft,
   Clock,
+  Users,
+  ShoppingBag,
+  CreditCard,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 
 const menuItems = [
-  { href: "/dashboard", label: "Dashboard", icon: Home },
-  { href: "/dashboard/data-packages", label: "Data Packages", icon: Package },
-  { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart },
-  { href: "/dashboard/afa-orders", label: "AFA Orders", icon: Star },
-  { href: "/dashboard/wallet", label: "Wallet", icon: Wallet },
-  { href: "/dashboard/transactions", label: "Transactions", icon: History },
-  { href: "/dashboard/profile", label: "Profile", icon: User },
-  { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle },
+  { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin", "sub_agent"] },
+  { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin"] },
+  { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin"] },
+  { href: "/dashboard/afa-orders", label: "AFA Orders", icon: Star, roles: ["user", "admin"] },
+  { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent"] },
+  { href: "/dashboard/transactions", label: "Transactions", icon: History, roles: ["user", "admin"] },
+  { href: "/dashboard/profile", label: "Profile", icon: User, roles: ["user", "admin", "sub_agent"] },
+  { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle, roles: ["user", "admin"] },
 ]
 
 const shopItems = [
-  { href: "/dashboard/my-shop", label: "My Shop", icon: Store },
-  { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp },
+  { href: "/dashboard/my-shop", label: "My Shop", icon: Store, roles: ["user", "admin", "sub_agent"] },
+  { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp, roles: ["user", "admin", "sub_agent"] },
+  { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin"] },
+  { href: "/dashboard/buy-stock", label: "Buy Stock", icon: ShoppingBag, roles: ["sub_agent"] },
+  { href: "/dashboard/withdrawals", label: "Withdrawals", icon: CreditCard, roles: ["user", "admin", "sub_agent"] },
 ]
 
 export function Sidebar() {
@@ -60,10 +66,34 @@ export function Sidebar() {
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
   const [userPendingOrderCount, setUserPendingOrderCount] = useState(0)
   const [adminPendingOrderCount, setAdminPendingOrderCount] = useState(0)
+  const [userRole, setUserRole] = useState<string>("user")
 
   const handleLogout = async () => {
     await logout()
   }
+
+  // Fetch user role
+  useEffect(() => {
+    if (!user) return
+
+    const fetchRole = async () => {
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single()
+        
+        if (profile?.role) {
+          setUserRole(profile.role)
+        }
+      } catch (error) {
+        console.error("Error fetching user role:", error)
+      }
+    }
+
+    fetchRole()
+  }, [user])
 
   // Fetch pending orders count from localStorage
   useEffect(() => {
@@ -191,7 +221,7 @@ export function Sidebar() {
 
         {/* Navigation Menu */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-2 scrollbar-thin scrollbar-thumb-blue-400 scrollbar-track-blue-600 hover:scrollbar-thumb-blue-300">
-          {menuItems.map((item) => {
+          {menuItems.filter(item => item.roles.includes(userRole)).map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href
             const isLoading = loadingPath === item.href
@@ -236,7 +266,7 @@ export function Sidebar() {
             {isOpen && (
               <p className="text-xs font-semibold text-blue-100 px-3 mb-2">SHOP</p>
             )}
-            {shopItems.map((item) => {
+            {shopItems.filter(item => item.roles.includes(userRole)).map((item) => {
               const Icon = item.icon
               const isActive = pathname === item.href
               const isLoading = loadingPath === item.href
