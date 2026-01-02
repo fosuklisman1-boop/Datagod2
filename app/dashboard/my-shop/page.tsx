@@ -105,14 +105,26 @@ export default function MyShopPage() {
           // Sub-agent: get parent shop's packages via API (bypasses RLS)
           console.log("=== LOADING PARENT PACKAGES VIA API ===")
           try {
-            const session = await supabase.auth.getSession()
-            const token = session.data.session?.access_token
+            const { data: { session } } = await supabase.auth.getSession()
+            const token = session?.access_token
+            
+            if (!token) {
+              console.error("No access token available")
+              setAllPackages([])
+              return
+            }
             
             const response = await fetch("/api/shop/parent-packages", {
               headers: {
                 "Authorization": `Bearer ${token}`
               }
             })
+            
+            if (!response.ok) {
+              console.error("Parent packages API error:", response.status, response.statusText)
+              setAllPackages([])
+              return
+            }
             
             const data = await response.json()
             console.log("Parent packages API response:", data)
