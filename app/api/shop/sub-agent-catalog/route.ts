@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const supabase = createClient(supabaseUrl, serviceRoleKey)
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing Supabase environment variables")
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey)
+}
 
 // GET: Get shop owner's sub-agent catalog
 export async function GET(request: NextRequest) {
   try {
+    const supabase = getSupabaseClient()
+
     const authHeader = request.headers.get("Authorization")
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -77,6 +86,8 @@ export async function GET(request: NextRequest) {
 // POST: Add package to sub-agent catalog
 export async function POST(request: NextRequest) {
   try {
+    const supabase = getSupabaseClient()
+
     const authHeader = request.headers.get("Authorization")
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -166,6 +177,8 @@ export async function POST(request: NextRequest) {
 // DELETE: Remove package from sub-agent catalog
 export async function DELETE(request: NextRequest) {
   try {
+    const supabase = getSupabaseClient()
+
     const authHeader = request.headers.get("Authorization")
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
