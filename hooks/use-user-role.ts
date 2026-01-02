@@ -18,14 +18,14 @@ export function useUserRole() {
           return
         }
 
-        const { data: profile } = await supabase
-          .from("profiles")
+        const { data: userData } = await supabase
+          .from("users")
           .select("role")
           .eq("id", session.user.id)
           .single()
 
-        if (profile?.role) {
-          setRole(profile.role)
+        if (userData?.role) {
+          setRole(userData.role)
         } else {
           // Fallback: check user_metadata
           const metadataRole = session.user.user_metadata?.role

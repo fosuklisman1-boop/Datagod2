@@ -78,15 +78,15 @@ export function Sidebar() {
 
     const fetchRole = async () => {
       try {
-        const { data: profile } = await supabase
-          .from("profiles")
+        const { data: userData } = await supabase
+          .from("users")
           .select("role")
           .eq("id", user.id)
           .single()
         
-        if (profile?.role) {
-          setUserRole(profile.role)
-          console.log("[SIDEBAR] User role from profiles:", profile.role)
+        if (userData?.role) {
+          setUserRole(userData.role)
+          console.log("[SIDEBAR] User role from users table:", userData.role)
         } else {
           // Fallback: check user_metadata
           const { data: { user: authUser } } = await supabase.auth.getUser()

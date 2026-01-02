@@ -60,13 +60,13 @@ export default function BuyStockPage() {
       }
 
       // Get user role
-      const { data: profile } = await supabase
-        .from("profiles")
+      const { data: userData } = await supabase
+        .from("users")
         .select("role")
         .eq("id", session.user.id)
         .single()
 
-      setUserRole(profile?.role || null)
+      setUserRole(userData?.role || null)
 
       // Get user's shop with parent info
       const { data: shop, error: shopError } = await supabase
