@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
-import { cookies } from "next/headers"
+import { createServerComponentClient } from "@/lib/supabase-server"
+import { supabase } from "@/lib/supabase"
 
 // Debug endpoint to check sub-agent shop data
 export async function GET() {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
+    const serverSupabase = await createServerComponentClient()
     
     // Get current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await serverSupabase.auth.getUser()
     
     if (authError || !user) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
