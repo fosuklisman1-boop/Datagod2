@@ -286,8 +286,16 @@ export default function AdminOrdersPage() {
     try {
       setDownloading(true)
 
-      // Filter orders by selected networks
-      const filteredOrders = pendingOrders.filter(o => selectedNetworks.includes(o.network))
+      // Fetch fresh pending orders to include any new orders that came in
+      const response = await fetch("/api/admin/orders/pending")
+      if (!response.ok) {
+        throw new Error("Failed to fetch latest orders")
+      }
+      const result = await response.json()
+      const freshOrders = result.data || []
+
+      // Filter fresh orders by selected networks
+      const filteredOrders = freshOrders.filter((o: any) => selectedNetworks.includes(o.network))
       
       if (filteredOrders.length === 0) {
         toast.error("No orders found for selected networks")
