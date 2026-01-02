@@ -552,7 +552,8 @@ export default function ShopStorefront() {
                               })
                               .map((shopPkg) => {
                                 const pkg = shopPkg.packages
-                                const totalPrice = pkg.price + shopPkg.profit_margin
+                                // Use selling_price from API if available (for sub-agents), otherwise calculate
+                                const totalPrice = shopPkg.selling_price !== undefined ? shopPkg.selling_price : (pkg.price + shopPkg.profit_margin)
 
                                 return (
                                   <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
