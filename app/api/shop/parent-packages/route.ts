@@ -5,7 +5,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-// GET: Get packages available for a sub-agent (from their parent shop)
+// GET: Get packages available for a sub-agent (from their parent's sub_agent_catalog)
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get("Authorization")
@@ -39,15 +39,14 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Get parent shop's packages
-    const { data: parentPackages, error: packagesError } = await supabase
-      .from("shop_packages")
+    // Get parent's sub-agent catalog
+    const { data: catalogItems, error: catalogError } = await supabase
+      .from("sub_agent_catalog")
       .select(`
         id,
         package_id,
-        profit_margin,
-        is_available,
-        custom_name,
+        wholesale_margin,
+        is_active,
         package:packages (
           id,
           network,
@@ -58,26 +57,28 @@ export async function GET(request: NextRequest) {
         )
       `)
       .eq("shop_id", shop.parent_shop_id)
-      .eq("is_available", true)
+      .eq("is_active", true)
 
-    if (packagesError) {
-      console.error("Error fetching parent packages:", packagesError)
+    if (catalogError) {
+      console.error("Error fetching parent catalog:", catalogError)
       return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
     }
 
-    // Transform packages: sub-agent's base price = admin price + parent's profit margin
-    const transformedPackages = (parentPackages || []).map((pp: any) => ({
-      id: pp.package.id,
-      network: pp.package.network,
-      size: pp.package.size,
-      // Sub-agent's wholesale price = package price + parent's profit margin
-      price: pp.package.price + pp.profit_margin,
-      description: pp.package.description,
-      is_active: pp.package.is_active,
-      // Keep track of parent's profit for reference
-      _parent_profit_margin: pp.profit_margin,
-      _original_admin_price: pp.package.price
-    }))
+    // Transform packages: sub-agent's wholesale price = admin price + parent's margin
+    const transformedPackages = (catalogItems || [])
+      .filter((item: any) => item.package?.is_active)
+      .map((item: any) => ({
+        id: item.package.id,
+        network: item.package.network,
+        size: item.package.size,
+        // Sub-agent's wholesale price = package price + parent's margin
+        price: item.package.price + item.wholesale_margin,
+        description: item.package.description,
+        is_active: item.package.is_active,
+        // Keep track of parent's margin for reference
+        _parent_wholesale_margin: item.wholesale_margin,
+        _original_admin_price: item.package.price
+      }))
 
     return NextResponse.json({
       is_sub_agent: true,

@@ -1,0 +1,493 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useAuth } from "@/lib/auth-context"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { supabase } from "@/lib/supabase"
+import { packageService } from "@/lib/database"
+import { shopService } from "@/lib/shop-service"
+import { AlertCircle, Plus, Trash2, Package, Users, DollarSign, Search } from "lucide-react"
+import { toast } from "sonner"
+
+interface CatalogItem {
+  id: string
+  package_id: string
+  wholesale_margin: number
+  is_active: boolean
+  wholesale_price: number
+  package: {
+    id: string
+    network: string
+    size: string
+    price: number
+    description?: string
+  }
+}
+
+interface AdminPackage {
+  id: string
+  network: string
+  size: string
+  price: number
+  description?: string
+  is_active: boolean
+}
+
+export default function SubAgentCatalogPage() {
+  const { user } = useAuth()
+  const [shop, setShop] = useState<any>(null)
+  const [catalog, setCatalog] = useState<CatalogItem[]>([])
+  const [allPackages, setAllPackages] = useState<AdminPackage[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [selectedPackage, setSelectedPackage] = useState<AdminPackage | null>(null)
+  const [wholesaleMargin, setWholesaleMargin] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [hasSubAgents, setHasSubAgents] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    loadData()
+  }, [user])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      if (!user?.id) return
+
+      // Get shop
+      const userShop = await shopService.getShop(user.id)
+      setShop(userShop)
+
+      if (!userShop) {
+        setLoading(false)
+        return
+      }
+
+      // Check if shop has sub-agents
+      const { data: subAgents } = await supabase
+        .from("user_shops")
+        .select("id")
+        .eq("parent_shop_id", userShop.id)
+        .limit(1)
+      
+      setHasSubAgents((subAgents?.length || 0) > 0)
+
+      // Get catalog
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      if (token) {
+        const response = await fetch("/api/shop/sub-agent-catalog", {
+          headers: { "Authorization": `Bearer ${token}` }
+        })
+        const data = await response.json()
+        if (data.catalog) {
+          setCatalog(data.catalog)
+        }
+      }
+
+      // Get all admin packages
+      const packages = await packageService.getPackages()
+      setAllPackages(packages.filter((p: AdminPackage) => p.is_active))
+
+    } catch (error) {
+      console.error("Error loading data:", error)
+      toast.error("Failed to load data")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAddToCatalog = async () => {
+    if (!selectedPackage || !wholesaleMargin) {
+      toast.error("Please select a package and enter a margin")
+      return
+    }
+
+    const margin = parseFloat(wholesaleMargin)
+    if (isNaN(margin) || margin < 0) {
+      toast.error("Please enter a valid margin (0 or greater)")
+      return
+    }
+
+    try {
+      setSaving(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      if (!token) {
+        toast.error("Not authenticated")
+        return
+      }
+
+      const response = await fetch("/api/shop/sub-agent-catalog", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          package_id: selectedPackage.id,
+          wholesale_margin: margin
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to add to catalog")
+      }
+
+      toast.success(data.action === "updated" ? "Package updated!" : "Package added to catalog!")
+      setShowAddDialog(false)
+      setSelectedPackage(null)
+      setWholesaleMargin("")
+      loadData()
+
+    } catch (error: any) {
+      console.error("Error adding to catalog:", error)
+      toast.error(error.message || "Failed to add to catalog")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRemoveFromCatalog = async (catalogId: string) => {
+    if (!confirm("Remove this package from sub-agent catalog?")) return
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      if (!token) {
+        toast.error("Not authenticated")
+        return
+      }
+
+      const response = await fetch(`/api/shop/sub-agent-catalog?id=${catalogId}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to remove from catalog")
+      }
+
+      toast.success("Package removed from catalog")
+      loadData()
+
+    } catch (error: any) {
+      console.error("Error removing from catalog:", error)
+      toast.error(error.message || "Failed to remove from catalog")
+    }
+  }
+
+  // Filter packages not already in catalog
+  const availablePackages = allPackages.filter(
+    pkg => !catalog.some(c => c.package_id === pkg.id)
+  )
+
+  // Filter by search
+  const filteredAvailablePackages = availablePackages.filter(pkg =>
+    pkg.network.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    pkg.size.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!shop) {
+    return (
+      <DashboardLayout>
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            You need to create a shop first before managing your sub-agent catalog.
+          </AlertDescription>
+        </Alert>
+      </DashboardLayout>
+    )
+  }
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">Sub-Agent Catalog</h1>
+            <p className="text-gray-500">
+              Manage packages available for your sub-agents to sell
+            </p>
+          </div>
+          
+          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+            <DialogTrigger asChild>
+              <Button className="bg-violet-600 hover:bg-violet-700">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Package
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Add Package to Sub-Agent Catalog</DialogTitle>
+                <DialogDescription>
+                  Select a package and set your wholesale margin. Sub-agents will pay the base price + your margin.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Search packages..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                {/* Package List */}
+                <div className="max-h-60 overflow-y-auto border rounded-lg">
+                  {filteredAvailablePackages.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      {availablePackages.length === 0 
+                        ? "All packages are already in your catalog"
+                        : "No packages match your search"
+                      }
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {filteredAvailablePackages.map((pkg) => (
+                        <div
+                          key={pkg.id}
+                          className={`p-3 cursor-pointer hover:bg-gray-50 transition-colors ${
+                            selectedPackage?.id === pkg.id ? "bg-violet-50 border-l-4 border-violet-500" : ""
+                          }`}
+                          onClick={() => setSelectedPackage(pkg)}
+                        >
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <span className="font-medium">{pkg.network}</span>
+                              <span className="mx-2">•</span>
+                              <span>{pkg.size}</span>
+                            </div>
+                            <Badge variant="outline">
+                              GHS {pkg.price.toFixed(2)}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Selected Package & Margin */}
+                {selectedPackage && (
+                  <Card className="bg-violet-50 border-violet-200">
+                    <CardContent className="pt-4">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium">Selected:</span>
+                          <span>{selectedPackage.network} - {selectedPackage.size}</span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                          <span>Admin Base Price:</span>
+                          <span className="font-medium">GHS {selectedPackage.price.toFixed(2)}</span>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="margin">Your Wholesale Margin (GHS)</Label>
+                          <Input
+                            id="margin"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="e.g., 0.50"
+                            value={wholesaleMargin}
+                            onChange={(e) => setWholesaleMargin(e.target.value)}
+                          />
+                          <p className="text-xs text-gray-600">
+                            This is your profit when sub-agents buy this package
+                          </p>
+                        </div>
+
+                        {wholesaleMargin && !isNaN(parseFloat(wholesaleMargin)) && (
+                          <div className="flex justify-between items-center pt-2 border-t">
+                            <span className="font-medium">Sub-Agent Wholesale Price:</span>
+                            <span className="text-lg font-bold text-violet-600">
+                              GHS {(selectedPackage.price + parseFloat(wholesaleMargin)).toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <Button
+                  onClick={handleAddToCatalog}
+                  disabled={!selectedPackage || !wholesaleMargin || saving}
+                  className="w-full bg-violet-600 hover:bg-violet-700"
+                >
+                  {saving ? "Adding..." : "Add to Catalog"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-violet-100 rounded-lg">
+                  <Package className="h-6 w-6 text-violet-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Catalog Packages</p>
+                  <p className="text-2xl font-bold">{catalog.length}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-green-100 rounded-lg">
+                  <Users className="h-6 w-6 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Has Sub-Agents</p>
+                  <p className="text-2xl font-bold">{hasSubAgents ? "Yes" : "No"}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <DollarSign className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Avg Margin</p>
+                  <p className="text-2xl font-bold">
+                    GHS {catalog.length > 0 
+                      ? (catalog.reduce((sum, c) => sum + c.wholesale_margin, 0) / catalog.length).toFixed(2)
+                      : "0.00"
+                    }
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Info Alert */}
+        {!hasSubAgents && (
+          <Alert className="bg-blue-50 border-blue-200">
+            <AlertCircle className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-800">
+              You don't have any sub-agents yet. Go to the <strong>Sub-Agents</strong> page to invite them.
+              Once you add packages here, your sub-agents will be able to purchase and resell them.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Catalog Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Your Sub-Agent Catalog</CardTitle>
+            <CardDescription>
+              These packages are available for your sub-agents to purchase at wholesale prices
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {catalog.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No packages in your sub-agent catalog yet.</p>
+                <p className="text-sm">Click "Add Package" to get started.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Network</TableHead>
+                    <TableHead>Size</TableHead>
+                    <TableHead className="text-right">Admin Price</TableHead>
+                    <TableHead className="text-right">Your Margin</TableHead>
+                    <TableHead className="text-right">Wholesale Price</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {catalog.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-medium">{item.package.network}</TableCell>
+                      <TableCell>{item.package.size}</TableCell>
+                      <TableCell className="text-right">GHS {item.package.price.toFixed(2)}</TableCell>
+                      <TableCell className="text-right text-green-600">
+                        +GHS {item.wholesale_margin.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right font-bold">
+                        GHS {item.wholesale_price.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => handleRemoveFromCatalog(item.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </DashboardLayout>
+  )
+}
