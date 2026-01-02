@@ -1071,11 +1071,10 @@ export default function MyShopPage() {
                   <div className="space-y-3">
                     {packages.map((shopPkg) => {
                       const pkg = shopPkg.packages
-                      // For sub-agents, show parent_wholesale_price (what they pay the parent)
-                      // For regular shops, show packages price
-                      const displayBasePrice = shopPkg.parent_wholesale_price || shopPkg.wholesale_price || pkg?.price || 0
-                      const sellingPrice = shopPkg.wholesale_price || (displayBasePrice + shopPkg.profit_margin)
-                      const profit = shopPkg.profit_margin || (sellingPrice - displayBasePrice)
+                      // Unified logic: base = parent_wholesale_price (sub-agent) or pkg.price (regular)
+                      const displayBasePrice = shopPkg.parent_wholesale_price !== undefined ? shopPkg.parent_wholesale_price : (pkg?.price || 0)
+                      const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
+                      const profit = shopPkg.profit_margin || 0
                       return (
                         <div
                           key={shopPkg.id}
