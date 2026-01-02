@@ -23,6 +23,11 @@ export const shopService = {
       }
       throw error
     }
+    
+    if (!data || data.length === 0) {
+      throw new Error("Failed to create shop: no data returned")
+    }
+    
     return data[0]
   },
 
