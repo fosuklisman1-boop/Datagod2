@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const { data: packages, error } = await supabase
       .from("packages")
       .select("*")
-      .eq("is_active", true)
+      .eq("active", true)
       .order("network", { ascending: true })
       .order("price", { ascending: true })
 

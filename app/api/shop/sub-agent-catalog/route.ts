@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
           size,
           price,
           description,
-          is_active
+          active
         )
       `)
       .eq("shop_id", shop.id)
