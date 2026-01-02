@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
@@ -54,6 +54,8 @@ export default function AdminOrdersPage() {
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([])
   const [downloadedBatchFilter, setDownloadedBatchFilter] = useState("all")
   const [downloadedBatchStatusFilter, setDownloadedBatchStatusFilter] = useState("all")
+  const [downloadedBatchSearch, setDownloadedBatchSearch] = useState("")
+  const [downloadedNetworkFilter, setDownloadedNetworkFilter] = useState("all")
   const allNetworks = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
   
   // Auto-fulfillment toggle state
@@ -469,10 +471,28 @@ export default function AdminOrdersPage() {
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
     const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
     const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate())
+    const searchLower = downloadedBatchSearch.toLowerCase().trim()
 
     return Object.entries(downloadedOrders).filter(([, batch]) => {
       const batchDate = new Date(batch.downloadedAt)
       const batchDateOnly = new Date(batchDate.getFullYear(), batchDate.getMonth(), batchDate.getDate())
+
+      // Check search filter - search in phone numbers, admin email, or network
+      if (searchLower) {
+        const phoneMatch = batch.orders.some(o => 
+          o.phone_number?.toLowerCase().includes(searchLower) ||
+          o.customer_phone?.toLowerCase().includes(searchLower)
+        )
+        const adminMatch = batch.downloadedByEmail?.toLowerCase().includes(searchLower)
+        const networkMatch = batch.network.toLowerCase().includes(searchLower)
+        
+        if (!phoneMatch && !adminMatch && !networkMatch) return false
+      }
+
+      // Check network filter
+      if (downloadedNetworkFilter !== "all" && batch.network !== downloadedNetworkFilter) {
+        return false
+      }
 
       // Check date filter
       let dateMatch = true
@@ -648,10 +668,50 @@ export default function AdminOrdersPage() {
             {/* Filter Section */}
             {Object.keys(downloadedOrders).length > 0 && (
               <>
+                {/* Search and Network Filter */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Search Downloaded Batches</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search by phone, admin email, or network..."
+                          value={downloadedBatchSearch}
+                          onChange={(e) => setDownloadedBatchSearch(e.target.value)}
+                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant={downloadedNetworkFilter === "all" ? "default" : "outline"}
+                          onClick={() => setDownloadedNetworkFilter("all")}
+                          size="sm"
+                        >
+                          All Networks
+                        </Button>
+                        {allNetworks.map((network) => (
+                          <Button
+                            key={network}
+                            variant={downloadedNetworkFilter === network ? "default" : "outline"}
+                            onClick={() => setDownloadedNetworkFilter(network)}
+                            size="sm"
+                          >
+                            {network}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
                 {/* Date Filter */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Filter Downloaded Batches by Date</CardTitle>
+                    <CardTitle>Filter by Date</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="flex flex-wrap gap-2">
