@@ -97,9 +97,9 @@ export async function GET(request: NextRequest) {
       parent_packages_error: parentPackagesError,
       diagnosis: !shop?.parent_shop_id 
         ? "❌ parent_shop_id is not set on this shop - either migration not run or shop was created before migration"
-        : parentPackages?.length === 0
+        : (parentPackages?.length ?? 0) === 0
         ? "❌ Parent shop has no packages configured in shop_packages table"
-        : parentPackages?.length > 0
+        : (parentPackages?.length ?? 0) > 0
         ? "✅ Everything looks correct - parent has packages"
         : "⚠️ Unknown issue"
     })
