@@ -63,32 +63,45 @@ export default function AddToCatalogPage() {
         return
       }
 
-      // Get existing catalog items
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
+      // Get existing catalog items (may fail if table doesn't exist yet)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token
 
-      if (token) {
-        const response = await fetch("/api/shop/sub-agent-catalog", {
-          headers: { "Authorization": `Bearer ${token}` }
-        })
-        const data = await response.json()
-        if (data.catalog) {
-          setExistingCatalog(data.catalog.map((c: any) => ({
-            package_id: c.package_id,
-            wholesale_margin: c.wholesale_margin
-          })))
-          // Pre-fill margins for existing items
-          const existingMargins: Record<string, string> = {}
-          data.catalog.forEach((c: any) => {
-            existingMargins[c.package_id] = c.wholesale_margin.toString()
+        if (token) {
+          const response = await fetch("/api/shop/sub-agent-catalog", {
+            headers: { "Authorization": `Bearer ${token}` }
           })
-          setMargins(existingMargins)
+          const data = await response.json()
+          if (data.catalog) {
+            setExistingCatalog(data.catalog.map((c: any) => ({
+              package_id: c.package_id,
+              wholesale_margin: c.wholesale_margin
+            })))
+            // Pre-fill margins for existing items
+            const existingMargins: Record<string, string> = {}
+            data.catalog.forEach((c: any) => {
+              existingMargins[c.package_id] = c.wholesale_margin.toString()
+            })
+            setMargins(existingMargins)
+          }
         }
+      } catch (catalogError) {
+        console.error("Error loading catalog (table may not exist yet):", catalogError)
+        // Continue anyway - catalog table might not exist yet
       }
 
       // Get all admin packages
+      console.log("Fetching admin packages...")
       const packages = await packageService.getPackages()
-      setAllPackages(packages.filter((p: AdminPackage) => p.is_active))
+      console.log("Fetched packages:", packages?.length || 0)
+      
+      if (packages && packages.length > 0) {
+        setAllPackages(packages.filter((p: AdminPackage) => p.is_active))
+      } else {
+        console.log("No packages returned from packageService")
+        toast.error("No packages found. Admin needs to add packages first.")
+      }
 
     } catch (error) {
       console.error("Error loading data:", error)
