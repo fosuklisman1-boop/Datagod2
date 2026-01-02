@@ -182,6 +182,79 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// PUT: Update a catalog item (margin or is_active status)
+export async function PUT(request: NextRequest) {
+  try {
+    const supabase = getSupabaseClient()
+
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { catalog_id, wholesale_margin, is_active } = body
+
+    if (!catalog_id) {
+      return NextResponse.json({ error: "Catalog ID required" }, { status: 400 })
+    }
+
+    // Get user's shop
+    const { data: shop, error: shopError } = await supabase
+      .from("user_shops")
+      .select("id")
+      .eq("user_id", user.id)
+      .single()
+
+    if (shopError || !shop) {
+      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+
+    // Build update object
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    }
+    
+    if (wholesale_margin !== undefined) {
+      updateData.wholesale_margin = wholesale_margin
+    }
+    
+    if (is_active !== undefined) {
+      updateData.is_active = is_active
+    }
+
+    // Update (only if belongs to user's shop)
+    const { data: updated, error: updateError } = await supabase
+      .from("sub_agent_catalog")
+      .update(updateData)
+      .eq("id", catalog_id)
+      .eq("shop_id", shop.id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error("Error updating catalog:", updateError)
+      return NextResponse.json({ error: "Failed to update catalog" }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, item: updated })
+
+  } catch (error) {
+    console.error("Error in sub-agent-catalog PUT:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to update catalog" },
+      { status: 500 }
+    )
+  }
+}
+
 // DELETE: Remove package from sub-agent catalog
 export async function DELETE(request: NextRequest) {
   try {

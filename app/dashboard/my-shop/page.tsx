@@ -68,12 +68,46 @@ export default function MyShopPage() {
       setShop(userShop)
       
       if (userShop) {
-        try {
-          const shopPkgs = await shopPackageService.getShopPackages(userShop.id)
-          setPackages(shopPkgs || [])
-        } catch (pkgError: any) {
-          console.error("Error loading packages:", pkgError)
-          setPackages([])
+        // Get auth token for API calls
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token
+
+        // For sub-agents, load from sub_agent_catalog API
+        // For regular shops, load from shop_packages
+        if (userShop.parent_shop_id && token) {
+          // Sub-agent: get own catalog from sub_agent_catalog
+          try {
+            const response = await fetch("/api/shop/sub-agent-catalog", {
+              headers: { "Authorization": `Bearer ${token}` }
+            })
+            const data = await response.json()
+            if (data.catalog) {
+              // Transform to match expected format
+              const catalogItems = data.catalog.map((item: any) => ({
+                id: item.id,
+                package_id: item.package_id,
+                profit_margin: item.wholesale_margin,
+                is_available: item.is_active,
+                packages: item.package,
+                wholesale_price: item.wholesale_price
+              }))
+              setPackages(catalogItems)
+            } else {
+              setPackages([])
+            }
+          } catch (catalogError: any) {
+            console.error("Error loading sub-agent catalog:", catalogError)
+            setPackages([])
+          }
+        } else {
+          // Regular shop owner: load from shop_packages
+          try {
+            const shopPkgs = await shopPackageService.getShopPackages(userShop.id)
+            setPackages(shopPkgs || [])
+          } catch (pkgError: any) {
+            console.error("Error loading packages:", pkgError)
+            setPackages([])
+          }
         }
         
         setFormData({
@@ -275,35 +309,103 @@ export default function MyShopPage() {
       const pkg = getPackageDetails(selectedPackage)
       const basePrice = pkg?.price || 0
       const sellingPrice = parseFloat(profitMargin || "0")
-      const calculatedProfit = sellingPrice - basePrice
+      const calculatedMargin = sellingPrice - basePrice
       
-      if (calculatedProfit < 0) {
+      if (calculatedMargin < 0) {
         toast.error("Selling price must be higher than base price")
         return
       }
-      
-      // Check if package already exists
-      const existingPkg = packages.find(p => p.package_id === selectedPackage)
-      
-      if (existingPkg) {
-        // Update existing package
-        await shopPackageService.updatePackageProfitMargin(
-          existingPkg.id,
-          calculatedProfit
-        )
-        toast.success("Package updated successfully!")
-      } else {
-        // Add new package
-        await shopPackageService.addPackageToShop(
-          shop.id,
-          selectedPackage,
-          calculatedProfit
-        )
-        toast.success("Package added to shop!")
+
+      // Get auth token
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      if (!token) {
+        toast.error("Not authenticated")
+        return
       }
       
-      const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
-      setPackages(updatedPkgs)
+      // Check if sub-agent
+      if (shop.parent_shop_id) {
+        // Sub-agent: use sub_agent_catalog API
+        const existingPkg = packages.find(p => p.package_id === selectedPackage)
+        
+        if (existingPkg) {
+          // Update existing catalog item
+          const response = await fetch("/api/shop/sub-agent-catalog", {
+            method: "PUT",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              catalog_id: existingPkg.id,
+              wholesale_margin: calculatedMargin
+            })
+          })
+          if (!response.ok) {
+            const data = await response.json()
+            throw new Error(data.error || "Failed to update package")
+          }
+          toast.success("Package updated successfully!")
+        } else {
+          // Add new catalog item
+          const response = await fetch("/api/shop/sub-agent-catalog", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              package_id: selectedPackage,
+              wholesale_margin: calculatedMargin
+            })
+          })
+          if (!response.ok) {
+            const data = await response.json()
+            throw new Error(data.error || "Failed to add package")
+          }
+          toast.success("Package added to catalog!")
+        }
+
+        // Reload sub-agent catalog
+        const catalogResponse = await fetch("/api/shop/sub-agent-catalog", {
+          headers: { "Authorization": `Bearer ${token}` }
+        })
+        const catalogData = await catalogResponse.json()
+        if (catalogData.catalog) {
+          const catalogItems = catalogData.catalog.map((item: any) => ({
+            id: item.id,
+            package_id: item.package_id,
+            profit_margin: item.wholesale_margin,
+            is_available: item.is_active,
+            packages: item.package,
+            wholesale_price: item.wholesale_price
+          }))
+          setPackages(catalogItems)
+        }
+      } else {
+        // Regular shop owner: use shop_packages
+        const existingPkg = packages.find(p => p.package_id === selectedPackage)
+        
+        if (existingPkg) {
+          await shopPackageService.updatePackageProfitMargin(
+            existingPkg.id,
+            calculatedMargin
+          )
+          toast.success("Package updated successfully!")
+        } else {
+          await shopPackageService.addPackageToShop(
+            shop.id,
+            selectedPackage,
+            calculatedMargin
+          )
+          toast.success("Package added to shop!")
+        }
+        
+        const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
+        setPackages(updatedPkgs)
+      }
       
       // Clear only the form, stay on the adding page
       setSelectedPackage("")
@@ -324,9 +426,49 @@ export default function MyShopPage() {
   const handleToggleAvailability = async (shopPackageId: string, currentStatus: boolean) => {
     setTogglingPackageId(shopPackageId)
     try {
-      await shopPackageService.togglePackageAvailability(shopPackageId, !currentStatus)
-      const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
-      setPackages(updatedPkgs)
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      if (shop.parent_shop_id && token) {
+        // Sub-agent: toggle via sub_agent_catalog API
+        const response = await fetch("/api/shop/sub-agent-catalog", {
+          method: "PUT",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            catalog_id: shopPackageId,
+            is_active: !currentStatus
+          })
+        })
+        if (!response.ok) {
+          const data = await response.json()
+          throw new Error(data.error || "Failed to toggle availability")
+        }
+
+        // Reload catalog
+        const catalogResponse = await fetch("/api/shop/sub-agent-catalog", {
+          headers: { "Authorization": `Bearer ${token}` }
+        })
+        const catalogData = await catalogResponse.json()
+        if (catalogData.catalog) {
+          const catalogItems = catalogData.catalog.map((item: any) => ({
+            id: item.id,
+            package_id: item.package_id,
+            profit_margin: item.wholesale_margin,
+            is_available: item.is_active,
+            packages: item.package,
+            wholesale_price: item.wholesale_price
+          }))
+          setPackages(catalogItems)
+        }
+      } else {
+        // Regular shop owner
+        await shopPackageService.togglePackageAvailability(shopPackageId, !currentStatus)
+        const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
+        setPackages(updatedPkgs)
+      }
       toast.success(`Package marked as ${!currentStatus ? "available" : "unavailable"}`)
     } catch (error: any) {
       console.error("Error toggling availability:", error)
