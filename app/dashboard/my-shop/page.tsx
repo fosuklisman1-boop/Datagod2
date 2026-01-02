@@ -307,9 +307,24 @@ export default function MyShopPage() {
     try {
       // Get the base price from selected package
       const pkg = getPackageDetails(selectedPackage)
-      const basePrice = pkg?.price || 0
       const sellingPrice = parseFloat(profitMargin || "0")
-      const calculatedMargin = sellingPrice - basePrice
+      
+      // For sub-agents: calculate total margin from ADMIN price (not parent price)
+      // This ensures the final selling price is calculated correctly
+      // pkg.price = parent's selling price (admin + parent margin)
+      // pkg._original_admin_price = raw admin price
+      const adminPrice = pkg?._original_admin_price ?? pkg?.price ?? 0
+      const parentPrice = pkg?.price || 0
+      
+      // Calculate margin based on context
+      let calculatedMargin: number
+      if (shop.parent_shop_id && pkg?._original_admin_price !== undefined) {
+        // Sub-agent: store total margin from admin price
+        calculatedMargin = sellingPrice - adminPrice
+      } else {
+        // Regular shop: margin from admin price
+        calculatedMargin = sellingPrice - parentPrice
+      }
       
       if (calculatedMargin < 0) {
         toast.error("Selling price must be higher than base price")
