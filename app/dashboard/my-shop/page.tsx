@@ -95,8 +95,16 @@ export default function MyShopPage() {
 
         // For sub-agents (shops with parent_shop_id), get packages from parent shop
         // For regular shops, get all admin packages
+        console.log("=== MY SHOP DEBUG ===")
+        console.log("Shop ID:", userShop.id)
+        console.log("Shop Name:", userShop.shop_name)
+        console.log("Parent Shop ID:", userShop.parent_shop_id)
+        console.log("Is Sub-agent:", !!userShop.parent_shop_id)
+        console.log("Full shop object:", userShop)
+        
         if (userShop.parent_shop_id) {
           // Sub-agent: get parent shop's packages
+          console.log("=== LOADING PARENT PACKAGES ===")
           try {
             const { data: parentPackages, error: parentError } = await supabase
               .from("shop_packages")
@@ -109,6 +117,9 @@ export default function MyShopPage() {
               .eq("shop_id", userShop.parent_shop_id)
               .eq("is_available", true)
             
+            console.log("Parent packages result:", parentPackages)
+            console.log("Parent packages error:", parentError)
+            
             if (!parentError && parentPackages) {
               // Transform to match expected format - include parent's profit in base price
               const parentPkgsFormatted = parentPackages.map((pp: any) => ({
@@ -117,6 +128,7 @@ export default function MyShopPage() {
                 price: pp.package.price + pp.profit_margin,
                 parent_profit_margin: pp.profit_margin
               }))
+              console.log("Formatted packages:", parentPkgsFormatted)
               setAllPackages(parentPkgsFormatted)
             }
           } catch (parentPkgError: any) {
