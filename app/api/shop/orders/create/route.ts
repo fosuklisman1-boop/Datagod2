@@ -115,10 +115,18 @@ export async function POST(request: NextRequest) {
           }
         }
         
-        // Calculate parent's profit
-        parent_profit_amount = parseFloat(base_price.toString())
+        // Calculate parent's profit: what the parent earns from this sub-agent sale
+        // Parent profit = sub-agent's selling price - admin price (what parent pays)
+        const { data: packageData } = await supabase
+          .from("packages")
+          .select("price")
+          .eq("id", package_id)
+          .single()
         
-        console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Parent profit: ${parent_profit_amount}`)
+        const adminPrice = packageData?.price || 0
+        parent_profit_amount = parseFloat(base_price.toString()) - adminPrice
+        
+        console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Admin price: ${adminPrice}, Sub-agent sells at: ${base_price}, Parent profit: ${parent_profit_amount}`)
       }
     } catch (parentError) {
       console.warn("[SHOP-ORDER] Error checking for parent shop:", parentError)
