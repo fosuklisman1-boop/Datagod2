@@ -122,9 +122,13 @@ export default function MyShopPage() {
         // Load WhatsApp settings
         try {
           const settingsResponse = await fetch(`/api/shop/settings/${userShop.id}`)
-          const settingsData = await settingsResponse.json()
-          if (settingsData.whatsapp_link) {
-            setWhatsappLink(settingsData.whatsapp_link)
+          if (settingsResponse.ok) {
+            const settingsData = await settingsResponse.json()
+            if (settingsData.whatsapp_link) {
+              setWhatsappLink(settingsData.whatsapp_link)
+            }
+          } else {
+            console.error("Settings API returned:", settingsResponse.status)
           }
         } catch (settingsError) {
           console.error("Error loading shop settings:", settingsError)

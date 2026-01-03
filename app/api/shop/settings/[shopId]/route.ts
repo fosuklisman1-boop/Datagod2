@@ -13,7 +13,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { data: settings, error } = await supabase
       .from("shop_settings")
-      .select("id, shop_name, description, is_active, user_id, created_at")
+      .select("id, shop_id, whatsapp_link, created_at, updated_at")
       .eq("shop_id", shopId)
       .single()
 
