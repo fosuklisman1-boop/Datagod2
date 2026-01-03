@@ -152,6 +152,8 @@ export async function GET(request: NextRequest) {
       
       return {
         ...item,
+        // Ensure these fields are present
+        is_active: item.is_active !== undefined ? item.is_active : true,
         // parent_price: what the parent charges this sub-agent (base cost)
         parent_price: parentPrice,
         // selling_price: what this sub-agent sells at

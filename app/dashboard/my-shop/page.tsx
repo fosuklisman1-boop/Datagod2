@@ -1103,11 +1103,13 @@ export default function MyShopPage() {
                             </div>
                             
                             <div className="flex items-center gap-2 pt-2">
-                              {shopPkg.is_active && (
+                              {shopPkg.is_active ? (
                                 <Badge className="bg-green-100 text-green-700">Available</Badge>
-                              )}
-                              {!shopPkg.is_active && (
+                              ) : (
                                 <Badge className="bg-gray-100 text-gray-700">Unavailable</Badge>
+                              )}
+                              {availablePkg && !availablePkg.active && (
+                                <Badge className="bg-red-100 text-red-700 text-xs">Parent Disabled</Badge>
                               )}
                             </div>
                             
