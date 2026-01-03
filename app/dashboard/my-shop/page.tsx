@@ -1074,8 +1074,10 @@ export default function MyShopPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {packages.map((shopPkg) => {
                       const pkg = shopPkg.packages
-                      // Unified logic: base = parent_price for sub-agents or pkg.price for regular
-                      const displayBasePrice = shopPkg.parent_price !== undefined ? shopPkg.parent_price : (pkg?.price || 0)
+                      // Get the current parent price from available packages (source of truth)
+                      const availablePkg = allPackages.find(p => p.id === pkg?.id)
+                      const currentParentPrice = availablePkg?.parent_price !== undefined ? availablePkg.parent_price : (shopPkg.parent_price !== undefined ? shopPkg.parent_price : (pkg?.price || 0))
+                      const displayBasePrice = currentParentPrice
                       const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
                       const profit = shopPkg.profit_margin || 0
                       return (
