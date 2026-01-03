@@ -51,6 +51,11 @@ export async function GET(request: NextRequest) {
     // If this is a sub-agent, they should use sub_agent_shop_packages table
     // If this is a parent, they use sub_agent_catalog table
     const tableName = shop.parent_shop_id ? "sub_agent_shop_packages" : "sub_agent_catalog"
+    
+    console.log("=== SUB-AGENT-CATALOG GET ===")
+    console.log("Shop ID:", shop.id)
+    console.log("Parent Shop ID:", shop.parent_shop_id)
+    console.log("Table Name:", tableName)
 
     // Get catalog items with package details
     let { data: catalog, error: catalogError } = await supabase
@@ -74,6 +79,9 @@ export async function GET(request: NextRequest) {
       `)
       .eq("shop_id", shop.id)
       .order("created_at", { ascending: false })
+    
+    console.log("First query error:", catalogError?.message)
+    console.log("First query result count:", catalog?.length || 0)
 
     // For sub-agents, if sub_agent_shop_packages table fails or is empty, fallback to sub_agent_catalog
     if (shop.parent_shop_id && (catalogError || !catalog || catalog.length === 0)) {
@@ -99,6 +107,9 @@ export async function GET(request: NextRequest) {
         `)
         .eq("shop_id", shop.id)
         .order("created_at", { ascending: false })
+      
+      console.log("Fallback error:", fallbackError?.message)
+      console.log("Fallback result count:", fallbackCatalog?.length || 0)
       
       if (!fallbackError && fallbackCatalog) {
         catalog = fallbackCatalog
