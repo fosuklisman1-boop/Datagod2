@@ -189,8 +189,8 @@ export default function DataPackagesPage() {
       return
     }
 
-    if (wallet.balance < pkg.price) {
-      toast.error(`Insufficient balance. You need GHS ${pkg.price.toFixed(2)} but have GHS ${(wallet.balance || 0).toFixed(2)}`)
+    if (wallet.balance < (pkg.price || 0)) {
+      toast.error(`Insufficient balance. You need GHS ${(pkg.price || 0).toFixed(2)} but have GHS ${(wallet.balance || 0).toFixed(2)}`)
       return
     }
 

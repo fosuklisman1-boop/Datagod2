@@ -139,8 +139,8 @@ export default function BuyStockPage() {
     : packages.filter(p => p.network === selectedNetwork)
 
   const handleBuyClick = (pkg: WholesalePackage) => {
-    if (walletBalance < pkg.parent_price) {
-      toast.error(`Insufficient balance. You need GHS ${pkg.parent_price.toFixed(2)} but have GHS ${(walletBalance || 0).toFixed(2)}`)
+    if (walletBalance < (pkg.parent_price || 0)) {
+      toast.error(`Insufficient balance. You need GHS ${(pkg.parent_price || 0).toFixed(2)} but have GHS ${(walletBalance || 0).toFixed(2)}`)
       return
     }
     setSelectedPackageForPurchase(pkg)
