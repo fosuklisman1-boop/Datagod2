@@ -6,33 +6,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { 
-  ShoppingBag, 
   Wallet, 
-  Package, 
   Loader2, 
   AlertCircle,
-  CheckCircle,
-  Minus,
-  Plus,
-  CreditCard
+  ShoppingCart,
+  Grid3x3,
+  List
 } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { PhoneNumberModal } from "@/components/phone-number-modal"
 
 interface WholesalePackage {
   id: string
   network: string
   size: string
-  parent_price: number    // Sub-agent's wholesale cost (admin price + parent's margin)
+  parent_price: number
   description?: string
   profit_margin?: number
-  _parent_wholesale_margin?: number
-  _original_admin_price?: number
 }
 
 export default function BuyStockPage() {
@@ -40,13 +34,14 @@ export default function BuyStockPage() {
   const [packages, setPackages] = useState<WholesalePackage[]>([])
   const [walletBalance, setWalletBalance] = useState(0)
   const [selectedNetwork, setSelectedNetwork] = useState<string>("all")
-  const [cart, setCart] = useState<{ [packageId: string]: number }>({})
-  const [purchasing, setPurchasing] = useState(false)
-  const [showConfirmModal, setShowConfirmModal] = useState(false)
-  const [showPhoneModal, setShowPhoneModal] = useState(false)
-  const [phoneNumber, setPhoneNumber] = useState("")
+  const [purchasing, setPurchasing] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [shopId, setShopId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
+  
+  // Phone modal state
+  const [phoneModalOpen, setPhoneModalOpen] = useState(false)
+  const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<WholesalePackage | null>(null)
 
   useEffect(() => {
     loadData()
@@ -94,7 +89,6 @@ export default function BuyStockPage() {
           .single()
         setWalletBalance(wallet?.balance ?? 0)
       } catch (walletError) {
-        // Wallet endpoint may return 406 for non-wallet users, default to 0
         setWalletBalance(0)
       }
 
@@ -144,39 +138,25 @@ export default function BuyStockPage() {
     ? packages 
     : packages.filter(p => p.network === selectedNetwork)
 
-  const updateCart = (packageId: string, delta: number) => {
-    setCart(prev => {
-      const current = prev[packageId] || 0
-      const newQty = Math.max(0, current + delta)
-      if (newQty === 0) {
-        const { [packageId]: _, ...rest } = prev
-        return rest
-      }
-      return { ...prev, [packageId]: newQty }
-    })
+  const handleBuyClick = (pkg: WholesalePackage) => {
+    if (walletBalance < pkg.parent_price) {
+      toast.error(`Insufficient balance. You need GHS ${pkg.parent_price.toFixed(2)} but have GHS ${(walletBalance || 0).toFixed(2)}`)
+      return
+    }
+    setSelectedPackageForPurchase(pkg)
+    setPhoneModalOpen(true)
   }
 
-  const getCartTotal = () => {
-    return Object.entries(cart).reduce((total, [packageId, qty]) => {
-      const pkg = packages.find(p => p.id === packageId)
-      return total + (pkg?.parent_price || 0) * qty
-    }, 0)
-  }
-
-  const getCartItemCount = () => {
-    return Object.values(cart).reduce((sum, qty) => sum + qty, 0)
-  }
-
-  const handlePurchase = async () => {
-    // First collect phone number if not already provided
-    if (!phoneNumber.trim()) {
-      setShowConfirmModal(false)
-      setShowPhoneModal(true)
+  const handlePhoneNumberSubmit = async (phoneNumber: string) => {
+    if (!selectedPackageForPurchase) {
+      toast.error("Error: Missing package information")
       return
     }
 
     try {
-      setPurchasing(true)
+      setPurchasing(selectedPackageForPurchase.id)
+      setPhoneModalOpen(false)
+
       const { data: { session } } = await supabase.auth.getSession()
       
       if (!session?.access_token) {
@@ -189,98 +169,57 @@ export default function BuyStockPage() {
         return
       }
 
-      // Calculate total and validate wallet
-      const cartItems = Object.entries(cart).filter(([_, qty]) => qty > 0)
-      if (cartItems.length === 0) {
-        toast.error("Cart is empty")
-        return
-      }
+      const pkg = selectedPackageForPurchase
 
-      let totalPrice = 0
-      const orderItems = []
-
-      for (const [packageId, quantity] of cartItems) {
-        const pkg = packages.find(p => p.id === packageId)
-        if (!pkg) continue
-
-        const itemTotal = (pkg.parent_price || 0) * quantity
-        totalPrice += itemTotal
-
-        orderItems.push({
-          packageId,
-          quantity,
-          package: pkg,
-          itemTotal
-        })
-      }
-
-      // Validate wallet balance
-      if (walletBalance < totalPrice) {
-        toast.error(`Insufficient balance. Need GHS ${totalPrice.toFixed(2)}, have GHS ${(walletBalance || 0).toFixed(2)}`)
-        return
-      }
-
-      // Create orders for each unique package
-      const createdOrders = []
-      const createdOrderIds = []
-      for (const item of orderItems) {
-        const orderResponse = await fetch("/api/shop/orders/create", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            shop_id: shopId,
-            customer_email: session.user?.email || "sub-agent@datagod.com",
-            customer_phone: phoneNumber.trim(),
-            customer_name: `${session.user?.user_metadata?.first_name || ""} ${session.user?.user_metadata?.last_name || ""}`.trim(),
-            shop_package_id: item.package.id,
-            package_id: item.package.id,
-            network: item.package.network,
-            volume_gb: item.package.size,
-            base_price: item.package.parent_price,
-            profit_amount: 0, // Sub-agent profit will be 0, they resell at same price or higher
-            total_price: item.itemTotal,
-            quantity: item.quantity,
-          }),
-        })
-
-        const orderData = await orderResponse.json()
-
-        if (!orderResponse.ok) {
-          console.error("[BUY-STOCK] Order creation failed:", orderData)
-          toast.error(orderData.error || `Failed to order ${item.package.network} ${item.package.size}`)
-          return
-        }
-
-        createdOrders.push(orderData)
-        createdOrderIds.push(orderData.order?.id)
-        console.log("[BUY-STOCK] Order created successfully:", orderData)
-      }
-
-      if (createdOrderIds.length === 0) {
-        toast.error("No orders were created")
-        return
-      }
-
-      // Deduct from wallet - pass first order ID to mark it as paid
-      const response = await fetch("/api/wallet/debit", {
+      // Create shop order
+      const orderResponse = await fetch("/api/shop/orders/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          amount: totalPrice,
-          orderId: createdOrderIds[0], // Pass first order ID for wallet debit to mark as paid
-          description: `Bulk purchase of ${orderItems.length} package(s)`,
-          reference: createdOrderIds.join(","),
+          shop_id: shopId,
+          customer_email: session.user?.email || "sub-agent@datagod.com",
+          customer_phone: phoneNumber,
+          customer_name: `${session.user?.user_metadata?.first_name || ""} ${session.user?.user_metadata?.last_name || ""}`.trim() || "Sub-Agent",
+          shop_package_id: pkg.id,
+          package_id: pkg.id,
+          network: pkg.network,
+          volume_gb: pkg.size,
+          base_price: pkg.parent_price,
+          profit_amount: 0,
+          total_price: pkg.parent_price,
         }),
       })
 
-      const debitData = await response.json()
-      if (!response.ok) {
+      const orderData = await orderResponse.json()
+
+      if (!orderResponse.ok) {
+        console.error("[BUY-STOCK] Order creation failed:", orderData)
+        toast.error(orderData.error || `Failed to order ${pkg.network} ${pkg.size}`)
+        return
+      }
+
+      const orderId = orderData.order?.id
+      console.log("[BUY-STOCK] Order created successfully:", orderData)
+
+      // Deduct from wallet
+      const debitResponse = await fetch("/api/wallet/debit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          amount: pkg.parent_price,
+          orderId: orderId,
+          description: `Purchase: ${pkg.network} ${pkg.size}`,
+        }),
+      })
+
+      const debitData = await debitResponse.json()
+      if (!debitResponse.ok) {
         console.error("[BUY-STOCK] Wallet debit failed:", debitData)
         toast.error(debitData.error || "Failed to deduct from wallet")
         return
@@ -289,33 +228,16 @@ export default function BuyStockPage() {
       // Update local wallet balance
       setWalletBalance(debitData.newBalance || 0)
 
-      // Clear cart, close modals and reset phone number
-      setCart({})
-      setPhoneNumber("")
-      setShowConfirmModal(false)
-
-      toast.success(`Successfully ordered ${orderItems.reduce((sum, item) => sum + item.quantity, 0)} package(s)!`)
+      toast.success(`Successfully purchased ${pkg.network} ${pkg.size}!`)
       
-      // Reload packages to refresh inventory
-      setTimeout(() => {
-        loadData()
-      }, 1000)
+      // Reset state
+      setSelectedPackageForPurchase(null)
     } catch (error) {
       console.error("[BUY-STOCK] Purchase error:", error)
       toast.error(error instanceof Error ? error.message : "Purchase failed")
     } finally {
-      setPurchasing(false)
+      setPurchasing(null)
     }
-  }
-
-  const handlePhoneNumberSubmit = (phone: string) => {
-    if (!phone.trim()) {
-      toast.error("Phone number is required")
-      return
-    }
-    setPhoneNumber(phone.trim())
-    setShowPhoneModal(false)
-    setShowConfirmModal(true)
   }
 
   if (loading) {
@@ -365,220 +287,135 @@ export default function BuyStockPage() {
           </Card>
         </div>
 
-        {/* Filter */}
-        <div className="flex items-center gap-4">
-          <Label>Network:</Label>
-          <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="All Networks" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Networks</SelectItem>
-              {networks.map(network => (
-                <SelectItem key={network} value={network}>{network}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Label>Network:</Label>
+            <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="All Networks" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Networks</SelectItem>
+                {networks.map(network => (
+                  <SelectItem key={network} value={network}>{network}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {/* View Toggle */}
+          <div className="flex items-center gap-1 ml-auto">
+            <Button
+              variant={viewMode === "grid" ? "default" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setViewMode("grid")}
+            >
+              <Grid3x3 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === "list" ? "default" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setViewMode("list")}
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
-        {/* Packages Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredPackages.map((pkg) => (
-            <Card key={pkg.id} className="relative">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">{pkg.network}</Badge>
-                </div>
-                <CardTitle className="text-lg">{pkg.size}</CardTitle>
-                <CardDescription>{pkg.description || pkg.network}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Wholesale Price:</span>
-                  <span className="font-semibold text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
-                </div>
-
-                {/* Quantity Controls */}
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <span className="text-sm font-medium">Quantity:</span>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => updateCart(pkg.id, -1)}
-                      disabled={!cart[pkg.id]}
-                    >
-                      <Minus className="w-4 h-4" />
-                    </Button>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="999"
-                      value={cart[pkg.id] || 0}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) || 0
-                        setCart(prev => ({
-                          ...prev,
-                          [pkg.id]: Math.max(0, val)
-                        }))
-                      }}
-                      className="w-12 h-8 text-center p-0"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => updateCart(pkg.id, 1)}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Cart Summary (Fixed at bottom) */}
-        {getCartItemCount() > 0 && (
-          <Card className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 shadow-lg border-2 border-purple-200 z-50">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="font-semibold">Cart ({getCartItemCount()} items)</span>
-                <span className="text-lg font-bold">GHS {getCartTotal().toFixed(2)}</span>
-              </div>
-              
-              {getCartTotal() > (walletBalance || 0) ? (
-                <Alert variant="destructive" className="mb-3">
-                  <AlertCircle className="w-4 h-4" />
-                  <AlertDescription className="text-xs">
-                    Insufficient balance. Add GHS {(getCartTotal() - (walletBalance || 0)).toFixed(2)} to wallet.
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-
-              <Button 
-                className="w-full" 
-                disabled={getCartTotal() > (walletBalance || 0)}
-                onClick={() => setShowConfirmModal(true)}
-              >
-                <ShoppingBag className="w-4 h-4 mr-2" />
-                Checkout
-              </Button>
+        {/* Packages */}
+        {filteredPackages.length === 0 ? (
+          <Card>
+            <CardContent className="p-8 text-center text-gray-500">
+              No packages available. Your parent shop needs to add packages to their catalog.
             </CardContent>
           </Card>
+        ) : viewMode === "grid" ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredPackages.map((pkg) => (
+              <Card key={pkg.id} className="relative hover:shadow-lg transition-shadow">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline">{pkg.network}</Badge>
+                  </div>
+                  <CardTitle className="text-lg">{pkg.size}</CardTitle>
+                  <CardDescription>{pkg.description || pkg.network}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500 text-sm">Price:</span>
+                    <span className="font-bold text-lg text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
+                  </div>
+
+                  <Button 
+                    className="w-full"
+                    onClick={() => handleBuyClick(pkg)}
+                    disabled={purchasing === pkg.id || walletBalance < pkg.parent_price}
+                  >
+                    {purchasing === pkg.id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : walletBalance < pkg.parent_price ? (
+                      "Insufficient Balance"
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-4 h-4 mr-2" />
+                        Buy Now
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredPackages.map((pkg) => (
+              <Card key={pkg.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4 flex-1">
+                    <Badge variant="outline">{pkg.network}</Badge>
+                    <span className="font-medium">{pkg.size}</span>
+                    <span className="text-gray-500 text-sm hidden sm:block">{pkg.description}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="font-bold text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
+                    <Button 
+                      size="sm"
+                      onClick={() => handleBuyClick(pkg)}
+                      disabled={purchasing === pkg.id || walletBalance < pkg.parent_price}
+                    >
+                      {purchasing === pkg.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : walletBalance < pkg.parent_price ? (
+                        "Low Balance"
+                      ) : (
+                        "Buy"
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         )}
-
-        {/* Confirm Modal */}
-        <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Confirm Purchase</DialogTitle>
-              <DialogDescription>
-                Review your order before confirming
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              {/* Order Summary */}
-              <div className="border rounded-lg p-4 space-y-2 max-h-64 overflow-y-auto">
-                {Object.entries(cart).map(([packageId, qty]) => {
-                  const pkg = packages.find(p => p.id === packageId)
-                  if (!pkg) return null
-                  return (
-                    <div key={packageId} className="flex items-center justify-between text-sm">
-                      <span>{pkg.network} - {pkg.size} x{qty}</span>
-                      <span className="font-medium">GHS {((pkg.parent_price || 0) * qty).toFixed(2)}</span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <div className="border-t pt-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-500">Subtotal:</span>
-                  <span className="font-semibold">GHS {getCartTotal().toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-500">Wallet Balance:</span>
-                  <span>GHS {(walletBalance || 0).toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between font-bold border-t pt-2">
-                  <span>After Purchase:</span>
-                  <span>GHS {((walletBalance || 0) - getCartTotal()).toFixed(2)}</span>
-                </div>
-              </div>
-
-              <Alert>
-                <CreditCard className="w-4 h-4" />
-                <AlertDescription>
-                  Amount will be deducted from your wallet balance.
-                </AlertDescription>
-              </Alert>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowConfirmModal(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handlePurchase} disabled={purchasing}>
-                {purchasing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Confirm Purchase
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Phone Number Modal */}
-        <Dialog open={showPhoneModal} onOpenChange={setShowPhoneModal}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Enter Phone Number</DialogTitle>
-              <DialogDescription>
-                Provide the phone number for this bulk order
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="phone">Phone Number</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  placeholder="e.g., 0501234567"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handlePhoneNumberSubmit(phoneNumber)
-                    }
-                  }}
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowPhoneModal(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => handlePhoneNumberSubmit(phoneNumber)}>
-                Continue
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
+
+      {/* Phone Number Modal */}
+      <PhoneNumberModal
+        open={phoneModalOpen}
+        onOpenChange={setPhoneModalOpen}
+        onSubmit={handlePhoneNumberSubmit}
+        title="Enter Phone Number"
+        description={selectedPackageForPurchase 
+          ? `Enter the phone number for ${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size} (GHS ${(selectedPackageForPurchase.parent_price || 0).toFixed(2)})`
+          : "Enter the phone number for this purchase"
+        }
+      />
     </DashboardLayout>
   )
 }
