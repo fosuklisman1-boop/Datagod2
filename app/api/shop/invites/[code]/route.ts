@@ -52,13 +52,13 @@ export async function GET(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "The inviting shop is no longer active" }, { status: 410 })
     }
 
-    // Get parent shop's packages (to show what prices sub-agent will pay)
-    const { data: packages, error: packagesError } = await supabase
-      .from("shop_packages")
+    // Get parent shop's sub-agent catalog (to show what prices sub-agent will pay)
+    const { data: catalogItems, error: catalogError } = await supabase
+      .from("sub_agent_catalog")
       .select(`
         id,
-        profit_margin,
-        is_available,
+        wholesale_margin,
+        is_active,
         package:packages (
           id,
           network,
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         )
       `)
       .eq("shop_id", invite.inviter_shop.id)
-      .eq("is_available", true)
+      .eq("is_active", true)
 
     return NextResponse.json({
       success: true,
@@ -77,12 +77,14 @@ export async function GET(request: NextRequest, { params }: Params) {
         shop_name: invite.inviter_shop.shop_name,
         shop_id: invite.inviter_shop.id
       },
-      // Show the wholesale prices (parent's selling price = base + profit_margin)
-      wholesale_packages: (packages || []).map((pkg: any) => ({
-        network: pkg.package.network,
-        size: pkg.package.size,
-        wholesale_price: pkg.package.price + pkg.profit_margin // This is what sub-agent pays
-      }))
+      // Show the wholesale prices (admin price + parent's wholesale margin = what sub-agent pays)
+      wholesale_packages: (catalogItems || [])
+        .filter((item: any) => item.package?.price != null)
+        .map((item: any) => ({
+          network: item.package.network,
+          size: item.package.size,
+          wholesale_price: item.package.price + (item.wholesale_margin || 0)
+        }))
     })
   } catch (error) {
     console.error("Error fetching invite:", error)
