@@ -100,19 +100,48 @@ export default function SubAgentsPage() {
         .order("created_at", { ascending: false })
 
       if (!subAgentError && subAgentShops) {
+        // Get all profit records for the parent shop (this shop)
+        const { data: allProfits } = await supabase
+          .from("shop_profits")
+          .select("profit_amount, shop_order_id")
+          .eq("shop_id", shop.id)
+
+        // Get all shop_orders to link profits to sub-agents
+        const orderIds = allProfits?.map((p: any) => p.shop_order_id).filter(Boolean) || []
+        const { data: profitOrders } = orderIds.length > 0 ? await supabase
+          .from("shop_orders")
+          .select("id, shop_id")
+          .in("id", orderIds) : { data: [] }
+
+        // Create a map of order_id to sub-agent shop_id
+        const orderToSubAgentMap = new Map<string, string>()
+        profitOrders?.forEach((o: any) => orderToSubAgentMap.set(o.id, o.shop_id))
+
+        // Create a map of sub-agent shop_id to their profit amounts
+        const subAgentProfitMap = new Map<string, number>()
+        allProfits?.forEach((p: any) => {
+          const subAgentShopId = orderToSubAgentMap.get(p.shop_order_id)
+          if (subAgentShopId) {
+            const current = subAgentProfitMap.get(subAgentShopId) || 0
+            subAgentProfitMap.set(subAgentShopId, current + (p.profit_amount || 0))
+          }
+        })
+
         // For each sub-agent, get their stats
         const subAgentsWithStats = await Promise.all(
           subAgentShops.map(async (sa: any) => {
             // Get their orders count and total sales
             const { data: orders } = await supabase
               .from("shop_orders")
-              .select("id, total_price, parent_profit_amount")
+              .select("id, total_price")
               .eq("shop_id", sa.id)
               .eq("payment_status", "completed")
 
             const totalOrders = orders?.length || 0
             const totalSales = orders?.reduce((sum: number, o: any) => sum + (o.total_price || 0), 0) || 0
-            const yourEarnings = orders?.reduce((sum: number, o: any) => sum + (o.parent_profit_amount || 0), 0) || 0
+
+            // Get YOUR earnings from this sub-agent (from the pre-calculated map)
+            const yourEarnings = subAgentProfitMap.get(sa.id) || 0
 
             return {
               id: sa.id,
