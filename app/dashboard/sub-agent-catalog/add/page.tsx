@@ -90,8 +90,8 @@ export default function AddToCatalogPage() {
                 basePrice = c.package.price;
               }
               // Only set if basePrice is a valid number
-              if (!isNaN(basePrice) && !isNaN(c.wholesale_margin)) {
-                existingPrices[c.package_id] = (basePrice + c.wholesale_margin).toFixed(2);
+              if (!isNaN(basePrice) && !isNaN(c.wholesale_margin || 0)) {
+                existingPrices[c.package_id] = (basePrice + (c.wholesale_margin || 0)).toFixed(2);
               } else {
                 existingPrices[c.package_id] = '';
               }

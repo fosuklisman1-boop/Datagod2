@@ -208,7 +208,7 @@ export default function SubAgentCatalogPage() {
                   <p className="text-sm text-gray-500">Avg Margin</p>
                   <p className="text-2xl font-bold">
                     GHS {catalog.length > 0 
-                      ? (catalog.reduce((sum, c) => sum + c.wholesale_margin, 0) / catalog.length).toFixed(2)
+                      ? (catalog.reduce((sum, c) => sum + (c.wholesale_margin || 0), 0) / catalog.length).toFixed(2)
                       : "0.00"
                     }
                   </p>
@@ -267,12 +267,12 @@ export default function SubAgentCatalogPage() {
                     <TableRow key={item.id}>
                       <TableCell className="font-medium">{item.package.network}</TableCell>
                       <TableCell>{item.package.size}</TableCell>
-                      <TableCell className="text-right">GHS {item.package.price.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">GHS {(item.package?.price || 0).toFixed(2)}</TableCell>
                       <TableCell className="text-right text-green-600">
-                        +GHS {item.wholesale_margin.toFixed(2)}
+                        +GHS {(item.wholesale_margin || 0).toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right font-bold">
-                        GHS {item.wholesale_price.toFixed(2)}
+                        GHS {(item.wholesale_price || 0).toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
