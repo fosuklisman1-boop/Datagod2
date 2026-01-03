@@ -54,7 +54,7 @@ const shopItems = [
   { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin"] },
   { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, roles: ["user", "admin"] },
   { href: "/dashboard/buy-stock", label: "Buy Stock", icon: ShoppingBag, roles: ["sub_agent"] },
-  { href: "/dashboard/withdrawals", label: "Withdrawals", icon: CreditCard, roles: ["user", "admin", "sub_agent"] },
+  { href: "/dashboard/withdrawals", label: "Withdrawals", icon: CreditCard, roles: ["admin", "sub_agent"] },
 ]
 
 export function Sidebar() {
