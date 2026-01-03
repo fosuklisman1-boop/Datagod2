@@ -410,11 +410,11 @@ export default function BuyStockPage() {
         open={phoneModalOpen}
         onOpenChange={setPhoneModalOpen}
         onSubmit={handlePhoneNumberSubmit}
-        title="Enter Phone Number"
-        description={selectedPackageForPurchase 
-          ? `Enter the phone number for ${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size} (GHS ${(selectedPackageForPurchase.parent_price || 0).toFixed(2)})`
-          : "Enter the phone number for this purchase"
+        packageName={selectedPackageForPurchase 
+          ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size} (GHS ${(selectedPackageForPurchase.parent_price || 0).toFixed(2)})`
+          : "Data Package"
         }
+        network={selectedPackageForPurchase?.network}
       />
     </DashboardLayout>
   )
