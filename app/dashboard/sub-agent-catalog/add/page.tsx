@@ -145,7 +145,7 @@ export default function AddToCatalogPage() {
     // For sub-agents: margin = selling_price - parent's wholesale price (shown as pkg.price)
     // This is ONLY their profit, not including parent's margin
     const margin = sellingPrice - pkg.price
-    
+    const parentPrice = pkg.price
     if (margin < 0) {
       toast.error("Selling price must be higher than base price")
       return
@@ -169,7 +169,8 @@ export default function AddToCatalogPage() {
         },
         body: JSON.stringify({
           package_id: pkg.id,
-          wholesale_margin: margin
+          wholesale_margin: margin,
+          parent_price: parentPrice
         })
       })
 

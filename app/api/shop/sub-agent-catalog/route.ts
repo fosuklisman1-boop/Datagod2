@@ -110,9 +110,11 @@ export async function GET(request: NextRequest) {
     const catalogWithPrices = (catalog || []).map((item: any) => {
       const adminPrice = item.package?.price || 0
       const parentMargin = parentMargins[item.package_id] || 0
-      const parentWholesalePrice = adminPrice + parentMargin
-      // sub-agent's wholesale_margin is ONLY their profit on top of parent price
-      const sellingPrice = parentWholesalePrice + item.wholesale_margin
+        // Always use stored parent_price if present, fallback to old logic if missing
+        const parentWholesalePrice = (item.parent_price !== undefined && item.parent_price !== null)
+          ? Number(item.parent_price)
+          : ((item.package?.price || 0) + (parentMargins[item.package_id] || 0));
+        const sellingPrice = parentWholesalePrice + item.wholesale_margin;
       
       return {
         ...item,
@@ -154,10 +156,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { package_id, wholesale_margin } = body
+    const { package_id, wholesale_margin, parent_price } = body
 
-    if (!package_id || wholesale_margin === undefined) {
-      return NextResponse.json({ error: "Package ID and wholesale margin required" }, { status: 400 })
+    if (!package_id || wholesale_margin === undefined || parent_price === undefined) {
+      return NextResponse.json({ error: "Package ID, wholesale margin, and parent price required" }, { status: 400 })
     }
 
     // Get user's shop
@@ -185,6 +187,7 @@ export async function POST(request: NextRequest) {
         .from("sub_agent_catalog")
         .update({
           wholesale_margin,
+          parent_price,
           is_active: true,
           updated_at: new Date().toISOString()
         })
@@ -206,6 +209,7 @@ export async function POST(request: NextRequest) {
         shop_id: shop.id,
         package_id,
         wholesale_margin,
+        parent_price,
         is_active: true
       })
       .select()

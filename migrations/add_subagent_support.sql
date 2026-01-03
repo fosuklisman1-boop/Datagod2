@@ -1,3 +1,5 @@
+-- 5. Add parent_price to sub_agent_catalog for accurate sub-agent pricing
+ALTER TABLE sub_agent_catalog ADD COLUMN IF NOT EXISTS parent_price DECIMAL(10, 2);
 -- Migration: Add Sub-Agent Support
 -- This migration adds support for multi-tier shop reseller system
 
