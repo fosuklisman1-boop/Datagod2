@@ -222,6 +222,7 @@ export default function BuyStockPage() {
 
       // Create orders for each unique package
       const createdOrders = []
+      const createdOrderIds = []
       for (const item of orderItems) {
         const orderResponse = await fetch("/api/shop/orders/create", {
           method: "POST",
@@ -254,10 +255,16 @@ export default function BuyStockPage() {
         }
 
         createdOrders.push(orderData)
+        createdOrderIds.push(orderData.order?.id)
         console.log("[BUY-STOCK] Order created successfully:", orderData)
       }
 
-      // Deduct from wallet
+      if (createdOrderIds.length === 0) {
+        toast.error("No orders were created")
+        return
+      }
+
+      // Deduct from wallet - pass first order ID to mark it as paid
       const response = await fetch("/api/wallet/debit", {
         method: "POST",
         headers: {
@@ -266,8 +273,9 @@ export default function BuyStockPage() {
         },
         body: JSON.stringify({
           amount: totalPrice,
+          orderId: createdOrderIds[0], // Pass first order ID for wallet debit to mark as paid
           description: `Bulk purchase of ${orderItems.length} package(s)`,
-          reference: createdOrders.map((o: any) => o.order_id).join(","),
+          reference: createdOrderIds.join(","),
         }),
       })
 
