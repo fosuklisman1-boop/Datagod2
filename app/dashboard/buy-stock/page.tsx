@@ -175,15 +175,116 @@ export default function BuyStockPage() {
         return
       }
 
-      // TODO: Implement actual purchase API
-      // For now, show placeholder
-      toast.info("Purchase functionality coming soon!")
-      
+      if (!shopId) {
+        toast.error("Shop information not found")
+        return
+      }
+
+      // Calculate total and validate wallet
+      const cartItems = Object.entries(cart).filter(([_, qty]) => qty > 0)
+      if (cartItems.length === 0) {
+        toast.error("Cart is empty")
+        return
+      }
+
+      let totalPrice = 0
+      const orderItems = []
+
+      for (const [packageId, quantity] of cartItems) {
+        const pkg = packages.find(p => p.id === packageId)
+        if (!pkg) continue
+
+        const itemTotal = (pkg.parent_price || 0) * quantity
+        totalPrice += itemTotal
+
+        orderItems.push({
+          packageId,
+          quantity,
+          package: pkg,
+          itemTotal
+        })
+      }
+
+      // Validate wallet balance
+      if (walletBalance < totalPrice) {
+        toast.error(`Insufficient balance. Need GHS ${totalPrice.toFixed(2)}, have GHS ${(walletBalance || 0).toFixed(2)}`)
+        return
+      }
+
+      // Create orders for each unique package
+      const createdOrders = []
+      for (const item of orderItems) {
+        const orderResponse = await fetch("/api/shop/orders/create", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            shop_id: shopId,
+            customer_email: session.user?.email || "sub-agent@datagod.com",
+            customer_phone: session.user?.user_metadata?.phone || "000000000",
+            customer_name: `${session.user?.user_metadata?.first_name || ""} ${session.user?.user_metadata?.last_name || ""}`.trim(),
+            shop_package_id: item.package.id,
+            package_id: item.package.id,
+            network: item.package.network,
+            volume_gb: item.package.size,
+            base_price: item.package.parent_price,
+            profit_amount: 0, // Sub-agent profit will be 0, they resell at same price or higher
+            total_price: item.itemTotal,
+            quantity: item.quantity,
+          }),
+        })
+
+        const orderData = await orderResponse.json()
+
+        if (!orderResponse.ok) {
+          console.error("[BUY-STOCK] Order creation failed:", orderData)
+          toast.error(orderData.error || `Failed to order ${item.package.network} ${item.package.size}`)
+          return
+        }
+
+        createdOrders.push(orderData)
+        console.log("[BUY-STOCK] Order created successfully:", orderData)
+      }
+
+      // Deduct from wallet
+      const response = await fetch("/api/wallet/debit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          amount: totalPrice,
+          description: `Bulk purchase of ${orderItems.length} package(s)`,
+          reference: createdOrders.map((o: any) => o.order_id).join(","),
+        }),
+      })
+
+      const debitData = await response.json()
+      if (!response.ok) {
+        console.error("[BUY-STOCK] Wallet debit failed:", debitData)
+        toast.error(debitData.error || "Failed to deduct from wallet")
+        return
+      }
+
+      // Update local wallet balance
+      setWalletBalance(debitData.newBalance || 0)
+
       // Clear cart and close modal
       setCart({})
       setShowConfirmModal(false)
+
+      toast.success(`Successfully ordered ${orderItems.reduce((sum, item) => sum + item.quantity, 0)} package(s)!`)
+      
+      // Reload packages to refresh inventory
+      setTimeout(() => {
+        loadData()
+      }, 1000)
     } catch (error) {
-      toast.error("Purchase failed")
+      console.error("[BUY-STOCK] Purchase error:", error)
+      toast.error(error instanceof Error ? error.message : "Purchase failed")
     } finally {
       setPurchasing(false)
     }
