@@ -77,7 +77,12 @@ export async function GET(request: NextRequest) {
 
     if (catalogError) {
       console.error("Error fetching catalog:", catalogError)
-      return NextResponse.json({ error: "Failed to fetch catalog" }, { status: 500 })
+      console.error("Error details:", {
+        code: catalogError.code,
+        message: catalogError.message,
+        details: catalogError.details
+      })
+      return NextResponse.json({ error: "Failed to fetch catalog", details: catalogError.message }, { status: 500 })
     }
 
     // If this is a sub-agent, get parent's margins from their catalog
