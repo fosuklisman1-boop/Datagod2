@@ -26,6 +26,12 @@ export default function LoginPage() {
     const redirect = searchParams.get("redirect") || "/dashboard"
     setRedirectTo(redirect)
   }, [searchParams])
+
+  // Handle form input changes
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setFormData((prev) => ({
+      ...prev,
       [name]: value,
     }))
   }
