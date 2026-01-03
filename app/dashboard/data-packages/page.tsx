@@ -384,7 +384,7 @@ export default function DataPackagesPage() {
                       <CardTitle className="text-lg sm:text-xl md:text-2xl group-hover:text-cyan-600 transition-colors">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent group-hover:from-violet-600 group-hover:to-fuchsia-600 transition-colors">GHS {pkg.price.toFixed(2)}</p>
+                      <p className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent group-hover:from-violet-600 group-hover:to-fuchsia-600 transition-colors">GHS {(pkg.price || 0).toFixed(2)}</p>
                     </div>
                   </div>
                 </CardHeader>
@@ -453,7 +453,7 @@ export default function DataPackagesPage() {
                         </td>
                         <td className="px-6 py-4 text-sm font-medium text-gray-900">{pkg.network}</td>
                         <td className="px-6 py-4 text-sm font-semibold text-gray-900">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
-                        <td className="px-6 py-4 text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">GHS {pkg.price.toFixed(2)}</td>
+                        <td className="px-6 py-4 text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">GHS {(pkg.price || 0).toFixed(2)}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
                         <td className="px-6 py-4 text-sm">
                           <Button 

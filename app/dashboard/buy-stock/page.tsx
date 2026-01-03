@@ -255,7 +255,7 @@ export default function BuyStockPage() {
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-500">Wholesale Price:</span>
-                  <span className="font-semibold text-purple-600">GHS {pkg.price.toFixed(2)}</span>
+                  <span className="font-semibold text-purple-600">GHS {(pkg.price || 0).toFixed(2)}</span>
                 </div>
 
                 {/* Quantity Controls */}

@@ -319,7 +319,7 @@ export default function WalletPage() {
                           <td className={`px-6 py-4 text-sm font-semibold ${
                             transaction.type.includes("credit") ? "text-green-600" : "text-red-600"
                           }`}>
-                            {transaction.type.includes("credit") ? "+" : "-"}GHS {transaction.amount.toFixed(2)}
+                            {transaction.type.includes("credit") ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
                           </td>
                           <td className="px-6 py-4 text-sm">
                             <Badge className={

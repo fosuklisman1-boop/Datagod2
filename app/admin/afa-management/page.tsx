@@ -297,7 +297,7 @@ Occupation: ${submission.occupation || "N/A"}`
                 {savingPrice ? "Saving..." : "Save Price"}
               </Button>
             </div>
-            <p className="text-xs text-gray-500 mt-2">Current AFA registration cost: GHS {settings.price.toFixed(2)}</p>
+            <p className="text-xs text-gray-500 mt-2">Current AFA registration cost: GHS {(settings.price || 0).toFixed(2)}</p>
           </CardContent>
         </Card>
 
@@ -476,7 +476,7 @@ Occupation: ${submission.occupation || "N/A"}`
                       {/* Amount */}
                       <div className="bg-white border border-gray-200 rounded p-3">
                         <p className="text-xs text-gray-600 font-medium">Amount</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono font-semibold">GHS {submission.amount.toFixed(2)}</p>
+                        <p className="mt-1 text-gray-900 text-sm font-mono font-semibold">GHS {(submission.amount || 0).toFixed(2)}</p>
                       </div>
 
                       {/* Date */}

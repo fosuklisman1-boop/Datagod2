@@ -319,7 +319,7 @@ export default function AdminPackagesPage() {
                     <tr key={pkg.id} className="hover:bg-blue-100/30 backdrop-blur transition-colors">
                       <td className="px-6 py-4 font-medium text-gray-900">{pkg.network}</td>
                       <td className="px-6 py-4 text-gray-900">{pkg.size}</td>
-                      <td className="px-6 py-4 font-semibold text-blue-600">GHS {pkg.price.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-semibold text-blue-600">GHS {(pkg.price || 0).toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
                       <td className="px-6 py-4">
                         <Button

@@ -274,7 +274,7 @@ export default function SubAgentsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
-                GHS {stats.totalEarningsFromSubAgents.toFixed(2)}
+                GHS {(stats.totalEarningsFromSubAgents || 0).toFixed(2)}
               </div>
               <p className="text-xs text-gray-500">From their sales</p>
             </CardContent>
@@ -332,11 +332,11 @@ export default function SubAgentsPage() {
                           <div className="text-gray-500">Orders</div>
                         </div>
                         <div className="text-center">
-                          <div className="font-semibold">GHS {agent.total_sales.toFixed(2)}</div>
+                          <div className="font-semibold">GHS {(agent.total_sales || 0).toFixed(2)}</div>
                           <div className="text-gray-500">Sales</div>
                         </div>
                         <div className="text-center">
-                          <div className="font-semibold text-green-600">GHS {agent.your_earnings.toFixed(2)}</div>
+                          <div className="font-semibold text-green-600">GHS {(agent.your_earnings || 0).toFixed(2)}</div>
                           <div className="text-gray-500">Your Earnings</div>
                         </div>
                       </div>

@@ -335,7 +335,7 @@ export default function CustomersPage() {
                               <Badge variant="outline">{customer.total_purchases}</Badge>
                             </td>
                             <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                              GHS {customer.total_spent.toFixed(2)}
+                              GHS {(customer.total_spent || 0).toFixed(2)}
                             </td>
                             <td className="px-4 py-3 text-center">
                               {customer.repeat_customer ? (
@@ -413,7 +413,7 @@ export default function CustomersPage() {
                     </div>
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Total Spent</p>
-                      <p className="text-sm font-semibold">GHS {selectedCustomer.total_spent.toFixed(2)}</p>
+                      <p className="text-sm font-semibold">GHS {(selectedCustomer.total_spent || 0).toFixed(2)}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-600 mb-1">First Purchase</p>
@@ -479,7 +479,7 @@ export default function CustomersPage() {
                                 </td>
                                 <td className="px-4 py-3">{order.network}</td>
                                 <td className="px-4 py-3 text-center">{order.volume_gb}GB</td>
-                                <td className="px-4 py-3 text-right font-semibold">GHS {order.total_price.toFixed(2)}</td>
+                                <td className="px-4 py-3 text-right font-semibold">GHS {(order.total_price || 0).toFixed(2)}</td>
                                 <td className="px-4 py-3 text-center">
                                   <Badge
                                     className={

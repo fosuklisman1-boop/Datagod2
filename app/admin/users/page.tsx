@@ -440,8 +440,8 @@ export default function AdminUsersPage() {
                           {user.role}
                         </Badge>
                       </td>
-                      <td className="px-6 py-4 font-semibold text-blue-600">GHS {user.walletBalance.toFixed(2)}</td>
-                      <td className="px-6 py-4 font-semibold text-emerald-600">GHS {user.shopBalance.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-semibold text-blue-600">GHS {(user.walletBalance || 0).toFixed(2)}</td>
+                      <td className="px-6 py-4 font-semibold text-emerald-600">GHS {(user.shopBalance || 0).toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{user.shop?.shop_name || "No shop"}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         <Badge className="bg-blue-500">

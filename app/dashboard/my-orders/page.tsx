@@ -325,7 +325,7 @@ export default function MyOrdersPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4 text-sm font-mono">{order.phone_number}</td>
-                        <td className="px-6 py-4 text-sm font-semibold">GHS {order.total_price.toFixed(2)}</td>
+                        <td className="px-6 py-4 text-sm font-semibold">GHS {(order.total_price || 0).toFixed(2)}</td>
                         <td className="px-6 py-4 text-sm">
                           <div>{new Date(order.created_at).toLocaleDateString()}</div>
                           <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>

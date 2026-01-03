@@ -239,13 +239,13 @@ export default function WithdrawalsPage() {
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-2xl font-bold text-gray-900">GHS {withdrawal.amount.toFixed(2)}</p>
+                        <p className="text-2xl font-bold text-gray-900">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
                         <p className="text-xs text-gray-600 capitalize">{withdrawal.withdrawal_method}</p>
                         {withdrawal.fee_amount && withdrawal.fee_amount > 0 && (
-                          <p className="text-xs text-orange-600 font-medium mt-1">Fee: GHS {withdrawal.fee_amount.toFixed(2)}</p>
+                          <p className="text-xs text-orange-600 font-medium mt-1">Fee: GHS {(withdrawal.fee_amount || 0).toFixed(2)}</p>
                         )}
                         {withdrawal.net_amount && (
-                          <p className="text-xs text-green-600 font-semibold mt-1">Payout: GHS {withdrawal.net_amount.toFixed(2)}</p>
+                          <p className="text-xs text-green-600 font-semibold mt-1">Payout: GHS {(withdrawal.net_amount || 0).toFixed(2)}</p>
                         )}
                         {/* Available Balance for verification */}
                         <div className="mt-2 pt-2 border-t border-gray-200">

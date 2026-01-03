@@ -188,7 +188,7 @@ export function PaystackInlineModal({
           <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">Amount</span>
-              <span className="font-semibold text-lg">GHS {amount.toFixed(2)}</span>
+              <span className="font-semibold text-lg">GHS {(amount || 0).toFixed(2)}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">Email</span>

@@ -199,7 +199,7 @@ export function AFASubmissionModal({
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="font-semibold text-blue-900 mb-2">Exclusive Member Package</h3>
             <p className="text-sm text-blue-700">
-              Amount: <span className="font-bold">GHS {afaPrice.toFixed(2)}</span>
+              Amount: <span className="font-bold">GHS {(afaPrice || 0).toFixed(2)}</span>
             </p>
           </div>
 

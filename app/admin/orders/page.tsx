@@ -661,7 +661,7 @@ export default function AdminOrdersPage() {
                               </td>
                               <td className="px-4 py-3">{order.size}GB</td>
                               <td className="px-4 py-3 font-mono">{order.phone_number}</td>
-                              <td className="px-4 py-3 text-right font-semibold">₵ {order.price.toFixed(2)}</td>
+                              <td className="px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
                               <td className="px-4 py-3 text-center text-xs text-gray-500">
                                 <div>{new Date(order.created_at).toLocaleDateString()}</div>
                                 <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
@@ -917,7 +917,7 @@ export default function AdminOrdersPage() {
                                 </td>
                                 <td className="px-2 sm:px-4 py-3 text-xs sm:text-sm">{order.size}GB</td>
                                 <td className="px-2 sm:px-4 py-3 font-mono text-xs">{order.phone_number}</td>
-                                <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">₵ {order.price.toFixed(2)}</td>
+                                <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">₵ {(order.price || 0).toFixed(2)}</td>
                                 <td className="px-2 sm:px-4 py-3 text-center">
                                   <Badge className={`border text-xs ${
                                     order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :

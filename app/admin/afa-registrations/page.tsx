@@ -299,7 +299,7 @@ export default function AFARegistrationsAdminPage() {
                           {submission.phone_number.substring(0, 3)}...
                         </td>
                         <td className="px-4 py-3 text-sm font-semibold">
-                          GHS {submission.amount.toFixed(2)}
+                          GHS {(submission.amount || 0).toFixed(2)}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           {getStatusBadge(submission.status)}
@@ -437,7 +437,7 @@ export default function AFARegistrationsAdminPage() {
                   </label>
                   <div className="flex gap-2">
                     <Input
-                      value={`GHS ${selectedSubmission.amount.toFixed(2)}`}
+                      value={`GHS ${(selectedSubmission.amount || 0).toFixed(2)}`}
                       readOnly
                       className="flex-1"
                     />
@@ -446,7 +446,7 @@ export default function AFARegistrationsAdminPage() {
                       variant="outline"
                       onClick={() =>
                         copyToClipboard(
-                          selectedSubmission.amount.toFixed(2),
+                          (selectedSubmission.amount || 0).toFixed(2),
                           "Amount"
                         )
                       }
@@ -559,7 +559,7 @@ export default function AFARegistrationsAdminPage() {
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Payment of GHS {selectedSubmission.amount.toFixed(2)} has been deducted from the user's wallet.
+                  Payment of GHS {(selectedSubmission.amount || 0).toFixed(2)} has been deducted from the user's wallet.
                 </AlertDescription>
               </Alert>
 
