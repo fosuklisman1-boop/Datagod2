@@ -383,7 +383,20 @@ export default function BuyStockPage() {
                     >
                       <Minus className="w-4 h-4" />
                     </Button>
-                    <span className="w-8 text-center font-medium">{cart[pkg.id] || 0}</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="999"
+                      value={cart[pkg.id] || 0}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0
+                        setCart(prev => ({
+                          ...prev,
+                          [pkg.id]: Math.max(0, val)
+                        }))
+                      }}
+                      className="w-12 h-8 text-center p-0"
+                    />
                     <Button
                       variant="outline"
                       size="icon"
