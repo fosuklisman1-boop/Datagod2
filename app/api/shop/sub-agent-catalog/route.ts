@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     const tableName = shop.parent_shop_id ? "sub_agent_shop_packages" : "sub_agent_catalog"
 
     // Get catalog items with package details
-    const { data: catalog, error: catalogError } = await supabase
+    let { data: catalog, error: catalogError } = await supabase
       .from(tableName)
       .select(`
         id,
@@ -74,6 +74,39 @@ export async function GET(request: NextRequest) {
       `)
       .eq("shop_id", shop.id)
       .order("created_at", { ascending: false })
+
+    // For sub-agents, if sub_agent_shop_packages table fails or is empty, fallback to sub_agent_catalog
+    if (shop.parent_shop_id && (catalogError || !catalog || catalog.length === 0)) {
+      console.log("Falling back to sub_agent_catalog for sub-agent")
+      const { data: fallbackCatalog, error: fallbackError } = await supabase
+        .from("sub_agent_catalog")
+        .select(`
+          id,
+          package_id,
+          parent_price,
+          sub_agent_profit_margin,
+          wholesale_margin,
+          is_active,
+          created_at,
+          package:packages (
+            id,
+            network,
+            size,
+            price,
+            description,
+            active
+          )
+        `)
+        .eq("shop_id", shop.id)
+        .order("created_at", { ascending: false })
+      
+      if (!fallbackError && fallbackCatalog) {
+        catalog = fallbackCatalog
+        catalogError = null
+      } else {
+        catalogError = fallbackError || catalogError
+      }
+    }
 
     if (catalogError) {
       console.error("Error fetching catalog:", catalogError)
