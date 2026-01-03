@@ -83,13 +83,17 @@ export default function BuyStockPage() {
       setShopId(shop.id)
 
       // Get wallet balance
-      const { data: wallet } = await supabase
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", session.user.id)
-        .single()
-
-      setWalletBalance(wallet?.balance || 0)
+      try {
+        const { data: wallet } = await supabase
+          .from("wallets")
+          .select("balance")
+          .eq("user_id", session.user.id)
+          .single()
+        setWalletBalance(wallet?.balance ?? 0)
+      } catch (walletError) {
+        // Wallet endpoint may return 406 for non-wallet users, default to 0
+        setWalletBalance(0)
+      }
 
       // Get packages from parent's sub_agent_catalog via API
       const token = session.access_token
@@ -215,7 +219,7 @@ export default function BuyStockPage() {
               <Wallet className="w-5 h-5 text-green-600" />
               <div>
                 <p className="text-xs text-gray-500">Wallet Balance</p>
-                <p className="text-lg font-bold text-green-600">GHS {walletBalance.toFixed(2)}</p>
+                <p className="text-lg font-bold text-green-600">GHS {(walletBalance || 0).toFixed(2)}</p>
               </div>
             </CardContent>
           </Card>
@@ -292,18 +296,18 @@ export default function BuyStockPage() {
                 <span className="text-lg font-bold">GHS {getCartTotal().toFixed(2)}</span>
               </div>
               
-              {getCartTotal() > walletBalance ? (
+              {getCartTotal() > (walletBalance || 0) ? (
                 <Alert variant="destructive" className="mb-3">
                   <AlertCircle className="w-4 h-4" />
                   <AlertDescription className="text-xs">
-                    Insufficient balance. Add GHS {(getCartTotal() - walletBalance).toFixed(2)} to wallet.
+                    Insufficient balance. Add GHS {(getCartTotal() - (walletBalance || 0)).toFixed(2)} to wallet.
                   </AlertDescription>
                 </Alert>
               ) : null}
 
               <Button 
                 className="w-full" 
-                disabled={getCartTotal() > walletBalance}
+                disabled={getCartTotal() > (walletBalance || 0)}
                 onClick={() => setShowConfirmModal(true)}
               >
                 <ShoppingBag className="w-4 h-4 mr-2" />
@@ -345,11 +349,11 @@ export default function BuyStockPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500">Wallet Balance:</span>
-                  <span>GHS {walletBalance.toFixed(2)}</span>
+                  <span>GHS {(walletBalance || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between font-bold border-t pt-2">
                   <span>After Purchase:</span>
-                  <span>GHS {(walletBalance - getCartTotal()).toFixed(2)}</span>
+                  <span>GHS {((walletBalance || 0) - getCartTotal()).toFixed(2)}</span>
                 </div>
               </div>
 
