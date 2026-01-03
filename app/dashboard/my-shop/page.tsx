@@ -373,7 +373,8 @@ export default function MyShopPage() {
             },
             body: JSON.stringify({
               package_id: selectedPackage,
-              wholesale_margin: calculatedMargin
+              wholesale_margin: calculatedMargin,
+              parent_price: pkg?.parent_price || pkg?.price || 0
             })
           })
           if (!response.ok) {
