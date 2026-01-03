@@ -160,10 +160,11 @@ export default function AddToCatalogPage() {
       return
     }
 
-    // For sub-agents: margin = selling_price - parent's wholesale price (shown as pkg.price)
-    // This is ONLY their profit, not including parent's margin
+    // For parents: margin = selling_price - admin price (shown as pkg.price)
+    // This is the parent's profit margin
     const margin = sellingPrice - pkg.price
-    const parentPrice = pkg.price
+    // Parent's selling price (admin price + parent margin) becomes the base for sub-agents
+    const parentPrice = sellingPrice
     if (margin < 0) {
       toast.error("Selling price must be higher than base price")
       return
