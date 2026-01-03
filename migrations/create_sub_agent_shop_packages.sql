@@ -21,3 +21,13 @@ CREATE INDEX idx_sub_agent_shop_packages_active ON sub_agent_shop_packages(is_ac
 COMMENT ON TABLE sub_agent_shop_packages IS 'Sub-agent shop inventory: packages a sub-agent is selling to customers';
 COMMENT ON COLUMN sub_agent_shop_packages.parent_price IS 'The parent selling price (parent cost to this sub-agent)';
 COMMENT ON COLUMN sub_agent_shop_packages.sub_agent_profit_margin IS 'Sub-agent profit margin: their selling_price - parent_price';
+
+-- Enable RLS
+ALTER TABLE sub_agent_shop_packages ENABLE ROW LEVEL SECURITY;
+
+-- Allow service role to bypass RLS (for API routes using service key)
+CREATE POLICY "Service role bypass" ON sub_agent_shop_packages
+  USING (true)
+  WITH CHECK (true)
+  FOR ALL
+  TO service_role;
