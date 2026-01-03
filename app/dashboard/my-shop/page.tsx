@@ -1061,21 +1061,36 @@ export default function MyShopPage() {
                     <p className="text-gray-600">No products yet. Add your first product!</p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {packages.map((shopPkg) => {
                       const pkg = shopPkg.packages
-                      // Unified logic: base = parent_wholesale_price (sub-agent) or pkg.price (regular)
-                      const displayBasePrice = shopPkg.parent_wholesale_price !== undefined ? shopPkg.parent_wholesale_price : (pkg?.price || 0)
+                      // Unified logic: base = parent_price for sub-agents or pkg.price for regular
+                      const displayBasePrice = shopPkg.parent_price !== undefined ? shopPkg.parent_price : (pkg?.price || 0)
                       const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
                       const profit = shopPkg.profit_margin || 0
                       return (
-                        <div
-                          key={shopPkg.id}
-                          className="flex items-center justify-between p-4 bg-white/50 border border-emerald-200/40 rounded-lg hover:bg-white/70 transition-colors"
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold">{pkg?.network} - {pkg?.size}GB</p>
+                        <Card key={shopPkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
+                          <CardContent className="p-4 space-y-3">
+                            <div>
+                              <p className="font-semibold text-emerald-900">{pkg?.network} - {pkg?.size}GB</p>
+                              <p className="text-sm text-gray-600">
+                                {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
+                              </p>
+                            </div>
+                            
+                            <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
+                              <p className="text-blue-700">
+                                <span className="font-semibold">Your Cost (Wholesale):</span> GHS {displayBasePrice.toFixed(2)}
+                              </p>
+                              <p className="text-blue-700">
+                                <span className="font-semibold">Current Selling Price:</span> GHS {sellingPrice.toFixed(2)}
+                              </p>
+                              <p className="text-blue-600">
+                                Your Profit: GHS {profit.toFixed(2)}
+                              </p>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 pt-2">
                               {shopPkg.is_available && (
                                 <Badge className="bg-green-100 text-green-700">Available</Badge>
                               )}
@@ -1083,42 +1098,37 @@ export default function MyShopPage() {
                                 <Badge className="bg-gray-100 text-gray-700">Unavailable</Badge>
                               )}
                             </div>
-                            <p className="text-sm text-gray-600">
-                              Base: GHS {displayBasePrice.toFixed(2)} | Your Price: GHS {sellingPrice.toFixed(2)}
-                            </p>
-                            <p className="text-xs text-emerald-600 font-semibold">
-                              Your Profit: GHS {profit.toFixed(2)}
-                            </p>
-                          </div>
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <Button
-                              onClick={() => handleToggleAvailability(shopPkg.id, shopPkg.is_available)}
-                              disabled={togglingPackageId === shopPkg.id}
-                              variant={shopPkg.is_available ? "outline" : "default"}
-                              size="sm"
-                              className={!shopPkg.is_available ? "bg-green-600 hover:bg-green-700" : ""}
-                            >
-                              {togglingPackageId === shopPkg.id ? (
-                                <span className="animate-spin">⏳</span>
-                              ) : (
-                                shopPkg.is_available ? "Unavailable" : "Available"
-                              )}
-                            </Button>
-                            <Button 
-                              onClick={() => {
-                                setEditingShopPackage(shopPkg)
-                                setSelectedPackage(shopPkg.package_id)
-                                setProfitMargin(sellingPrice.toFixed(2))
-                                setPackageAvailable(shopPkg.is_available)
-                                setAddingPackage(true)
-                              }}
-                              variant="outline" 
-                              size="sm"
-                            >
-                              Edit Price
-                            </Button>
-                          </div>
-                        </div>
+                            
+                            <div className="flex gap-2 pt-2">
+                              <Button 
+                                onClick={() => {
+                                  setEditingShopPackage(shopPkg)
+                                  setSelectedPackage(shopPkg.package_id)
+                                  setProfitMargin(sellingPrice.toFixed(2))
+                                  setPackageAvailable(shopPkg.is_available)
+                                  setAddingPackage(true)
+                                }}
+                                size="sm"
+                                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                              >
+                                ✎ Edit
+                              </Button>
+                              <Button
+                                onClick={() => handleToggleAvailability(shopPkg.id, shopPkg.is_available)}
+                                disabled={togglingPackageId === shopPkg.id}
+                                variant="outline"
+                                size="sm"
+                                className="flex-1"
+                              >
+                                {togglingPackageId === shopPkg.id ? (
+                                  <span className="animate-spin">⏳</span>
+                                ) : (
+                                  shopPkg.is_available ? "Hide" : "Show"
+                                )}
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
                       )
                     })}
                   </div>
