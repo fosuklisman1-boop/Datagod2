@@ -86,7 +86,7 @@ export default function MyShopPage() {
               const catalogItems = data.catalog.map((item: any) => ({
                 id: item.id,
                 package_id: item.package_id,
-                profit_margin: item.wholesale_margin,
+                profit_margin: item.profit_margin || item.wholesale_margin,
                 is_available: item.is_active,
                 packages: item.package,
                 wholesale_price: item.wholesale_price
@@ -383,7 +383,7 @@ export default function MyShopPage() {
           const catalogItems = catalogData.catalog.map((item: any) => ({
             id: item.id,
             package_id: item.package_id,
-            profit_margin: item.wholesale_margin,
+            profit_margin: item.profit_margin || item.wholesale_margin,
             is_available: item.is_active,
             packages: item.package,
             wholesale_price: item.wholesale_price
@@ -462,7 +462,7 @@ export default function MyShopPage() {
           const catalogItems = catalogData.catalog.map((item: any) => ({
             id: item.id,
             package_id: item.package_id,
-            profit_margin: item.wholesale_margin,
+            profit_margin: item.profit_margin || item.wholesale_margin,
             is_available: item.is_active,
             packages: item.package,
             wholesale_price: item.wholesale_price

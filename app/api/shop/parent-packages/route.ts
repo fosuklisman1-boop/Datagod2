@@ -75,6 +75,8 @@ export async function GET(request: NextRequest) {
         parent_price: item.package.price + item.wholesale_margin,
         description: item.package.description,
         active: item.package.active,
+        // Include profit_margin for display in my-shop
+        profit_margin: item.wholesale_margin,
         _parent_wholesale_margin: item.wholesale_margin,
         _original_admin_price: item.package.price
       }))
