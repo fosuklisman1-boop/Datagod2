@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { email } = body // Optional email to send invite to
+    const { phone } = body // Optional phone to send SMS invite to
 
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
       .insert({
         inviter_shop_id: shop.id,
         invite_code: inviteCode,
-        email: email || null,
+        email: phone || null, // Using email column to store phone for now
         status: "pending",
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days
       })
@@ -142,13 +143,33 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://yoursite.com"
     const inviteUrl = `${baseUrl}/join/${inviteCode}`
 
+    // Send SMS if phone number provided
+    if (phone) {
+      try {
+        const smsMessage = `${shop.shop_name} has invited you to become a sub-agent on DataGod! Join here: ${inviteUrl} (Expires in 7 days)`
+        
+        await sendSMS({
+          phone: phone,
+          message: smsMessage,
+          type: 'sub_agent_invite',
+          reference: invite.id,
+        })
+        
+        console.log(`[INVITE] SMS sent to ${phone} with invite code ${inviteCode}`)
+      } catch (smsError) {
+        console.warn("[INVITE] Failed to send SMS invite:", smsError)
+        // Don't fail the invite creation if SMS fails
+      }
+    }
+
     return NextResponse.json({
       success: true,
       invite: {
         ...invite,
         invite_url: inviteUrl
       },
-      shop_name: shop.shop_name
+      shop_name: shop.shop_name,
+      sms_sent: !!phone
     })
   } catch (error) {
     console.error("Error creating invite:", error)

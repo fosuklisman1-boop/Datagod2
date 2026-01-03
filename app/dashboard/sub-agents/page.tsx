@@ -60,7 +60,7 @@ export default function SubAgentsPage() {
 
   // Create invite modal
   const [showInviteModal, setShowInviteModal] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState("")
+  const [invitePhone, setInvitePhone] = useState("")
   const [creatingInvite, setCreatingInvite] = useState(false)
   const [newInviteUrl, setNewInviteUrl] = useState<string | null>(null)
 
@@ -200,7 +200,7 @@ export default function SubAgentsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({ email: inviteEmail || null })
+        body: JSON.stringify({ phone: invitePhone || null })
       })
 
       const data = await response.json()
@@ -276,7 +276,7 @@ export default function SubAgentsPage() {
             onClick={() => { 
               setShowInviteModal(true); 
               setNewInviteUrl(null); 
-              setInviteEmail(""); 
+              setInvitePhone(""); 
             }}
             className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white"
           >
@@ -462,16 +462,16 @@ export default function SubAgentsPage() {
             ) : (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="inviteEmail">Email (optional)</Label>
+                  <Label htmlFor="invitePhone">Phone Number (optional)</Label>
                   <Input
-                    id="inviteEmail"
-                    type="email"
-                    placeholder="subagent@example.com"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
+                    id="invitePhone"
+                    type="tel"
+                    placeholder="0241234567"
+                    value={invitePhone}
+                    onChange={(e) => setInvitePhone(e.target.value)}
                   />
                   <p className="text-xs text-gray-500">
-                    If provided, we&apos;ll show it in your pending invites list.
+                    If provided, we&apos;ll send an SMS with the invite link.
                   </p>
                 </div>
 
