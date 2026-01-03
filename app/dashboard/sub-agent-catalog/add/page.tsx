@@ -130,13 +130,19 @@ export default function AddToCatalogPage() {
         console.log("Sample package:", pkgData.packages?.[0])
         
         if (pkgData.packages && pkgData.packages.length > 0) {
-          // Always use admin-set price (_original_admin_price) as main price for 'Your Cost'
+          // Always use admin-set price as main price for 'Your Cost'
+          // For sub-agents: use _original_admin_price (from parent-packages API)
+          // For parents/non-sub-agents: use price (from admin-packages API)
           setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.active).map((p: any) => {
             let price = 0;
             if (typeof p._original_admin_price === 'number' && !isNaN(p._original_admin_price)) {
+              // From parent-packages API (sub-agent)
               price = p._original_admin_price;
+            } else if (typeof p.price === 'number' && !isNaN(p.price)) {
+              // From admin-packages API (parent/non-sub-agent)
+              price = p.price;
             }
-            console.log(`Package ${p.size}: _original_admin_price=${p._original_admin_price}, mapped price=${price}`)
+            console.log(`Package ${p.size}: _original_admin_price=${p._original_admin_price}, price=${p.price}, mapped price=${price}`)
             return { ...p, price };
           }))
         } else {
