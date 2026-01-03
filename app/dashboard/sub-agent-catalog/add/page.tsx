@@ -111,7 +111,8 @@ export default function AddToCatalogPage() {
         console.log("Fetched packages:", pkgData.packages?.length || 0)
         
         if (pkgData.packages && pkgData.packages.length > 0) {
-          setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.active))
+          // Map parent_selling_price to price for compatibility
+          setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.active).map((p: any) => ({ ...p, price: p.parent_selling_price })))
         } else {
           console.log("No packages returned from API")
           toast.error("No packages found. Admin needs to add packages first.")

@@ -71,11 +71,10 @@ export async function GET(request: NextRequest) {
         id: item.package.id,
         network: item.package.network,
         size: item.package.size,
-        // Sub-agent's wholesale price = package price + parent's margin
-        price: item.package.price + item.wholesale_margin,
+        // Parent's selling price = admin price + parent's margin
+        parent_selling_price: item.package.price + item.wholesale_margin,
         description: item.package.description,
         active: item.package.active,
-        // Keep track of parent's margin for reference
         _parent_wholesale_margin: item.wholesale_margin,
         _original_admin_price: item.package.price
       }))
