@@ -967,7 +967,7 @@ export default function MyShopPage() {
                                 <div>
                                   <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
                                   <p className="text-sm text-gray-600">
-                                    {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {pkg.price}
+                                    {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {(pkg.parent_selling_price !== undefined ? pkg.parent_selling_price : pkg.price).toFixed(2)}
                                   </p>
                                 </div>
                                 
@@ -1009,7 +1009,8 @@ export default function MyShopPage() {
                                 
                                 {selectedPackage === pkg.id && profitMargin && (
                                   (() => {
-                                    const profit = parseFloat(profitMargin) - pkg.price
+                                    const basePrice = pkg.parent_selling_price !== undefined ? pkg.parent_selling_price : pkg.price
+                                    const profit = parseFloat(profitMargin) - basePrice
                                     const isNegative = profit < 0
                                     return (
                                       <div className={`p-2 rounded-md text-xs space-y-1 ${
