@@ -38,7 +38,7 @@ import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 
 const menuItems = [
-  { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin", "sub_agent"] },
+  { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin"] },
   { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin"] },
   { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin"] },
   { href: "/dashboard/afa-orders", label: "AFA Orders", icon: Star, roles: ["user", "admin"] },
