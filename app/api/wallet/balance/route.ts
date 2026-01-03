@@ -69,9 +69,45 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const balance = walletData?.balance || 0
-    const totalCredited = walletData?.total_credited || 0
-    const totalDebited = walletData?.total_spent || 0
+    // If wallet doesn't exist, create one automatically
+    if (!walletData) {
+      console.log("[WALLET-BALANCE] Wallet not found for user:", userId, "Creating new wallet")
+      const { data: newWallet, error: createError } = await supabase
+        .from("wallets")
+        .insert({
+          user_id: userId,
+          balance: 0,
+          total_credited: 0,
+          total_spent: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (createError) {
+        console.error("[WALLET-BALANCE] Error creating wallet:", createError)
+        // Return zeros rather than failing
+        return NextResponse.json({
+          balance: 0,
+          totalCredited: 0,
+          totalDebited: 0,
+          transactionCount: 0,
+        })
+      }
+
+      console.log("[WALLET-BALANCE] Wallet created for user:", userId)
+      return NextResponse.json({
+        balance: newWallet.balance || 0,
+        totalCredited: newWallet.total_credited || 0,
+        totalDebited: newWallet.total_spent || 0,
+        transactionCount: 0,
+      })
+    }
+
+    const balance = walletData.balance || 0
+    const totalCredited = walletData.total_credited || 0
+    const totalDebited = walletData.total_spent || 0
 
     console.log("[WALLET-BALANCE] User:", userId, "Balance:", balance, "Credited:", totalCredited, "Spent:", totalDebited)
 

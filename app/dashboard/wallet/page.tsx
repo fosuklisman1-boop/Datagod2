@@ -98,6 +98,42 @@ export default function WalletPage() {
           "Authorization": `Bearer ${session.access_token}`,
         },
       })
+      
+      // If wallet not found (no wallet row exists), create one
+      if (response.status === 404) {
+        console.log("[WALLET] Wallet not found, creating new wallet via API")
+        try {
+          const createResponse = await fetch("/api/wallet/create", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+          })
+          
+          if (createResponse.ok) {
+            const result = await createResponse.json()
+            console.log("[WALLET] Wallet created:", result.wallet)
+            setWalletData({
+              balance: result.wallet.balance || 0,
+              totalCredited: result.wallet.totalCredited || 0,
+              totalDebited: result.wallet.totalDebited || 0,
+              transactionCount: 0,
+            })
+            return
+          }
+        } catch (createError) {
+          console.error("[WALLET] Error creating wallet:", createError)
+          // Fall through to default values
+          setWalletData({
+            balance: 0,
+            totalCredited: 0,
+            totalDebited: 0,
+            transactionCount: 0,
+          })
+          return
+        }
+      }
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || "Failed to fetch wallet")
