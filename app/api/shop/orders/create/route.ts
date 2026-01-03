@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     // Check if this shop has a parent shop (sub-agent scenario)
     let parent_shop_id: string | null = null
     let parent_profit_amount: number | null = null
-    let isSubAgent = false
+    let finalShopPackageId = shop_package_id
     
     try {
       const { data: shopData, error: shopError } = await supabase
@@ -71,12 +71,51 @@ export async function POST(request: NextRequest) {
 
       if (!shopError && shopData?.parent_shop_id) {
         parent_shop_id = shopData.parent_shop_id
-        isSubAgent = true
         
-        // Calculate parent's profit: base_price for this order is what the sub-agent pays (parent's selling price)
-        // The parent's profit is the difference between what sub-agent pays and the actual admin base price
-        // For simplicity, we store the base_price the sub-agent uses as parent_profit_amount
-        // This represents what the parent shop earns from this sale
+        // For sub-agents, shop_package_id might be from sub_agent_shop_packages
+        // We need to find the corresponding shop_packages entry or create one
+        if (shop_package_id && package_id) {
+          // Try to find if there's a shop_packages entry for this package
+          const { data: shopPkg } = await supabase
+            .from("shop_packages")
+            .select("id")
+            .eq("shop_id", shop_id)
+            .eq("package_id", package_id)
+            .single()
+          
+          if (shopPkg) {
+            // Use the existing shop_packages ID
+            finalShopPackageId = shopPkg.id
+          } else {
+            // Create a shop_packages entry for this sub-agent's package
+            // Get the profit margin from sub_agent_shop_packages
+            const { data: subAgentPkg } = await supabase
+              .from("sub_agent_shop_packages")
+              .select("sub_agent_profit_margin")
+              .eq("id", shop_package_id)
+              .single()
+            
+            const { data: newShopPkg, error: createError } = await supabase
+              .from("shop_packages")
+              .insert([{
+                shop_id,
+                package_id,
+                profit_margin: subAgentPkg?.sub_agent_profit_margin || 0,
+                is_available: true
+              }])
+              .select("id")
+              .single()
+            
+            if (!createError && newShopPkg) {
+              finalShopPackageId = newShopPkg.id
+            } else {
+              console.warn("[SHOP-ORDER] Could not create shop_packages entry for sub-agent")
+              // Continue without mapping - order creation might fail if FK is enforced
+            }
+          }
+        }
+        
+        // Calculate parent's profit
         parent_profit_amount = parseFloat(base_price.toString())
         
         console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Parent profit: ${parent_profit_amount}`)
@@ -86,36 +125,30 @@ export async function POST(request: NextRequest) {
       // Continue without parent - profit will only go to sub-agent
     }
 
-    // For sub-agents, shop_package_id might not exist in shop_packages table
-    // So we only insert it if not a sub-agent
-    const orderData: any = {
-      shop_id,
-      customer_email,
-      customer_phone,
-      customer_name: customer_name || "Guest",
-      package_id,
-      network,
-      volume_gb,
-      base_price: parseFloat(base_price.toString()),
-      profit_amount: parseFloat(profit_amount.toString()),
-      total_price: parseFloat(total_price.toString()),
-      order_status: "pending",
-      payment_status: "pending",
-      reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-      shop_customer_id: shop_customer_id || null,
-      parent_shop_id: parent_shop_id,
-      parent_profit_amount: parent_profit_amount,
-      created_at: new Date().toISOString(),
-    }
-    
-    // Only add shop_package_id if not a sub-agent (has a valid record in shop_packages)
-    if (!isSubAgent && shop_package_id) {
-      orderData.shop_package_id = shop_package_id
-    }
-
     const { data, error } = await supabase
       .from("shop_orders")
-      .insert([orderData])
+      .insert([
+        {
+          shop_id,
+          customer_email,
+          customer_phone,
+          customer_name: customer_name || "Guest",
+          shop_package_id: finalShopPackageId,
+          package_id,
+          network,
+          volume_gb,
+          base_price: parseFloat(base_price.toString()),
+          profit_amount: parseFloat(profit_amount.toString()),
+          total_price: parseFloat(total_price.toString()),
+          order_status: "pending",
+          payment_status: "pending",
+          reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+          shop_customer_id: shop_customer_id || null,
+          parent_shop_id: parent_shop_id,
+          parent_profit_amount: parent_profit_amount,
+          created_at: new Date().toISOString(),
+        },
+      ])
       .select()
 
     if (error) {
