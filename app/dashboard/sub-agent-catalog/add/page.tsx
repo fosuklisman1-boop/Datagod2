@@ -142,7 +142,7 @@ export default function AddToCatalogPage() {
               // From admin-packages API (parent/non-sub-agent)
               price = p.price;
             }
-            console.log(`Package ${p.size}: _original_admin_price=${p._original_admin_price}, price=${p.price}, mapped price=${price}`)
+            console.log(`Package ${p.size}: _original_admin_price=${p._original_admin_price}, price=${p.price}, mapped price=${price}, parent_price=${p.parent_price}`)
             return { ...p, price };
           }))
         } else {

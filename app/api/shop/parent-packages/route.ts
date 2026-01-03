@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
         network: item.package.network,
         size: item.package.size,
         // Parent's selling price = admin price + parent's margin
-        parent_selling_price: item.package.price + item.wholesale_margin,
+        parent_price: item.package.price + item.wholesale_margin,
         description: item.package.description,
         active: item.package.active,
         _parent_wholesale_margin: item.wholesale_margin,
