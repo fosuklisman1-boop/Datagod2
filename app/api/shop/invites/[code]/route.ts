@@ -189,6 +189,23 @@ export async function POST(request: NextRequest, { params }: Params) {
       // Continue anyway - user record might be created by trigger
     }
 
+    // Create wallet for sub-agent
+    const { error: walletError } = await supabase
+      .from("wallets")
+      .insert({
+        user_id: newUserId,
+        balance: 0,
+        total_credited: 0,
+        total_spent: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+
+    if (walletError) {
+      console.error("Error creating wallet:", walletError)
+      // Continue anyway - wallet might be created by trigger
+    }
+
     // Create shop for sub-agent
     const { data: newShop, error: shopError } = await supabase
       .from("user_shops")
