@@ -243,7 +243,7 @@ export default function JoinPage() {
                   <div key={idx} className="p-3 border rounded-lg text-center">
                     <Badge className={getNetworkColor(pkg.network)}>{pkg.network}</Badge>
                     <div className="font-semibold mt-1">{pkg.size}GB</div>
-                    <div className="text-blue-600 font-bold">GHS {pkg.wholesale_price.toFixed(2)}</div>
+                    <div className="text-blue-600 font-bold">GHS {(pkg.wholesale_price || 0).toFixed(2)}</div>
                   </div>
                 ))}
               </div>
