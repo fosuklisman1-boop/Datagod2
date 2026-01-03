@@ -1,10 +1,34 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { sendSMS } from "@/lib/sms-service"
+import { atishareService } from "@/lib/at-ishare-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+/**
+ * Check if auto-fulfillment is enabled in admin settings
+ */
+async function isAutoFulfillmentEnabled(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "auto_fulfillment_enabled")
+      .single()
+    
+    if (error || !data) {
+      return true
+    }
+    
+    return data.value?.enabled ?? true
+  } catch (error) {
+    console.warn("[WALLET-DEBIT] Error checking auto-fulfillment setting:", error)
+    return true
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -133,7 +157,7 @@ export async function POST(request: NextRequest) {
       console.log("[WALLET-DEBIT] Checking if order is a shop order...")
       const { data: shopOrder, error: shopOrderError } = await supabase
         .from("shop_orders")
-        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount")
+        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone")
         .eq("id", orderId)
         .maybeSingle()
 
@@ -152,6 +176,60 @@ export async function POST(request: NextRequest) {
           console.error("[WALLET-DEBIT] Failed to update shop order:", updateShopOrderError)
         } else {
           console.log("[WALLET-DEBIT] ✓ Shop order payment status updated to completed")
+          
+          // Send SMS notification about successful purchase
+          if (shopOrder.customer_phone) {
+            try {
+              const smsMessage = `You have successfully placed an order of ${shopOrder.network} ${shopOrder.volume_gb}GB to ${shopOrder.customer_phone}. If delayed over 2 hours, contact support.`
+              
+              await sendSMS({
+                phone: shopOrder.customer_phone,
+                message: smsMessage,
+                type: 'data_purchase_success',
+                reference: orderId,
+              }).catch(err => console.error("[WALLET-DEBIT] SMS error:", err))
+              
+              console.log("[WALLET-DEBIT] ✓ SMS notification sent")
+            } catch (smsError) {
+              console.warn("[WALLET-DEBIT] Failed to send purchase SMS:", smsError)
+            }
+          }
+
+          // Trigger auto-fulfillment for supported networks
+          const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
+          const normalizedNetwork = shopOrder.network?.trim() || ""
+          const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
+          
+          const autoFulfillEnabled = await isAutoFulfillmentEnabled()
+          const shouldFulfill = isAutoFulfillable && autoFulfillEnabled && shopOrder.customer_phone
+          
+          console.log(`[WALLET-DEBIT] Network: "${shopOrder.network}" | Auto-fulfillable: ${isAutoFulfillable} | Enabled: ${autoFulfillEnabled} | Should fulfill: ${shouldFulfill}`)
+          
+          if (shouldFulfill) {
+            try {
+              const sizeGb = parseInt(shopOrder.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+              const networkLower = normalizedNetwork.toLowerCase()
+              const isBigTime = networkLower.includes("bigtime")
+              const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
+              
+              console.log(`[WALLET-DEBIT] Triggering fulfillment: ${apiNetwork}, ${sizeGb}GB to ${shopOrder.customer_phone}`)
+              
+              atishareService.fulfillOrder({
+                phoneNumber: shopOrder.customer_phone,
+                sizeGb,
+                orderId: orderId,
+                network: apiNetwork,
+                orderType: "shop",
+                isBigTime,
+              }).then(result => {
+                console.log(`[WALLET-DEBIT] ✓ Fulfillment response:`, result)
+              }).catch(err => {
+                console.error(`[WALLET-DEBIT] ❌ Fulfillment error:`, err)
+              })
+            } catch (fulfillmentError) {
+              console.error("[WALLET-DEBIT] Error in fulfillment trigger:", fulfillmentError)
+            }
+          }
         }
 
         // Create parent shop profit record if this is a sub-agent order
