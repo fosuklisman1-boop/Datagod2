@@ -122,8 +122,14 @@ export default function AddToCatalogPage() {
         console.log("Fetched packages:", pkgData.packages?.length || 0)
         
         if (pkgData.packages && pkgData.packages.length > 0) {
-          // Map parent_selling_price to price for compatibility
-          setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.active).map((p: any) => ({ ...p, price: p.parent_selling_price })))
+          // Always use admin-set price (_original_admin_price) as main price for 'Your Cost'
+          setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.active).map((p: any) => {
+            let price = 0;
+            if (typeof p._original_admin_price === 'number' && !isNaN(p._original_admin_price)) {
+              price = p._original_admin_price;
+            }
+            return { ...p, price };
+          }))
         } else {
           console.log("No packages returned from API")
           toast.error("No packages found. Admin needs to add packages first.")
