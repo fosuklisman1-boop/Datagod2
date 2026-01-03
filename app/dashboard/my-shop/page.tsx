@@ -1010,7 +1010,8 @@ export default function MyShopPage() {
                                 {selectedPackage === pkg.id && profitMargin && (
                                   (() => {
                                     const basePrice = pkg.parent_price !== undefined ? pkg.parent_price : pkg.price
-                                    const profit = parseFloat(profitMargin) - basePrice
+                                    const sellingPrice = parseFloat(profitMargin)
+                                    const profit = sellingPrice - basePrice
                                     const isNegative = profit < 0
                                     return (
                                       <div className={`p-2 rounded-md text-xs space-y-1 ${
