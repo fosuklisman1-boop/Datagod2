@@ -307,21 +307,14 @@ export default function MyShopPage() {
     try {
       // Get the base price from selected package
       const pkg = getPackageDetails(selectedPackage)
-      const sellingPrice = parseFloat(profitMargin || "0")
-      
       // For sub-agents: calculate profit from PARENT PRICE (not admin price)
       // This is the sub-agent's own profit margin
       const parentPrice = pkg?.parent_price !== undefined ? pkg?.parent_price : (pkg?.price || 0)
-      const adminPrice = pkg?._original_admin_price ?? parentPrice
       
+      const sellingPrice = parseFloat(profitMargin || "0")
       let subAgentProfit: number
-      if (shop.parent_shop_id) {
-        // Sub-agent: profit = selling_price - parent_price
-        subAgentProfit = sellingPrice - parentPrice
-      } else {
-        // Regular shop: profit = selling_price - admin_price
-        subAgentProfit = sellingPrice - adminPrice
-      }
+      // Always use parentPrice (which is correct for both sub-agents and regular shops)
+      subAgentProfit = sellingPrice - parentPrice
       
       if (subAgentProfit < 0) {
         toast.error("Selling price must be higher than base price")
@@ -976,10 +969,10 @@ export default function MyShopPage() {
                                       {isAdded && (
                                         <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
                                           <p className="text-blue-700">
-                                            <span className="font-semibold">Your Cost (Wholesale):</span> GHS {(isAdded.parent_wholesale_price || pkg.price).toFixed(2)}
+                                            <span className="font-semibold">Your Cost (Wholesale):</span> GHS {(pkg.parent_price !== undefined ? pkg.parent_price : pkg.price).toFixed(2)}
                                           </p>
                                           <p className="text-blue-700">
-                                            <span className="font-semibold">Current Selling Price:</span> GHS {((isAdded.parent_wholesale_price || pkg.price) + (isAdded.profit_margin || 0)).toFixed(2)}
+                                            <span className="font-semibold">Current Selling Price:</span> GHS {((pkg.parent_price !== undefined ? pkg.parent_price : pkg.price) + (isAdded.profit_margin || 0)).toFixed(2)}
                                           </p>
                                           <p className="text-blue-600">
                                             Your Profit: GHS {isAdded.profit_margin.toFixed(2)}
@@ -1031,7 +1024,8 @@ export default function MyShopPage() {
                                 
                                 {(() => {
                                   const isAdded = packages.some(p => p.package_id === pkg.id)
-                                  const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - pkg.price : 0
+                                  const basePrice = pkg.parent_price !== undefined ? pkg.parent_price : pkg.price
+                                  const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
                                   const hasNegativeProfit = profit < 0
                                   return (
                                     <Button

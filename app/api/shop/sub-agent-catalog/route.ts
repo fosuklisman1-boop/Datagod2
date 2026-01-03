@@ -108,22 +108,26 @@ export async function GET(request: NextRequest) {
 
     // Transform to include calculated prices
     const catalogWithPrices = (catalog || []).map((item: any) => {
-      const adminPrice = item.package?.price || 0
-      const parentMargin = parentMargins[item.package_id] || 0
-        // Always use stored parent_price if present, fallback to old logic if missing
-        const parentWholesalePrice = (item.parent_price !== undefined && item.parent_price !== null)
-          ? Number(item.parent_price)
-          : ((item.package?.price || 0) + (parentMargins[item.package_id] || 0));
-        const sellingPrice = parentWholesalePrice + item.wholesale_margin;
+      // Use stored parent_price as the base
+      const parentPrice = item.parent_price !== undefined && item.parent_price !== null
+        ? Number(item.parent_price)
+        : (item.package?.price || 0);
+      
+      // Use sub_agent_profit_margin if available, fallback to wholesale_margin for backwards compatibility
+      const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
+        ? Number(item.sub_agent_profit_margin)
+        : (item.wholesale_margin || 0);
+      
+      const sellingPrice = parentPrice + subAgentMargin;
       
       return {
         ...item,
-        // parent_wholesale_price: what the parent charges this sub-agent
-        parent_wholesale_price: parentWholesalePrice,
-        // wholesale_price: what this sub-agent sells at
-        wholesale_price: sellingPrice,
-        // profit_margin for display: this is what they store (their margin only)
-        profit_margin: item.wholesale_margin
+        // parent_price: what the parent charges this sub-agent (base cost)
+        parent_price: parentPrice,
+        // selling_price: what this sub-agent sells at
+        selling_price: sellingPrice,
+        // profit_margin for display: the sub-agent's own profit
+        profit_margin: subAgentMargin
       }
     })
 
