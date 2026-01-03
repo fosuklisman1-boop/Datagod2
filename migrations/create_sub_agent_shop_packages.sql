@@ -27,7 +27,7 @@ ALTER TABLE sub_agent_shop_packages ENABLE ROW LEVEL SECURITY;
 
 -- Allow service role to bypass RLS (for API routes using service key)
 CREATE POLICY "Service role bypass" ON sub_agent_shop_packages
-  USING (true)
-  WITH CHECK (true)
   FOR ALL
-  TO service_role;
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
