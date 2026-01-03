@@ -55,6 +55,8 @@ export async function GET(request: NextRequest) {
         .select(`
           id,
           package_id,
+          parent_price,
+          sub_agent_profit_margin,
           wholesale_margin,
           is_active,
           package:packages (
@@ -74,46 +76,37 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
       }
 
-      // If sub-agent, also get parent's margins to calculate correct selling prices
-      let parentMargins: Record<string, number> = {}
-      if (shop.parent_shop_id) {
-        const { data: parentCatalog } = await supabase
-          .from("sub_agent_catalog")
-          .select("package_id, wholesale_margin")
-          .eq("shop_id", shop.parent_shop_id)
-          .eq("is_active", true)
-
-        if (parentCatalog && parentCatalog.length > 0) {
-          parentMargins = (parentCatalog || []).reduce((acc: any, item: any) => {
-            acc[item.package_id] = item.wholesale_margin
-            return acc
-          }, {})
-        }
-      }
-
-      // Transform catalog items to match expected format
-      // Sub-agent's selling price = parent's wholesale price (admin + parent margin) + sub-agent's margin
+      // Transform catalog items using stored parent_price
+      // Sub-agent's selling price = parent_price (stored in DB) + sub_agent_profit_margin
       packages = (catalogItems || [])
         .filter((item: any) => item.package?.active)
         .map((item: any) => {
-          const adminPrice = item.package.price
-          const parentMargin = parentMargins[item.package_id] || 0
-          const parentWholesalePrice = adminPrice + parentMargin
-          const sellingPrice = parentWholesalePrice + item.wholesale_margin
+          // Use stored parent_price from database (parent's selling price)
+          const parentPrice = item.parent_price !== undefined && item.parent_price !== null
+            ? Number(item.parent_price)
+            : item.package.price; // Fallback to admin price if no parent_price stored
+          
+          // Use sub_agent_profit_margin if available, fallback to wholesale_margin for backwards compatibility
+          const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
+            ? Number(item.sub_agent_profit_margin)
+            : (item.wholesale_margin || 0);
+          
+          const sellingPrice = parentPrice + subAgentMargin;
           
           return {
             id: item.id,
             package_id: item.package.id,
-            profit_margin: item.wholesale_margin,
+            profit_margin: subAgentMargin,
+            parent_price: parentPrice,
             is_available: item.is_active,
             packages: {
               id: item.package.id,
               network: item.package.network,
               size: item.package.size,
-              price: adminPrice,
+              price: parentPrice, // Show parent price as the base
               description: item.package.description
             },
-            // Calculated selling price: parent's wholesale price + sub-agent's margin
+            // Calculated selling price: parent_price + sub-agent's profit margin
             selling_price: sellingPrice
           }
         })
