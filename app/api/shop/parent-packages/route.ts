@@ -67,19 +67,26 @@ export async function GET(request: NextRequest) {
     // Transform packages: sub-agent's wholesale price = admin price + parent's margin
     const transformedPackages = (catalogItems || [])
       .filter((item: any) => item.package?.active)
-      .map((item: any) => ({
-        id: item.package.id,
-        network: item.package.network,
-        size: item.package.size,
-        // Parent's selling price = admin price + parent's margin
-        parent_price: item.package.price + item.wholesale_margin,
-        description: item.package.description,
-        active: item.package.active,
-        // Include profit_margin for display in my-shop
-        profit_margin: item.wholesale_margin,
-        _parent_wholesale_margin: item.wholesale_margin,
-        _original_admin_price: item.package.price
-      }))
+      .map((item: any) => {
+        const adminPrice = item.package.price
+        const parentMargin = item.wholesale_margin
+        const parentSellingPrice = adminPrice + parentMargin
+        
+        return {
+          id: item.package.id,
+          network: item.package.network,
+          size: item.package.size,
+          // parent_price: what the parent sells to sub-agent (admin price + parent's margin)
+          parent_price: parentSellingPrice,
+          description: item.package.description,
+          active: item.package.active,
+          // profit_margin: parent's margin (for reference, but not used for calculating sub-agent profit)
+          profit_margin: parentMargin,
+          _parent_wholesale_margin: parentMargin,
+          _original_admin_price: adminPrice,
+          _parent_selling_price: parentSellingPrice
+        }
+      })
 
     return NextResponse.json({
       is_sub_agent: true,
