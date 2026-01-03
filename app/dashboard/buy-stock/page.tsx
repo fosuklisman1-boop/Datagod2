@@ -43,6 +43,8 @@ export default function BuyStockPage() {
   const [cart, setCart] = useState<{ [packageId: string]: number }>({})
   const [purchasing, setPurchasing] = useState(false)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [showPhoneModal, setShowPhoneModal] = useState(false)
+  const [phoneNumber, setPhoneNumber] = useState("")
   const [userRole, setUserRole] = useState<string | null>(null)
   const [shopId, setShopId] = useState<string | null>(null)
 
@@ -166,6 +168,13 @@ export default function BuyStockPage() {
   }
 
   const handlePurchase = async () => {
+    // First collect phone number if not already provided
+    if (!phoneNumber.trim()) {
+      setShowConfirmModal(false)
+      setShowPhoneModal(true)
+      return
+    }
+
     try {
       setPurchasing(true)
       const { data: { session } } = await supabase.auth.getSession()
@@ -223,7 +232,7 @@ export default function BuyStockPage() {
           body: JSON.stringify({
             shop_id: shopId,
             customer_email: session.user?.email || "sub-agent@datagod.com",
-            customer_phone: session.user?.user_metadata?.phone || "000000000",
+            customer_phone: phoneNumber.trim(),
             customer_name: `${session.user?.user_metadata?.first_name || ""} ${session.user?.user_metadata?.last_name || ""}`.trim(),
             shop_package_id: item.package.id,
             package_id: item.package.id,
@@ -272,8 +281,9 @@ export default function BuyStockPage() {
       // Update local wallet balance
       setWalletBalance(debitData.newBalance || 0)
 
-      // Clear cart and close modal
+      // Clear cart, close modals and reset phone number
       setCart({})
+      setPhoneNumber("")
       setShowConfirmModal(false)
 
       toast.success(`Successfully ordered ${orderItems.reduce((sum, item) => sum + item.quantity, 0)} package(s)!`)
@@ -288,6 +298,16 @@ export default function BuyStockPage() {
     } finally {
       setPurchasing(false)
     }
+  }
+
+  const handlePhoneNumberSubmit = (phone: string) => {
+    if (!phone.trim()) {
+      toast.error("Phone number is required")
+      return
+    }
+    setPhoneNumber(phone.trim())
+    setShowPhoneModal(false)
+    setShowConfirmModal(true)
   }
 
   if (loading) {
@@ -506,6 +526,46 @@ export default function BuyStockPage() {
                     Confirm Purchase
                   </>
                 )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Phone Number Modal */}
+        <Dialog open={showPhoneModal} onOpenChange={setShowPhoneModal}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Enter Phone Number</DialogTitle>
+              <DialogDescription>
+                Provide the phone number for this bulk order
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="e.g., 0501234567"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handlePhoneNumberSubmit(phoneNumber)
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPhoneModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => handlePhoneNumberSubmit(phoneNumber)}>
+                Continue
               </Button>
             </DialogFooter>
           </DialogContent>
