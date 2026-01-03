@@ -309,24 +309,21 @@ export default function MyShopPage() {
       const pkg = getPackageDetails(selectedPackage)
       const sellingPrice = parseFloat(profitMargin || "0")
       
-      // For sub-agents: calculate total margin from ADMIN price (not parent price)
-      // This ensures the final selling price is calculated correctly
-      // pkg.price = parent's selling price (admin + parent margin)
-      // pkg._original_admin_price = raw admin price
-      const adminPrice = pkg?._original_admin_price ?? pkg?.price ?? 0
-      const parentPrice = pkg?.price || 0
+      // For sub-agents: calculate profit from PARENT PRICE (not admin price)
+      // This is the sub-agent's own profit margin
+      const parentPrice = pkg?.parent_price !== undefined ? pkg?.parent_price : (pkg?.price || 0)
+      const adminPrice = pkg?._original_admin_price ?? parentPrice
       
-      // Calculate margin based on context
-      let calculatedMargin: number
-      if (shop.parent_shop_id && pkg?._original_admin_price !== undefined) {
-        // Sub-agent: store total margin from admin price
-        calculatedMargin = sellingPrice - adminPrice
+      let subAgentProfit: number
+      if (shop.parent_shop_id) {
+        // Sub-agent: profit = selling_price - parent_price
+        subAgentProfit = sellingPrice - parentPrice
       } else {
-        // Regular shop: margin from admin price
-        calculatedMargin = sellingPrice - parentPrice
+        // Regular shop: profit = selling_price - admin_price
+        subAgentProfit = sellingPrice - adminPrice
       }
       
-      if (calculatedMargin < 0) {
+      if (subAgentProfit < 0) {
         toast.error("Selling price must be higher than base price")
         return
       }
@@ -355,7 +352,7 @@ export default function MyShopPage() {
             },
             body: JSON.stringify({
               catalog_id: existingPkg.id,
-              wholesale_margin: calculatedMargin
+              sub_agent_profit_margin: subAgentProfit
             })
           })
           if (!response.ok) {
@@ -373,8 +370,8 @@ export default function MyShopPage() {
             },
             body: JSON.stringify({
               package_id: selectedPackage,
-              wholesale_margin: calculatedMargin,
-              parent_price: pkg?.parent_price || pkg?.price || 0
+              sub_agent_profit_margin: subAgentProfit,
+              parent_price: parentPrice
             })
           })
           if (!response.ok) {

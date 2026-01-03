@@ -156,10 +156,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { package_id, wholesale_margin, parent_price } = body
+    const { package_id, wholesale_margin, parent_price, sub_agent_profit_margin } = body
+    
+    // Support both old (wholesale_margin) and new (sub_agent_profit_margin) field names
+    const profitMargin = sub_agent_profit_margin !== undefined ? sub_agent_profit_margin : wholesale_margin
 
-    if (!package_id || wholesale_margin === undefined || parent_price === undefined) {
-      return NextResponse.json({ error: "Package ID, wholesale margin, and parent price required" }, { status: 400 })
+    if (!package_id || profitMargin === undefined) {
+      return NextResponse.json({ error: "Package ID and profit margin required" }, { status: 400 })
     }
 
     // Get user's shop
@@ -182,15 +185,23 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (existing) {
-      // Update existing
+      // Update existing - use sub_agent_profit_margin if provided, fallback to wholesale_margin
+      const updateData: any = {
+        is_active: true,
+        updated_at: new Date().toISOString()
+      }
+      if (sub_agent_profit_margin !== undefined) {
+        updateData.sub_agent_profit_margin = sub_agent_profit_margin
+      } else if (wholesale_margin !== undefined) {
+        updateData.wholesale_margin = wholesale_margin
+      }
+      if (parent_price !== undefined) {
+        updateData.parent_price = parent_price
+      }
+      
       const { data: updated, error: updateError } = await supabase
         .from("sub_agent_catalog")
-        .update({
-          wholesale_margin,
-          parent_price,
-          is_active: true,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq("id", existing.id)
         .select()
         .single()
@@ -202,16 +213,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, item: updated, action: "updated" })
     }
 
-    // Insert new
+    // Insert new - store sub_agent_profit_margin if provided
+    const insertData: any = {
+      shop_id: shop.id,
+      package_id,
+      is_active: true
+    }
+    if (sub_agent_profit_margin !== undefined) {
+      insertData.sub_agent_profit_margin = sub_agent_profit_margin
+    } else if (wholesale_margin !== undefined) {
+      insertData.wholesale_margin = wholesale_margin
+    }
+    if (parent_price !== undefined) {
+      insertData.parent_price = parent_price
+    }
+    
     const { data: newItem, error: insertError } = await supabase
       .from("sub_agent_catalog")
-      .insert({
-        shop_id: shop.id,
-        package_id,
-        wholesale_margin,
-        parent_price,
-        is_active: true
-      })
+      .insert(insertData)
       .select()
       .single()
 
