@@ -124,9 +124,9 @@ export default function JoinPage() {
       setSuccess(true)
       toast.success("Account created successfully!")
 
-      // Redirect to login after 2 seconds
+      // Redirect to login with dashboard redirect after 2 seconds
       setTimeout(() => {
-        router.push("/login")
+        router.push("/login?redirect=/dashboard/my-shop")
       }, 2000)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create account")

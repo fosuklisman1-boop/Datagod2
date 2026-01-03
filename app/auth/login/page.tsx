@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,11 +13,15 @@ import { getAuthErrorMessage } from "@/lib/auth-errors"
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   })
+
+  // Get redirect URL from query params (default to /dashboard)
+  const redirectTo = searchParams.get("redirect") || "/dashboard"
 
   // Handle form input changes
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -46,8 +50,8 @@ export default function LoginPage() {
       // Wait longer for session to be fully established
       await new Promise(resolve => setTimeout(resolve, 1000))
       
-      // Redirect to dashboard
-      window.location.href = "/dashboard"
+      // Redirect to the specified URL (from query params) or dashboard
+      window.location.href = redirectTo
     } catch (error: any) {
       const { message } = getAuthErrorMessage(error)
       toast.error(message)
