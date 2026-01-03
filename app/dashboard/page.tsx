@@ -61,14 +61,11 @@ export default function DashboardPage() {
       fetchUserInfo()
       fetchDashboardStats()
       fetchRecentActivity()
-      // Only fetch wallet balance for regular users and admins, not for sub-agents
-      if (userRole !== "sub_agent") {
-        fetchWalletBalance()
-      }
+      fetchWalletBalance()
       // Trigger background check for scheduled order status updates
       checkScheduledOrders()
     }
-  }, [user, userRole])
+  }, [user])
 
   const checkScheduledOrders = async () => {
     try {
@@ -191,6 +188,7 @@ export default function DashboardPage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
         console.error("No auth session")
+        setWalletBalance(0)
         return
       }
 
@@ -200,9 +198,10 @@ export default function DashboardPage() {
         },
       })
       const data = await response.json()
-      setWalletBalance(data.balance || 0)
+      setWalletBalance(data.balance ?? 0)
     } catch (error) {
       console.error("Error fetching wallet balance:", error)
+      setWalletBalance(0)
     }
   }
 
@@ -359,8 +358,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Wallet Balance - Only show for non-sub-agents */}
-          {userRole !== "sub_agent" && (
+          {/* Wallet Balance */}
           <Card 
             className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40 hover:border-green-300/60"
             data-tour="wallet-balance"
@@ -373,12 +371,11 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                GHS {walletBalance.toFixed(2)}
+                GHS {(walletBalance || 0).toFixed(2)}
               </div>
               <p className="text-xs text-gray-500">Available funds</p>
             </CardContent>
           </Card>
-          )}
         </div>
 
         {/* Quick Actions */}
