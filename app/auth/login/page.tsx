@@ -15,19 +15,17 @@ export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isLoading, setIsLoading] = useState(false)
+  const [redirectTo, setRedirectTo] = useState("/dashboard")
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   })
 
   // Get redirect URL from query params (default to /dashboard)
-  const redirectTo = searchParams.get("redirect") || "/dashboard"
-
-  // Handle form input changes
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({
-      ...prev,
+  useEffect(() => {
+    const redirect = searchParams.get("redirect") || "/dashboard"
+    setRedirectTo(redirect)
+  }, [searchParams])
       [name]: value,
     }))
   }
