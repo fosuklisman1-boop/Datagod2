@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
       .from(tableName)
       .select(selectFields)
       .eq("shop_id", shop.id)
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false }) as { data: any; error: any }
     
     console.log("First query error:", catalogError?.message)
     console.log("First query result count:", catalog?.length || 0)
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
         .from("sub_agent_catalog")
         .select(`id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, description, active)`)
         .eq("shop_id", shop.id)
-        .order("created_at", { ascending: false })
+        .order("created_at", { ascending: false }) as { data: any; error: any }
       
       console.log("Fallback error:", fallbackError?.message)
       console.log("Fallback result count:", fallbackCatalog?.length || 0)
