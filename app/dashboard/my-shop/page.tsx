@@ -81,7 +81,10 @@ export default function MyShopPage() {
               headers: { "Authorization": `Bearer ${token}` }
             })
             const data = await response.json()
-            if (data.catalog) {
+            if (!response.ok) {
+              console.error("Sub-agent catalog API error:", response.status, data.error)
+              setPackages([])
+            } else if (data.catalog) {
               // Transform to match expected format
               const catalogItems = data.catalog.map((item: any) => ({
                 id: item.id,
@@ -379,7 +382,9 @@ export default function MyShopPage() {
           headers: { "Authorization": `Bearer ${token}` }
         })
         const catalogData = await catalogResponse.json()
-        if (catalogData.catalog) {
+        if (!catalogResponse.ok) {
+          console.error("Failed to reload catalog after add:", catalogResponse.status, catalogData.error)
+        } else if (catalogData.catalog) {
           const catalogItems = catalogData.catalog.map((item: any) => ({
             id: item.id,
             package_id: item.package_id,
