@@ -28,8 +28,9 @@ interface WholesalePackage {
   id: string
   network: string
   size: string
-  price: number           // Your wholesale cost (admin price + parent's margin)
+  parent_price: number    // Sub-agent's wholesale cost (admin price + parent's margin)
   description?: string
+  profit_margin?: number
   _parent_wholesale_margin?: number
   _original_admin_price?: number
 }
@@ -105,7 +106,15 @@ export default function BuyStockPage() {
       const response = await fetch("/api/shop/parent-packages", {
         headers: { "Authorization": `Bearer ${token}` }
       })
+      
+      if (!response.ok) {
+        console.error("API Error:", response.status, response.statusText)
+        toast.error(`Failed to fetch packages: ${response.statusText}`)
+        return
+      }
+      
       const data = await response.json()
+      console.log("[BUY-STOCK] Fetched data:", data)
 
       if (!data.is_sub_agent) {
         toast.error("This page is for sub-agents only")
@@ -113,8 +122,10 @@ export default function BuyStockPage() {
       }
 
       if (data.packages && data.packages.length > 0) {
+        console.log("[BUY-STOCK] Loaded packages:", data.packages)
         setPackages(data.packages)
       } else {
+        console.log("[BUY-STOCK] No packages available")
         toast.info("No packages available. Your parent shop needs to add packages to their catalog.")
       }
     } catch (error) {
@@ -146,7 +157,7 @@ export default function BuyStockPage() {
   const getCartTotal = () => {
     return Object.entries(cart).reduce((total, [packageId, qty]) => {
       const pkg = packages.find(p => p.id === packageId)
-      return total + (pkg?.price || 0) * qty
+      return total + (pkg?.parent_price || 0) * qty
     }, 0)
   }
 
@@ -255,7 +266,7 @@ export default function BuyStockPage() {
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-500">Wholesale Price:</span>
-                  <span className="font-semibold text-purple-600">GHS {(pkg.price || 0).toFixed(2)}</span>
+                  <span className="font-semibold text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
                 </div>
 
                 {/* Quantity Controls */}
@@ -336,7 +347,7 @@ export default function BuyStockPage() {
                   return (
                     <div key={packageId} className="flex items-center justify-between text-sm">
                       <span>{pkg.network} - {pkg.size} x{qty}</span>
-                      <span className="font-medium">GHS {(pkg.price * qty).toFixed(2)}</span>
+                      <span className="font-medium">GHS {((pkg.parent_price || 0) * qty).toFixed(2)}</span>
                     </div>
                   )
                 })}
