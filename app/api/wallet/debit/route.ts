@@ -128,12 +128,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // If this is a shop order payment via wallet, mark it as paid
+    // If this is a shop order payment via wallet, mark it as paid and handle profits
     if (orderId) {
       console.log("[WALLET-DEBIT] Checking if order is a shop order...")
       const { data: shopOrder, error: shopOrderError } = await supabase
         .from("shop_orders")
-        .select("id")
+        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount")
         .eq("id", orderId)
         .maybeSingle()
 
@@ -152,6 +152,104 @@ export async function POST(request: NextRequest) {
           console.error("[WALLET-DEBIT] Failed to update shop order:", updateShopOrderError)
         } else {
           console.log("[WALLET-DEBIT] ✓ Shop order payment status updated to completed")
+        }
+
+        // Create parent shop profit record if this is a sub-agent order
+        if (shopOrder.parent_shop_id && shopOrder.parent_profit_amount > 0) {
+          console.log(`[WALLET-DEBIT] Sub-agent purchase detected. Crediting parent shop ${shopOrder.parent_shop_id} with GHS ${shopOrder.parent_profit_amount}`)
+          
+          const { error: parentProfitError } = await supabase
+            .from("shop_profits")
+            .insert([
+              {
+                shop_id: shopOrder.parent_shop_id,
+                shop_order_id: orderId,
+                profit_amount: shopOrder.parent_profit_amount,
+                status: "credited",
+                created_at: new Date().toISOString(),
+              }
+            ])
+
+          if (parentProfitError) {
+            console.error("[WALLET-DEBIT] Error creating parent shop profit record:", parentProfitError)
+          } else {
+            console.log(`[WALLET-DEBIT] ✓ Parent shop profit record created: GHS ${shopOrder.parent_profit_amount.toFixed(2)}`)
+            
+            // Sync parent shop available balance
+            try {
+              const { data: parentProfits, error: parentProfitFetchError } = await supabase
+                .from("shop_profits")
+                .select("profit_amount, status")
+                .eq("shop_id", shopOrder.parent_shop_id)
+
+              if (!parentProfitFetchError && parentProfits) {
+                const parentBreakdown = {
+                  totalProfit: 0,
+                  creditedProfit: 0,
+                  withdrawnProfit: 0,
+                }
+
+                parentProfits.forEach((p: any) => {
+                  const amt = p.profit_amount || 0
+                  parentBreakdown.totalProfit += amt
+                  if (p.status === "credited") {
+                    parentBreakdown.creditedProfit += amt
+                  } else if (p.status === "withdrawn") {
+                    parentBreakdown.withdrawnProfit += amt
+                  }
+                })
+
+                const { data: parentWithdrawals } = await supabase
+                  .from("withdrawal_requests")
+                  .select("amount")
+                  .eq("shop_id", shopOrder.parent_shop_id)
+                  .eq("status", "approved")
+
+                let totalParentWithdrawals = 0
+                if (parentWithdrawals) {
+                  totalParentWithdrawals = parentWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
+                }
+
+                const parentAvailableBalance = Math.max(0, parentBreakdown.creditedProfit - totalParentWithdrawals)
+
+                console.log(`[WALLET-DEBIT] Parent shop ${shopOrder.parent_shop_id} balance:`, {
+                  creditedProfit: parentBreakdown.creditedProfit,
+                  totalWithdrawals: totalParentWithdrawals,
+                  availableBalance: parentAvailableBalance,
+                })
+
+                // Delete and insert fresh balance record
+                await supabase
+                  .from("shop_available_balance")
+                  .delete()
+                  .eq("shop_id", shopOrder.parent_shop_id)
+
+                const { error: parentBalanceInsertError } = await supabase
+                  .from("shop_available_balance")
+                  .insert([
+                    {
+                      shop_id: shopOrder.parent_shop_id,
+                      available_balance: parentAvailableBalance,
+                      total_profit: parentBreakdown.totalProfit,
+                      withdrawn_amount: parentBreakdown.withdrawnProfit,
+                      credited_profit: parentBreakdown.creditedProfit,
+                      withdrawn_profit: parentBreakdown.withdrawnProfit,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }
+                  ])
+
+                if (parentBalanceInsertError) {
+                  console.error(`[WALLET-DEBIT] Error syncing parent shop balance:`, parentBalanceInsertError)
+                } else {
+                  console.log(`[WALLET-DEBIT] ✓ Parent shop available balance synced: GHS ${parentAvailableBalance.toFixed(2)}`)
+                }
+              }
+            } catch (syncError) {
+              console.error("[WALLET-DEBIT] Error syncing parent shop balance:", syncError)
+              // Don't fail - profit record was already created
+            }
+          }
         }
       }
     }
