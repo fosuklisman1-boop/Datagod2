@@ -110,16 +110,24 @@ export default function AddToCatalogPage() {
       console.log("Fetching available packages...")
       try {
         let apiEndpoint = "/api/shop/admin-packages"
+        let headers: Record<string, string> = {}
         
         // Check if this is a sub-agent
         if (userShop?.parent_shop_id) {
           apiEndpoint = "/api/shop/parent-packages"
           console.log("Sub-agent detected, using parent-packages API")
+          // Parent-packages API requires authentication
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.access_token) {
+            headers["Authorization"] = `Bearer ${session.access_token}`
+          }
         }
         
-        const pkgResponse = await fetch(apiEndpoint)
+        const pkgResponse = await fetch(apiEndpoint, { headers })
         const pkgData = await pkgResponse.json()
         console.log("Fetched packages:", pkgData.packages?.length || 0)
+        console.log("Is sub-agent:", pkgData.is_sub_agent)
+        console.log("Sample package:", pkgData.packages?.[0])
         
         if (pkgData.packages && pkgData.packages.length > 0) {
           // Always use admin-set price (_original_admin_price) as main price for 'Your Cost'
@@ -128,6 +136,7 @@ export default function AddToCatalogPage() {
             if (typeof p._original_admin_price === 'number' && !isNaN(p._original_admin_price)) {
               price = p._original_admin_price;
             }
+            console.log(`Package ${p.size}: _original_admin_price=${p._original_admin_price}, mapped price=${price}`)
             return { ...p, price };
           }))
         } else {
