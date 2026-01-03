@@ -404,14 +404,14 @@ export default function MyShopPage() {
         if (existingPkg) {
           await shopPackageService.updatePackageProfitMargin(
             existingPkg.id,
-            calculatedMargin
+            subAgentProfit
           )
           toast.success("Package updated successfully!")
         } else {
           await shopPackageService.addPackageToShop(
             shop.id,
             selectedPackage,
-            calculatedMargin
+            subAgentProfit
           )
           toast.success("Package added to shop!")
         }
