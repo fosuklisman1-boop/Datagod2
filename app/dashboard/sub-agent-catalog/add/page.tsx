@@ -350,9 +350,12 @@ export default function AddToCatalogPage() {
                   {packages.map((pkg) => {
                     const inCatalog = isInCatalog(pkg.id)
                     const sellingPriceValue = sellingPrices[pkg.id] || ""
-                    const margin = sellingPriceValue 
-                      ? parseFloat(sellingPriceValue) - pkg.price 
-                      : null
+                    let basePrice = typeof pkg.price === 'number' ? pkg.price : 0;
+                    if (isNaN(basePrice)) basePrice = 0;
+                    let margin = null;
+                    if (sellingPriceValue && !isNaN(parseFloat(sellingPriceValue))) {
+                      margin = parseFloat(sellingPriceValue) - basePrice;
+                    }
 
                     return (
                       <div
@@ -376,7 +379,7 @@ export default function AddToCatalogPage() {
                               )}
                             </div>
                             <p className="text-sm text-gray-500 mt-1">
-                              Your Cost: <span className="font-medium">GHS {pkg.price.toFixed(2)}</span>
+                              Your Cost: <span className="font-medium">GHS {typeof basePrice === 'number' && !isNaN(basePrice) ? basePrice.toFixed(2) : '0.00'}</span>
                             </p>
                           </div>
 
@@ -402,7 +405,7 @@ export default function AddToCatalogPage() {
                               <div className="text-sm">
                                 <span className="text-gray-500">Profit: </span>
                                 <span className="font-bold text-green-600">
-                                  GHS {margin.toFixed(2)}
+                                  GHS {typeof margin === 'number' && !isNaN(margin) ? margin.toFixed(2) : '0.00'}
                                 </span>
                               </div>
                             )}
