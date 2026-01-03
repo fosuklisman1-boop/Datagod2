@@ -82,10 +82,21 @@ export default function AddToCatalogPage() {
             // Pre-fill selling prices for existing items
             const existingPrices: Record<string, string> = {}
             data.catalog.forEach((c: any) => {
-              const basePrice = c.package?.price || 0
-              existingPrices[c.package_id] = (basePrice + c.wholesale_margin).toFixed(2)
-            })
-            setSellingPrices(existingPrices)
+              // Use parent_wholesale_price if available, fallback to package.price, default to 0
+              let basePrice = 0;
+              if (typeof c.parent_wholesale_price === 'number') {
+                basePrice = c.parent_wholesale_price;
+              } else if (c.package && typeof c.package.price === 'number') {
+                basePrice = c.package.price;
+              }
+              // Only set if basePrice is a valid number
+              if (!isNaN(basePrice) && !isNaN(c.wholesale_margin)) {
+                existingPrices[c.package_id] = (basePrice + c.wholesale_margin).toFixed(2);
+              } else {
+                existingPrices[c.package_id] = '';
+              }
+            });
+            setSellingPrices(existingPrices);
           }
         }
       } catch (catalogError) {
