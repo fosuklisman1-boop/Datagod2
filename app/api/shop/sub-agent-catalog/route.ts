@@ -57,26 +57,17 @@ export async function GET(request: NextRequest) {
     console.log("Parent Shop ID:", shop.parent_shop_id)
     console.log("Table Name:", tableName)
 
+    // Build select query based on table type
+    // sub_agent_shop_packages has: parent_price, sub_agent_profit_margin
+    // sub_agent_catalog has: wholesale_margin
+    const selectFields = tableName === "sub_agent_shop_packages"
+      ? `id, package_id, parent_price, sub_agent_profit_margin, is_active, created_at, package:packages (id, network, size, price, description, active)`
+      : `id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, description, active)`
+
     // Get catalog items with package details
     let { data: catalog, error: catalogError } = await supabase
       .from(tableName)
-      .select(`
-        id,
-        package_id,
-        parent_price,
-        sub_agent_profit_margin,
-        wholesale_margin,
-        is_active,
-        created_at,
-        package:packages (
-          id,
-          network,
-          size,
-          price,
-          description,
-          active
-        )
-      `)
+      .select(selectFields)
       .eq("shop_id", shop.id)
       .order("created_at", { ascending: false })
     
@@ -88,23 +79,7 @@ export async function GET(request: NextRequest) {
       console.log("Falling back to sub_agent_catalog for sub-agent")
       const { data: fallbackCatalog, error: fallbackError } = await supabase
         .from("sub_agent_catalog")
-        .select(`
-          id,
-          package_id,
-          parent_price,
-          sub_agent_profit_margin,
-          wholesale_margin,
-          is_active,
-          created_at,
-          package:packages (
-            id,
-            network,
-            size,
-            price,
-            description,
-            active
-          )
-        `)
+        .select(`id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, description, active)`)
         .eq("shop_id", shop.id)
         .order("created_at", { ascending: false })
       
@@ -330,7 +305,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { catalog_id, wholesale_margin, is_active } = body
+    const { catalog_id, wholesale_margin, sub_agent_profit_margin, parent_price, is_active } = body
 
     if (!catalog_id) {
       return NextResponse.json({ error: "Catalog ID required" }, { status: 400 })
@@ -339,7 +314,7 @@ export async function PUT(request: NextRequest) {
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id")
+      .select("id, parent_shop_id")
       .eq("user_id", user.id)
       .single()
 
@@ -347,13 +322,27 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
+    // Determine which table to update based on shop type
+    const tableName = shop.parent_shop_id ? "sub_agent_shop_packages" : "sub_agent_catalog"
+
     // Build update object
     const updateData: any = {
       updated_at: new Date().toISOString()
     }
     
-    if (wholesale_margin !== undefined) {
-      updateData.wholesale_margin = wholesale_margin
+    if (tableName === "sub_agent_shop_packages") {
+      // For sub-agent's own packages
+      if (sub_agent_profit_margin !== undefined) {
+        updateData.sub_agent_profit_margin = sub_agent_profit_margin
+      }
+      if (parent_price !== undefined) {
+        updateData.parent_price = parent_price
+      }
+    } else {
+      // For parent's catalog offerings
+      if (wholesale_margin !== undefined) {
+        updateData.wholesale_margin = wholesale_margin
+      }
     }
     
     if (is_active !== undefined) {
@@ -362,7 +351,7 @@ export async function PUT(request: NextRequest) {
 
     // Update (only if belongs to user's shop)
     const { data: updated, error: updateError } = await supabase
-      .from("sub_agent_catalog")
+      .from(tableName)
       .update(updateData)
       .eq("id", catalog_id)
       .eq("shop_id", shop.id)
@@ -420,9 +409,12 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
+    // Determine which table to check based on shop type
+    const tableName = shop.parent_shop_id ? "sub_agent_shop_packages" : "sub_agent_catalog"
+
     // Get the catalog item to be deleted to find which package it is
     const { data: catalogItem, error: itemError } = await supabase
-      .from("sub_agent_catalog")
+      .from(tableName)
       .select("id, shop_id, package_id")
       .eq("id", catalogId)
       .single()
@@ -438,7 +430,7 @@ export async function DELETE(request: NextRequest) {
 
     // Delete the item
     const { error: deleteError } = await supabase
-      .from("sub_agent_catalog")
+      .from(tableName)
       .delete()
       .eq("id", catalogId)
 
@@ -447,7 +439,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // If this is a parent shop deleting from their catalog, 
-    // also deactivate the same package for all sub-agents
+    // also deactivate the same package for all sub-agents in sub_agent_catalog
     if (!shop.parent_shop_id) {
       // This is a parent shop, so deactivate for all sub-agents
       const { error: deactivateError } = await supabase
@@ -466,7 +458,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true })
 
   } catch (error) {
-    console.error("Error in sub-agent-catalog API:", error)
+    console.error("Error in sub-agent-catalog DELETE:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to delete from catalog" },
       { status: 500 }
