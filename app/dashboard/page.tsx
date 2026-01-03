@@ -37,6 +37,7 @@ export default function DashboardPage() {
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
   const [walletBalance, setWalletBalance] = useState(0)
+  const [userRole, setUserRole] = useState<string | null>(null)
   const [stats, setStats] = useState<DashboardStats>({
     totalOrders: 0,
     completed: 0,
@@ -60,11 +61,14 @@ export default function DashboardPage() {
       fetchUserInfo()
       fetchDashboardStats()
       fetchRecentActivity()
-      fetchWalletBalance()
+      // Only fetch wallet balance for regular users and admins, not for sub-agents
+      if (userRole !== "sub_agent") {
+        fetchWalletBalance()
+      }
       // Trigger background check for scheduled order status updates
       checkScheduledOrders()
     }
-  }, [user])
+  }, [user, userRole])
 
   const checkScheduledOrders = async () => {
     try {
@@ -85,7 +89,7 @@ export default function DashboardPage() {
         // Fetch user profile from users table
         const { data: userProfile, error } = await supabase
           .from("users")
-          .select("first_name, last_name")
+          .select("first_name, last_name, role")
           .eq("id", user.id)
           .single()
 
@@ -93,10 +97,12 @@ export default function DashboardPage() {
           // Use last_name if available, otherwise use first_name, otherwise use email prefix
           const name = userProfile.last_name || userProfile.first_name || user.email?.split("@")[0] || "User"
           setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
+          setUserRole(userProfile.role || "user")
         } else {
           // Fallback to email prefix if profile not found
           const name = user.email?.split("@")[0] || "User"
           setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
+          setUserRole("user")
         }
 
         // Get user's creation date
@@ -353,7 +359,8 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Wallet Balance */}
+          {/* Wallet Balance - Only show for non-sub-agents */}
+          {userRole !== "sub_agent" && (
           <Card 
             className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40 hover:border-green-300/60"
             data-tour="wallet-balance"
@@ -371,6 +378,7 @@ export default function DashboardPage() {
               <p className="text-xs text-gray-500">Available funds</p>
             </CardContent>
           </Card>
+          )}
         </div>
 
         {/* Quick Actions */}
