@@ -772,7 +772,7 @@ export function BulkOrdersForm() {
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Available Balance:</span>
                     <span className="font-bold text-lg text-emerald-600">
-                      ₵{walletBalance?.toFixed(2) || "0.00"}
+                      ₵{(walletBalance || 0).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between mt-2">

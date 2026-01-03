@@ -110,7 +110,7 @@ export function AFASubmissionModal({
 
     // Check balance
     if (walletBalance < afaPrice) {
-      toast.error(`Insufficient balance. Required: GHS ${afaPrice.toFixed(2)}, Available: GHS ${walletBalance.toFixed(2)}`)
+      toast.error(`Insufficient balance. Required: GHS ${afaPrice.toFixed(2)}, Available: GHS ${(walletBalance || 0).toFixed(2)}`)
       return
     }
 
@@ -226,7 +226,7 @@ export function AFASubmissionModal({
                     <p className={`text-sm font-medium ${
                       hasSufficientBalance ? "text-green-900" : "text-red-900"
                     }`}>
-                      Wallet Balance: GHS {walletBalance.toFixed(2)}
+                      Wallet Balance: GHS {(walletBalance || 0).toFixed(2)}
                     </p>
                     {!hasSufficientBalance && (
                       <p className="text-xs text-red-700">

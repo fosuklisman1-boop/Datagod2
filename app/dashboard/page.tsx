@@ -435,7 +435,7 @@ export default function DashboardPage() {
                       <p className="text-sm text-gray-600">{new Date(activity.timestamp).toLocaleDateString()} at {new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                     <p className={`font-semibold ${activity.type === "credit" ? "text-green-600" : "text-red-600"}`}>
-                      {activity.type === "credit" ? "+" : "-"}GHS {activity.amount.toFixed(2)}
+                      {activity.type === "credit" ? "+" : "-"}GHS {(activity.amount || 0).toFixed(2)}
                     </p>
                   </div>
                 ))

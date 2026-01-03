@@ -190,7 +190,7 @@ export default function DataPackagesPage() {
     }
 
     if (wallet.balance < pkg.price) {
-      toast.error(`Insufficient balance. You need GHS ${pkg.price.toFixed(2)} but have GHS ${wallet.balance.toFixed(2)}`)
+      toast.error(`Insufficient balance. You need GHS ${pkg.price.toFixed(2)} but have GHS ${(wallet.balance || 0).toFixed(2)}`)
       return
     }
 
@@ -298,7 +298,7 @@ export default function DataPackagesPage() {
               <CardContent className="pt-4 sm:pt-6">
                 <p className="text-xs sm:text-sm text-gray-600">Wallet Balance</p>
                 <p className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-                  GHS {wallet.balance.toFixed(2)}
+                  GHS {(wallet.balance || 0).toFixed(2)}
                 </p>
               </CardContent>
             </Card>
