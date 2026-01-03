@@ -48,12 +48,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
+    // If this is a sub-agent, they should use sub_agent_shop_packages table
+    // If this is a parent, they use sub_agent_catalog table
+    const tableName = shop.parent_shop_id ? "sub_agent_shop_packages" : "sub_agent_catalog"
+
     // Get catalog items with package details
     const { data: catalog, error: catalogError } = await supabase
-      .from("sub_agent_catalog")
+      .from(tableName)
       .select(`
         id,
         package_id,
+        parent_price,
+        sub_agent_profit_margin,
         wholesale_margin,
         is_active,
         created_at,
@@ -172,7 +178,7 @@ export async function POST(request: NextRequest) {
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id")
+      .select("id, parent_shop_id")
       .eq("user_id", user.id)
       .single()
 
@@ -180,9 +186,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
+    // Determine which table to use
+    const tableName = shop.parent_shop_id ? "sub_agent_shop_packages" : "sub_agent_catalog"
+
     // Check if already in catalog
     const { data: existing } = await supabase
-      .from("sub_agent_catalog")
+      .from(tableName)
       .select("id")
       .eq("shop_id", shop.id)
       .eq("package_id", package_id)
@@ -204,7 +213,7 @@ export async function POST(request: NextRequest) {
       }
       
       const { data: updated, error: updateError } = await supabase
-        .from("sub_agent_catalog")
+        .from(tableName)
         .update(updateData)
         .eq("id", existing.id)
         .select()
@@ -233,7 +242,7 @@ export async function POST(request: NextRequest) {
     }
     
     const { data: newItem, error: insertError } = await supabase
-      .from("sub_agent_catalog")
+      .from(tableName)
       .insert(insertData)
       .select()
       .single()
