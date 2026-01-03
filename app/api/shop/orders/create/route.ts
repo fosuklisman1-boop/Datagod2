@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
     // Check if this shop has a parent shop (sub-agent scenario)
     let parent_shop_id: string | null = null
     let parent_profit_amount: number | null = null
+    let isSubAgent = false
     
     try {
       const { data: shopData, error: shopError } = await supabase
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
 
       if (!shopError && shopData?.parent_shop_id) {
         parent_shop_id = shopData.parent_shop_id
+        isSubAgent = true
         
         // Calculate parent's profit: base_price for this order is what the sub-agent pays (parent's selling price)
         // The parent's profit is the difference between what sub-agent pays and the actual admin base price
@@ -84,30 +86,36 @@ export async function POST(request: NextRequest) {
       // Continue without parent - profit will only go to sub-agent
     }
 
+    // For sub-agents, shop_package_id might not exist in shop_packages table
+    // So we only insert it if not a sub-agent
+    const orderData: any = {
+      shop_id,
+      customer_email,
+      customer_phone,
+      customer_name: customer_name || "Guest",
+      package_id,
+      network,
+      volume_gb,
+      base_price: parseFloat(base_price.toString()),
+      profit_amount: parseFloat(profit_amount.toString()),
+      total_price: parseFloat(total_price.toString()),
+      order_status: "pending",
+      payment_status: "pending",
+      reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+      shop_customer_id: shop_customer_id || null,
+      parent_shop_id: parent_shop_id,
+      parent_profit_amount: parent_profit_amount,
+      created_at: new Date().toISOString(),
+    }
+    
+    // Only add shop_package_id if not a sub-agent (has a valid record in shop_packages)
+    if (!isSubAgent && shop_package_id) {
+      orderData.shop_package_id = shop_package_id
+    }
+
     const { data, error } = await supabase
       .from("shop_orders")
-      .insert([
-        {
-          shop_id,
-          customer_email,
-          customer_phone,
-          customer_name: customer_name || "Guest",
-          shop_package_id,
-          package_id,
-          network,
-          volume_gb,
-          base_price: parseFloat(base_price.toString()),
-          profit_amount: parseFloat(profit_amount.toString()),
-          total_price: parseFloat(total_price.toString()),
-          order_status: "pending",
-          payment_status: "pending",
-          reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-          shop_customer_id: shop_customer_id || null,
-          parent_shop_id: parent_shop_id,
-          parent_profit_amount: parent_profit_amount,
-          created_at: new Date().toISOString(),
-        },
-      ])
+      .insert([orderData])
       .select()
 
     if (error) {
