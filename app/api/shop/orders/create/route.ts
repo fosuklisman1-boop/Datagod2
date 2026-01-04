@@ -115,18 +115,33 @@ export async function POST(request: NextRequest) {
           }
         }
         
-        // Calculate parent's profit: what the parent earns from this sub-agent sale
-        // Parent profit = sub-agent's selling price - admin price (what parent pays)
-        const { data: packageData } = await supabase
-          .from("packages")
-          .select("price")
-          .eq("id", package_id)
+        // Calculate parent's profit: the wholesale_margin from sub_agent_catalog
+        // Parent profit = wholesale_margin (what parent charges above admin price)
+        // NOT base_price - admin_price (that's the sub-agent's total margin)
+        const { data: catalogEntry } = await supabase
+          .from("sub_agent_catalog")
+          .select("wholesale_margin")
+          .eq("shop_id", parent_shop_id)
+          .eq("package_id", package_id)
           .single()
         
-        const adminPrice = packageData?.price || 0
-        parent_profit_amount = parseFloat(base_price.toString()) - adminPrice
-        
-        console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Admin price: ${adminPrice}, Sub-agent sells at: ${base_price}, Parent profit: ${parent_profit_amount}`)
+        if (catalogEntry?.wholesale_margin) {
+          parent_profit_amount = catalogEntry.wholesale_margin
+        } else {
+          // Fallback: calculate from admin price if catalog entry not found
+          const { data: packageData } = await supabase
+            .from("packages")
+            .select("price")
+            .eq("id", package_id)
+            .single()
+          
+          const adminPrice = packageData?.price || 0
+          // This is a rough fallback - ideally catalog should always exist
+          parent_profit_amount = parseFloat(base_price.toString()) - adminPrice - parseFloat(profit_amount.toString())
+          console.warn(`[SHOP-ORDER] No catalog entry found, using fallback calculation`)
+        }
+
+        console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Wholesale margin (parent profit): ${parent_profit_amount}`)
       }
     } catch (parentError) {
       console.warn("[SHOP-ORDER] Error checking for parent shop:", parentError)
