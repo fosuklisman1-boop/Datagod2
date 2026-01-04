@@ -57,52 +57,59 @@ export async function GET(request: NextRequest) {
 
     const subAgentShopIds = subAgentShops.map(sa => sa.id)
 
-    // Get buy-stock orders (orders BY sub-agents where parent_shop_id = this shop)
-    // These are orders placed by sub-agents on buy-stock page
-    const { data: buyStockOrders, error: buyStockError } = await supabase
+    // Get ALL orders related to sub-agents:
+    // 1. Orders where parent_shop_id = this shop (buy-stock or storefront with parent chain)
+    // 2. Orders where shop_id is a sub-agent shop (storefront orders)
+    // Then dedupe by order ID to avoid double-counting
+
+    const { data: parentChainOrders, error: parentChainError } = await supabase
       .from("shop_orders")
       .select("id, shop_id, total_price, parent_profit_amount")
       .eq("parent_shop_id", shop.id)
       .eq("payment_status", "completed")
 
-    if (buyStockError) {
-      console.error("[SUB-AGENT-STATS] Error fetching buy-stock orders:", buyStockError)
+    if (parentChainError) {
+      console.error("[SUB-AGENT-STATS] Error fetching parent chain orders:", parentChainError)
     }
 
-    console.log("[SUB-AGENT-STATS] Buy-stock orders found:", buyStockOrders?.length || 0)
-
-    // Get storefront orders (customer orders ON sub-agent shops)
-    const { data: storefrontOrders, error: storefrontError } = await supabase
+    const { data: subAgentShopOrders, error: subAgentShopError } = await supabase
       .from("shop_orders")
       .select("id, shop_id, total_price, parent_profit_amount")
       .in("shop_id", subAgentShopIds)
       .eq("payment_status", "completed")
 
-    if (storefrontError) {
-      console.error("[SUB-AGENT-STATS] Error fetching storefront orders:", storefrontError)
+    if (subAgentShopError) {
+      console.error("[SUB-AGENT-STATS] Error fetching sub-agent shop orders:", subAgentShopError)
     }
 
-    console.log("[SUB-AGENT-STATS] Storefront orders found:", storefrontOrders?.length || 0)
+    // Combine and dedupe by order ID
+    const allOrdersMap = new Map<string, any>()
+    
+    parentChainOrders?.forEach((order: any) => {
+      allOrdersMap.set(order.id, order)
+    })
+    
+    subAgentShopOrders?.forEach((order: any) => {
+      allOrdersMap.set(order.id, order)
+    })
+
+    const uniqueOrders = Array.from(allOrdersMap.values())
+    console.log("[SUB-AGENT-STATS] Unique orders after dedup:", uniqueOrders.length)
 
     // Create maps for each sub-agent's stats
     const subAgentOrdersMap = new Map<string, number>()
     const subAgentSalesMap = new Map<string, number>()
     const subAgentProfitMap = new Map<string, number>()
 
-    // Add buy-stock orders (keyed by shop_id which is the sub-agent)
-    buyStockOrders?.forEach((order: any) => {
+    // Process unique orders - key by shop_id which is the sub-agent's shop
+    uniqueOrders.forEach((order: any) => {
       const shopId = order.shop_id
-      subAgentOrdersMap.set(shopId, (subAgentOrdersMap.get(shopId) || 0) + 1)
-      subAgentSalesMap.set(shopId, (subAgentSalesMap.get(shopId) || 0) + (order.total_price || 0))
-      subAgentProfitMap.set(shopId, (subAgentProfitMap.get(shopId) || 0) + (order.parent_profit_amount || 0))
-    })
-
-    // Add storefront orders (keyed by shop_id which is the sub-agent)
-    storefrontOrders?.forEach((order: any) => {
-      const shopId = order.shop_id
-      subAgentOrdersMap.set(shopId, (subAgentOrdersMap.get(shopId) || 0) + 1)
-      subAgentSalesMap.set(shopId, (subAgentSalesMap.get(shopId) || 0) + (order.total_price || 0))
-      subAgentProfitMap.set(shopId, (subAgentProfitMap.get(shopId) || 0) + (order.parent_profit_amount || 0))
+      // Only count if shop_id is one of our sub-agents
+      if (subAgentShopIds.includes(shopId)) {
+        subAgentOrdersMap.set(shopId, (subAgentOrdersMap.get(shopId) || 0) + 1)
+        subAgentSalesMap.set(shopId, (subAgentSalesMap.get(shopId) || 0) + (order.total_price || 0))
+        subAgentProfitMap.set(shopId, (subAgentProfitMap.get(shopId) || 0) + (order.parent_profit_amount || 0))
+      }
     })
 
     console.log("[SUB-AGENT-STATS] Orders map:", Object.fromEntries(subAgentOrdersMap))
