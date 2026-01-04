@@ -122,16 +122,28 @@ export async function POST(request: NextRequest) {
         
         const { data: catalogEntry, error: catalogError } = await supabase
           .from("sub_agent_catalog")
-          .select("wholesale_margin")
+          .select("wholesale_margin, parent_price")
           .eq("shop_id", parent_shop_id)
           .eq("package_id", package_id)
           .single()
         
         console.log(`[SHOP-ORDER] Catalog lookup result:`, { catalogEntry, catalogError })
         
-        if (catalogEntry && catalogEntry.wholesale_margin !== null && catalogEntry.wholesale_margin !== undefined) {
+        if (catalogEntry && catalogEntry.wholesale_margin !== null && catalogEntry.wholesale_margin !== undefined && catalogEntry.wholesale_margin > 0) {
           parent_profit_amount = catalogEntry.wholesale_margin
           console.log(`[SHOP-ORDER] Using wholesale_margin from catalog: ${parent_profit_amount}`)
+        } else if (catalogEntry && catalogEntry.parent_price) {
+          // If wholesale_margin is 0 but parent_price exists, calculate from parent_price
+          const { data: packageData } = await supabase
+            .from("packages")
+            .select("price")
+            .eq("id", package_id)
+            .single()
+          
+          const adminPrice = packageData?.price || 0
+          parent_profit_amount = catalogEntry.parent_price - adminPrice
+          if (parent_profit_amount < 0) parent_profit_amount = 0
+          console.log(`[SHOP-ORDER] Calculated from parent_price: parent_price(${catalogEntry.parent_price}) - adminPrice(${adminPrice}) = ${parent_profit_amount}`)
         } else {
           // Fallback: calculate from admin price if catalog entry not found
           const { data: packageData } = await supabase
