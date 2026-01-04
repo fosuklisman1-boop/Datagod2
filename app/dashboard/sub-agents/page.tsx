@@ -123,11 +123,12 @@ export default function SubAgentsPage() {
         console.log("[SUB-AGENTS] Buy-stock orders:", buyStockOrders?.length || 0, buyStockError)
 
         // Get orders ON sub-agents' storefronts (customer orders where shop_id = sub-agent)
+        // These also have parent_profit_amount when the sub-agent has a parent shop
         let storefrontOrders: any[] = []
         if (subAgentShopIds.length > 0) {
           const { data: sfOrders, error: sfError } = await supabase
             .from("shop_orders")
-            .select("id, shop_id, total_price")
+            .select("id, shop_id, total_price, parent_profit_amount")
             .in("shop_id", subAgentShopIds)
             .eq("payment_status", "completed")
           
@@ -138,7 +139,7 @@ export default function SubAgentsPage() {
         // Create maps for each sub-agent's stats
         const subAgentOrdersMap = new Map<string, number>() // shop_id -> order count (buy-stock + storefront)
         const subAgentSalesMap = new Map<string, number>()  // shop_id -> total sales (buy-stock + storefront)
-        const subAgentProfitMap = new Map<string, number>() // shop_id -> your profit (from buy-stock only)
+        const subAgentProfitMap = new Map<string, number>() // shop_id -> your profit (from both order types)
 
         // Add buy-stock orders (orders BY sub-agent)
         buyStockOrders?.forEach((order: any) => {
@@ -149,11 +150,12 @@ export default function SubAgentsPage() {
         })
 
         // Add storefront orders (customer orders ON sub-agent's shop)
+        // Parent also earns profit when sub-agent's customers buy (the wholesale margin)
         storefrontOrders.forEach((order: any) => {
           const shopId = order.shop_id
           subAgentOrdersMap.set(shopId, (subAgentOrdersMap.get(shopId) || 0) + 1)
           subAgentSalesMap.set(shopId, (subAgentSalesMap.get(shopId) || 0) + (order.total_price || 0))
-          // No profit from storefront orders - that's the sub-agent's profit, not yours
+          subAgentProfitMap.set(shopId, (subAgentProfitMap.get(shopId) || 0) + (order.parent_profit_amount || 0))
         })
 
         console.log("[SUB-AGENTS] Combined Orders map:", Object.fromEntries(subAgentOrdersMap))
