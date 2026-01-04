@@ -52,7 +52,7 @@ const shopItems = [
   { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp, roles: ["user", "admin", "sub_agent"] },
   { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin"] },
   { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, roles: ["user", "admin"] },
-  { href: "/dashboard/buy-stock", label: "Buy Stock", icon: ShoppingBag, roles: ["sub_agent"] },
+  { href: "/dashboard/buy-stock", label: "Buy Data", icon: ShoppingBag, roles: ["sub_agent"] },
 ]
 
 export function Sidebar() {
