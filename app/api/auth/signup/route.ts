@@ -17,6 +17,14 @@ export async function POST(request: NextRequest) {
       }
     )
 
+    // Phone number is required
+    if (!phoneNumber || phoneNumber.trim() === '') {
+      return NextResponse.json(
+        { error: "Phone number is required" },
+        { status: 400 }
+      )
+    }
+
     // Validate phone number (9-10 digits)
     const phoneDigits = (phoneNumber || '').replace(/\D/g, '')
     if (phoneDigits.length < 9 || phoneDigits.length > 10) {

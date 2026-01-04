@@ -101,6 +101,11 @@ export default function JoinPage() {
       return
     }
 
+    if (!formData.phone || formData.phone.trim() === '') {
+      toast.error("Phone number is required")
+      return
+    }
+
     if (formData.password.length < 6) {
       toast.error("Password must be at least 6 characters")
       return

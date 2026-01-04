@@ -148,6 +148,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "This shop URL is already taken" }, { status: 400 })
     }
 
+    // Phone number is required
+    if (!phone || phone.trim() === '') {
+      return NextResponse.json(
+        { error: "Phone number is required" },
+        { status: 400 }
+      )
+    }
+
     // Validate phone number (9-10 digits)
     const phoneDigits = (phone || '').replace(/\D/g, '')
     if (phoneDigits.length < 9 || phoneDigits.length > 10) {
