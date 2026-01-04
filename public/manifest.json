@@ -1,13 +1,21 @@
 {
+  "id": "/",
   "name": "DATAGOD - Affordable Data Packages",
   "short_name": "DATAGOD",
   "description": "Buy affordable data packages from multiple networks with instant delivery. Shop data bundles from MTN, Telecel, AT, and more.",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#ffffff",
   "theme_color": "#4f46e5",
   "orientation": "portrait-primary",
   "scope": "/",
+  "lang": "en",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
   "icons": [
     {
       "src": "/favicon-96x96.png",
@@ -32,7 +40,24 @@
       "purpose": "maskable any"
     }
   ],
+  "screenshots": [
+    {
+      "src": "/screenshots/screenshot-wide.svg",
+      "sizes": "1280x720",
+      "type": "image/svg+xml",
+      "form_factor": "wide",
+      "label": "DATAGOD Dashboard"
+    },
+    {
+      "src": "/screenshots/screenshot-narrow.svg",
+      "sizes": "540x720",
+      "type": "image/svg+xml",
+      "form_factor": "narrow",
+      "label": "DATAGOD Mobile View"
+    }
+  ],
   "categories": ["utilities", "shopping", "finance"],
+  "iarc_rating_id": "",
   "shortcuts": [
     {
       "name": "Dashboard",
@@ -48,5 +73,14 @@
       "url": "/dashboard/buy-data",
       "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
     }
-  ]
+  ],
+  "share_target": {
+    "action": "/dashboard",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }
