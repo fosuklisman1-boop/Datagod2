@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,34 +32,28 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
 
     setIsSaving(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
         toast.error("Not authenticated")
-        return
-      }
-
-      // Check if phone already exists
-      const checkResponse = await fetch("/api/auth/check-phone", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumber: phone }),
-      })
-
-      if (!checkResponse.ok) {
-        const error = await checkResponse.json()
-        toast.error(error.error || "Phone number validation failed")
         setIsSaving(false)
         return
       }
 
-      // Update phone number
-      const { error } = await supabase
-        .from("users")
-        .update({ phone_number: phone })
-        .eq("id", user.id)
+      // Use the API endpoint to update phone (uses service role, bypasses RLS)
+      const response = await fetch("/api/user/update-phone", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ phoneNumber: phone }),
+      })
 
-      if (error) {
-        toast.error(error.message || "Failed to save phone number")
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || "Failed to save phone number")
+        setIsSaving(false)
         return
       }
 

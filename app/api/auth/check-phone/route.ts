@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    const { phoneNumber } = await request.json()
+    const { phoneNumber, excludeUserId } = await request.json()
 
     // Create a service role client on the server
     const supabaseServiceRole = createClient(
@@ -34,12 +34,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if phone number already exists
-    const { data: existingUser, error: checkError } = await supabaseServiceRole
+    // Check if phone number already exists (optionally excluding a specific user)
+    let query = supabaseServiceRole
       .from("users")
       .select("id")
       .eq("phone_number", phoneNumber)
-      .maybeSingle()
+    
+    // Exclude the current user if updating their own phone
+    if (excludeUserId) {
+      query = query.neq("id", excludeUserId)
+    }
+    
+    const { data: existingUser, error: checkError } = await query.maybeSingle()
 
     if (existingUser) {
       return NextResponse.json(

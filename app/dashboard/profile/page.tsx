@@ -262,7 +262,7 @@ export default function ProfilePage() {
         const checkResponse = await fetch("/api/auth/check-phone", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phoneNumber: editForm.phone }),
+          body: JSON.stringify({ phoneNumber: editForm.phone, excludeUserId: user.id }),
         })
 
         if (!checkResponse.ok) {
