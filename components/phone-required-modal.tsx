@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Phone, Loader2 } from "lucide-react"
+import { Phone, Loader2, MessageCircle, AlertTriangle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -13,11 +13,17 @@ interface PhoneRequiredModalProps {
   onPhoneSaved: (phone: string) => void
 }
 
+const SUPPORT_WHATSAPP = "233559717923" // Support WhatsApp number
+
 export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalProps) {
   const [phone, setPhone] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [phoneExistsError, setPhoneExistsError] = useState(false)
 
   const handleSavePhone = async () => {
+    // Reset error state
+    setPhoneExistsError(false)
+    
     // Validate phone
     if (!phone || phone.trim() === '') {
       toast.error("Phone number is required")
@@ -52,7 +58,12 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
       const data = await response.json()
 
       if (!response.ok) {
-        toast.error(data.error || "Failed to save phone number")
+        // Check if it's a "phone already exists" error
+        if (data.error?.toLowerCase().includes("already registered") || data.error?.toLowerCase().includes("already exists")) {
+          setPhoneExistsError(true)
+        } else {
+          toast.error(data.error || "Failed to save phone number")
+        }
         setIsSaving(false)
         return
       }
@@ -67,30 +78,61 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
     }
   }
 
+  const handleContactSupport = () => {
+    const message = encodeURIComponent(`Hello, I'm having an issue with my phone number. It says "${phone}" is already registered but I believe this is my number. Can you please help?`)
+    window.open(`https://wa.me/${SUPPORT_WHATSAPP}?text=${message}`, "_blank")
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => {
-      if (!isOpen) {
-        onPhoneSaved("") // Allow closing without saving
-      }
+    <Dialog open={open} onOpenChange={() => {
+      // Prevent closing - user must add phone
+      toast.error("Please add your phone number to continue")
     }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Phone className="w-5 h-5 text-blue-600" />
-            Add Phone Number
+            Phone Number Required
           </DialogTitle>
           <DialogDescription>
-            Please add your phone number to help us verify your account and send important order updates.
+            Please add your phone number to continue using the platform. This helps us verify your account and send important order updates.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          {phoneExistsError && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-2">
+                  <p className="text-sm text-amber-800 font-medium">
+                    This phone number is already registered
+                  </p>
+                  <p className="text-xs text-amber-700">
+                    If you believe this is your number and it's been registered by mistake, please contact our support team for assistance.
+                  </p>
+                  <Button
+                    onClick={handleContactSupport}
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 border-amber-300 text-amber-800 hover:bg-amber-100"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Contact Support on WhatsApp
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
           <div>
             <label className="text-sm font-medium text-gray-700">Phone Number *</label>
             <Input
               type="tel"
               placeholder="Enter your phone number"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => {
+                setPhone(e.target.value)
+                setPhoneExistsError(false) // Reset error when typing
+              }}
               disabled={isSaving}
               className="mt-1"
             />
