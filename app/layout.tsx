@@ -31,8 +31,13 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: { url: "/favicon_custom.ico", type: "image/x-icon" },
-    apple: "/favicon-v2.jpeg",
+    icon: [
+      { url: "/favicon.ico", sizes: "48x48" },
+      { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/apple-touch-icon.png",
+    shortcut: "/favicon.ico",
   },
   metadataBase: new URL("https://datagod.com"),
   robots: {
