@@ -8,13 +8,25 @@ const codecraftApiKey = process.env.CODECRAFT_API_KEY || ""
 
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// Networks that are auto-fulfilled via CodeCraft API and can be synced
+const CODECRAFT_NETWORKS = ["at-ishare", "at - ishare", "telecel", "at-bigtime", "at - bigtime", "at - big time"]
+
+/**
+ * Check if a network is fulfilled via CodeCraft (can be synced)
+ */
+function isCodeCraftNetwork(network: string): boolean {
+  const networkLower = (network || "").toLowerCase().trim()
+  return CODECRAFT_NETWORKS.some(n => networkLower.includes(n.replace("-", " ")) || networkLower.includes(n))
+}
+
 /**
  * API endpoint to sync all processing orders with CodeCraft
- * Forces a verification check for ALL orders stuck at "processing" status
+ * Forces a verification check for orders that were sent to CodeCraft
+ * Only syncs AT-iShare, Telecel, and AT-BigTime orders (NOT MTN)
  */
 export async function POST(request: NextRequest) {
   try {
-    console.log("[SYNC-ORDERS] Starting sync of all processing orders with CodeCraft...")
+    console.log("[SYNC-ORDERS] Starting sync of CodeCraft orders...")
 
     // Find all orders with "processing" status from both tables
     const [walletOrders, shopOrders] = await Promise.all([
@@ -30,30 +42,48 @@ export async function POST(request: NextRequest) {
         .order("created_at", { ascending: true })
     ])
 
+    // Filter to only include CodeCraft networks (AT-iShare, Telecel, BigTime)
+    // MTN orders are manually fulfilled and should NOT be synced with CodeCraft
     const allOrders = [
-      ...(walletOrders.data || []).map(o => ({ ...o, orderType: "wallet" as const })),
-      ...(shopOrders.data || []).map(o => ({ 
-        id: o.id, 
-        phone_number: o.customer_phone, 
-        network: o.network,
-        size: o.volume_gb,
-        created_at: o.created_at,
-        orderType: "shop" as const 
-      }))
+      ...(walletOrders.data || [])
+        .filter(o => isCodeCraftNetwork(o.network))
+        .map(o => ({ ...o, orderType: "wallet" as const })),
+      ...(shopOrders.data || [])
+        .filter(o => isCodeCraftNetwork(o.network))
+        .map(o => ({ 
+          id: o.id, 
+          phone_number: o.customer_phone, 
+          network: o.network,
+          size: o.volume_gb,
+          created_at: o.created_at,
+          orderType: "shop" as const 
+        }))
     ]
+
+    // Count how many were skipped (non-CodeCraft networks like MTN)
+    const totalProcessing = (walletOrders.data?.length || 0) + (shopOrders.data?.length || 0)
+    const skippedCount = totalProcessing - allOrders.length
+
+    if (skippedCount > 0) {
+      console.log(`[SYNC-ORDERS] Skipped ${skippedCount} orders (MTN/non-CodeCraft networks - these are manually fulfilled)`)
+    }
 
     if (allOrders.length === 0) {
       return NextResponse.json({
         success: true,
-        message: "No processing orders found",
+        message: skippedCount > 0 
+          ? `No CodeCraft orders to sync. ${skippedCount} MTN/manual orders were skipped (sync not applicable).`
+          : "No processing orders found",
         checked: 0,
         updated: 0,
         completed: 0,
         failed: 0,
+        skipped: skippedCount,
       })
     }
 
-    console.log(`[SYNC-ORDERS] Found ${allOrders.length} orders to check (${walletOrders.data?.length || 0} wallet, ${shopOrders.data?.length || 0} shop)`)
+    console.log(`[SYNC-ORDERS] Found ${allOrders.length} CodeCraft orders to sync`)
+
 
     let checked = 0
     let updated = 0
@@ -173,15 +203,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[SYNC-ORDERS] Complete. Checked: ${checked}, Updated: ${updated}, Completed: ${completed}, Failed: ${failed}`)
+    console.log(`[SYNC-ORDERS] Complete. Checked: ${checked}, Updated: ${updated}, Completed: ${completed}, Failed: ${failed}, Skipped: ${skippedCount}`)
 
     return NextResponse.json({
       success: true,
-      message: `Synced ${checked} orders with CodeCraft`,
+      message: skippedCount > 0
+        ? `Synced ${checked} CodeCraft orders. ${skippedCount} MTN/manual orders skipped.`
+        : `Synced ${checked} orders with CodeCraft`,
       checked,
       updated,
       completed,
       failed,
+      skipped: skippedCount,
       stillProcessing: checked - updated,
       results,
     })

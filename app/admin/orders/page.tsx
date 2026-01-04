@@ -130,7 +130,7 @@ export default function AdminOrdersPage() {
   const syncWithCodeCraft = async () => {
     try {
       setSyncingWithCodeCraft(true)
-      toast.info("Syncing orders with CodeCraft... This may take a moment.")
+      toast.info("Syncing CodeCraft orders (AT-iShare, Telecel, BigTime)... MTN orders are skipped.")
       
       const response = await fetch("/api/admin/sync-orders", {
         method: "POST",
@@ -142,15 +142,19 @@ export default function AdminOrdersPage() {
         throw new Error(data.error || "Failed to sync orders")
       }
 
+      const skippedMsg = data.skipped > 0 ? ` (${data.skipped} MTN/manual orders skipped)` : ""
+
       if (data.updated > 0) {
-        toast.success(`Synced! ${data.completed} completed, ${data.failed} failed, ${data.stillProcessing} still processing`)
+        toast.success(`Synced! ${data.completed} completed, ${data.failed} failed, ${data.stillProcessing} still processing${skippedMsg}`)
         // Reload orders
         loadPendingOrders()
         loadDownloadedOrders()
       } else if (data.checked === 0) {
-        toast.info("No processing orders found to sync")
+        toast.info(data.skipped > 0 
+          ? `No CodeCraft orders to sync. ${data.skipped} MTN/manual orders skipped.`
+          : "No processing orders found to sync")
       } else {
-        toast.info(`Checked ${data.checked} orders - all still processing at CodeCraft`)
+        toast.info(`Checked ${data.checked} orders - all still processing at CodeCraft${skippedMsg}`)
       }
     } catch (error) {
       console.error("Error syncing with CodeCraft:", error)
