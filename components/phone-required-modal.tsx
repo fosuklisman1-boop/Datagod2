@@ -68,18 +68,19 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
   }
 
   return (
-    <Dialog open={open} onOpenChange={() => {
-      // Prevent closing - user must add phone
-      toast.error("Please add your phone number to continue")
+    <Dialog open={open} onOpenChange={(isOpen) => {
+      if (!isOpen) {
+        onPhoneSaved("") // Allow closing without saving
+      }
     }}>
-      <DialogContent className="max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Phone className="w-5 h-5 text-blue-600" />
-            Phone Number Required
+            Add Phone Number
           </DialogTitle>
           <DialogDescription>
-            Please add your phone number to continue using the platform. This helps us verify your account and send important order updates.
+            Please add your phone number to help us verify your account and send important order updates.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
