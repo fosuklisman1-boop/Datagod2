@@ -148,6 +148,29 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "This shop URL is already taken" }, { status: 400 })
     }
 
+    // Validate phone number (9-10 digits)
+    const phoneDigits = (phone || '').replace(/\D/g, '')
+    if (phoneDigits.length < 9 || phoneDigits.length > 10) {
+      return NextResponse.json(
+        { error: "Phone number must be 9 or 10 digits" },
+        { status: 400 }
+      )
+    }
+
+    // Check if phone number already exists
+    const { data: existingPhone } = await supabase
+      .from("users")
+      .select("id")
+      .eq("phone_number", phone)
+      .maybeSingle()
+
+    if (existingPhone) {
+      return NextResponse.json(
+        { error: "This phone number is already registered" },
+        { status: 400 }
+      )
+    }
+
     // Create user account with sub_agent role
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,

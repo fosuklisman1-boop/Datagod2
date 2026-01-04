@@ -17,6 +17,29 @@ export async function POST(request: NextRequest) {
       }
     )
 
+    // Validate phone number (9-10 digits)
+    const phoneDigits = (phoneNumber || '').replace(/\D/g, '')
+    if (phoneDigits.length < 9 || phoneDigits.length > 10) {
+      return NextResponse.json(
+        { error: "Phone number must be 9 or 10 digits" },
+        { status: 400 }
+      )
+    }
+
+    // Check if phone number already exists
+    const { data: existingUser, error: checkError } = await supabaseServiceRole
+      .from("users")
+      .select("id")
+      .eq("phone_number", phoneNumber)
+      .maybeSingle()
+
+    if (existingUser) {
+      return NextResponse.json(
+        { error: "This phone number is already registered" },
+        { status: 400 }
+      )
+    }
+
     // Create user profile
     const { data, error } = await supabaseServiceRole
       .from("users")

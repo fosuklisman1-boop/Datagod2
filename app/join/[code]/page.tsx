@@ -106,6 +106,13 @@ export default function JoinPage() {
       return
     }
 
+    // Validate phone number (9-10 digits)
+    const phoneDigits = (formData.phone || '').replace(/\D/g, '')
+    if (phoneDigits.length < 9 || phoneDigits.length > 10) {
+      toast.error("Phone number must be 9 or 10 digits")
+      return
+    }
+
     try {
       setSubmitting(true)
 

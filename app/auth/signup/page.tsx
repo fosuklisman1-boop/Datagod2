@@ -55,6 +55,14 @@ export default function SignupPage() {
         return
       }
 
+      // Validate phone number (9-10 digits)
+      const phoneDigits = formData.phoneNumber.replace(/\D/g, '')
+      if (phoneDigits.length < 9 || phoneDigits.length > 10) {
+        toast.error("Phone number must be 9 or 10 digits")
+        setIsLoading(false)
+        return
+      }
+
       // Sign up with Supabase
       await authService.signUp(formData.email, formData.password, {
         first_name: formData.firstName,
