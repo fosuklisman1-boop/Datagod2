@@ -61,8 +61,10 @@ export default function ProfilePage() {
   const [editForm, setEditForm] = useState({
     firstName: "",
     lastName: "",
+    phone: "",
   })
   const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [showPhoneRequiredModal, setShowPhoneRequiredModal] = useState(false)
 
   // Auth protection
   useEffect(() => {
@@ -133,7 +135,13 @@ export default function ProfilePage() {
       setEditForm({
         firstName,
         lastName,
+        phone,
       })
+
+      // Show phone required modal if user doesn't have a phone number
+      if (!phone || phone.trim() === '') {
+        setShowPhoneRequiredModal(true)
+      }
 
       // Fetch user stats from dashboard stats
       const statsResponse = await fetch("/api/dashboard/stats", {
@@ -232,6 +240,15 @@ export default function ProfilePage() {
       return
     }
 
+    // Validate phone number if provided
+    if (editForm.phone && editForm.phone.trim() !== '') {
+      const phoneDigits = editForm.phone.replace(/\D/g, '')
+      if (phoneDigits.length < 9 || phoneDigits.length > 10) {
+        toast.error("Phone number must be 9 or 10 digits")
+        return
+      }
+    }
+
     setIsSavingProfile(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -240,12 +257,29 @@ export default function ProfilePage() {
         return
       }
 
+      // Check if phone number already exists (if changing phone)
+      if (editForm.phone && editForm.phone.trim() !== '' && editForm.phone !== profile.phone) {
+        const checkResponse = await fetch("/api/auth/check-phone", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phoneNumber: editForm.phone }),
+        })
+
+        if (!checkResponse.ok) {
+          const error = await checkResponse.json()
+          toast.error(error.error || "Phone number validation failed")
+          setIsSavingProfile(false)
+          return
+        }
+      }
+
       // Update user profile in the users table
       const { error } = await supabase
         .from("users")
         .update({
           first_name: editForm.firstName,
           last_name: editForm.lastName,
+          phone_number: editForm.phone || null,
         })
         .eq("id", user.id)
 
@@ -260,10 +294,12 @@ export default function ProfilePage() {
         ...prev,
         firstName: editForm.firstName,
         lastName: editForm.lastName,
+        phone: editForm.phone,
       }))
 
       toast.success("Profile updated successfully")
       setShowEditProfileDialog(false)
+      setShowPhoneRequiredModal(false)
     } catch (error) {
       console.error("Error updating profile:", error)
       toast.error("An error occurred while updating profile")
@@ -277,8 +313,18 @@ export default function ProfilePage() {
     setEditForm({
       firstName: profile.firstName,
       lastName: profile.lastName,
+      phone: profile.phone || "",
     })
     setShowEditProfileDialog(true)
+  }
+
+  const handleOpenPhoneModal = () => {
+    setEditForm({
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      phone: "",
+    })
+    setShowPhoneRequiredModal(true)
   }
 
   if (loading) {
@@ -615,6 +661,23 @@ export default function ProfilePage() {
                 className="mt-1"
               />
             </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Phone Number</label>
+              <Input
+                type="tel"
+                placeholder="Enter your phone number (9-10 digits)"
+                value={editForm.phone}
+                onChange={(e) =>
+                  setEditForm({
+                    ...editForm,
+                    phone: e.target.value,
+                  })
+                }
+                disabled={isSavingProfile}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-500 mt-1">Must be 9 or 10 digits</p>
+            </div>
             <div className="flex gap-2 justify-end pt-4">
               <Button
                 variant="outline"
@@ -632,6 +695,55 @@ export default function ProfilePage() {
                 {isSavingProfile ? "Saving..." : "Save Changes"}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Phone Required Modal */}
+      <Dialog open={showPhoneRequiredModal} onOpenChange={(open) => {
+        // Only allow closing if user has a phone number
+        if (!open && (!profile.phone || profile.phone.trim() === '')) {
+          toast.error("Please add your phone number to continue")
+          return
+        }
+        setShowPhoneRequiredModal(open)
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Phone className="w-5 h-5 text-blue-600" />
+              Phone Number Required
+            </DialogTitle>
+            <DialogDescription>
+              Please add your phone number to continue using the platform. This helps us verify your account and send important order updates.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Phone Number *</label>
+              <Input
+                type="tel"
+                placeholder="Enter your phone number"
+                value={editForm.phone}
+                onChange={(e) =>
+                  setEditForm({
+                    ...editForm,
+                    phone: e.target.value,
+                  })
+                }
+                disabled={isSavingProfile}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-500 mt-1">Must be 9 or 10 digits</p>
+            </div>
+            <Button
+              onClick={handleEditProfile}
+              disabled={isSavingProfile || !editForm.phone || editForm.phone.trim() === ''}
+              className="w-full bg-blue-600 hover:bg-blue-700"
+            >
+              {isSavingProfile && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {isSavingProfile ? "Saving..." : "Save Phone Number"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

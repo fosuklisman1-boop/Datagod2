@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { WalletOnboardingModal } from "@/components/onboarding/wallet-onboarding-modal"
+import { PhoneRequiredModal } from "@/components/phone-required-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2, Wallet } from "lucide-react"
@@ -47,6 +48,7 @@ export default function DashboardPage() {
     successRate: "0%"
   })
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
+  const [showPhoneRequired, setShowPhoneRequired] = useState(false)
 
   // Auth protection - redirect to login if not authenticated
   useEffect(() => {
@@ -86,7 +88,7 @@ export default function DashboardPage() {
         // Fetch user profile from users table
         const { data: userProfile, error } = await supabase
           .from("users")
-          .select("first_name, last_name, role")
+          .select("first_name, last_name, role, phone_number")
           .eq("id", user.id)
           .single()
 
@@ -95,6 +97,11 @@ export default function DashboardPage() {
           const name = userProfile.last_name || userProfile.first_name || user.email?.split("@")[0] || "User"
           setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
           setUserRole(userProfile.role || "user")
+          
+          // Check if user has phone number, show modal if not
+          if (!userProfile.phone_number) {
+            setShowPhoneRequired(true)
+          }
         } else {
           // Fallback to email prefix if profile not found
           const name = user.email?.split("@")[0] || "User"
@@ -246,6 +253,10 @@ export default function DashboardPage() {
       <WalletOnboardingModal 
         open={showOnboarding && !onboardingLoading}
         onComplete={completeOnboarding}
+      />
+      <PhoneRequiredModal
+        open={showPhoneRequired}
+        onPhoneSaved={() => setShowPhoneRequired(false)}
       />
       <div className="space-y-6">
         {/* Greeting Card */}
