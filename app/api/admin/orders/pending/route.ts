@@ -176,7 +176,7 @@ export async function GET() {
     console.error("Error fetching pending orders:", error)
     return NextResponse.json(
       { 
-        error: error instanceof Error ? error.message : "Internal server error",
+        error: "Failed to load orders. Please try again.",
         success: false
       },
       { status: 500 }

@@ -343,7 +343,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[WALLET-DEBIT] ✗ Error:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
+      { error: "Failed to process payment. Please try again." },
       { status: 500 }
     )
   }

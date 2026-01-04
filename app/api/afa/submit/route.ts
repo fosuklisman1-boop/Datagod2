@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
     )
   } catch (error) {
     console.error("[AFA-SUBMIT] Unexpected error:", error)
-    const errorMessage = error instanceof Error ? error.message : "Unknown error"
+    const errorMessage = "Failed to submit order. Please try again."
     return NextResponse.json(
       { error: "Internal server error", details: errorMessage },
       { status: 500 }

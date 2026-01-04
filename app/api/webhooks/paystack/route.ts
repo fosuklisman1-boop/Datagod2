@@ -772,7 +772,7 @@ export async function POST(request: NextRequest) {
     console.error("[WEBHOOK] ✗ Error:", error)
     console.log("[WEBHOOK] ========== WEBHOOK FAILED ==========")
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Webhook processing failed" },
+      { error: "Payment processing failed. Please contact support." },
       { status: 500 }
     )
   }

@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error in sub-agent-catalog API:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch catalog" },
+      { error: "Failed to load catalog. Please try again." },
       { status: 500 }
     )
   }
@@ -283,7 +283,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error in sub-agent-catalog API:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to add to catalog" },
+      { error: "Failed to add to catalog. Please try again." },
       { status: 500 }
     )
   }
@@ -370,7 +370,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error("Error in sub-agent-catalog PUT:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to update catalog" },
+      { error: "Failed to update catalog. Please try again." },
       { status: 500 }
     )
   }
@@ -462,7 +462,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error("Error in sub-agent-catalog DELETE:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to delete from catalog" },
+      { error: "Failed to remove from catalog. Please try again." },
       { status: 500 }
     )
   }

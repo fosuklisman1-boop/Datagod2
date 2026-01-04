@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[SHOP-ORDER] ✗ Error:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to create order" },
+      { error: "Failed to create order. Please try again." },
       { status: 500 }
     )
   }

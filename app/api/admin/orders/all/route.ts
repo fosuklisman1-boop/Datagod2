@@ -161,7 +161,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error in GET /api/admin/orders/all:", error)
-    const errorMessage = error instanceof Error ? error.message : "Internal server error"
+    const errorMessage = "Failed to load orders. Please try again."
     return NextResponse.json(
       { error: errorMessage },
       { status: 500 }

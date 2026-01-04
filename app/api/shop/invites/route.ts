@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching invites:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch invites" },
+      { error: "Failed to load invites. Please try again." },
       { status: 500 }
     )
   }
@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error creating invite:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to create invite" },
+      { error: "Failed to create invite. Please try again." },
       { status: 500 }
     )
   }
@@ -228,7 +228,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error("Error deleting invite:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to delete invite" },
+      { error: "Failed to delete invite. Please try again." },
       { status: 500 }
     )
   }

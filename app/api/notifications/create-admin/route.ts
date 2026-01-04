@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[ADMIN-NOTIFICATION] Unexpected error:", error)
     return NextResponse.json(
-      { error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` },
+      { error: "Failed to create notification. Please try again." },
       { status: 500 }
     )
   }

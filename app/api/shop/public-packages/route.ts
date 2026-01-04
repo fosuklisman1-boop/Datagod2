@@ -209,7 +209,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error in public-packages API:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch packages" },
+      { error: "Failed to load packages. Please try again." },
       { status: 500 }
     )
   }

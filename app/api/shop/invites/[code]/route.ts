@@ -89,7 +89,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   } catch (error) {
     console.error("Error fetching invite:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch invite" },
+      { error: "Failed to load invite. Please try again." },
       { status: 500 }
     )
   }
@@ -285,7 +285,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   } catch (error) {
     console.error("Error accepting invite:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to accept invite" },
+      { error: "Failed to accept invite. Please try again." },
       { status: 500 }
     )
   }
