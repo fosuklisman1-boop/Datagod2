@@ -118,15 +118,20 @@ export async function POST(request: NextRequest) {
         // Calculate parent's profit: the wholesale_margin from sub_agent_catalog
         // Parent profit = wholesale_margin (what parent charges above admin price)
         // NOT base_price - admin_price (that's the sub-agent's total margin)
-        const { data: catalogEntry } = await supabase
+        console.log(`[SHOP-ORDER] Looking up catalog for parent_shop_id=${parent_shop_id}, package_id=${package_id}`)
+        
+        const { data: catalogEntry, error: catalogError } = await supabase
           .from("sub_agent_catalog")
           .select("wholesale_margin")
           .eq("shop_id", parent_shop_id)
           .eq("package_id", package_id)
           .single()
         
-        if (catalogEntry?.wholesale_margin) {
+        console.log(`[SHOP-ORDER] Catalog lookup result:`, { catalogEntry, catalogError })
+        
+        if (catalogEntry && catalogEntry.wholesale_margin !== null && catalogEntry.wholesale_margin !== undefined) {
           parent_profit_amount = catalogEntry.wholesale_margin
+          console.log(`[SHOP-ORDER] Using wholesale_margin from catalog: ${parent_profit_amount}`)
         } else {
           // Fallback: calculate from admin price if catalog entry not found
           const { data: packageData } = await supabase
@@ -136,12 +141,18 @@ export async function POST(request: NextRequest) {
             .single()
           
           const adminPrice = packageData?.price || 0
-          // This is a rough fallback - ideally catalog should always exist
-          parent_profit_amount = parseFloat(base_price.toString()) - adminPrice - parseFloat(profit_amount.toString())
-          console.warn(`[SHOP-ORDER] No catalog entry found, using fallback calculation`)
+          // Calculate: parent profit = what sub-agent pays (base_price) - admin price - sub-agent profit
+          // Actually, for storefront orders: sub-agent sells at base_price + profit_amount
+          // So parent profit = base_price - admin_price (the wholesale markup)
+          parent_profit_amount = parseFloat(base_price.toString()) - adminPrice
+          
+          // Ensure it's not negative
+          if (parent_profit_amount < 0) parent_profit_amount = 0
+          
+          console.warn(`[SHOP-ORDER] No catalog entry found, using fallback calculation: base_price(${base_price}) - adminPrice(${adminPrice}) = ${parent_profit_amount}`)
         }
 
-        console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Wholesale margin (parent profit): ${parent_profit_amount}`)
+        console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Parent profit: ${parent_profit_amount}`)
       }
     } catch (parentError) {
       console.warn("[SHOP-ORDER] Error checking for parent shop:", parentError)
@@ -183,7 +194,10 @@ export async function POST(request: NextRequest) {
       throw new Error("Failed to create order: No data returned")
     }
 
-    console.log("[SHOP-ORDER] ✓ Order created:", data[0].id)
+    console.log("[SHOP-ORDER] ✓ Order created:", data[0].id, {
+      parent_shop_id: data[0].parent_shop_id,
+      parent_profit_amount: data[0].parent_profit_amount
+    })
 
     // Create tracking record after order is created
     if (shop_customer_id) {

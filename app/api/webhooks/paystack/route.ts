@@ -147,6 +147,13 @@ export async function POST(request: NextRequest) {
           .eq("id", paymentData.order_id)
           .single()
 
+        console.log("[WEBHOOK] Shop order data fetched:", {
+          id: shopOrderData?.id,
+          parent_shop_id: shopOrderData?.parent_shop_id,
+          parent_profit_amount: shopOrderData?.parent_profit_amount,
+          profit_amount: shopOrderData?.profit_amount
+        })
+
         if (orderFetchError) {
           console.error("Error fetching shop order:", orderFetchError)
         } else {
