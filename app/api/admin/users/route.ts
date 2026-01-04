@@ -114,6 +114,24 @@ export async function GET(req: NextRequest) {
       customerCountMap.set(record.shop_id, count + 1)
     })
 
+    // Get sub-agent counts per parent shop
+    const { data: subAgentCounts, error: subAgentError } = await adminClient
+      .from("user_shops")
+      .select("parent_shop_id, id")
+      .not("parent_shop_id", "is", null)
+
+    if (subAgentError) {
+      console.error("Error fetching sub-agent counts:", subAgentError)
+      // Don't fail - just continue without sub-agent counts
+    }
+
+    // Group sub-agent counts by parent_shop_id
+    const subAgentCountMap = new Map<string, number>()
+    subAgentCounts?.forEach((record: any) => {
+      const count = subAgentCountMap.get(record.parent_shop_id) || 0
+      subAgentCountMap.set(record.parent_shop_id, count + 1)
+    })
+
     // Get user profiles with phone numbers and roles
     const { data: userProfiles, error: profilesError } = await adminClient
       .from("users")
@@ -147,6 +165,7 @@ export async function GET(req: NextRequest) {
             balance: walletBalance, // For backwards compatibility
             role: role,
             customerCount: 0,
+            subAgentCount: 0,
           }
         }
 
@@ -179,6 +198,7 @@ export async function GET(req: NextRequest) {
 
         const shopBalance = balanceData?.available_balance || 0
         const customerCount = customerCountMap.get(shop.id) || 0
+        const subAgentCount = subAgentCountMap.get(shop.id) || 0
 
         return {
           id: authUser.id,
@@ -191,6 +211,7 @@ export async function GET(req: NextRequest) {
           balance: walletBalance + shopBalance, // Total balance for backwards compatibility
           role: role,
           customerCount: customerCount,
+          subAgentCount: subAgentCount,
         }
       })
     )

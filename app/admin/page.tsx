@@ -14,6 +14,7 @@ import { toast } from "sonner"
 interface DashboardStats {
   totalUsers: number
   totalShops: number
+  totalSubAgents: number
   totalOrders: number
   totalRevenue: number
   pendingShops: number
@@ -109,7 +110,7 @@ export default function AdminDashboardPage() {
 
         {/* Stats Cards */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
             {/* Total Users */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -131,6 +132,18 @@ export default function AdminDashboardPage() {
               <CardContent>
                 <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{stats.totalShops}</div>
                 <p className="text-xs text-gray-500">Active shops</p>
+              </CardContent>
+            </Card>
+
+            {/* Total Sub-Agents */}
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-gradient-to-br from-purple-50/60 to-fuchsia-50/40 backdrop-blur-xl border border-purple-200/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-gray-900">Total Sub-Agents</CardTitle>
+                <Users className="h-4 w-4 text-purple-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-fuchsia-600 bg-clip-text text-transparent">{stats.totalSubAgents}</div>
+                <p className="text-xs text-gray-500">Active sub-agents</p>
               </CardContent>
             </Card>
 

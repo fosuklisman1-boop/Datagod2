@@ -27,6 +27,7 @@ interface User {
   shopBalance: number
   shop?: any
   customerCount?: number
+  subAgentCount?: number
 }
 
 interface UserStats {
@@ -419,6 +420,7 @@ export default function AdminUsersPage() {
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop Balance</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Total Customers</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Sub-Agents</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Joined</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
                   </tr>
@@ -426,7 +428,7 @@ export default function AdminUsersPage() {
                 <tbody className="divide-y divide-emerald-100/40">
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={10} className="px-6 py-8 text-center text-gray-500">
                         {searchTerm ? "No users found matching your search" : "No users found"}
                       </td>
                     </tr>
@@ -446,6 +448,11 @@ export default function AdminUsersPage() {
                       <td className="px-6 py-4 text-sm text-gray-600">
                         <Badge className="bg-blue-500">
                           {user.customerCount || 0}
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        <Badge className="bg-purple-500">
+                          {user.subAgentCount || 0}
                         </Badge>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">{new Date(user.created_at).toLocaleDateString()}</td>

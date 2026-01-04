@@ -89,6 +89,12 @@ export async function GET(request: NextRequest) {
       .from("user_shops")
       .select("id", { count: "exact", head: true })
 
+    // Get total sub-agents count (shops with parent_shop_id)
+    const { count: totalSubAgents, error: subAgentsError } = await supabase
+      .from("user_shops")
+      .select("id", { count: "exact", head: true })
+      .not("parent_shop_id", "is", null)
+
     // Get all orders with pricing info
     const { data: orders, error: ordersError } = await supabase
       .from("shop_orders")
@@ -113,6 +119,7 @@ export async function GET(request: NextRequest) {
       {
         totalUsers: totalUsers || 0,
         totalShops: totalShops || 0,
+        totalSubAgents: totalSubAgents || 0,
         totalOrders: totalOrders,
         totalRevenue: totalRevenue,
         pendingShops: pendingShops || 0,
