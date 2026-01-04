@@ -102,7 +102,7 @@ export default function SubAgentsPage() {
       if (!subAgentError && subAgentShops) {
         console.log("[SUB-AGENTS] Found sub-agent shops:", subAgentShops.length)
         
-        // Get all profit records for the parent shop (this shop)
+        // Get all profit records for the parent shop (this shop) - these are YOUR earnings
         const { data: allProfits, error: profitError } = await supabase
           .from("shop_profits")
           .select("profit_amount, shop_order_id")
@@ -110,66 +110,55 @@ export default function SubAgentsPage() {
 
         console.log("[SUB-AGENTS] Profit records for parent shop:", allProfits?.length || 0, profitError)
 
-        // Get all shop_orders to link profits to sub-agents
-        const orderIds = allProfits?.map((p: any) => p.shop_order_id).filter(Boolean) || []
-        console.log("[SUB-AGENTS] Order IDs from profits:", orderIds.length)
-        
-        const { data: profitOrders } = orderIds.length > 0 ? await supabase
+        // Get all orders placed BY sub-agents (where parent_shop_id = this shop)
+        // These are buy-stock orders from sub-agents
+        const { data: subAgentOrders, error: ordersError } = await supabase
           .from("shop_orders")
-          .select("id, shop_id")
-          .in("id", orderIds) : { data: [] }
+          .select("id, shop_id, total_price, parent_shop_id, parent_profit_amount")
+          .eq("parent_shop_id", shop.id)
+          .eq("payment_status", "completed")
 
-        console.log("[SUB-AGENTS] Profit orders found:", profitOrders?.length || 0)
+        console.log("[SUB-AGENTS] Orders from sub-agents:", subAgentOrders?.length || 0, ordersError)
 
-        // Create a map of order_id to sub-agent shop_id
-        const orderToSubAgentMap = new Map<string, string>()
-        profitOrders?.forEach((o: any) => orderToSubAgentMap.set(o.id, o.shop_id))
+        // Create maps for each sub-agent's stats
+        const subAgentOrdersMap = new Map<string, number>() // shop_id -> order count
+        const subAgentSalesMap = new Map<string, number>()  // shop_id -> total sales
+        const subAgentProfitMap = new Map<string, number>() // shop_id -> your profit
 
-        // Create a map of sub-agent shop_id to their profit amounts
-        const subAgentProfitMap = new Map<string, number>()
-        allProfits?.forEach((p: any) => {
-          const subAgentShopId = orderToSubAgentMap.get(p.shop_order_id)
-          if (subAgentShopId) {
-            const current = subAgentProfitMap.get(subAgentShopId) || 0
-            subAgentProfitMap.set(subAgentShopId, current + (p.profit_amount || 0))
-          }
+        subAgentOrders?.forEach((order: any) => {
+          const shopId = order.shop_id
+          // Count orders
+          subAgentOrdersMap.set(shopId, (subAgentOrdersMap.get(shopId) || 0) + 1)
+          // Sum sales (what they paid)
+          subAgentSalesMap.set(shopId, (subAgentSalesMap.get(shopId) || 0) + (order.total_price || 0))
+          // Sum your profit
+          subAgentProfitMap.set(shopId, (subAgentProfitMap.get(shopId) || 0) + (order.parent_profit_amount || 0))
         })
-        
-        console.log("[SUB-AGENTS] Sub-agent profit map:", Object.fromEntries(subAgentProfitMap))
+
+        console.log("[SUB-AGENTS] Orders map:", Object.fromEntries(subAgentOrdersMap))
+        console.log("[SUB-AGENTS] Sales map:", Object.fromEntries(subAgentSalesMap))
+        console.log("[SUB-AGENTS] Profit map:", Object.fromEntries(subAgentProfitMap))
 
         // For each sub-agent, get their stats
-        const subAgentsWithStats = await Promise.all(
-          subAgentShops.map(async (sa: any) => {
-            // Get their orders count and total sales (orders on THEIR storefront by their customers)
-            const { data: orders, error: ordersError } = await supabase
-              .from("shop_orders")
-              .select("id, total_price")
-              .eq("shop_id", sa.id)
-              .eq("payment_status", "completed")
+        const subAgentsWithStats = subAgentShops.map((sa: any) => {
+          const totalOrders = subAgentOrdersMap.get(sa.id) || 0
+          const totalSales = subAgentSalesMap.get(sa.id) || 0
+          const yourEarnings = subAgentProfitMap.get(sa.id) || 0
+          
+          console.log(`[SUB-AGENTS] ${sa.shop_name}: orders=${totalOrders}, sales=${totalSales}, yourEarnings=${yourEarnings}`)
 
-            console.log(`[SUB-AGENTS] Orders for ${sa.shop_name}:`, orders?.length || 0, ordersError)
-
-            const totalOrders = orders?.length || 0
-            const totalSales = orders?.reduce((sum: number, o: any) => sum + (o.total_price || 0), 0) || 0
-
-            // Get YOUR earnings from this sub-agent (from the pre-calculated map)
-            const yourEarnings = subAgentProfitMap.get(sa.id) || 0
-            
-            console.log(`[SUB-AGENTS] ${sa.shop_name}: orders=${totalOrders}, sales=${totalSales}, yourEarnings=${yourEarnings}`)
-
-            return {
-              id: sa.id,
-              shop_name: sa.shop_name,
-              shop_slug: sa.shop_slug,
-              is_active: sa.is_active,
-              created_at: sa.created_at,
-              tier_level: sa.tier_level,
-              total_orders: totalOrders,
-              total_sales: totalSales,
-              your_earnings: yourEarnings
-            } as SubAgent
-          })
-        )
+          return {
+            id: sa.id,
+            shop_name: sa.shop_name,
+            shop_slug: sa.shop_slug,
+            is_active: sa.is_active,
+            created_at: sa.created_at,
+            tier_level: sa.tier_level,
+            total_orders: totalOrders,
+            total_sales: totalSales,
+            your_earnings: yourEarnings
+          } as SubAgent
+        })
 
         setSubAgents(subAgentsWithStats)
 
