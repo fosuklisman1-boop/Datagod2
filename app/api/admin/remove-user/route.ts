@@ -118,12 +118,92 @@ export async function DELETE(req: NextRequest) {
     // 7. Delete user shops and related data
     const { data: shops } = await supabaseAdmin
       .from("user_shops")
-      .select("id")
+      .select("id, parent_shop_id")
       .eq("user_id", userId)
 
     if (shops && shops.length > 0) {
       const shopIds = shops.map(s => s.id)
       
+      // Delete sub_agent_shop_packages (sub-agent inventory)
+      const { error: subAgentShopPackagesError } = await supabaseAdmin
+        .from("sub_agent_shop_packages")
+        .delete()
+        .in("shop_id", shopIds)
+      
+      if (subAgentShopPackagesError) {
+        console.warn(`[REMOVE-USER] Warning deleting sub_agent_shop_packages: ${subAgentShopPackagesError.message}`)
+      }
+
+      // Delete sub_agent_catalog (parent's sub-agent offerings)
+      const { error: subAgentCatalogError } = await supabaseAdmin
+        .from("sub_agent_catalog")
+        .delete()
+        .in("shop_id", shopIds)
+      
+      if (subAgentCatalogError) {
+        console.warn(`[REMOVE-USER] Warning deleting sub_agent_catalog: ${subAgentCatalogError.message}`)
+      }
+
+      // Nullify parent_shop_id references on other shops (so their sub-agents aren't orphaned with broken FK)
+      const { error: orphanSubAgentsError } = await supabaseAdmin
+        .from("user_shops")
+        .update({ parent_shop_id: null })
+        .in("parent_shop_id", shopIds)
+      
+      if (orphanSubAgentsError) {
+        console.warn(`[REMOVE-USER] Warning nullifying parent_shop_id: ${orphanSubAgentsError.message}`)
+      }
+
+      // Nullify parent_shop_id on shop_orders that reference these shops
+      const { error: orphanOrdersError } = await supabaseAdmin
+        .from("shop_orders")
+        .update({ parent_shop_id: null })
+        .in("parent_shop_id", shopIds)
+      
+      if (orphanOrdersError) {
+        console.warn(`[REMOVE-USER] Warning nullifying shop_orders.parent_shop_id: ${orphanOrdersError.message}`)
+      }
+
+      // Delete shop_customers
+      const { error: shopCustomersError } = await supabaseAdmin
+        .from("shop_customers")
+        .delete()
+        .in("shop_id", shopIds)
+      
+      if (shopCustomersError) {
+        console.warn(`[REMOVE-USER] Warning deleting shop_customers: ${shopCustomersError.message}`)
+      }
+
+      // Delete shop_packages
+      const { error: shopPackagesError } = await supabaseAdmin
+        .from("shop_packages")
+        .delete()
+        .in("shop_id", shopIds)
+      
+      if (shopPackagesError) {
+        console.warn(`[REMOVE-USER] Warning deleting shop_packages: ${shopPackagesError.message}`)
+      }
+
+      // Delete shop_available_balance
+      const { error: shopBalanceError } = await supabaseAdmin
+        .from("shop_available_balance")
+        .delete()
+        .in("shop_id", shopIds)
+      
+      if (shopBalanceError) {
+        console.warn(`[REMOVE-USER] Warning deleting shop_available_balance: ${shopBalanceError.message}`)
+      }
+
+      // Delete shop_profits
+      const { error: shopProfitsError } = await supabaseAdmin
+        .from("shop_profits")
+        .delete()
+        .in("shop_id", shopIds)
+      
+      if (shopProfitsError) {
+        console.warn(`[REMOVE-USER] Warning deleting shop_profits: ${shopProfitsError.message}`)
+      }
+
       // Delete shop orders
       const { error: shopOrderError } = await supabaseAdmin
         .from("shop_orders")
