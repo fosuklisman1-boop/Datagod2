@@ -3,7 +3,19 @@ import { supabase } from "./supabase"
 export const authService = {
   async signUp(email: string, password: string, userData: any) {
     try {
-      // Sign up with Supabase Auth
+      // FIRST: Check if phone number already exists (before creating auth user)
+      const phoneCheckResponse = await fetch("/api/auth/check-phone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: userData.phone_number }),
+      })
+
+      if (!phoneCheckResponse.ok) {
+        const error = await phoneCheckResponse.json()
+        throw new Error(error.error || "Phone number validation failed")
+      }
+
+      // Now safe to create auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
