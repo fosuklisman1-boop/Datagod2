@@ -190,8 +190,8 @@ export async function POST(request: NextRequest) {
           payment_status: "pending",
           reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
           shop_customer_id: shop_customer_id || null,
-          parent_shop_id: parent_shop_id,
-          parent_profit_amount: parent_profit_amount,
+          parent_shop_id: parent_shop_id || null,
+          parent_profit_amount: parent_profit_amount !== null ? parseFloat(parent_profit_amount.toString()) : 0,
           created_at: new Date().toISOString(),
         },
       ])
