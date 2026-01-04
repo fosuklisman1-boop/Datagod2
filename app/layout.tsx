@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -6,13 +6,30 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/components/auth-provider";
 import { ChristmasThemeProvider } from "@/components/christmas-theme-provider";
 import { InactivityLogoutProvider } from "@/components/inactivity-logout-provider";
+import { ServiceWorkerRegister } from "@/components/service-worker-register";
 
 const inter = Inter({ subsets: ["latin"] });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  themeColor: "#4f46e5",
+};
 
 export const metadata: Metadata = {
   title: "DATAGOD - Affordable Data Packages & Services",
   description: "Buy affordable data packages from multiple networks with instant delivery. Shop data bundles from MTN, Telecel, AT, and more with 24/7 support.",
   keywords: ["data packages", "mobile data", "bundles", "MTN", "Telecel", "airtime", "Ghana"],
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "DATAGOD",
+  },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     icon: { url: "/favicon_custom.ico", type: "image/x-icon" },
     apple: "/favicon-v2.jpeg",
@@ -70,6 +87,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <AuthProvider>
+            <ServiceWorkerRegister />
             <ChristmasThemeProvider />
             <InactivityLogoutProvider />
             {children}
