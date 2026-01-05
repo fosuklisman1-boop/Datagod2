@@ -588,10 +588,18 @@ export default function AdminComplaintsPage() {
                       {selectedComplaint.order_details.date && (
                         <div>
                           <Label className="text-xs font-semibold text-gray-600 uppercase">
-                            Order Date
+                            Order Date & Time
                           </Label>
                           <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded mt-1">
-                            {new Date(selectedComplaint.order_details.date).toLocaleString()}
+                            {new Date(selectedComplaint.order_details.date).toLocaleDateString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric'
+                            })} at {new Date(selectedComplaint.order_details.date).toLocaleTimeString('en-GB', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: true
+                            })}
                           </p>
                         </div>
                       )}
