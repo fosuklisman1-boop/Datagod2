@@ -34,7 +34,7 @@ export function PushNotificationRegister() {
     }
   }, []);
 
-  const subscribeToPush = async (registration) => {
+  const subscribeToPush = async (registration: ServiceWorkerRegistration) => {
     try {
       // Generate a VAPID key for your server
       // For now, using a placeholder - replace with your actual VAPID key
@@ -61,7 +61,7 @@ export function PushNotificationRegister() {
   };
 
   // Helper function to convert VAPID key
-  const urlBase64ToUint8Array = (base64String) => {
+  const urlBase64ToUint8Array = (base64String: string): Uint8Array => {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
     const rawData = window.atob(base64);
