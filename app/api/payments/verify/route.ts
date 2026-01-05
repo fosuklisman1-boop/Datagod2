@@ -130,43 +130,40 @@ export async function POST(request: NextRequest) {
             console.log("[PAYMENT-VERIFY] Checking if fulfillment needed for order:", shopOrderData.id)
             const { data: orderDetails } = await supabase
               .from("shop_orders")
-              .select("id, network, volume_gb, customer_phone")
+              .select("id, network, volume_gb, customer_phone, customer_name")
               .eq("id", shopOrderData.id)
               .single()
 
-            if (orderDetails) {
-              const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare"]
-              const shouldFulfill = fulfillableNetworks.some(n => n.toLowerCase() === (orderDetails.network || "").toLowerCase())
+            if (orderDetails && orderDetails.customer_phone) {
+              console.log(`[PAYMENT-VERIFY] Shop order network: "${orderDetails.network}"`)
               
-              console.log(`[PAYMENT-VERIFY] Shop order network: "${orderDetails.network}" | Should fulfill: ${shouldFulfill}`)
-              
-              if (shouldFulfill) {
-                console.log(`[PAYMENT-VERIFY] Triggering AT-iShare fulfillment for shop order ${shopOrderData.id}`)
+              // Route to unified fulfillment endpoint
+              try {
+                console.log(`[PAYMENT-VERIFY] Triggering unified fulfillment for order ${shopOrderData.id}`)
                 const sizeGb = parseInt(orderDetails.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
                 
-                // Use customer_phone from shop_orders table (this is where shop customers' phone is stored)
-                const phoneNumber = orderDetails.customer_phone
-                
-                console.log(`[PAYMENT-VERIFY] Shop order phone: ${phoneNumber}`)
-                
-                if (phoneNumber) {
-                  // Non-blocking fulfillment trigger
-                  atishareService.fulfillOrder({
-                    phoneNumber,
-                    sizeGb,
-                    orderId: shopOrderData.id,
-                    network: "AT",
-                    orderType: "shop",  // Shop orders use shop_orders table
-                  }).then(result => {
-                    console.log(`[PAYMENT-VERIFY] Fulfillment triggered for shop order ${shopOrderData.id}:`, result)
-                  }).catch(err => {
-                    console.error(`[PAYMENT-VERIFY] Error triggering fulfillment for shop order ${shopOrderData.id}:`, err)
-                    // Non-blocking: don't fail payment verification if fulfillment fails
-                  })
-                } else {
-                  console.error(`[PAYMENT-VERIFY] No customer_phone found for shop order ${shopOrderData.id}`)
-                }
+                const fulfillmentResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/fulfillment/process-order`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    shop_order_id: shopOrderData.id,
+                    network: orderDetails.network,
+                    phone_number: orderDetails.customer_phone,
+                    volume_gb: sizeGb,
+                    customer_name: orderDetails.customer_name,
+                  }),
+                })
+
+                const fulfillmentResult = await fulfillmentResponse.json()
+                console.log(`[PAYMENT-VERIFY] Fulfillment result:`, fulfillmentResult)
+              } catch (fulfillmentError) {
+                console.error(`[PAYMENT-VERIFY] Error triggering fulfillment for shop order ${shopOrderData.id}:`, fulfillmentError)
+                // Non-blocking: don't fail payment verification if fulfillment fails
               }
+            } else {
+              console.warn(`[PAYMENT-VERIFY] No customer data found for shop order ${shopOrderData.id}`)
             }
           }
         }

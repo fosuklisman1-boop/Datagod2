@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
@@ -81,13 +81,23 @@ export default function AdminOrdersPage() {
   // Sync with CodeCraft state
   const [syncingWithCodeCraft, setSyncingWithCodeCraft] = useState(false)
 
+  // MTN Fulfillment state
+  const [pendingMTNOrders, setPendingMTNOrders] = useState<ShopOrder[]>([])
+  const [loadingMTNOrders, setLoadingMTNOrders] = useState(false)
+  const [fulfillingMTNOrder, setFulfillingMTNOrder] = useState<string | null>(null)
+  const [mtnFulfillmentStatus, setMTNFulfillmentStatus] = useState<{ [key: string]: string }>({})
+
   useEffect(() => {
     if (isAdmin && !adminLoading) {
       loadPendingOrders()
       loadDownloadedOrders()
       loadAutoFulfillmentSetting()
+      // Load MTN fulfillment orders when tab is active
+      if (activeTab === "fulfillment") {
+        loadPendingMTNOrders()
+      }
     }
-  }, [isAdmin, adminLoading])
+  }, [isAdmin, adminLoading, activeTab])
 
   const loadAutoFulfillmentSetting = async () => {
     try {
@@ -272,6 +282,90 @@ export default function AdminOrdersPage() {
       // Don't show error for batches table - it might not exist yet
     } finally {
       setLoadingDownloaded(false)
+    }
+  }
+
+  const loadPendingMTNOrders = async () => {
+    try {
+      setLoadingMTNOrders(true)
+      const response = await fetch("/api/admin/fulfillment/manual-fulfill")
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to load pending MTN orders")
+      }
+
+      const result = await response.json()
+      console.log("Fetched pending MTN orders:", result.count)
+      setPendingMTNOrders(result.orders || [])
+      
+      // Initialize status map
+      const statusMap: { [key: string]: string } = {}
+      result.orders?.forEach((order: any) => {
+        statusMap[order.id] = "pending"
+      })
+      setMTNFulfillmentStatus(statusMap)
+    } catch (error) {
+      console.error("Error loading pending MTN orders:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to load pending MTN orders")
+      setPendingMTNOrders([])
+    } finally {
+      setLoadingMTNOrders(false)
+    }
+  }
+
+  const handleManualFulfill = async (orderId: string) => {
+    try {
+      setFulfillingMTNOrder(orderId)
+      
+      // Find the order to get network and other details
+      const order = pendingMTNOrders.find(o => o.id === orderId)
+      if (!order) {
+        toast.error("Order not found")
+        return
+      }
+
+      const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop_order_id: orderId,
+          network: order.network
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to fulfill order")
+      }
+
+      const result = await response.json()
+      
+      // Update status
+      setMTNFulfillmentStatus(prev => ({
+        ...prev,
+        [orderId]: "fulfilled"
+      }))
+      
+      // Remove from pending list
+      setPendingMTNOrders(prev => prev.filter(o => o.id !== orderId))
+      
+      toast.success(`Order ${orderId} fulfilled successfully`)
+      
+      // Reload the list
+      await loadPendingMTNOrders()
+    } catch (error) {
+      console.error("Error fulfilling order:", error)
+      
+      // Update status to show error
+      setMTNFulfillmentStatus(prev => ({
+        ...prev,
+        [orderId]: "error"
+      }))
+      
+      toast.error(error instanceof Error ? error.message : "Failed to fulfill order")
+    } finally {
+      setFulfillingMTNOrder(null)
     }
   }
 
@@ -1149,6 +1243,106 @@ export default function AdminOrdersPage() {
                     </p>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* MTN Pending Orders Section */}
+            <Card className="border-l-4 border-l-orange-500">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Badge className="bg-orange-100 text-orange-800 border border-orange-200">
+                        MTN
+                      </Badge>
+                      Pending Manual Fulfillment
+                    </CardTitle>
+                    <CardDescription>
+                      Orders queued for manual MTN fulfillment
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1">
+                      {formatCount(pendingMTNOrders.length)}
+                    </Badge>
+                    {loadingMTNOrders && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingMTNOrders ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                  </div>
+                ) : pendingMTNOrders.length === 0 ? (
+                  <Alert>
+                    <CheckCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      No pending MTN orders. All orders have been fulfilled!
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="space-y-3">
+                    {pendingMTNOrders.map((order) => (
+                      <div key={order.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded border border-gray-200 hover:bg-gray-50 transition">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <div>
+                              <p className="font-mono text-sm font-semibold text-gray-900">{order.id}</p>
+                              <p className="text-sm text-gray-600">
+                                {order.phone_number} • {order.size}GB
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={`${getNetworkColor(order.network)} border`}>
+                              {order.network}
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              Created: {new Date(order.created_at).toLocaleString()}
+                            </span>
+                            {mtnFulfillmentStatus[order.id] === "fulfilled" && (
+                              <Badge className="bg-green-100 text-green-800 border border-green-200">
+                                Fulfilled
+                              </Badge>
+                            )}
+                            {mtnFulfillmentStatus[order.id] === "error" && (
+                              <Badge className="bg-red-100 text-red-800 border border-red-200">
+                                Error
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</span>
+                          <Button
+                            onClick={() => handleManualFulfill(order.id)}
+                            disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
+                            size="sm"
+                            className="bg-orange-600 hover:bg-orange-700 text-white"
+                          >
+                            {fulfillingMTNOrder === order.id ? (
+                              <>
+                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                Fulfilling...
+                              </>
+                            ) : mtnFulfillmentStatus[order.id] === "fulfilled" ? (
+                              <>
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Fulfilled
+                              </>
+                            ) : (
+                              <>
+                                <Send className="h-3 w-3 mr-1" />
+                                Fulfill
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
