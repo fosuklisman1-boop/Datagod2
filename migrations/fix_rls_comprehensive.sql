@@ -189,7 +189,7 @@ CREATE POLICY "Shop owners can manage invites" ON public.shop_invites
   FOR ALL USING (
     EXISTS (
       SELECT 1 FROM user_shops 
-      WHERE user_shops.id = shop_invites.shop_id 
+      WHERE user_shops.id = shop_invites.inviter_shop_id 
       AND user_shops.user_id = (SELECT auth.uid())
     )
   );
