@@ -74,6 +74,11 @@ export default function AdminOrdersPage() {
   const [loadingAutoFulfillment, setLoadingAutoFulfillment] = useState(true)
   const [togglingAutoFulfillment, setTogglingAutoFulfillment] = useState(false)
   
+  // Bulk delete state
+  const [deleteBatchesStartDate, setDeleteBatchesStartDate] = useState("")
+  const [deleteBatchesEndDate, setDeleteBatchesEndDate] = useState("")
+  const [deletingBatches, setDeletingBatches] = useState(false)
+  
   // Sync with CodeCraft state
   const [syncingWithCodeCraft, setSyncingWithCodeCraft] = useState(false)
 
@@ -484,6 +489,53 @@ export default function AdminOrdersPage() {
     }
   }
 
+  const handleBulkDeleteBatches = async () => {
+    if (!deleteBatchesStartDate && !deleteBatchesEndDate) {
+      toast.error("Please select a date range to delete")
+      return
+    }
+
+    // Confirm deletion
+    const from = deleteBatchesStartDate || "beginning"
+    const to = deleteBatchesEndDate || "now"
+    const confirmed = confirm(
+      `Are you sure you want to delete all batches from ${from} to ${to}? This action cannot be undone.`
+    )
+    
+    if (!confirmed) return
+
+    try {
+      setDeletingBatches(true)
+
+      const response = await fetch("/api/admin/orders/delete-batches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromDate: deleteBatchesStartDate ? new Date(deleteBatchesStartDate).toISOString() : undefined,
+          toDate: deleteBatchesEndDate ? new Date(deleteBatchesEndDate).toISOString() : undefined,
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to delete batches")
+      }
+
+      const result = await response.json()
+      toast.success(result.message || `Deleted ${result.deletedCount} batch(es)`)
+      
+      // Reset form and reload batches
+      setDeleteBatchesStartDate("")
+      setDeleteBatchesEndDate("")
+      await loadDownloadedOrders()
+    } catch (error) {
+      console.error("Error deleting batches:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to delete batches")
+    } finally {
+      setDeletingBatches(false)
+    }
+  }
+
   const getNetworkColor = (network: string) => {
     const colors: { [key: string]: string } = {
       "MTN": "bg-orange-100 text-orange-800 border-orange-200",
@@ -832,6 +884,53 @@ export default function AdminOrdersPage() {
                       >
                         Mixed Status
                       </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Bulk Delete by Date Range */}
+                <Card className="border-red-200 bg-red-50">
+                  <CardHeader>
+                    <CardTitle className="text-red-700">Bulk Delete Batches by Date Range</CardTitle>
+                    <CardDescription>Select a date range to permanently delete batches</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">From Date</label>
+                          <input
+                            type="date"
+                            value={deleteBatchesStartDate}
+                            onChange={(e) => setDeleteBatchesStartDate(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">To Date</label>
+                          <input
+                            type="date"
+                            value={deleteBatchesEndDate}
+                            onChange={(e) => setDeleteBatchesEndDate(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        onClick={handleBulkDeleteBatches}
+                        disabled={deletingBatches || (!deleteBatchesStartDate && !deleteBatchesEndDate)}
+                        className="w-full bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        {deletingBatches ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Deleting...
+                          </>
+                        ) : (
+                          "Delete Batches in Date Range"
+                        )}
+                      </Button>
+                      <p className="text-xs text-red-600">⚠️ This action cannot be undone. The batches will be permanently deleted.</p>
                     </div>
                   </CardContent>
                 </Card>
