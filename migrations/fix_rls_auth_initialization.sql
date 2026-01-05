@@ -105,3 +105,137 @@ CREATE POLICY "Shop owner can update orders" ON public.shop_orders
       SELECT 1 FROM user_shops WHERE user_shops.id = shop_orders.shop_id AND user_shops.user_id = (SELECT auth.uid())
     )
   );
+
+-- =============================================
+-- WALLETS TABLE
+-- =============================================
+DROP POLICY IF EXISTS "Users can view own wallet" ON public.wallets;
+CREATE POLICY "Users can view own wallet" ON public.wallets
+  FOR SELECT
+  USING (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Users can update own wallet" ON public.wallets;
+CREATE POLICY "Users can update own wallet" ON public.wallets
+  FOR UPDATE
+  USING (user_id = (SELECT auth.uid()))
+  WITH CHECK (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Users can insert own wallet" ON public.wallets;
+CREATE POLICY "Users can insert own wallet" ON public.wallets
+  FOR INSERT
+  WITH CHECK (user_id = (SELECT auth.uid()));
+
+-- =============================================
+-- USER_SHOPS TABLE
+-- =============================================
+DROP POLICY IF EXISTS "Users can view their own shop" ON public.user_shops;
+CREATE POLICY "Users can view their own shop" ON public.user_shops
+  FOR SELECT
+  USING (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Users can create a shop" ON public.user_shops;
+CREATE POLICY "Users can create a shop" ON public.user_shops
+  FOR INSERT
+  WITH CHECK (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Users can update their own shop" ON public.user_shops;
+CREATE POLICY "Users can update their own shop" ON public.user_shops
+  FOR UPDATE
+  USING (user_id = (SELECT auth.uid()))
+  WITH CHECK (user_id = (SELECT auth.uid()));
+
+-- =============================================
+-- SHOP_PACKAGES TABLE
+-- =============================================
+DROP POLICY IF EXISTS "Shop owners can view their packages" ON public.shop_packages;
+CREATE POLICY "Shop owners can view their packages" ON public.shop_packages
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_packages.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
+
+DROP POLICY IF EXISTS "Shop owners can insert packages" ON public.shop_packages;
+CREATE POLICY "Shop owners can insert packages" ON public.shop_packages
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_packages.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
+
+DROP POLICY IF EXISTS "Shop owners can update packages" ON public.shop_packages;
+CREATE POLICY "Shop owners can update packages" ON public.shop_packages
+  FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_packages.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_packages.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
+
+DROP POLICY IF EXISTS "Shop owners can delete packages" ON public.shop_packages;
+CREATE POLICY "Shop owners can delete packages" ON public.shop_packages
+  FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_packages.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
+
+-- =============================================
+-- SHOP_PROFITS TABLE
+-- =============================================
+DROP POLICY IF EXISTS "Shop owners can view their profits" ON public.shop_profits;
+CREATE POLICY "Shop owners can view their profits" ON public.shop_profits
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_profits.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
+
+-- =============================================
+-- WITHDRAWAL_REQUESTS TABLE
+-- =============================================
+DROP POLICY IF EXISTS "Users can view own withdrawals" ON public.withdrawal_requests;
+CREATE POLICY "Users can view own withdrawals" ON public.withdrawal_requests
+  FOR SELECT
+  USING (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Users can create withdrawals" ON public.withdrawal_requests;
+CREATE POLICY "Users can create withdrawals" ON public.withdrawal_requests
+  FOR INSERT
+  WITH CHECK (user_id = (SELECT auth.uid()));
+
+-- =============================================
+-- AFA_ORDERS TABLE
+-- =============================================
+DROP POLICY IF EXISTS "Users can view own afa orders" ON public.afa_orders;
+CREATE POLICY "Users can view own afa orders" ON public.afa_orders
+  FOR SELECT
+  USING (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Users can insert afa orders" ON public.afa_orders;
+CREATE POLICY "Users can insert afa orders" ON public.afa_orders
+  FOR INSERT
+  WITH CHECK (user_id = (SELECT auth.uid()));
+
+-- =============================================
+-- SUB_AGENTS TABLE
+-- =============================================
+DROP POLICY IF EXISTS "Users can view their sub agents" ON public.sub_agents;
+CREATE POLICY "Users can view their sub agents" ON public.sub_agents
+  FOR SELECT
+  USING (parent_user_id = (SELECT auth.uid()) OR user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Users can manage their sub agents" ON public.sub_agents;
+CREATE POLICY "Users can manage their sub agents" ON public.sub_agents
+  FOR ALL
+  USING (parent_user_id = (SELECT auth.uid()))
+  WITH CHECK (parent_user_id = (SELECT auth.uid()));
