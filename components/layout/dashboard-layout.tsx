@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context"
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [isMobile, setIsMobile] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [showAnnouncement, setShowAnnouncement] = useState(false)
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementMessage, setAnnouncementMessage] = useState("")
@@ -21,6 +22,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     handleResize()
     window.addEventListener("resize", handleResize)
     return () => window.removeEventListener("resize", handleResize)
+  }, [])
+
+  // Listen for sidebar state changes
+  useEffect(() => {
+    const handleSidebarChange = (event: CustomEvent<{ isOpen: boolean; isMobile: boolean }>) => {
+      setSidebarOpen(event.detail.isOpen)
+    }
+
+    window.addEventListener('sidebarStateChange', handleSidebarChange as EventListener)
+    return () => window.removeEventListener('sidebarStateChange', handleSidebarChange as EventListener)
   }, [])
 
   // Load announcement settings on mount
@@ -74,8 +85,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <Sidebar />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden transition-all duration-300">
+      {/* Main Content - add left margin for fixed sidebar */}
+      <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${!isMobile ? (sidebarOpen ? 'md:ml-64' : 'md:ml-20') : ''}`}>
         {/* Header */}
         <Header />
 

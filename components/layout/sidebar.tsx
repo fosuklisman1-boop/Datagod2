@@ -160,6 +160,13 @@ export function Sidebar() {
     return () => window.removeEventListener("resize", handleResize)
   }, [])
 
+  // Emit sidebar state change event
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sidebarStateChange', { detail: { isOpen, isMobile } }));
+    }
+  }, [isOpen, isMobile]);
+
   // Clear loading state when pathname changes
   useEffect(() => {
     setLoadingPath(null)
