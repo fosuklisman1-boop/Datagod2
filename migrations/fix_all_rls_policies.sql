@@ -246,11 +246,3 @@ DROP POLICY IF EXISTS "Users can view own sms logs" ON public.sms_logs;
 
 CREATE POLICY "Users can view own sms logs" ON public.sms_logs
   FOR SELECT USING (user_id = (SELECT auth.uid()));
-
--- =============================================
--- FULFILLMENT_LOGS TABLE (if exists)
--- =============================================
-DROP POLICY IF EXISTS "Users can view own fulfillment logs" ON public.fulfillment_logs;
-
-CREATE POLICY "Users can view own fulfillment logs" ON public.fulfillment_logs
-  FOR SELECT USING (user_id = (SELECT auth.uid()));
