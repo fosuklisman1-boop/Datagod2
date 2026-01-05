@@ -15,8 +15,7 @@ AS
 SELECT 
   w.user_id,
   w.balance,
-  u.email,
-  u.full_name
+  u.email
 FROM wallets w
 LEFT JOIN users u ON w.user_id = u.id;
 
@@ -31,8 +30,7 @@ SELECT
   o.total_amount,
   o.status,
   o.created_at,
-  u.email,
-  u.full_name
+  u.email
 FROM orders o
 LEFT JOIN users u ON o.user_id = u.id;
 
