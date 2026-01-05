@@ -36,6 +36,17 @@ import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 
+// Format large numbers with K/M suffix
+const formatCount = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
+
 const menuItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin"] },
   { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin"] },
@@ -284,7 +295,7 @@ export function Sidebar() {
                       <span>{item.label}</span>
                       {showBadge && (
                         <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs ml-2">
-                          {userPendingOrderCount}
+                          {formatCount(userPendingOrderCount)}
                         </Badge>
                       )}
                     </div>
@@ -399,7 +410,7 @@ export function Sidebar() {
                       <span>Orders</span>
                       {adminPendingOrderCount > 0 && (
                         <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs ml-2">
-                          {adminPendingOrderCount}
+                          {formatCount(adminPendingOrderCount)}
                         </Badge>
                       )}
                     </div>

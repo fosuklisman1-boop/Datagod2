@@ -13,6 +13,17 @@ import { adminPackageService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
+// Format large numbers with K/M suffix
+const formatCount = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
+
 interface Package {
   id: string
   network: string
@@ -299,7 +310,7 @@ export default function AdminPackagesPage() {
         {/* Packages Table */}
         <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
           <CardHeader>
-            <CardTitle>All Packages ({packages.length})</CardTitle>
+            <CardTitle>All Packages ({formatCount(packages.length)})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">

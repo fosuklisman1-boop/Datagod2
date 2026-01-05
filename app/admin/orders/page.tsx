@@ -15,6 +15,17 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
+// Format large numbers with commas or K/M suffix
+const formatCount = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
+
 interface ShopOrder {
   id: string
   phone_number: string
@@ -589,13 +600,13 @@ export default function AdminOrdersPage() {
               <Clock className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
               <span className="hidden sm:inline">Pending</span>
               <span className="sm:hidden">Pend</span>
-              <span>({pendingOrders.length})</span>
+              <span>({formatCount(pendingOrders.length)})</span>
             </TabsTrigger>
             <TabsTrigger value="downloaded" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
               <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
               <span className="hidden sm:inline">Downloaded</span>
               <span className="sm:hidden">DL</span>
-              <span>({Object.keys(downloadedOrders).length})</span>
+              <span>({formatCount(Object.keys(downloadedOrders).length)})</span>
             </TabsTrigger>
             <TabsTrigger value="fulfillment" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
               <Zap className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
@@ -629,7 +640,7 @@ export default function AdminOrdersPage() {
                     ) : (
                       <Download className="h-4 w-4 mr-2" />
                     )}
-                    {downloading ? "Downloading..." : `Download All (${pendingOrders.length})`}
+                    {downloading ? "Downloading..." : `Download All (${formatCount(pendingOrders.length)})`}
                   </Button>
                 </div>
 
@@ -638,7 +649,7 @@ export default function AdminOrdersPage() {
                   <CardHeader>
                     <CardTitle>Pending Orders</CardTitle>
                     <CardDescription>
-                      {pendingOrders.length} order{pendingOrders.length !== 1 ? "s" : ""} waiting to be downloaded
+                      {formatCount(pendingOrders.length)} order{pendingOrders.length !== 1 ? "s" : ""} waiting to be downloaded
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -868,7 +879,7 @@ export default function AdminOrdersPage() {
                         </div>
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                           <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1 w-full sm:w-auto text-center">
-                            {batch.orders.length} orders
+                            {formatCount(batch.orders.length)} orders
                           </Badge>
                           <Button
                             variant="outline"
@@ -1073,7 +1084,7 @@ export default function AdminOrdersPage() {
                 Choose which networks you want to download orders for. 
                 {pendingOrders.length > 0 && (
                   <span className="block mt-2 text-sm">
-                    Available orders: {pendingOrders.length}
+                    Available orders: {formatCount(pendingOrders.length)}
                   </span>
                 )}
               </DialogDescription>
@@ -1116,7 +1127,7 @@ export default function AdminOrdersPage() {
                     <div className="flex-1 text-left">
                       <span className="font-medium text-gray-900">{network}</span>
                       <span className="text-sm text-gray-500 ml-2">
-                        ({networkOrderCount} order{networkOrderCount !== 1 ? 's' : ''})
+                        ({formatCount(networkOrderCount)} order{networkOrderCount !== 1 ? 's' : ''})
                       </span>
                     </div>
                   </button>

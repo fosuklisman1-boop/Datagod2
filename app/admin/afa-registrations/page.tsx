@@ -21,6 +21,17 @@ import { Copy, Loader2, CheckCircle2, AlertCircle, Eye, EyeOff, Filter, Download
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
+// Format large numbers with K/M suffix
+const formatCount = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
+
 interface AFASubmission {
   id: string
   user_id: string
@@ -178,7 +189,7 @@ export default function AFARegistrationsAdminPage() {
               <CardTitle className="text-sm font-medium">Total Submissions</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{submissions.length}</div>
+              <div className="text-2xl font-bold">{formatCount(submissions.length)}</div>
             </CardContent>
           </Card>
 
@@ -188,7 +199,7 @@ export default function AFARegistrationsAdminPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {submissions.filter((s) => s.status === "pending").length}
+                {formatCount(submissions.filter((s) => s.status === "pending").length)}
               </div>
             </CardContent>
           </Card>
@@ -199,7 +210,7 @@ export default function AFARegistrationsAdminPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {submissions.filter((s) => s.status === "processing").length}
+                {formatCount(submissions.filter((s) => s.status === "processing").length)}
               </div>
             </CardContent>
           </Card>
@@ -210,7 +221,7 @@ export default function AFARegistrationsAdminPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {submissions.filter((s) => s.status === "completed").length}
+                {formatCount(submissions.filter((s) => s.status === "completed").length)}
               </div>
             </CardContent>
           </Card>

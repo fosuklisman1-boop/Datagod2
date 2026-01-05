@@ -16,6 +16,17 @@ import { toast } from "sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
+// Format large numbers with K/M suffix
+const formatCount = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
+
 interface User {
   id: string
   email: string
@@ -395,7 +406,7 @@ export default function AdminUsersPage() {
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <CardTitle>All Users ({filteredUsers.length})</CardTitle>
+                <CardTitle>All Users ({formatCount(filteredUsers.length)})</CardTitle>
                 <CardDescription>Manage user roles, balances, and account status</CardDescription>
               </div>
               <div className="w-full sm:w-64">
