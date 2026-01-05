@@ -31,6 +31,7 @@ import {
   Clock,
   Users,
   ShoppingBag,
+  Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -386,6 +387,27 @@ export function Sidebar() {
                     <Settings className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Settings"}
+                </Button>
+              </Link>
+
+              <Link href="/admin/settings/mtn" onClick={() => handleNavigation("/admin/settings/mtn")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
+                    pathname === "/admin/settings/mtn" && "bg-blue-500",
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/settings/mtn" && "opacity-70"
+                  )}
+                  title={!isOpen ? "MTN Settings" : undefined}
+                  disabled={loadingPath === "/admin/settings/mtn"}
+                >
+                  {loadingPath === "/admin/settings/mtn" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Zap className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "MTN Settings"}
                 </Button>
               </Link>
               <Link href="/admin/orders" onClick={() => handleNavigation("/admin/orders")}>
