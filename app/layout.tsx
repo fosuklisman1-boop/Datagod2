@@ -7,6 +7,7 @@ import { AuthProvider } from "@/components/auth-provider";
 import { ChristmasThemeProvider } from "@/components/christmas-theme-provider";
 import { InactivityLogoutProvider } from "@/components/inactivity-logout-provider";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
+import { PeriodicSyncRegister } from "@/components/periodic-sync-register";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -105,6 +106,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <AuthProvider>
             <ServiceWorkerRegister />
+            <PeriodicSyncRegister />
             <ChristmasThemeProvider />
             <InactivityLogoutProvider />
             {children}

@@ -23,6 +23,23 @@ if (workbox.navigationPreload.isSupported()) {
   workbox.navigationPreload.enable();
 }
 
+// Periodic sync event: fetch app data in the background
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'sync-app-data') {
+    event.waitUntil(
+      fetch('/api/periodic/sync')
+        .then((response) => {
+          if (response.ok) {
+            return response.json();
+          }
+        })
+        .catch((error) => {
+          console.log('[SW] Periodic sync failed:', error);
+        })
+    );
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   if (event.request.mode === 'navigate') {
     event.respondWith((async () => {
