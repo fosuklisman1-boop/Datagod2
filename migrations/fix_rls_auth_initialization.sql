@@ -4,30 +4,41 @@
 
 -- Drop and recreate the shop_settings policies with optimized auth calls
 
+-- Anyone can view shop settings (public storefront) - no auth needed
+DROP POLICY IF EXISTS "Anyone can view shop settings" ON public.shop_settings;
+CREATE POLICY "Anyone can view shop settings" ON public.shop_settings
+  FOR SELECT
+  USING (true);
+
 -- Shop owner can update settings
 DROP POLICY IF EXISTS "Shop owner can update settings" ON public.shop_settings;
 CREATE POLICY "Shop owner can update settings" ON public.shop_settings
   FOR UPDATE
-  USING (user_id = (SELECT auth.uid()))
-  WITH CHECK (user_id = (SELECT auth.uid()));
-
--- Shop owner can view settings
-DROP POLICY IF EXISTS "Shop owner can view settings" ON public.shop_settings;
-CREATE POLICY "Shop owner can view settings" ON public.shop_settings
-  FOR SELECT
-  USING (user_id = (SELECT auth.uid()));
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_settings.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
 
 -- Shop owner can insert settings
 DROP POLICY IF EXISTS "Shop owner can insert settings" ON public.shop_settings;
 CREATE POLICY "Shop owner can insert settings" ON public.shop_settings
   FOR INSERT
-  WITH CHECK (user_id = (SELECT auth.uid()));
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_settings.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
 
 -- Shop owner can delete settings
 DROP POLICY IF EXISTS "Shop owner can delete settings" ON public.shop_settings;
 CREATE POLICY "Shop owner can delete settings" ON public.shop_settings
   FOR DELETE
-  USING (user_id = (SELECT auth.uid()));
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_settings.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
 
 -- Also fix any other tables that might have the same issue
 
