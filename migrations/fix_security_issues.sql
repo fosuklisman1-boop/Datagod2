@@ -27,7 +27,7 @@ AS
 SELECT 
   o.id,
   o.user_id,
-  o.total_amount,
+  o.price,
   o.status,
   o.created_at,
   u.email
