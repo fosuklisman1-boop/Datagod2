@@ -1,83 +1,92 @@
 const CACHE_NAME = 'datagod-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/manifest.json',
-  '/favicon_custom.ico',
-  '/favicon-v2.jpeg',
-];
 
-// Install event - cache static assets
+// Pre-cache essential assets on install
 self.addEventListener('install', (event) => {
+  console.log('[Service Worker] Installing...');
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+      return cache.addAll([
+        '/',
+        '/manifest.json',
+        '/favicon.ico',
+      ]);
     })
   );
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// Take control immediately on activate
 self.addEventListener('activate', (event) => {
+  console.log('[Service Worker] Activating...');
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      );
-    })
+    Promise.all([
+      // Clean up old caches
+      caches.keys().then((cacheNames) => {
+        return Promise.all(
+          cacheNames
+            .filter((name) => name !== CACHE_NAME)
+            .map((name) => caches.delete(name))
+        );
+      }),
+      // Claim all clients immediately
+      self.clients.claim(),
+    ])
   );
-  self.clients.claim();
 });
 
-// Fetch event - network first, fall back to cache
+// Network-first strategy for API calls, cache-first for assets
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests and chrome extensions
-  if (event.request.method !== 'GET' || event.request.url.startsWith('chrome-extension')) {
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // Skip non-GET requests
+  if (request.method !== 'GET') {
     return;
   }
 
-  // Skip API requests - always go to network
-  if (event.request.url.includes('/api/')) {
+  // Skip cross-origin requests
+  if (url.origin !== location.origin) {
     return;
   }
 
+  // API requests: network-first
+  if (url.pathname.includes('/api/')) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          // Cache successful API responses
+          if (response.status === 200) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, responseClone);
+            });
+          }
+          return response;
+        })
+        .catch(() => {
+          // Fall back to cache on network error
+          return caches.match(request);
+        })
+    );
+    return;
+  }
+
+  // Static assets: cache-first
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Clone the response before caching
-        const responseClone = response.clone();
-        
-        // Only cache successful responses
+    caches.match(request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      return fetch(request).then((response) => {
         if (response.status === 200) {
+          const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
+            cache.put(request, responseClone);
           });
         }
-        
         return response;
-      })
-      .catch(() => {
-        // Network failed, try cache
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          
-          // Return offline page for navigation requests
-          if (event.request.mode === 'navigate') {
-            return caches.match('/');
-          }
-          
-          return new Response('Offline', { status: 503 });
-        });
-      })
+      });
+    })
   );
-});
-
-// Listen for messages from the app
-self.addEventListener('message', (event) => {
-  if (event.data === 'skipWaiting') {
-    self.skipWaiting();
-  }
 });
