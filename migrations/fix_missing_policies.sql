@@ -7,11 +7,22 @@
 -- complaints policies
 DROP POLICY IF EXISTS "Users can view own complaints" ON public.complaints;
 CREATE POLICY "Users can view own complaints" ON public.complaints
-  FOR SELECT USING (user_id = (SELECT auth.uid()));
+  FOR SELECT USING (
+    user_id = (SELECT auth.uid()) 
+    OR 
+    EXISTS (SELECT 1 FROM users WHERE id = (SELECT auth.uid()) AND role = 'admin')
+  );
 
 DROP POLICY IF EXISTS "Users can insert own complaints" ON public.complaints;
 CREATE POLICY "Users can insert own complaints" ON public.complaints
   FOR INSERT WITH CHECK (user_id = (SELECT auth.uid()));
+
+-- Allow admins to update any complaint
+DROP POLICY IF EXISTS "Admins can update complaints" ON public.complaints;
+CREATE POLICY "Admins can update complaints" ON public.complaints
+  FOR UPDATE USING (
+    EXISTS (SELECT 1 FROM users WHERE id = (SELECT auth.uid()) AND role = 'admin')
+  );
 
 -- afa_orders policies
 DROP POLICY IF EXISTS "Users can view own afa orders" ON public.afa_orders;
