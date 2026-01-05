@@ -67,7 +67,9 @@ export async function GET() {
         .neq("network", "AT - BigTime")
     }
     
-    const { data: bulkOrders, error: bulkError } = await bulkQuery.order("created_at", { ascending: false })
+    const { data: bulkOrders, error: bulkError } = await bulkQuery
+      .order("created_at", { ascending: false })
+      .limit(10000) // Override default 1000 limit to support larger datasets
 
     if (bulkError) {
       console.error("Supabase error fetching bulk orders:", bulkError)
@@ -110,7 +112,9 @@ export async function GET() {
         .neq("network", "AT - BigTime")
     }
     
-    const { data: shopOrders, error: shopError } = await shopQuery.order("created_at", { ascending: false })
+    const { data: shopOrders, error: shopError } = await shopQuery
+      .order("created_at", { ascending: false })
+      .limit(10000) // Override default 1000 limit to support larger datasets
 
     if (shopError) {
       console.error("Supabase error fetching shop orders:", shopError)

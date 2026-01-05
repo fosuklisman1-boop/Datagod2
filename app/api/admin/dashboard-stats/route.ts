@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
     const { data: orders, error: ordersError } = await supabase
       .from("shop_orders")
       .select("id, total_price, order_status")
+      .limit(10000) // Override default 1000 limit to support larger datasets
 
     // Calculate totals
     const totalOrders = orders?.length || 0

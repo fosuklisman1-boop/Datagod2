@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
       .from("orders")
       .select("status", { count: "exact" })
       .eq("user_id", userId)
+      .limit(10000) // Override default 1000 limit to support larger datasets
 
     if (ordersError) {
       console.error("Error fetching orders:", ordersError)
