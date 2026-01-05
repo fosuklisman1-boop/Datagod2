@@ -17,12 +17,6 @@ interface DeleteBatchesRequest {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Get auth header
-    const authHeader = request.headers.get("authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     // Parse request body
     const body: DeleteBatchesRequest = await request.json()
     const { fromDate, toDate, batchIds } = body
