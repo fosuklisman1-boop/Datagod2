@@ -14,6 +14,17 @@ import { ComplaintModal } from "@/components/complaint-modal"
 import { Input } from "@/components/ui/input"
 import { Search } from "lucide-react"
 
+// Format large numbers with K/M suffix
+const formatCount = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
+
 interface OrderStats {
   totalOrders: number
   completed: number
@@ -167,7 +178,7 @@ export default function MyOrdersPage() {
               <ShoppingCart className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalOrders.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{formatCount(stats.totalOrders)}</div>
               <p className="text-xs text-gray-600">All time</p>
             </CardContent>
           </Card>
@@ -178,7 +189,7 @@ export default function MyOrdersPage() {
               <CheckCircle className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.completed.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{formatCount(stats.completed)}</div>
               <p className="text-xs text-gray-600">{stats.successRate.toFixed(1)}% success</p>
             </CardContent>
           </Card>
@@ -189,7 +200,7 @@ export default function MyOrdersPage() {
               <Clock className="h-4 w-4 text-yellow-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.processing}</div>
+              <div className="text-2xl font-bold">{formatCount(stats.processing)}</div>
               <p className="text-xs text-gray-600">In progress</p>
             </CardContent>
           </Card>
@@ -200,7 +211,7 @@ export default function MyOrdersPage() {
               <AlertCircle className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.failed}</div>
+              <div className="text-2xl font-bold">{formatCount(stats.failed)}</div>
               <p className="text-xs text-gray-600">No failures</p>
             </CardContent>
           </Card>
@@ -211,7 +222,7 @@ export default function MyOrdersPage() {
               <Clock className="h-4 w-4 text-indigo-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.pending}</div>
+              <div className="text-2xl font-bold">{formatCount(stats.pending)}</div>
               <p className="text-xs text-gray-600">Awaiting processing</p>
             </CardContent>
           </Card>

@@ -13,6 +13,19 @@ import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
 
+// Format large numbers with K/M suffix
+const formatCount = (num: number | string): string => {
+  const n = typeof num === 'string' ? parseInt(num, 10) : num
+  if (isNaN(n)) return String(num)
+  if (n >= 1000000) {
+    return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (n >= 10000) {
+    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return n.toLocaleString()
+}
+
 interface DashboardStats {
   totalOrders: number
   completed: number
@@ -308,7 +321,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">{stats.totalOrders.toLocaleString()}</div>
+              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">{formatCount(stats.totalOrders)}</div>
               <p className="text-xs text-gray-500">All time orders</p>
             </CardContent>
           </Card>
@@ -322,7 +335,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{stats.completed.toLocaleString()}</div>
+              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{formatCount(stats.completed)}</div>
               <p className="text-xs text-gray-500">{stats.successRate} success rate</p>
             </CardContent>
           </Card>
@@ -336,7 +349,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">{stats.processing}</div>
+              <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">{formatCount(stats.processing)}</div>
               <p className="text-xs text-gray-500">In progress</p>
             </CardContent>
           </Card>
@@ -350,7 +363,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">{stats.failed}</div>
+              <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">{formatCount(stats.failed)}</div>
               <p className="text-xs text-gray-500">No failures</p>
             </CardContent>
           </Card>
@@ -364,7 +377,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{stats.pending}</div>
+              <div className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{formatCount(stats.pending)}</div>
               <p className="text-xs text-gray-500">Awaiting processing</p>
             </CardContent>
           </Card>
