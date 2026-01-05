@@ -82,14 +82,26 @@ CREATE POLICY "Users can insert own complaints" ON public.complaints
   FOR INSERT
   WITH CHECK (user_id = (SELECT auth.uid()));
 
--- shop_orders table
+-- shop_orders table (uses shop_id, not shop_owner_id)
 DROP POLICY IF EXISTS "Shop owner can view orders" ON public.shop_orders;
 CREATE POLICY "Shop owner can view orders" ON public.shop_orders
   FOR SELECT
-  USING (shop_owner_id = (SELECT auth.uid()) OR customer_id = (SELECT auth.uid()));
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_orders.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
 
 DROP POLICY IF EXISTS "Shop owner can update orders" ON public.shop_orders;
 CREATE POLICY "Shop owner can update orders" ON public.shop_orders
   FOR UPDATE
-  USING (shop_owner_id = (SELECT auth.uid()))
-  WITH CHECK (shop_owner_id = (SELECT auth.uid()));
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_orders.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_shops WHERE user_shops.id = shop_orders.shop_id AND user_shops.user_id = (SELECT auth.uid())
+    )
+  );
