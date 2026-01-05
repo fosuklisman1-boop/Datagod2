@@ -43,14 +43,14 @@
   "screenshots": [
     {
       "src": "/screenshots/screenshot-wide.png",
-      "sizes": "1280x720",
+      "sizes": "1330x1064",
       "type": "image/png",
       "form_factor": "wide",
       "label": "DATAGOD Dashboard"
     },
     {
       "src": "/screenshots/screenshot-narrow.png",
-      "sizes": "540x720",
+      "sizes": "1206x2144",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "DATAGOD Mobile View"

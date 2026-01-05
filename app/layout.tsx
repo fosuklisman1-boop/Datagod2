@@ -88,6 +88,18 @@ export default function RootLayout({
       <head>
         {/* Paystack Script */}
         <script src="https://js.paystack.co/v1/inline.js" async></script>
+        {/* Service Worker Registration - inline for PWA detection */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js');
+                });
+              }
+            `,
+          }}
+        />
       </head>
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
