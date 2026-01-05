@@ -225,17 +225,3 @@ DROP POLICY IF EXISTS "Users can insert afa orders" ON public.afa_orders;
 CREATE POLICY "Users can insert afa orders" ON public.afa_orders
   FOR INSERT
   WITH CHECK (user_id = (SELECT auth.uid()));
-
--- =============================================
--- SUB_AGENTS TABLE
--- =============================================
-DROP POLICY IF EXISTS "Users can view their sub agents" ON public.sub_agents;
-CREATE POLICY "Users can view their sub agents" ON public.sub_agents
-  FOR SELECT
-  USING (parent_user_id = (SELECT auth.uid()) OR user_id = (SELECT auth.uid()));
-
-DROP POLICY IF EXISTS "Users can manage their sub agents" ON public.sub_agents;
-CREATE POLICY "Users can manage their sub agents" ON public.sub_agents
-  FOR ALL
-  USING (parent_user_id = (SELECT auth.uid()))
-  WITH CHECK (parent_user_id = (SELECT auth.uid()));
