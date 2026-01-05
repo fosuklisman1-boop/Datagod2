@@ -585,6 +585,36 @@ export default function AdminComplaintsPage() {
                           </Button>
                         </div>
                       </div>
+                      {selectedComplaint.order_details.date && (
+                        <div>
+                          <Label className="text-xs font-semibold text-gray-600 uppercase">
+                            Order Date
+                          </Label>
+                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded mt-1">
+                            {new Date(selectedComplaint.order_details.date).toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                      {selectedComplaint.order_details.network && (
+                        <div>
+                          <Label className="text-xs font-semibold text-gray-600 uppercase">
+                            Network
+                          </Label>
+                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded mt-1">
+                            {selectedComplaint.order_details.network}
+                          </p>
+                        </div>
+                      )}
+                      {selectedComplaint.order_details.amount && (
+                        <div>
+                          <Label className="text-xs font-semibold text-gray-600 uppercase">
+                            Amount
+                          </Label>
+                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded mt-1">
+                            ₵ {selectedComplaint.order_details.amount.toFixed(2)}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
