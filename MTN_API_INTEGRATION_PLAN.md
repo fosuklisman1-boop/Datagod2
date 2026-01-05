@@ -109,9 +109,13 @@
 ```
 Shop Order (MTN)
     ↓
-Pre-Fulfillment Checks:
-  ✓ Phone number validation (format + network match)
-  ✓ Balance check (sufficient funds)
+Check: Is MTN Auto-Fulfillment ENABLED?
+    ↓
+  [YES] → Auto-Fulfill via MTN API          [NO] → Queue for Admin Download
+    ↓                                              ↓
+Pre-Fulfillment Checks:                    Add to shop_orders with
+  ✓ Phone number validation                 status: 'pending_download'
+  ✓ Balance check (sufficient funds)        (Admin downloads + fulfills manually)
   ✓ Data size availability
     ↓
 MTN API Request
@@ -130,6 +134,29 @@ Update Order Status
   → fulfillment_logs table
   → shop_orders table
   → Send notification to customer
+```
+
+### Admin Control Panel
+
+```
+MTN Auto-Fulfillment Settings
+┌─────────────────────────────────────┐
+│ Enable MTN Auto-Fulfillment         │
+│                                     │
+│ Status: [🔵 ON] [⚪ OFF]           │
+│                                     │
+│ When OFF:                           │
+│ • MTN orders go to Downloads tab    │
+│ • Admin manually triggers fulfillment
+│ • Manual control over each order    │
+│                                     │
+│ When ON:                            │
+│ • Orders auto-fulfill immediately   │
+│ • Tracked in MTN Fulfillment tab    │
+│ • Faster customer delivery          │
+│                                     │
+│ Last Updated: 2024-01-05 14:30     │
+└─────────────────────────────────────┘
 ```
 
 ### Database Schema Changes Needed
@@ -160,16 +187,32 @@ CREATE INDEX idx_mtn_fulfillment_mtn_order_id ON mtn_fulfillment_tracking(mtn_or
 CREATE INDEX idx_mtn_fulfillment_status ON mtn_fulfillment_tracking(status);
 ```
 
-#### Update: `fulfillment_logs` table
-- Add column: `external_order_id` (stores MTN order_id)
-- Add column: `external_api` (stores "MTN")
-- Add column: `external_response` (JSONB for full response)
+#### Update: `app_settings` table
+Add new setting for MTN auto-fulfillment:
+```sql
+INSERT INTO app_settings (key, value, description, updated_at)
+VALUES (
+  'mtn_auto_fulfillment_enabled',
+  'false',
+  'Enable/disable automatic fulfillment of MTN orders via MTN API',
+  NOW()
+);
+```
+
+#### Update: `shop_orders` table
+Add column to track fulfillment method:
+```sql
+ALTER TABLE shop_orders 
+ADD COLUMN fulfillment_method VARCHAR(50) DEFAULT 'manual', -- 'manual', 'auto_mtn'
+ADD COLUMN external_order_id INTEGER REFERENCES mtn_fulfillment_tracking(mtn_order_id);
+```
 
 ### Code Structure
 
 ```
 lib/
   mtn-fulfillment.ts          ← Main service
+    • isAutoFulfillmentEnabled()  ← Check if MTN auto-fulfill is ON
     • validatePhoneNumber()
     • validateBalance()
     • createOrder()
@@ -177,49 +220,68 @@ lib/
     • handleError()
 
 app/api/
-  fulfillment/
-    webhook/
-      mtn/
-        route.ts              ← Webhook receiver
-          • Verify signature
-          • Update order status
-          • Send notifications
-
   admin/
+    settings/
+      mtn-auto-fulfillment/
+        route.ts              ← Get/update auto-fulfillment setting
+          • GET: Return current status
+          • POST: Toggle on/off
+    
     fulfillment/
+      webhook/
+        mtn/
+          route.ts            ← Webhook receiver
+            • Verify signature
+            • Update order status
+            • Send notifications
+      
       mtn-balance/
         route.ts              ← Check MTN balance (admin only)
 
   fulfillment/
-    mtn/
-      create-order/
-        route.ts              ← Trigger MTN order creation
+    process-order/
+      route.ts                ← Main order processing
+        • Check MTN auto-fulfillment setting
+        • Route to auto-fulfill OR manual download
 ```
 
 ---
 
 ## Implementation Steps
 
-### Phase 1: Core Integration (Week 1)
+### Phase 1: Settings & Toggle UI (Week 1)
+- [ ] Add `mtn_auto_fulfillment_enabled` to app_settings
+- [ ] Create admin settings endpoint (GET/POST)
+- [ ] Build toggle UI in admin settings page
+- [ ] Test on/off switching
+
+### Phase 2: Core Integration (Week 1-2)
 - [ ] Create `lib/mtn-fulfillment.ts` service
 - [ ] Add phone validation logic
 - [ ] Implement MTN API client
 - [ ] Create `mtn_fulfillment_tracking` table
 - [ ] Add webhook endpoint `/api/webhook/mtn`
 
-### Phase 2: Order Flow (Week 2)
+### Phase 3: Order Routing (Week 2)
+- [ ] Update order processing to check auto-fulfillment setting
+- [ ] Route to auto-fulfill if ON
+- [ ] Route to manual download if OFF
+- [ ] Add fulfillment_method tracking to shop_orders
+
+### Phase 4: Order Flow (Week 2-3)
 - [ ] Integrate into fulfillment service
 - [ ] Add balance pre-check
 - [ ] Implement retry logic with exponential backoff
 - [ ] Add error logging and recovery
 
-### Phase 3: Admin Features (Week 3)
+### Phase 5: Admin Features (Week 3)
 - [ ] Dashboard showing MTN fulfillment status
 - [ ] Manual order creation/retry
 - [ ] Balance monitoring
 - [ ] Error tracking and analysis
+- [ ] View/manage both auto and manual fulfillment
 
-### Phase 4: Testing & Deployment (Week 4)
+### Phase 6: Testing & Deployment (Week 4)
 - [ ] Unit tests for phone validation
 - [ ] Integration tests with MTN API
 - [ ] Webhook signature verification tests
@@ -359,14 +421,17 @@ MTN_API_KEY=fe1c1c505a3d8fecd4ce794113bebe9d3849b3f611fb1745
 MTN_API_BASE_URL=https://sykesofficial.net
 MTN_WEBHOOK_SECRET=<signature key>
 
-# Fulfillment
-MTN_AUTO_FULFILL=true
-MTN_BALANCE_ALERT_THRESHOLD=500
+# Fulfillment Settings
+MTN_AUTO_FULFILLMENT_DEFAULT=false  # Default setting when app starts
+MTN_AUTO_FULFILL_TIMEOUT_MS=30000   # Timeout for auto-fulfillment request
+
+# Retry & Recovery
 MTN_RETRY_MAX_ATTEMPTS=4
 MTN_RETRY_BACKOFF_MS=5000
 MTN_REQUEST_TIMEOUT_MS=30000
 
 # Monitoring
+MTN_BALANCE_ALERT_THRESHOLD=500
 MTN_FAILURE_RATE_ALERT_THRESHOLD=5
 MTN_WEBHOOK_DELIVERY_TIMEOUT_MS=60000
 ```
@@ -376,16 +441,18 @@ MTN_WEBHOOK_DELIVERY_TIMEOUT_MS=60000
 ## Implementation Priority
 
 ### 🔴 Critical (Do First)
-1. Phone number validation
-2. MTN API client with error handling
-3. Webhook receiver with signature verification
-4. Order status tracking in DB
+1. Add MTN auto-fulfillment setting to app_settings
+2. Create admin settings toggle UI
+3. Phone number validation
+4. MTN API client with error handling
+5. Order routing logic (check setting, auto vs manual)
 
 ### 🟡 Important (Do Second)
-1. Balance pre-check
-2. Retry logic
-3. Error logging
-4. Fulfillment integration
+1. Webhook receiver with signature verification
+2. Order status tracking in DB
+3. Balance pre-check
+4. Retry logic
+5. Error logging
 
 ### 🟢 Nice-to-Have (Do Last)
 1. Admin dashboard features
