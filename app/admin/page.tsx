@@ -11,6 +11,17 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { adminDashboardService } from "@/lib/admin-service"
 import { toast } from "sonner"
 
+// Format large numbers with K/M suffix
+const formatCount = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
+
 interface DashboardStats {
   totalUsers: number
   totalShops: number
@@ -118,7 +129,7 @@ export default function AdminDashboardPage() {
                 <Users className="h-4 w-4 text-blue-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">{stats.totalUsers}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">{formatCount(stats.totalUsers)}</div>
                 <p className="text-xs text-gray-500">Registered users</p>
               </CardContent>
             </Card>
@@ -130,7 +141,7 @@ export default function AdminDashboardPage() {
                 <Store className="h-4 w-4 text-emerald-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{stats.totalShops}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{formatCount(stats.totalShops)}</div>
                 <p className="text-xs text-gray-500">Active shops</p>
               </CardContent>
             </Card>
@@ -142,7 +153,7 @@ export default function AdminDashboardPage() {
                 <Users className="h-4 w-4 text-purple-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-fuchsia-600 bg-clip-text text-transparent">{stats.totalSubAgents}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-fuchsia-600 bg-clip-text text-transparent">{formatCount(stats.totalSubAgents)}</div>
                 <p className="text-xs text-gray-500">Active sub-agents</p>
               </CardContent>
             </Card>
@@ -154,7 +165,7 @@ export default function AdminDashboardPage() {
                 <Package className="h-4 w-4 text-amber-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">{stats.totalOrders}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">{formatCount(stats.totalOrders)}</div>
                 <p className="text-xs text-gray-500">All time orders</p>
               </CardContent>
             </Card>
@@ -209,7 +220,7 @@ export default function AdminDashboardPage() {
               <div className="flex items-center gap-4">
                 <AlertCircle className="h-6 w-6 text-orange-600" />
                 <div>
-                  <p className="font-semibold text-gray-900">{stats.pendingShops} Pending Shop Approval{stats.pendingShops !== 1 ? "s" : ""}</p>
+                  <p className="font-semibold text-gray-900">{formatCount(stats.pendingShops)} Pending Shop Approval{stats.pendingShops !== 1 ? "s" : ""}</p>
                   <p className="text-sm text-gray-600">There are shops waiting for approval</p>
                 </div>
               </div>
@@ -403,7 +414,7 @@ export default function AdminDashboardPage() {
             <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-6">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Completed Orders</p>
-                <p className="text-2xl font-bold text-indigo-600">{stats.completedOrders}</p>
+                <p className="text-2xl font-bold text-indigo-600">{formatCount(stats.completedOrders)}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-600 mb-1">Success Rate</p>

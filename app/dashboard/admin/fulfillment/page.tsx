@@ -11,6 +11,17 @@ import { RefreshCw, Download, AlertCircle, CheckCircle, Clock, XCircle } from "l
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
+// Format large numbers with K/M suffix
+const formatCount = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  }
+  return num.toLocaleString()
+}
+
 interface FulfillmentOrder {
   id: string
   order_id: string
@@ -197,7 +208,7 @@ export default function AdminFulfillmentPage() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold">{stats.total}</p>
+                <p className="text-3xl font-bold">{formatCount(stats.total)}</p>
                 <p className="text-sm text-gray-600">Total Orders</p>
               </div>
             </CardContent>
@@ -205,7 +216,7 @@ export default function AdminFulfillmentPage() {
           <Card className="bg-green-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-green-600">{stats.success}</p>
+                <p className="text-3xl font-bold text-green-600">{formatCount(stats.success)}</p>
                 <p className="text-sm text-gray-600">Success</p>
               </div>
             </CardContent>
@@ -213,7 +224,7 @@ export default function AdminFulfillmentPage() {
           <Card className="bg-red-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-red-600">{stats.failed}</p>
+                <p className="text-3xl font-bold text-red-600">{formatCount(stats.failed)}</p>
                 <p className="text-sm text-gray-600">Failed</p>
               </div>
             </CardContent>
@@ -221,7 +232,7 @@ export default function AdminFulfillmentPage() {
           <Card className="bg-blue-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-blue-600">{stats.processing}</p>
+                <p className="text-3xl font-bold text-blue-600">{formatCount(stats.processing)}</p>
                 <p className="text-sm text-gray-600">Processing</p>
               </div>
             </CardContent>
@@ -229,7 +240,7 @@ export default function AdminFulfillmentPage() {
           <Card className="bg-gray-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-gray-600">{stats.pending}</p>
+                <p className="text-3xl font-bold text-gray-600">{formatCount(stats.pending)}</p>
                 <p className="text-sm text-gray-600">Pending</p>
               </div>
             </CardContent>
