@@ -71,8 +71,24 @@ FROM pg_stat_user_indexes
 ORDER BY idx_scan DESC;
 ```
 
+## Expected Behavior After Applying Migrations
+
+### New Foreign Key Indexes (Migration 0032)
+- **Initially Appear as "Unused"**: New indexes show as unused in Supabase linter immediately after creation
+- **Why**: The `idx_scan` counter starts at 0 until queries actually use them
+- **When Used**: Indexes will be marked as "used" once queries with WHERE/JOIN clauses on those columns execute
+- **Timeline**: Typically within days after applying migrations during normal application usage
+- **Recommendation**: Re-run Supabase linter after 1-2 weeks of normal operation to confirm they're being used
+
+### Old Unused Indexes (Migration 0033)
+- **Action Required**: Run the DROP migration (0033) to remove these from your database
+- **After Drop**: They will disappear from linter reports
+- **Safe**: These indexes have never been used since database creation
+
 ## Notes
 - All migrations use `IF NOT EXISTS` and `IF EXISTS` for idempotency
 - Safe to run multiple times without errors
 - No data is modified, only index structure changes
+- New indexes show as "unused" initially because `idx_scan` counter starts at 0
+- This is expected and normal behavior for newly created indexes
 - Commit: Supabase performance optimization - add foreign key indexes and drop unused indexes
