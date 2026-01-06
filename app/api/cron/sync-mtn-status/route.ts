@@ -14,29 +14,10 @@ const CRON_SECRET = process.env.CRON_SECRET
  * 
  * Cron job to sync MTN order statuses from Sykes API.
  * Should be called periodically (e.g., every 5 minutes).
- * 
- * Vercel Cron: Add to vercel.json (uses CRON_SECRET env var automatically)
- * External Cron: Use cron-job.org or similar with CRON_SECRET header
  */
 export async function GET(request: NextRequest) {
   try {
-    // Check for Vercel Cron header (Vercel automatically adds this)
-    const isVercelCron = request.headers.get("x-vercel-cron") === "1"
-    
-    // Check for manual auth via Authorization header
-    const authHeader = request.headers.get("authorization")
-    const cronSecret = authHeader?.replace("Bearer ", "")
-    const isAuthorizedManual = CRON_SECRET && cronSecret === CRON_SECRET
-    
-    // Allow if: Vercel cron, valid secret, or no secret configured (dev mode)
-    const isAuthorized = isVercelCron || isAuthorizedManual || !CRON_SECRET
-    
-    if (process.env.NODE_ENV === "production" && !isAuthorized) {
-      console.log("[CRON] Unauthorized cron request")
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    console.log("[CRON] Starting MTN status sync...", { isVercelCron, isAuthorizedManual })
+    console.log("[CRON] Starting MTN status sync...")
 
     // Get all pending and processing orders
     const { data: pendingOrders, error: fetchError } = await supabase
