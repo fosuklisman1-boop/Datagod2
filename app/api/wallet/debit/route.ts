@@ -230,6 +230,33 @@ export async function POST(request: NextRequest) {
               console.error("[WALLET-DEBIT] Error in fulfillment trigger:", fulfillmentError)
             }
           }
+
+          // Handle MTN fulfillment separately via unified fulfillment endpoint
+          const isMTNNetwork = normalizedNetwork.toLowerCase() === "mtn"
+          if (isMTNNetwork && shopOrder.customer_phone) {
+            console.log(`[WALLET-DEBIT] MTN order detected. Triggering unified fulfillment for order ${orderId}`)
+            const sizeGb = parseInt(shopOrder.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+            
+            // Non-blocking MTN fulfillment trigger via unified endpoint
+            fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.datagod.store'}/api/fulfillment/process-order`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                shop_order_id: orderId,
+                network: "MTN",
+                phone_number: shopOrder.customer_phone,
+                volume_gb: sizeGb,
+                customer_name: shopOrder.customer_phone,
+              }),
+            }).then(async (res) => {
+              const result = await res.json()
+              console.log(`[WALLET-DEBIT] ✓ MTN fulfillment triggered for order ${orderId}:`, result)
+            }).catch(err => {
+              console.error(`[WALLET-DEBIT] ❌ Error triggering MTN fulfillment for order ${orderId}:`, err)
+            })
+          }
         }
 
         // Create parent shop profit record if this is a sub-agent order
