@@ -597,9 +597,10 @@ export async function saveMTNTracking(
 ): Promise<string | null> {
   try {
     // Build insert data based on order type
+    // Set status to "processing" since the order was successfully sent to the API
     const insertData: Record<string, unknown> = {
       mtn_order_id: mtnOrderId,
-      status: "pending",
+      status: "processing",
       recipient_phone: request.recipient_phone,
       network: request.network,
       size_gb: request.size_gb,
