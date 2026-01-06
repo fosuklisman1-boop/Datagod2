@@ -123,7 +123,17 @@ async function handleMTNAutoFulfillment(
 
       // Send error SMS to customer
       try {
-        await sendSMS(phoneNumber, SMSTemplates.ORDER_FAILED(customerName || "Customer"))
+        await sendSMS({
+          phone: phoneNumber,
+          message: SMSTemplates.fulfillmentFailed(
+            shopOrderId.substring(0, 8),
+            phoneNumber,
+            network,
+            volumeGb.toString(),
+            mtnResponse.message || "Order could not be processed"
+          ),
+          type: "fulfillment_failed",
+        })
       } catch (smsError) {
         console.error("[FULFILLMENT] Failed to send error SMS:", smsError)
       }
@@ -178,15 +188,16 @@ async function handleMTNAutoFulfillment(
 
     // Send success SMS with order tracking info
     try {
-      await sendSMS(
-        phoneNumber,
-        SMSTemplates.ORDER_SUCCESS(
-          customerName || "Customer",
-          `${volumeGb}GB`,
+      await sendSMS({
+        phone: phoneNumber,
+        message: SMSTemplates.orderPaymentConfirmed(
+          mtnResponse.order_id?.toString() || shopOrderId.substring(0, 8),
           network,
-          mtnResponse.order_id?.toString() || ""
-        )
-      )
+          volumeGb.toString(),
+          "Paid"
+        ),
+        type: "order_confirmed",
+      })
     } catch (smsError) {
       console.error("[FULFILLMENT] Failed to send success SMS:", smsError)
     }

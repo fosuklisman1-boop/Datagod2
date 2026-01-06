@@ -1,16 +1,31 @@
 import { supabase } from "@/lib/supabase"
 import crypto from "crypto"
+import {
+  mtnConfig,
+  isCircuitBreakerOpen,
+  isRateLimited,
+  recordSuccess,
+  recordFailure,
+  recordRequest,
+  recordMetrics,
+  log,
+  generateTraceId,
+  classifyError,
+} from "@/lib/mtn-production-config"
 
 export interface MTNOrderRequest {
   recipient_phone: string
   network: "MTN" | "Telecel" | "AirtelTigo"
   size_gb: number
+  traceId?: string
 }
 
 export interface MTNOrderResponse {
   success: boolean
   order_id?: number
   message: string
+  traceId?: string
+  error_type?: string
 }
 
 export interface MTNWebhookPayload {
@@ -34,9 +49,10 @@ export interface MTNWebhookPayload {
   }
 }
 
-const MTN_API_KEY = process.env.MTN_API_KEY || ""
-const MTN_API_BASE_URL = process.env.MTN_API_BASE_URL || "https://sykesofficial.net"
-const REQUEST_TIMEOUT = 30000 // 30 seconds
+// Use production config
+const MTN_API_KEY = mtnConfig.apiKey
+const MTN_API_BASE_URL = mtnConfig.apiBaseUrl
+const REQUEST_TIMEOUT = mtnConfig.requestTimeout
 
 // MTN phone number prefixes by network
 const MTN_PREFIXES = ["024", "025", "053", "054", "055", "059"]
@@ -174,42 +190,75 @@ export async function checkMTNBalance(): Promise<number | null> {
 }
 
 /**
- * Create order via MTN API
+ * Create order via MTN API (Production-ready with circuit breaker, rate limiting, and metrics)
  */
 export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderResponse> {
+  const traceId = order.traceId || generateTraceId()
+  const startTime = Date.now()
+
   try {
+    log("info", "Order", "Creating MTN order", {
+      traceId,
+      network: order.network,
+      sizeGb: order.size_gb,
+    })
+
+    // Check circuit breaker
+    if (isCircuitBreakerOpen(mtnConfig)) {
+      log("warn", "Order", "Circuit breaker is open - rejecting request", { traceId })
+      return {
+        success: false,
+        message: "Service temporarily unavailable. Please try again later.",
+        traceId,
+        error_type: "CIRCUIT_BREAKER",
+      }
+    }
+
+    // Check rate limit
+    if (isRateLimited(mtnConfig)) {
+      log("warn", "Order", "Rate limit exceeded", { traceId })
+      return {
+        success: false,
+        message: "Too many requests. Please wait and try again.",
+        traceId,
+        error_type: "RATE_LIMIT",
+      }
+    }
+
     // Validate inputs
     if (!isValidPhoneFormat(order.recipient_phone)) {
+      log("warn", "Order", "Invalid phone format", { traceId, phone: order.recipient_phone })
       return {
         success: false,
         message: `Invalid phone number format: ${order.recipient_phone}`,
+        traceId,
+        error_type: "VALIDATION",
       }
     }
 
     if (!validatePhoneNetworkMatch(order.recipient_phone, order.network)) {
+      log("warn", "Order", "Phone/network mismatch", { traceId })
       return {
         success: false,
         message: `Phone number does not match ${order.network} network`,
+        traceId,
+        error_type: "VALIDATION",
       }
     }
 
     const normalized_phone = normalizePhoneNumber(order.recipient_phone)
 
-    // Check balance first
-    const balance = await checkMTNBalance()
-    if (balance === null) {
-      return {
-        success: false,
-        message: "Unable to verify balance. Please try again.",
-      }
-    }
+    // Record request for rate limiting
+    recordRequest()
 
     // Make API call
+    log("debug", "Order", "Calling MTN API", { traceId })
     const response = await fetch(`${MTN_API_BASE_URL}/api/orders`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-API-KEY": MTN_API_KEY,
+        "X-Trace-ID": traceId,
       },
       body: JSON.stringify({
         recipient_phone: normalized_phone,
@@ -220,23 +269,52 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     })
 
     const data = (await response.json()) as MTNOrderResponse
+    const latency = Date.now() - startTime
 
     if (!response.ok) {
-      console.error("[MTN] API error response:", data)
+      log("error", "Order", "MTN API error response", { traceId, status: response.status, data })
+      recordFailure(mtnConfig)
+      recordMetrics(false, latency)
+
       return {
         success: false,
         message: data.message || `API returned ${response.status}`,
+        traceId,
+        error_type: "API_ERROR",
       }
     }
 
-    return data
+    // Success!
+    recordSuccess()
+    recordMetrics(true, latency)
+    log("info", "Order", "MTN order created successfully", {
+      traceId,
+      orderId: data.order_id,
+      latencyMs: latency,
+    })
+
+    return {
+      ...data,
+      traceId,
+    }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error"
-    console.error("[MTN] Error creating order:", message)
+    const latency = Date.now() - startTime
+    const classified = classifyError(error)
+
+    log("error", "Order", "Error creating MTN order", {
+      traceId,
+      errorType: classified.type,
+      message: classified.message,
+    })
+
+    recordFailure(mtnConfig)
+    recordMetrics(false, latency)
 
     return {
       success: false,
-      message: `Failed to create order: ${message}`,
+      message: classified.userMessage,
+      traceId,
+      error_type: classified.type,
     }
   }
 }
