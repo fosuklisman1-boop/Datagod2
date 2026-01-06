@@ -268,13 +268,14 @@ export async function POST(request: NextRequest) {
             
             console.log(`[FULFILLMENT] ✓ MTN API response for order ${order[0].id}:`, mtnResult)
             
-            // Save tracking record
+            // Save tracking record (bulk order type since this is from orders table)
             if (mtnResult.order_id) {
               await saveMTNTracking(
                 order[0].id,
                 mtnResult.order_id,
                 mtnRequest,
-                mtnResult
+                mtnResult,
+                "bulk"  // This is a bulk order from the data packages page
               )
             }
             

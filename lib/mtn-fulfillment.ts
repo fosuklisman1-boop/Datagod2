@@ -390,30 +390,47 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
 
 /**
  * Save MTN order to tracking table
+ * @param orderId - The order ID (either from shop_orders or orders table)
+ * @param mtnOrderId - The MTN order ID from the API response
+ * @param request - The MTN order request
+ * @param response - The MTN order response
+ * @param orderType - 'shop' for storefront orders, 'bulk' for data package orders
  */
 export async function saveMTNTracking(
-  shopOrderId: string,
+  orderId: string,
   mtnOrderId: number,
   request: MTNOrderRequest,
-  response: MTNOrderResponse
+  response: MTNOrderResponse,
+  orderType: "shop" | "bulk" = "shop"
 ): Promise<string | null> {
   try {
+    // Build insert data based on order type
+    const insertData: Record<string, unknown> = {
+      mtn_order_id: mtnOrderId,
+      status: "pending",
+      recipient_phone: request.recipient_phone,
+      network: request.network,
+      size_gb: request.size_gb,
+      api_request_payload: request,
+      api_response_payload: response,
+      order_type: orderType,
+    }
+
+    // Set the appropriate order ID column based on type
+    if (orderType === "shop") {
+      insertData.shop_order_id = orderId
+    } else {
+      insertData.order_id = orderId
+    }
+
     const { data, error } = await supabase
       .from("mtn_fulfillment_tracking")
-      .insert({
-        shop_order_id: shopOrderId,
-        mtn_order_id: mtnOrderId,
-        status: "pending",
-        recipient_phone: request.recipient_phone,
-        network: request.network,
-        size_gb: request.size_gb,
-        api_request_payload: request,
-        api_response_payload: response,
-      })
+      .insert(insertData)
       .select("id")
       .single()
 
     if (error) throw error
+    console.log(`[MTN] Tracking record created: ${data?.id} for ${orderType} order ${orderId}`)
     return data?.id || null
   } catch (error) {
     console.error("[MTN] Error saving tracking:", error)
