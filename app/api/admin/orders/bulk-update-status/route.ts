@@ -74,6 +74,25 @@ export async function POST(request: NextRequest) {
 
       console.log(`[BULK-UPDATE] ✓ Updated ${bulkOrderIds.length} bulk orders to status: ${status}`)
 
+      // Also update MTN fulfillment tracking records if they exist (by order_id for bulk)
+      try {
+        const { error: mtnUpdateError } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .update({ 
+            status: status, 
+            updated_at: new Date().toISOString() 
+          })
+          .in("order_id", bulkOrderIds)
+
+        if (mtnUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating MTN tracking for bulk orders:", mtnUpdateError)
+        } else {
+          console.log(`[BULK-UPDATE] ✓ Updated MTN tracking records for bulk orders`)
+        }
+      } catch (mtnError) {
+        console.warn("[BULK-UPDATE] Error updating MTN tracking for bulk orders:", mtnError)
+      }
+
       // Send notifications for completed or failed bulk orders
       if (status === "completed" || status === "failed") {
         try {
@@ -181,6 +200,25 @@ export async function POST(request: NextRequest) {
             console.warn(`  Order ${o.id}: expected "${status}" but got "${o.order_status}"`)
           })
         }
+      }
+
+      // Also update MTN fulfillment tracking records for shop orders
+      try {
+        const { error: mtnUpdateError } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .update({ 
+            status: status, 
+            updated_at: new Date().toISOString() 
+          })
+          .in("shop_order_id", shopOrderIds)
+
+        if (mtnUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating MTN tracking for shop orders:", mtnUpdateError)
+        } else {
+          console.log(`[BULK-UPDATE] ✓ Updated MTN tracking records for shop orders`)
+        }
+      } catch (mtnError) {
+        console.warn("[BULK-UPDATE] Error updating MTN tracking for shop orders:", mtnError)
       }
 
       // Send notifications for completed or failed shop orders

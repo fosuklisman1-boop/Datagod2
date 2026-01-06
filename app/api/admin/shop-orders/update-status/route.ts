@@ -40,6 +40,25 @@ export async function POST(request: NextRequest) {
 
     console.log(`[SHOP-ORDERS-UPDATE] ✓ Updated ${orderIds.length} shop orders to status: ${status}`)
 
+    // Also update MTN fulfillment tracking records if they exist
+    try {
+      const { error: mtnUpdateError } = await supabase
+        .from("mtn_fulfillment_tracking")
+        .update({ 
+          status: status, 
+          updated_at: new Date().toISOString() 
+        })
+        .in("shop_order_id", orderIds)
+
+      if (mtnUpdateError) {
+        console.warn("[SHOP-ORDERS-UPDATE] Error updating MTN tracking:", mtnUpdateError)
+      } else {
+        console.log(`[SHOP-ORDERS-UPDATE] ✓ Updated MTN tracking records for ${orderIds.length} orders`)
+      }
+    } catch (mtnError) {
+      console.warn("[SHOP-ORDERS-UPDATE] Error updating MTN tracking:", mtnError)
+    }
+
     // Send notifications to users about their order status change
     try {
       const { data: shopOrders, error: ordersError } = await supabase
