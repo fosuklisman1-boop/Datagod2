@@ -7,7 +7,7 @@
   "crons": [
     {
       "path": "/api/cron/sync-mtn-status",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }
