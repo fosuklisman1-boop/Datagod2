@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
       .from("shop_orders")
       .select("id, payment_reference, network, customer_phone, volume_gb, customer_name, payment_status, order_status, created_at")
       .in("payment_status", ["pending", "abandoned"]) // Check both pending and abandoned
-      .in("order_status", ["pending", "awaiting_payment"]) // Only orders not yet fulfilled
+      .eq("order_status", "pending") // Only orders not yet processing/completed
       .not("payment_reference", "is", null)
       .lt("created_at", thresholdTime)
       .order("created_at", { ascending: true })
