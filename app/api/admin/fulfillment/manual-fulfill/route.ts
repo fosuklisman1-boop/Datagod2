@@ -78,7 +78,17 @@ export async function POST(request: NextRequest) {
 
       // Send error SMS
       try {
-        await sendSMS(orderData.customer_phone, SMSTemplates.ORDER_FAILED(orderData.customer_name || "Customer"))
+        await sendSMS({
+          phone: orderData.customer_phone,
+          message: SMSTemplates.fulfillmentFailed(
+            shop_order_id.substring(0, 8),
+            orderData.customer_phone,
+            orderData.network || "MTN",
+            orderData.volume_gb?.toString() || "0",
+            mtnResponse.message || "Order could not be processed"
+          ),
+          type: "fulfillment_failed",
+        })
       } catch (smsError) {
         console.error("[MANUAL-FULFILL] Failed to send error SMS:", smsError)
       }
@@ -128,15 +138,16 @@ export async function POST(request: NextRequest) {
     // Send success SMS
     try {
       const sizeGb = parseInt(orderData.volume_gb?.toString() || "0")
-      await sendSMS(
-        orderData.customer_phone,
-        SMSTemplates.ORDER_SUCCESS(
-          orderData.customer_name || "Customer",
-          `${sizeGb}GB`,
+      await sendSMS({
+        phone: orderData.customer_phone,
+        message: SMSTemplates.orderPaymentConfirmed(
+          shop_order_id.substring(0, 8),
           "MTN",
-          mtnResponse.order_id?.toString() || ""
-        )
-      )
+          sizeGb.toString(),
+          "0"
+        ),
+        type: "order_fulfilled",
+      })
     } catch (smsError) {
       console.error("[MANUAL-FULFILL] Failed to send success SMS:", smsError)
     }
