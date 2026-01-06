@@ -33,11 +33,21 @@ async function verifyWithPaystack(reference: string): Promise<{
 
     const data = await response.json()
 
-    if (!response.ok || !data.status) {
+    // If Paystack returns 404 or 'not found', treat as abandoned
+    if (response.status === 404 || (data && typeof data.message === 'string' && data.message.toLowerCase().includes('not found'))) {
       return {
         success: false,
-        status: "pending",
-        message: data.message || "Verification failed",
+        status: "abandoned",
+        message: data.message || "Transaction not found (abandoned)",
+      }
+    }
+
+    // If data or data.status is missing, treat as abandoned
+    if (!data || !data.status || !data.data) {
+      return {
+        success: false,
+        status: "abandoned",
+        message: data && data.message ? data.message : "No data from Paystack (abandoned)",
       }
     }
 
