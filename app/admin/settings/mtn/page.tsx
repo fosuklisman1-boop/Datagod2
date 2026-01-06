@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
 interface MTNSettings {
@@ -54,9 +55,15 @@ export default function MTNSettingsPage() {
   const loadSettings = async () => {
     try {
       setLoadingSettings(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        router.push("/login")
+        return
+      }
       const response = await fetch("/api/admin/settings/mtn-auto-fulfillment", {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+          Authorization: `Bearer ${session.access_token}`,
         },
       })
 
@@ -79,9 +86,13 @@ export default function MTNSettingsPage() {
 
   const loadBalance = async () => {
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        return
+      }
       const response = await fetch("/api/admin/fulfillment/mtn-balance", {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+          Authorization: `Bearer ${session.access_token}`,
         },
       })
 
@@ -101,11 +112,16 @@ export default function MTNSettingsPage() {
 
     try {
       setToggling(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
       const response = await fetch("/api/admin/settings/mtn-auto-fulfillment", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           enabled: !settings.enabled,

@@ -22,13 +22,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if user is admin
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
+    const { data: userData, error: userTableError } = await supabase
+      .from("users")
       .select("role")
       .eq("id", user.user.id)
       .single()
 
-    if (profileError || profile?.role !== "admin") {
+    // Also check user_metadata for admin role
+    const isAdminFromMetadata = user.user.user_metadata?.role === "admin"
+    const isAdminFromTable = userData?.role === "admin"
+
+    if (!isAdminFromMetadata && !isAdminFromTable) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
@@ -80,13 +84,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user is admin
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
+    const { data: userData, error: userTableError } = await supabase
+      .from("users")
       .select("role")
       .eq("id", user.user.id)
       .single()
 
-    if (profileError || profile?.role !== "admin") {
+    // Also check user_metadata for admin role
+    const isAdminFromMetadata = user.user.user_metadata?.role === "admin"
+    const isAdminFromTable = userData?.role === "admin"
+
+    if (!isAdminFromMetadata && !isAdminFromTable) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
