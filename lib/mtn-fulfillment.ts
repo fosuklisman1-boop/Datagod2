@@ -33,7 +33,7 @@ export interface MTNWebhookPayload {
   timestamp: string
   order: {
     id: number
-    status: "completed" | "failed" | "pending"
+    status: "pending" | "processing" | "completed" | "failed"
     message: string
     amount: number
     recipient_phone: string
@@ -394,7 +394,7 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
  */
 export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
   success: boolean
-  status?: "pending" | "completed" | "failed"
+  status?: "pending" | "processing" | "completed" | "failed"
   message: string
   order?: MTNWebhookPayload["order"]
 }> {
