@@ -4,6 +4,12 @@ import crypto from "crypto"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
+import {
+  isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
+  createMTNOrder,
+  saveMTNTracking,
+  normalizePhoneNumber,
+} from "@/lib/mtn-fulfillment"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -250,31 +256,60 @@ export async function POST(request: NextRequest) {
               console.error(`[WEBHOOK] ❌ Cannot fulfill shop order ${paymentData.order_id}: No customer_phone`)
             }
 
-            // Handle MTN fulfillment separately via unified fulfillment endpoint
+            // Handle MTN fulfillment directly via MTN API (not HTTP fetch)
             const isMTNNetwork = networkLower === "mtn"
             if (isMTNNetwork && shopOrderData?.customer_phone) {
-              console.log(`[WEBHOOK] MTN order detected. Triggering unified fulfillment for shop order ${paymentData.order_id}`)
+              console.log(`[WEBHOOK] MTN order detected. Processing MTN fulfillment for shop order ${paymentData.order_id}`)
               const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+              const normalizedPhone = normalizePhoneNumber(shopOrderData.customer_phone)
               
-              // Non-blocking MTN fulfillment trigger via unified endpoint
-              fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.datagod.store'}/api/fulfillment/process-order`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  shop_order_id: paymentData.order_id,
-                  network: "MTN",
-                  phone_number: shopOrderData.customer_phone,
-                  volume_gb: sizeGb,
-                  customer_name: shopOrderData.customer_phone, // Using phone as fallback
-                }),
-              }).then(async (res) => {
-                const result = await res.json()
-                console.log(`[WEBHOOK] ✓ MTN fulfillment triggered for shop order ${paymentData.order_id}:`, result)
-              }).catch(err => {
-                console.error(`[WEBHOOK] ❌ Error triggering MTN fulfillment for shop order ${paymentData.order_id}:`, err)
-              })
+              // Check if MTN auto-fulfillment is enabled
+              const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
+              console.log(`[WEBHOOK] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
+              
+              if (mtnAutoEnabled) {
+                // Non-blocking MTN fulfillment via direct API call
+                (async () => {
+                  try {
+                    console.log(`[WEBHOOK] Calling MTN API for shop order ${paymentData.order_id}: ${normalizedPhone}, ${sizeGb}GB`)
+                    const mtnRequest = {
+                      recipient_phone: normalizedPhone,
+                      network: "MTN" as const,
+                      size_gb: sizeGb,
+                    }
+                    const mtnResult = await createMTNOrder(mtnRequest)
+                    
+                    console.log(`[WEBHOOK] ✓ MTN API response for shop order ${paymentData.order_id}:`, mtnResult)
+                    
+                    // Save tracking record
+                    if (mtnResult.order_id) {
+                      await saveMTNTracking(
+                        paymentData.order_id,
+                        mtnResult.order_id,
+                        mtnRequest,
+                        mtnResult
+                      )
+                    }
+                    
+                    // Update shop order status
+                    if (mtnResult.success) {
+                      await supabase
+                        .from("shop_orders")
+                        .update({
+                          order_status: "processing",
+                          fulfillment_method: "auto_mtn",
+                          updated_at: new Date().toISOString(),
+                        })
+                        .eq("id", paymentData.order_id)
+                      console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} marked as processing via MTN auto-fulfillment`)
+                    }
+                  } catch (err) {
+                    console.error(`[WEBHOOK] ❌ MTN fulfillment error for shop order ${paymentData.order_id}:`, err)
+                  }
+                })()
+              } else {
+                console.log(`[WEBHOOK] MTN auto-fulfillment disabled. Order ${paymentData.order_id} will be processed manually.`)
+              }
             }
           }
 
