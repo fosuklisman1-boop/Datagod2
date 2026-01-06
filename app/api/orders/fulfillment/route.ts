@@ -263,7 +263,24 @@ async function handleRetryFulfillment(
     const isBigTime = networkLower.includes("bigtime") || networkLower.includes("big time")
 
     // Attempt retry using fulfillOrder directly
-    const sizeGb = parseInt(order.size?.toString().replace(/[^0-9]/g, "")) || 0
+    console.log(`[FULFILLMENT] Raw size value:`, order.size, `(type: ${typeof order.size})`)
+    
+    // Parse size - handle different formats
+    let sizeGb = 0
+    if (typeof order.size === "number") {
+      sizeGb = order.size
+    } else if (order.size) {
+      const digits = order.size.toString().replace(/[^0-9]/g, "")
+      sizeGb = parseInt(digits) || 0
+    }
+    
+    if (sizeGb === 0) {
+      console.error(`[FULFILLMENT] ❌ Could not determine size for order ${orderId}, size value: ${order.size}`)
+      return NextResponse.json(
+        { error: "Invalid order size", details: `Size value is: ${order.size}` },
+        { status: 400 }
+      )
+    }
     
     console.log(`[FULFILLMENT] Retrying with: phone=${order.phone_number}, size=${sizeGb}GB, network=${order.network}, isBigTime=${isBigTime}, email=${customerEmail || "NONE"}`)
 

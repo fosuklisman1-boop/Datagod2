@@ -224,7 +224,33 @@ export async function POST(request: NextRequest) {
     if (shouldFulfill) {
       try {
         console.log(`[FULFILLMENT] Starting fulfillment trigger for ${network} order ${order[0].id} to ${phoneNumber}`)
-        const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
+        console.log(`[FULFILLMENT] Raw size value:`, size, `(type: ${typeof size})`)
+        
+        // Parse size - handle different formats: "100GB", "100", 100, etc.
+        let sizeGb = 0
+        if (typeof size === "number") {
+          sizeGb = size
+        } else if (typeof size === "string") {
+          // Extract digits from string like "100GB", "100 GB", etc.
+          const digits = size.replace(/[^0-9]/g, "")
+          sizeGb = parseInt(digits) || 0
+        }
+        
+        // If size is still 0, try to fetch from package
+        if (sizeGb === 0 && packageId) {
+          console.log(`[FULFILLMENT] ⚠️ Size is 0, attempting to fetch from package ${packageId}`)
+          const { data: pkgData } = await supabaseAdmin
+            .from("data_packages")
+            .select("size")
+            .eq("id", packageId)
+            .single()
+          if (pkgData?.size) {
+            const pkgDigits = pkgData.size.toString().replace(/[^0-9]/g, "")
+            sizeGb = parseInt(pkgDigits) || 0
+            console.log(`[FULFILLMENT] ✓ Got size from package: ${sizeGb}GB`)
+          }
+        }
+        
         console.log(`[FULFILLMENT] Order details - Network: ${network}, Size: ${sizeGb}GB, Phone: ${phoneNumber}, OrderID: ${order[0].id}`)
         
         // Determine API network and endpoint based on order network

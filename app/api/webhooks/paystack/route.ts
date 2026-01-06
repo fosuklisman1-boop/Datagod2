@@ -231,7 +231,20 @@ export async function POST(request: NextRequest) {
             
             if (shouldFulfill && shopOrderData?.customer_phone) {
               console.log(`[WEBHOOK] Triggering Code Craft fulfillment for shop order ${paymentData.order_id}`)
-              const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+              console.log(`[WEBHOOK] Raw volume_gb value:`, shopOrderData.volume_gb, `(type: ${typeof shopOrderData.volume_gb})`)
+              
+              // Parse size - handle different formats
+              let sizeGb = 0
+              if (typeof shopOrderData.volume_gb === "number") {
+                sizeGb = shopOrderData.volume_gb
+              } else if (shopOrderData.volume_gb) {
+                const digits = shopOrderData.volume_gb.toString().replace(/[^0-9]/g, "")
+                sizeGb = parseInt(digits) || 0
+              }
+              
+              if (sizeGb === 0) {
+                console.error(`[WEBHOOK] ❌ Could not determine size for shop order ${paymentData.order_id}, skipping fulfillment`)
+              }
               
               // Determine the network and endpoint for Code Craft API
               const isBigTime = networkLower.includes("bigtime")
