@@ -486,9 +486,29 @@ export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
       }
     }
 
+    // Normalize status from API to our expected values
+    let normalizedStatus: "pending" | "processing" | "completed" | "failed" = "pending"
+    const apiStatus = String(order.status).toLowerCase()
+    
+    if (apiStatus === "completed" || apiStatus === "success" || apiStatus === "delivered") {
+      normalizedStatus = "completed"
+    } else if (apiStatus === "failed" || apiStatus === "error" || apiStatus === "cancelled") {
+      normalizedStatus = "failed"
+    } else if (apiStatus === "processing" || apiStatus === "in_progress" || apiStatus === "queued") {
+      normalizedStatus = "processing"
+    } else if (apiStatus === "pending") {
+      normalizedStatus = "pending"
+    } else {
+      // Unknown status - log and default to processing (safer than pending)
+      log("warn", "StatusCheck", `Unknown API status: ${order.status}, defaulting to processing`, { traceId })
+      normalizedStatus = "processing"
+    }
+
+    log("info", "StatusCheck", `Status normalized: ${order.status} -> ${normalizedStatus}`, { traceId })
+
     return {
       success: true,
-      status: order.status,
+      status: normalizedStatus,
       message: order.message || "Status retrieved",
       order,
     }
