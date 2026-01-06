@@ -110,7 +110,7 @@ class ATiShareService {
 
       // Prepare Code Craft Network API request
 
-      // Build API request, add client_email for Big Time
+      // Build API request, add client_email for Big Time (required by special.php)
       const apiRequest: Record<string, any> = {
         agent_api: codecraftApiKey,
         recipient_number: phoneNumber,
@@ -118,8 +118,20 @@ class ATiShareService {
         gig: sizeGb.toString(),
         reference_id: orderId,
       };
-      if (isBigTime && customer_email) {
+      
+      // For BigTime orders, client_email is REQUIRED by the Code Craft API
+      if (isBigTime) {
+        if (!customer_email) {
+          const errorMsg = `BigTime order requires client_email but none was provided`;
+          console.error(`[CODECRAFT-FULFILL] ❌ ${errorMsg}`);
+          return {
+            success: false,
+            errorCode: "MISSING_EMAIL",
+            message: errorMsg,
+          };
+        }
         apiRequest.client_email = customer_email;
+        console.log(`[CODECRAFT-FULFILL] BigTime order - client_email: ${customer_email}`);
       }
 
       // Use different endpoint for BigTime orders
@@ -127,7 +139,7 @@ class ATiShareService {
 
       console.log(`[CODECRAFT-FULFILL] Calling Code Craft API...`)
       console.log(`[CODECRAFT-FULFILL] API URL: ${apiEndpoint}`)
-      console.log(`[CODECRAFT-FULFILL] Request payload: agent_api=***, recipient_number=${phoneNumber}, network=${network}, gig=${sizeGb}, reference_id=${orderId}`)
+      console.log(`[CODECRAFT-FULFILL] Request payload: agent_api=***, recipient_number=${phoneNumber}, network=${network}, gig=${sizeGb}, reference_id=${orderId}${isBigTime ? `, client_email=${customer_email}` : ''}`)
 
       // Call Code Craft Network API
       const response = await fetch(apiEndpoint, {
