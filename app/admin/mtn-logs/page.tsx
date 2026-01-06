@@ -211,6 +211,32 @@ export default function MTNFulfillmentLogsPage() {
     }
   }
 
+  // Trigger full cron sync from Sykes API
+  const handleTriggerCronSync = async () => {
+    try {
+      setSyncing(true)
+      toast.info("Triggering sync from Sykes API...")
+      
+      const response = await fetch("/api/cron/sync-mtn-status", {
+        method: "GET",
+      })
+
+      const data = await response.json()
+      
+      if (response.ok && data.success) {
+        toast.success(`Synced ${data.synced} orders. (${data.sykesOrderCount} orders from Sykes, ${data.notFound || 0} not found)`)
+        loadLogs()
+      } else {
+        toast.error(data.error || "Failed to trigger sync")
+      }
+    } catch (error) {
+      console.error("Error triggering cron sync:", error)
+      toast.error("Error triggering sync")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
@@ -269,16 +295,28 @@ export default function MTNFulfillmentLogsPage() {
           </div>
           <div className="flex gap-2">
             <Button 
-              variant="outline" 
-              onClick={handleSyncAllPending} 
-              disabled={syncing || summary.pending === 0}
+              variant="default"
+              onClick={handleTriggerCronSync} 
+              disabled={syncing}
             >
               {syncing ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : (
                 <RefreshCw className="w-4 h-4 mr-2" />
               )}
-              Sync Pending ({summary.pending})
+              Sync All from Sykes
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handleSyncAllPending} 
+              disabled={syncing || (summary.pending + summary.processing) === 0}
+            >
+              {syncing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Sync Pending ({summary.pending + summary.processing})
             </Button>
             <Button onClick={loadLogs} disabled={loading}>
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
