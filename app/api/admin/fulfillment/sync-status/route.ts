@@ -34,16 +34,22 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Option 2: Check status by MTN order ID directly
+    // Option 2: Check status by MTN order ID directly (for debugging)
     if (mtn_order_id) {
-      console.log(`[SYNC-STATUS] Checking MTN order ${mtn_order_id}`)
+      console.log(`[SYNC-STATUS] Checking MTN order ${mtn_order_id} directly from API`)
       const result = await checkMTNOrderStatus(mtn_order_id)
+      
+      console.log(`[SYNC-STATUS] Direct API check result:`, JSON.stringify(result, null, 2))
       
       return NextResponse.json({
         success: result.success,
         status: result.status,
         message: result.message,
         order: result.order,
+        debug: {
+          rawStatus: result.order?.status,
+          normalizedStatus: result.status,
+        }
       })
     }
 

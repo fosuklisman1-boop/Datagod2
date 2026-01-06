@@ -390,7 +390,7 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
 
 /**
  * Check MTN order status from Sykes API
- * Tries multiple endpoint formats to find the correct one
+ * Fetches all orders and finds the matching one by ID
  */
 export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
   success: boolean
@@ -403,38 +403,15 @@ export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
   try {
     log("info", "StatusCheck", `Checking status for MTN order ${mtnOrderId}`, { traceId, mtnOrderId })
     
-    // Try path-based endpoint first: /api/orders/{id}
-    let response = await fetch(`${MTN_API_BASE_URL}/api/orders/${mtnOrderId}`, {
+    // The Sykes API GET /api/orders returns all orders, not a single one
+    // So we fetch all orders and filter for the one we need
+    const response = await fetch(`${MTN_API_BASE_URL}/api/orders`, {
       method: "GET",
       headers: {
         "X-API-KEY": MTN_API_KEY,
         "Content-Type": "application/json",
       },
     })
-
-    // If that fails with 404, try query parameter format: /api/orders?id={id}
-    if (response.status === 404) {
-      log("info", "StatusCheck", `Path format 404, trying query param format`, { traceId })
-      response = await fetch(`${MTN_API_BASE_URL}/api/orders?id=${mtnOrderId}`, {
-        method: "GET",
-        headers: {
-          "X-API-KEY": MTN_API_KEY,
-          "Content-Type": "application/json",
-        },
-      })
-    }
-
-    // If still 404, try order_id query param
-    if (response.status === 404) {
-      log("info", "StatusCheck", `Query id format 404, trying order_id param`, { traceId })
-      response = await fetch(`${MTN_API_BASE_URL}/api/orders?order_id=${mtnOrderId}`, {
-        method: "GET",
-        headers: {
-          "X-API-KEY": MTN_API_KEY,
-          "Content-Type": "application/json",
-        },
-      })
-    }
 
     const responseText = await response.text()
     log("info", "StatusCheck", `API response: ${response.status}`, { traceId, responseText })
@@ -465,21 +442,41 @@ export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
     // 4. Data wrapper: {data: [{id, status, ...}]}
     // 5. Orders wrapper: {orders: [{id, status, ...}]}
     let order
+    let allOrders: any[] = []
     
     if (Array.isArray(data)) {
-      // Array format - find matching order
-      order = data.find((o: any) => o.id === mtnOrderId) || data[0]
+      allOrders = data
     } else if (data.order) {
       order = data.order
     } else if (data.data && Array.isArray(data.data)) {
-      order = data.data.find((o: any) => o.id === mtnOrderId) || data.data[0]
+      allOrders = data.data
     } else if (data.orders && Array.isArray(data.orders)) {
-      order = data.orders.find((o: any) => o.id === mtnOrderId) || data.orders[0]
+      allOrders = data.orders
     } else if (data.id) {
       order = data
     }
+
+    // Find the order by ID (handle both string and number comparison)
+    if (!order && allOrders.length > 0) {
+      // Try exact match first
+      order = allOrders.find((o: any) => o.id === mtnOrderId || o.id === String(mtnOrderId) || String(o.id) === String(mtnOrderId))
+      
+      if (!order) {
+        // Try matching order_id field as well
+        order = allOrders.find((o: any) => o.order_id === mtnOrderId || o.order_id === String(mtnOrderId) || String(o.order_id) === String(mtnOrderId))
+      }
+      
+      if (!order) {
+        console.log(`[MTN-STATUS] Order ${mtnOrderId} not found in ${allOrders.length} orders. Available IDs: ${allOrders.map((o: any) => o.id || o.order_id).slice(0, 10).join(', ')}`)
+        return {
+          success: false,
+          message: `Order ${mtnOrderId} not found in API response (${allOrders.length} orders returned)`,
+        }
+      }
+    }
     
     if (!order || !order.status) {
+      console.log(`[MTN-STATUS] Order or status not found. Order:`, order, `Data:`, JSON.stringify(data).slice(0, 300))
       return {
         success: false,
         message: `Order not found or no status. Response: ${JSON.stringify(data).slice(0, 200)}`,
@@ -601,7 +598,7 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
       console.log(`[MTN-SYNC] Updating status: ${tracking.status} -> ${newStatus}`)
       
       // Update tracking
-      await supabase
+      const { error: trackingUpdateError } = await supabase
         .from("mtn_fulfillment_tracking")
         .update({
           status: newStatus,
@@ -611,26 +608,45 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         })
         .eq("id", trackingId)
 
+      if (trackingUpdateError) {
+        console.error(`[MTN-SYNC] Failed to update tracking:`, trackingUpdateError)
+        return { success: false, message: `Failed to update tracking: ${trackingUpdateError.message}` }
+      }
+
       // Update shop_orders if completed or failed
       if (tracking.shop_order_id && (newStatus === "completed" || newStatus === "failed")) {
-        await supabase
+        console.log(`[MTN-SYNC] Updating shop_order ${tracking.shop_order_id} to ${newStatus}`)
+        const { error: shopOrderError } = await supabase
           .from("shop_orders")
           .update({
             order_status: newStatus,
             updated_at: new Date().toISOString(),
           })
           .eq("id", tracking.shop_order_id)
+        
+        if (shopOrderError) {
+          console.error(`[MTN-SYNC] Failed to update shop_order:`, shopOrderError)
+        } else {
+          console.log(`[MTN-SYNC] ✅ Updated shop_order ${tracking.shop_order_id} to ${newStatus}`)
+        }
       }
 
       // Update orders table if bulk order
       if (tracking.order_id && (newStatus === "completed" || newStatus === "failed")) {
-        await supabase
+        console.log(`[MTN-SYNC] Updating bulk order ${tracking.order_id} to ${newStatus}`)
+        const { error: orderError } = await supabase
           .from("orders")
           .update({
             status: newStatus,
             updated_at: new Date().toISOString(),
           })
           .eq("id", tracking.order_id)
+        
+        if (orderError) {
+          console.error(`[MTN-SYNC] Failed to update order:`, orderError)
+        } else {
+          console.log(`[MTN-SYNC] ✅ Updated order ${tracking.order_id} to ${newStatus}`)
+        }
       }
 
       console.log(`[MTN] Synced order ${tracking.mtn_order_id} status: ${tracking.status} -> ${newStatus}`)
