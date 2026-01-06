@@ -365,20 +365,24 @@ class ATiShareService {
   ): Promise<{ actualStatus: string; message?: string }> {
     try {
       console.log(`[CODECRAFT] Verifying actual delivery status for order ${orderId}`)
+      console.log(`[CODECRAFT] Network: ${network}, isBigTime: ${isBigTime}`)
 
       // Determine correct endpoint
       const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
       const url = `${codecraftApiUrl}/${endpoint}`
 
-      console.log(`[CODECRAFT] Calling ${url} for order ${orderId}`)
+      const requestBody = {
+        reference_id: orderId,
+        agent_api: codecraftApiKey,
+      }
+
+      console.log(`[CODECRAFT] Calling ${url}`)
+      console.log(`[CODECRAFT] Request body:`, JSON.stringify(requestBody))
 
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reference_id: orderId,
-          agent_api: codecraftApiKey,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       console.log(`[CODECRAFT] HTTP Status: ${response.status}`)
@@ -403,6 +407,17 @@ class ATiShareService {
       }
 
       console.log(`[CODECRAFT] Parsed verification response:`, JSON.stringify(data, null, 2))
+
+      // Check for "no order found" or similar error messages
+      const errorMessage = (data.message || data.error || "").toLowerCase()
+      if (errorMessage.includes("no order found") || errorMessage.includes("order not found") || errorMessage.includes("invalid reference")) {
+        console.log(`[CODECRAFT] ⚠️ Order not found in Code Craft system: ${orderId}`)
+        // Keep as processing - don't mark as failed, order may still be queued
+        return {
+          actualStatus: "processing",
+          message: "Order not found in Code Craft - may still be queued",
+        }
+      }
 
       // Check multiple possible status locations
       const orderStatus = (
