@@ -69,6 +69,7 @@ export async function GET(request: NextRequest) {
     const summary = {
       total: statusCounts?.length || 0,
       pending: statusCounts?.filter(r => r.status === "pending").length || 0,
+      processing: statusCounts?.filter(r => r.status === "processing").length || 0,
       completed: statusCounts?.filter(r => r.status === "completed").length || 0,
       failed: statusCounts?.filter(r => r.status === "failed").length || 0,
       retrying: statusCounts?.filter(r => r.status === "retrying").length || 0,

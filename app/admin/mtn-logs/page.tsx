@@ -46,6 +46,7 @@ interface MTNLog {
 interface Summary {
   total: number
   pending: number
+  processing: number
   completed: number
   failed: number
   retrying: number
@@ -57,7 +58,7 @@ export default function MTNFulfillmentLogsPage() {
   
   const [logs, setLogs] = useState<MTNLog[]>([])
   const [loading, setLoading] = useState(true)
-  const [summary, setSummary] = useState<Summary>({ total: 0, pending: 0, completed: 0, failed: 0, retrying: 0 })
+  const [summary, setSummary] = useState<Summary>({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, retrying: 0 })
   const [activeTab, setActiveTab] = useState<string>("all")
   const [retrying, setRetrying] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
@@ -89,7 +90,7 @@ export default function MTNFulfillmentLogsPage() {
       if (response.ok) {
         const data = await response.json()
         setLogs(data.logs || [])
-        setSummary(data.summary || { total: 0, pending: 0, completed: 0, failed: 0, retrying: 0 })
+        setSummary(data.summary || { total: 0, pending: 0, processing: 0, completed: 0, failed: 0, retrying: 0 })
       } else {
         toast.error("Failed to load MTN logs")
       }
@@ -215,6 +216,8 @@ export default function MTNFulfillmentLogsPage() {
         return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" /> Failed</Badge>
       case "pending":
         return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" /> Pending</Badge>
+      case "processing":
+        return <Badge className="bg-blue-500"><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Processing</Badge>
       case "retrying":
         return <Badge className="bg-yellow-500"><RefreshCw className="w-3 h-3 mr-1" /> Retrying</Badge>
       case "error":
@@ -282,7 +285,7 @@ export default function MTNFulfillmentLogsPage() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
           <Card>
             <CardContent className="p-4">
               <div className="text-2xl font-bold">{summary.total}</div>
@@ -293,6 +296,12 @@ export default function MTNFulfillmentLogsPage() {
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-yellow-500">{summary.pending}</div>
               <div className="text-sm text-muted-foreground">Pending</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-blue-500">{summary.processing}</div>
+              <div className="text-sm text-muted-foreground">Processing</div>
             </CardContent>
           </Card>
           <Card>
@@ -320,6 +329,7 @@ export default function MTNFulfillmentLogsPage() {
           <TabsList className="mb-4">
             <TabsTrigger value="all">All ({summary.total})</TabsTrigger>
             <TabsTrigger value="pending">Pending ({summary.pending})</TabsTrigger>
+            <TabsTrigger value="processing">Processing ({summary.processing})</TabsTrigger>
             <TabsTrigger value="completed">Completed ({summary.completed})</TabsTrigger>
             <TabsTrigger value="failed">Failed ({summary.failed})</TabsTrigger>
             <TabsTrigger value="retrying">Retrying ({summary.retrying})</TabsTrigger>
