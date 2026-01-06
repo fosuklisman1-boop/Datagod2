@@ -177,11 +177,24 @@ export async function checkMTNBalance(): Promise<number | null> {
 
     const data = await response.json()
     
-    // Assuming API returns { success: true, balance: 1000.50 }
-    if (data.success && typeof data.balance === "number") {
-      return data.balance
+    // API returns { success: true, balance: 1000.50 } or similar
+    // Handle various response formats
+    if (data.success !== false) {
+      // Check for balance field (could be 'balance', 'wallet_balance', 'amount', etc.)
+      const balance = data.balance ?? data.wallet_balance ?? data.amount
+      if (typeof balance === "number") {
+        return balance
+      }
+      // Try parsing string balance
+      if (typeof balance === "string") {
+        const parsed = parseFloat(balance)
+        if (!isNaN(parsed)) {
+          return parsed
+        }
+      }
     }
 
+    console.warn("[MTN] Unexpected balance response format:", data)
     return null
   } catch (error) {
     console.error("[MTN] Error checking balance:", error)
@@ -251,6 +264,9 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     // Record request for rate limiting
     recordRequest()
 
+    // Ensure size_gb is an integer (API requirement)
+    const sizeGbInt = Math.round(order.size_gb)
+
     // Make API call
     log("debug", "Order", "Calling MTN API", { traceId })
     const response = await fetch(`${MTN_API_BASE_URL}/api/orders`, {
@@ -263,7 +279,7 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
       body: JSON.stringify({
         recipient_phone: normalized_phone,
         network: order.network,
-        size_gb: order.size_gb,
+        size_gb: sizeGbInt,
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT),
     })
@@ -271,14 +287,29 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     const data = (await response.json()) as MTNOrderResponse
     const latency = Date.now() - startTime
 
+    // Check HTTP status first
     if (!response.ok) {
-      log("error", "Order", "MTN API error response", { traceId, status: response.status, data })
+      log("error", "Order", "MTN API HTTP error", { traceId, status: response.status, data })
       recordFailure(mtnConfig)
       recordMetrics(false, latency)
 
       return {
         success: false,
         message: data.message || `API returned ${response.status}`,
+        traceId,
+        error_type: "API_ERROR",
+      }
+    }
+
+    // Check JSON success field (API returns { success: true/false, ... })
+    if (!data.success) {
+      log("error", "Order", "MTN API returned error in response", { traceId, data })
+      recordFailure(mtnConfig)
+      recordMetrics(false, latency)
+
+      return {
+        success: false,
+        message: data.message || "Order failed",
         traceId,
         error_type: "API_ERROR",
       }

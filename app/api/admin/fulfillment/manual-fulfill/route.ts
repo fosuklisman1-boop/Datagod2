@@ -56,10 +56,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Create MTN order
+    // Use parseFloat to preserve decimal values, then round for API
+    const volumeGb = parseFloat(orderData.volume_gb?.toString() || "0")
     const mtnRequest: MTNOrderRequest = {
       recipient_phone: orderData.customer_phone,
       network: "MTN",
-      size_gb: parseInt(orderData.volume_gb?.toString() || "0"),
+      size_gb: volumeGb, // createMTNOrder will round to integer
     }
 
     const mtnResponse = await createMTNOrder(mtnRequest)

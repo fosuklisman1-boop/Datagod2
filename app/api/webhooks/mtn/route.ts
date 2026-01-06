@@ -97,7 +97,19 @@ export async function POST(request: NextRequest) {
     await storeWebhookEvent(traceId, payload, rawBody)
 
     // Handle different event types
+    // API uses "order.status_changed" with status in payload.order.status
     switch (payload.event) {
+      case "order.status_changed":
+        // Handle status from payload.order.status
+        if (payload.order.status === "completed") {
+          await handleOrderCompleted(traceId, payload)
+        } else if (payload.order.status === "failed") {
+          await handleOrderFailed(traceId, payload)
+        } else if (payload.order.status === "pending") {
+          await handleOrderPending(traceId, payload)
+        }
+        break
+
       case "order.completed":
       case "order.success":
         await handleOrderCompleted(traceId, payload)
