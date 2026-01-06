@@ -116,10 +116,12 @@ export async function GET(request: NextRequest) {
     const thresholdTime = new Date(Date.now() - PENDING_THRESHOLD_MINUTES * 60 * 1000).toISOString()
 
     // Get pending shop_orders with payment references older than threshold
+    // Also ensure order_status is not already processing/completed (prevents double fulfillment)
     const { data: pendingOrders, error: fetchError } = await supabase
       .from("shop_orders")
-      .select("id, payment_reference, network, customer_phone, volume_gb, customer_name, payment_status, created_at")
+      .select("id, payment_reference, network, customer_phone, volume_gb, customer_name, payment_status, order_status, created_at")
       .eq("payment_status", "pending")
+      .in("order_status", ["pending", "awaiting_payment"]) // Only orders not yet fulfilled
       .not("payment_reference", "is", null)
       .lt("created_at", thresholdTime)
       .order("created_at", { ascending: true })
@@ -161,6 +163,53 @@ export async function GET(request: NextRequest) {
 
         if (paystackResult.status === "success") {
           // Payment is successful - update and trigger fulfillment
+          
+          // SAFETY CHECK: Re-fetch order to ensure it wasn't already processed
+          const { data: currentOrder } = await supabase
+            .from("shop_orders")
+            .select("payment_status, order_status")
+            .eq("id", order.id)
+            .single()
+          
+          if (currentOrder?.payment_status === "completed" || 
+              currentOrder?.order_status === "processing" || 
+              currentOrder?.order_status === "completed") {
+            console.log(`[VERIFY-PAYMENT] ⏭️ Order ${order.id} already processed, skipping`)
+            results.push({
+              id: order.id,
+              reference: order.payment_reference,
+              paystack_status: "success",
+              action: "already_processed",
+            })
+            continue
+          }
+
+          // Check if fulfillment tracking already exists (prevents double fulfillment)
+          const { data: existingTracking } = await supabase
+            .from("mtn_fulfillment_tracking")
+            .select("id, status")
+            .eq("shop_order_id", order.id)
+            .single()
+          
+          if (existingTracking) {
+            console.log(`[VERIFY-PAYMENT] ⏭️ Order ${order.id} already has fulfillment tracking, skipping fulfillment`)
+            // Still update payment status if needed
+            await supabase
+              .from("shop_orders")
+              .update({ payment_status: "completed", updated_at: new Date().toISOString() })
+              .eq("id", order.id)
+            
+            results.push({
+              id: order.id,
+              reference: order.payment_reference,
+              paystack_status: "success",
+              action: "payment_updated_fulfillment_exists",
+              fulfillment: `Already tracked: ${existingTracking.status}`,
+            })
+            verified++
+            continue
+          }
+
           const { error: updateError } = await supabase
             .from("shop_orders")
             .update({
