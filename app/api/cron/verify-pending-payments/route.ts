@@ -252,8 +252,8 @@ export async function GET(request: NextRequest) {
           
           console.log(`[VERIFY-PAYMENT] ✅ Order ${order.id}: Payment verified & fulfillment ${fulfillmentResult.success ? "triggered" : "failed"}`)
 
-        } else if (paystackResult.status === "failed" || paystackResult.status === "abandoned") {
-          // Payment failed - update status
+        } else if (paystackResult.status === "failed") {
+          // Payment definitively failed - update status
           const { error: updateError } = await supabase
             .from("shop_orders")
             .update({
@@ -270,8 +270,19 @@ export async function GET(request: NextRequest) {
               action: "marked_failed",
             })
             failed++
-            console.log(`[VERIFY-PAYMENT] ❌ Order ${order.id}: Payment ${paystackResult.status}`)
+            console.log(`[VERIFY-PAYMENT] ❌ Order ${order.id}: Payment failed`)
           }
+
+        } else if (paystackResult.status === "abandoned") {
+          // Customer abandoned payment - leave as pending, they may retry
+          results.push({
+            id: order.id,
+            reference: order.payment_reference,
+            paystack_status: "abandoned",
+            action: "left_pending_may_retry",
+          })
+          stillPending++
+          console.log(`[VERIFY-PAYMENT] ⏸️ Order ${order.id}: Payment abandoned, left as pending`)
 
         } else {
           // Still pending on Paystack
