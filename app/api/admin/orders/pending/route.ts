@@ -22,7 +22,7 @@ function normalizeNetwork(network: string): string {
 }
 
 /**
- * Check if auto-fulfillment is enabled in admin settings
+ * Check if auto-fulfillment is enabled in admin settings (for AT/Telecel/BigTime)
  */
 async function isAutoFulfillmentEnabled(): Promise<boolean> {
   try {
@@ -45,13 +45,42 @@ async function isAutoFulfillmentEnabled(): Promise<boolean> {
   }
 }
 
+/**
+ * Check if MTN auto-fulfillment is enabled in app_settings
+ */
+async function isMTNAutoFulfillmentEnabled(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "mtn_auto_fulfillment_enabled")
+      .single()
+    
+    if (error || !data) {
+      // Default to disabled if setting doesn't exist
+      return false
+    }
+    
+    // The value is stored as a string "true" or "false"
+    return data.value === "true" || data.value === true
+  } catch (error) {
+    console.warn("[PENDING-ORDERS] Error checking MTN auto-fulfillment setting:", error)
+    // Default to disabled on error
+    return false
+  }
+}
+
 export async function GET() {
   try {
     console.log("Fetching pending orders (bulk + shop orders)...")
     
-    // Check if auto-fulfillment is enabled
+    // Check if auto-fulfillment is enabled (for AT/Telecel/BigTime)
     const autoFulfillEnabled = await isAutoFulfillmentEnabled()
     console.log(`[PENDING-ORDERS] Auto-fulfillment enabled: ${autoFulfillEnabled}`)
+    
+    // Check if MTN auto-fulfillment is enabled
+    const mtnAutoFulfillEnabled = await isMTNAutoFulfillmentEnabled()
+    console.log(`[PENDING-ORDERS] MTN Auto-fulfillment enabled: ${mtnAutoFulfillEnabled}`)
     
     // Build bulk orders query
     let bulkQuery = supabase
@@ -65,6 +94,11 @@ export async function GET() {
         .neq("network", "AT - iShare")
         .neq("network", "Telecel")
         .neq("network", "AT - BigTime")
+    }
+    
+    // If MTN auto-fulfillment is enabled, also exclude MTN orders
+    if (mtnAutoFulfillEnabled) {
+      bulkQuery = bulkQuery.neq("network", "MTN")
     }
     
     const { data: bulkOrders, error: bulkError } = await bulkQuery
@@ -110,6 +144,11 @@ export async function GET() {
         .neq("network", "AT - iShare")
         .neq("network", "Telecel")
         .neq("network", "AT - BigTime")
+    }
+    
+    // If MTN auto-fulfillment is enabled, also exclude MTN orders
+    if (mtnAutoFulfillEnabled) {
+      shopQuery = shopQuery.neq("network", "MTN")
     }
     
     const { data: shopOrders, error: shopError } = await shopQuery
