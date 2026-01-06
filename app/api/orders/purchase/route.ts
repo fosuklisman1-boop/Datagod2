@@ -75,7 +75,19 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = user.id
-    const userEmail = user.email // Email from auth user object
+    let userEmail = user.email // Email from auth user object
+
+    // If email not in auth object, fetch from users table
+    if (!userEmail) {
+      const { data: userData } = await supabaseAdmin
+        .from("users")
+        .select("email")
+        .eq("id", userId)
+        .single()
+      userEmail = userData?.email || undefined
+    }
+
+    console.log(`[PURCHASE] User ID: ${userId}, Email: ${userEmail || "NOT FOUND"}`)
 
     // Get user's wallet
     const { data: walletData, error: walletError } = await supabaseAdmin
