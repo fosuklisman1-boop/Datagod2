@@ -377,7 +377,7 @@ export default function MTNFulfillmentLogsPage() {
                             <TableCell>{getStatusBadge(log.status)}</TableCell>
                             <TableCell>
                               <Badge variant={log.order_type === "bulk" ? "secondary" : "outline"}>
-                                {log.order_type === "bulk" ? "Bulk" : "Shop"}
+                                {log.order_type === "bulk" ? "Bulk" : log.order_type === "shop" ? "Storefront" : "Legacy"}
                               </Badge>
                             </TableCell>
                             <TableCell>

@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save tracking
-    const trackingId = await saveMTNTracking(shop_order_id, mtnResponse.order_id, mtnRequest, mtnResponse)
+    const trackingId = await saveMTNTracking(shop_order_id, mtnResponse.order_id, mtnRequest, mtnResponse, "shop")
 
     // Update shop_orders
     const { error: updateError } = await supabase

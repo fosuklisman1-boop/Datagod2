@@ -287,7 +287,8 @@ export async function POST(request: NextRequest) {
                         paymentData.order_id,
                         mtnResult.order_id,
                         mtnRequest,
-                        mtnResult
+                        mtnResult,
+                        "shop"  // Storefront order via Paystack
                       )
                     }
                     
