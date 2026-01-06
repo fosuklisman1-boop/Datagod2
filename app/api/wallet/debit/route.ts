@@ -2,6 +2,12 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
+import { 
+  isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled, 
+  createMTNOrder, 
+  saveMTNTracking, 
+  normalizePhoneNumber 
+} from "@/lib/mtn-fulfillment"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -231,31 +237,59 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Handle MTN fulfillment separately via unified fulfillment endpoint
+          // Handle MTN fulfillment directly via MTN API (not HTTP fetch)
           const isMTNNetwork = normalizedNetwork.toLowerCase() === "mtn"
           if (isMTNNetwork && shopOrder.customer_phone) {
-            console.log(`[WALLET-DEBIT] MTN order detected. Triggering unified fulfillment for order ${orderId}`)
+            console.log(`[WALLET-DEBIT] MTN order detected. Processing MTN fulfillment for order ${orderId}`)
             const sizeGb = parseInt(shopOrder.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+            const normalizedPhone = normalizePhoneNumber(shopOrder.customer_phone)
             
-            // Non-blocking MTN fulfillment trigger via unified endpoint
-            fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.datagod.store'}/api/fulfillment/process-order`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                shop_order_id: orderId,
-                network: "MTN",
-                phone_number: shopOrder.customer_phone,
-                volume_gb: sizeGb,
-                customer_name: shopOrder.customer_phone,
-              }),
-            }).then(async (res) => {
-              const result = await res.json()
-              console.log(`[WALLET-DEBIT] ✓ MTN fulfillment triggered for order ${orderId}:`, result)
-            }).catch(err => {
-              console.error(`[WALLET-DEBIT] ❌ Error triggering MTN fulfillment for order ${orderId}:`, err)
-            })
+            // Check if MTN auto-fulfillment is enabled
+            const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
+            console.log(`[WALLET-DEBIT] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
+            
+            if (mtnAutoEnabled) {
+              // Non-blocking MTN fulfillment via direct API call
+              (async () => {
+                try {
+                  console.log(`[WALLET-DEBIT] Calling MTN API for order ${orderId}: ${normalizedPhone}, ${sizeGb}GB`)
+                  const mtnResult = await createMTNOrder({
+                    recipient_phone: normalizedPhone,
+                    network: "MTN",
+                    size_gb: sizeGb,
+                  })
+                  
+                  console.log(`[WALLET-DEBIT] ✓ MTN API response for order ${orderId}:`, mtnResult)
+                  
+                  // Save tracking record
+                  await saveMTNTracking({
+                    shop_order_id: orderId,
+                    mtn_order_id: mtnResult.order_id?.toString(),
+                    phone_number: normalizedPhone,
+                    size_gb: sizeGb,
+                    status: mtnResult.success ? "processing" : "failed",
+                    api_response: mtnResult,
+                  })
+                  
+                  // Update shop order status
+                  if (mtnResult.success) {
+                    await supabase
+                      .from("shop_orders")
+                      .update({
+                        order_status: "processing",
+                        fulfillment_method: "auto_mtn",
+                        updated_at: new Date().toISOString(),
+                      })
+                      .eq("id", orderId)
+                    console.log(`[WALLET-DEBIT] ✓ Order ${orderId} marked as processing via MTN auto-fulfillment`)
+                  }
+                } catch (err) {
+                  console.error(`[WALLET-DEBIT] ❌ MTN fulfillment error for order ${orderId}:`, err)
+                }
+              })()
+            } else {
+              console.log(`[WALLET-DEBIT] MTN auto-fulfillment disabled. Order ${orderId} will be processed manually.`)
+            }
           }
         }
 
