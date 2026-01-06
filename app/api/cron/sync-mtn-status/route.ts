@@ -66,7 +66,30 @@ export async function GET(request: NextRequest) {
           continue
         }
 
-        // If status changed, update the database
+        // Prevent status regression: don't go from processing/completed back to pending
+        const statusPriority: Record<string, number> = {
+          "pending": 1,
+          "processing": 2,
+          "completed": 3,
+          "failed": 3,
+        }
+        
+        const currentPriority = statusPriority[order.status] || 0
+        const newPriority = statusPriority[statusResult.status] || 0
+        
+        if (newPriority < currentPriority) {
+          console.log(`[CRON] Preventing regression for ${order.mtn_order_id}: ${order.status} -> ${statusResult.status}`)
+          results.push({ 
+            id: order.id, 
+            mtn_order_id: order.mtn_order_id, 
+            oldStatus: order.status, 
+            newStatus: order.status,
+            error: `Blocked regression to ${statusResult.status}`
+          })
+          continue
+        }
+
+        // If status changed and not a regression, update the database
         if (statusResult.status !== order.status) {
           const newStatus = statusResult.status
 

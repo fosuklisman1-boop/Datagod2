@@ -545,16 +545,43 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
       return { success: false, message: "No MTN order ID in tracking record" }
     }
 
+    console.log(`[MTN-SYNC] Checking status for order ${tracking.mtn_order_id}, current status: ${tracking.status}`)
+
     // Check status from API
     const statusResult = await checkMTNOrderStatus(tracking.mtn_order_id)
     
+    console.log(`[MTN-SYNC] API result:`, JSON.stringify(statusResult))
+    
     if (!statusResult.success || !statusResult.status) {
+      console.log(`[MTN-SYNC] API check failed, NOT updating status`)
       return { success: false, message: statusResult.message }
+    }
+
+    // Prevent status regression: don't go from processing/completed back to pending
+    const statusPriority: Record<string, number> = {
+      "pending": 1,
+      "processing": 2,
+      "completed": 3,
+      "failed": 3,
+    }
+    
+    const currentPriority = statusPriority[tracking.status] || 0
+    const newPriority = statusPriority[statusResult.status] || 0
+    
+    if (newPriority < currentPriority) {
+      console.log(`[MTN-SYNC] Preventing status regression: ${tracking.status} -> ${statusResult.status} (blocked)`)
+      return { 
+        success: true, 
+        newStatus: tracking.status, 
+        message: `Status not updated (would regress from ${tracking.status} to ${statusResult.status})` 
+      }
     }
 
     // If status changed, update tracking and shop order
     if (statusResult.status !== tracking.status) {
       const newStatus = statusResult.status
+      
+      console.log(`[MTN-SYNC] Updating status: ${tracking.status} -> ${newStatus}`)
       
       // Update tracking
       await supabase
