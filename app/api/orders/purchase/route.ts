@@ -4,6 +4,12 @@ import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { atishareService } from "@/lib/at-ishare-service"
+import {
+  isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
+  createMTNOrder,
+  saveMTNTracking,
+  normalizePhoneNumber,
+} from "@/lib/mtn-fulfillment"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -236,6 +242,60 @@ export async function POST(request: NextRequest) {
       console.log(`[FULFILLMENT] Auto-fulfillment disabled. Order ${order[0].id} will go to admin queue.`)
     } else {
       console.log(`[FULFILLMENT] Skipping fulfillment for network: ${normalizedNetwork} (not in fulfillable list)`)
+    }
+
+    // Handle MTN fulfillment separately via MTN API (Sykes Official)
+    const isMTNNetwork = normalizedNetwork.toLowerCase() === "mtn"
+    if (isMTNNetwork) {
+      console.log(`[FULFILLMENT] MTN order detected. Checking MTN auto-fulfillment setting...`)
+      const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
+      console.log(`[FULFILLMENT] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
+      
+      if (mtnAutoEnabled) {
+        // Non-blocking MTN fulfillment
+        (async () => {
+          try {
+            const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
+            const normalizedPhone = normalizePhoneNumber(phoneNumber)
+            console.log(`[FULFILLMENT] Calling MTN API for order ${order[0].id}: ${normalizedPhone}, ${sizeGb}GB`)
+            
+            const mtnRequest = {
+              recipient_phone: normalizedPhone,
+              network: "MTN" as const,
+              size_gb: sizeGb,
+            }
+            const mtnResult = await createMTNOrder(mtnRequest)
+            
+            console.log(`[FULFILLMENT] ✓ MTN API response for order ${order[0].id}:`, mtnResult)
+            
+            // Save tracking record
+            if (mtnResult.order_id) {
+              await saveMTNTracking(
+                order[0].id,
+                mtnResult.order_id,
+                mtnRequest,
+                mtnResult
+              )
+            }
+            
+            // Update order status
+            if (mtnResult.success) {
+              await supabaseAdmin
+                .from("orders")
+                .update({
+                  status: "processing",
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", order[0].id)
+              console.log(`[FULFILLMENT] ✓ Order ${order[0].id} marked as processing via MTN auto-fulfillment`)
+            }
+          } catch (err) {
+            console.error(`[FULFILLMENT] ❌ MTN fulfillment error for order ${order[0].id}:`, err)
+          }
+        })()
+      } else {
+        console.log(`[FULFILLMENT] MTN auto-fulfillment disabled. Order ${order[0].id} will go to admin queue.`)
+      }
     }
 
     // Send notification about successful purchase
