@@ -29,7 +29,7 @@ interface MTNLog {
   id: string
   shop_order_id: string
   mtn_order_id: number | null
-  status: "pending" | "completed" | "failed" | "retrying" | "error"
+  status: "pending" | "processing" | "completed" | "failed" | "retrying" | "error"
   recipient_phone: string
   network: string
   size_gb: number
