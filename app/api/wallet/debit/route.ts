@@ -253,23 +253,24 @@ export async function POST(request: NextRequest) {
               (async () => {
                 try {
                   console.log(`[WALLET-DEBIT] Calling MTN API for order ${orderId}: ${normalizedPhone}, ${sizeGb}GB`)
-                  const mtnResult = await createMTNOrder({
+                  const mtnRequest = {
                     recipient_phone: normalizedPhone,
-                    network: "MTN",
+                    network: "MTN" as const,
                     size_gb: sizeGb,
-                  })
+                  }
+                  const mtnResult = await createMTNOrder(mtnRequest)
                   
                   console.log(`[WALLET-DEBIT] ✓ MTN API response for order ${orderId}:`, mtnResult)
                   
-                  // Save tracking record
-                  await saveMTNTracking({
-                    shop_order_id: orderId,
-                    mtn_order_id: mtnResult.order_id?.toString(),
-                    phone_number: normalizedPhone,
-                    size_gb: sizeGb,
-                    status: mtnResult.success ? "processing" : "failed",
-                    api_response: mtnResult,
-                  })
+                  // Save tracking record (saveMTNTracking takes 4 arguments: shopOrderId, mtnOrderId, request, response)
+                  if (mtnResult.order_id) {
+                    await saveMTNTracking(
+                      orderId,
+                      mtnResult.order_id,
+                      mtnRequest,
+                      mtnResult
+                    )
+                  }
                   
                   // Update shop order status
                   if (mtnResult.success) {
