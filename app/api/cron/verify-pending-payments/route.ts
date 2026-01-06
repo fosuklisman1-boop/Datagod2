@@ -115,12 +115,13 @@ export async function GET(request: NextRequest) {
     // Calculate threshold time (10 minutes ago)
     const thresholdTime = new Date(Date.now() - PENDING_THRESHOLD_MINUTES * 60 * 1000).toISOString()
 
-    // Get pending shop_orders with payment references older than threshold
+    // Get pending/abandoned shop_orders with payment references older than threshold
     // Also ensure order_status is not already processing/completed (prevents double fulfillment)
+    // Include "abandoned" so if user retries and succeeds, we can process it
     const { data: pendingOrders, error: fetchError } = await supabase
       .from("shop_orders")
       .select("id, payment_reference, network, customer_phone, volume_gb, customer_name, payment_status, order_status, created_at")
-      .eq("payment_status", "pending")
+      .in("payment_status", ["pending", "abandoned"]) // Check both pending and abandoned
       .in("order_status", ["pending", "awaiting_payment"]) // Only orders not yet fulfilled
       .not("payment_reference", "is", null)
       .lt("created_at", thresholdTime)
@@ -274,15 +275,25 @@ export async function GET(request: NextRequest) {
           }
 
         } else if (paystackResult.status === "abandoned") {
-          // Customer abandoned payment - leave as pending, they may retry
-          results.push({
-            id: order.id,
-            reference: order.payment_reference,
-            paystack_status: "abandoned",
-            action: "left_pending_may_retry",
-          })
-          stillPending++
-          console.log(`[VERIFY-PAYMENT] ⏸️ Order ${order.id}: Payment abandoned, left as pending`)
+          // Customer abandoned payment - mark as abandoned
+          const { error: updateError } = await supabase
+            .from("shop_orders")
+            .update({
+              payment_status: "abandoned",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", order.id)
+
+          if (!updateError) {
+            results.push({
+              id: order.id,
+              reference: order.payment_reference,
+              paystack_status: "abandoned",
+              action: "marked_abandoned",
+            })
+            failed++
+            console.log(`[VERIFY-PAYMENT] ⏸️ Order ${order.id}: Payment abandoned`)
+          }
 
         } else {
           // Still pending on Paystack
