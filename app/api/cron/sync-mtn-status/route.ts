@@ -237,30 +237,79 @@ export async function GET(request: NextRequest) {
             continue
           }
 
-          // Update corresponding order table
+          // Update corresponding order table and send notification
+          let userId: string | null = null
+          let orderDetails: { network?: string; size?: string; phone?: string } = {}
+
           if (order.order_type === "bulk" && order.order_id) {
-            const { error: orderError } = await supabase
+            const { data: orderData, error: orderError } = await supabase
               .from("orders")
               .update({
                 status: normalizedStatus,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", order.order_id)
+              .select("user_id, network, size, phone_number")
+              .single()
             
             if (orderError) {
               console.error(`[CRON] ⚠️ Failed to update bulk order ${order.order_id}:`, orderError)
+            } else if (orderData) {
+              userId = orderData.user_id
+              orderDetails = { network: orderData.network, size: orderData.size, phone: orderData.phone_number }
             }
           } else if (order.shop_order_id) {
-            const { error: shopError } = await supabase
+            const { data: shopData, error: shopError } = await supabase
               .from("shop_orders")
               .update({
                 order_status: normalizedStatus,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", order.shop_order_id)
+              .select("shop_id, network, volume_gb, customer_phone")
+              .single()
             
             if (shopError) {
               console.error(`[CRON] ⚠️ Failed to update shop order ${order.shop_order_id}:`, shopError)
+            } else if (shopData) {
+              // Get shop owner user_id
+              const { data: shopOwner } = await supabase
+                .from("user_shops")
+                .select("user_id")
+                .eq("id", shopData.shop_id)
+                .single()
+              userId = shopOwner?.user_id || null
+              orderDetails = { network: shopData.network, size: `${shopData.volume_gb}GB`, phone: shopData.customer_phone }
+            }
+          }
+
+          // Send in-app notification for status changes
+          if (userId && (normalizedStatus === "completed" || normalizedStatus === "failed")) {
+            const notifTitle = normalizedStatus === "completed" 
+              ? "Order Delivered Successfully" 
+              : "Order Delivery Failed"
+            const notifMessage = normalizedStatus === "completed"
+              ? `Your MTN ${orderDetails.size || ""} data order to ${orderDetails.phone || "recipient"} has been delivered successfully.`
+              : `Your MTN ${orderDetails.size || ""} data order to ${orderDetails.phone || "recipient"} failed. Please contact support.`
+            
+            const { error: notifError } = await supabase
+              .from("notifications")
+              .insert({
+                user_id: userId,
+                title: notifTitle,
+                message: notifMessage,
+                type: normalizedStatus === "completed" ? "order_completed" : "order_failed",
+                reference_id: order.order_id || order.shop_order_id,
+                action_url: order.order_type === "bulk" 
+                  ? `/dashboard/my-orders?orderId=${order.order_id}` 
+                  : `/dashboard/shop/orders`,
+                read: false,
+              })
+            
+            if (notifError) {
+              console.error(`[CRON] ⚠️ Failed to send notification for order ${order.mtn_order_id}:`, notifError)
+            } else {
+              console.log(`[CRON] 🔔 Notification sent to user ${userId} for order ${order.mtn_order_id} (${normalizedStatus})`)
             }
           }
 
