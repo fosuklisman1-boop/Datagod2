@@ -1,3 +1,12 @@
+-- 7. App Settings Table (Configuration settings for the application)
+CREATE TABLE IF NOT EXISTS app_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Add missing columns for MTN and settings compatibility
+  ALTER TABLE app_settings
+    ADD COLUMN IF NOT EXISTS key VARCHAR(100) UNIQUE,
+    ADD COLUMN IF NOT EXISTS value TEXT,
+    ADD COLUMN IF NOT EXISTS description TEXT;
+
 -- Shop Schema for Datagod2
 
 -- 1. User Shops Table

@@ -21,14 +21,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 })
     }
 
-    // Check if user is admin
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
+    // Check if user is admin (users table)
+    const { data: userData, error: userError2 } = await supabase
+      .from("users")
       .select("role")
       .eq("id", user.user.id)
       .single()
 
-    if (profileError || profile?.role !== "admin") {
+    if (userError2 || userData?.role !== "admin") {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
