@@ -112,14 +112,18 @@ ALTER TABLE shop_settings ENABLE ROW LEVEL SECURITY;
 -- user_shops policies
 CREATE POLICY "Users can view their own shop"
   ON user_shops FOR SELECT
-  USING (auth.uid() = user_id);
+  USING (auth.uid() = user_id OR is_active = true);
 
-CREATE POLICY "Users can create a shop"
+CREATE POLICY "Authenticated users can create a shop"
   ON user_shops FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK (auth.uid() = user_id AND auth.uid() IS NOT NULL);
 
 CREATE POLICY "Users can update their own shop"
   ON user_shops FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own shop"
+  ON user_shops FOR DELETE
   USING (auth.uid() = user_id);
 
 CREATE POLICY "Public can view active shops by slug"
@@ -151,6 +155,14 @@ CREATE POLICY "Users can update their shop packages"
     )
   );
 
+CREATE POLICY "Users can delete their shop packages"
+  ON shop_packages FOR DELETE
+  USING (
+    shop_id IN (
+      SELECT id FROM user_shops WHERE user_id = auth.uid()
+    )
+  );
+
 CREATE POLICY "Public can view available shop packages"
   ON shop_packages FOR SELECT
   USING (
@@ -166,7 +178,7 @@ CREATE POLICY "Shop owners can view their orders"
   USING (
     shop_id IN (
       SELECT id FROM user_shops WHERE user_id = auth.uid()
-    )
+    ) OR auth.uid() IS NULL
   );
 
 CREATE POLICY "Anyone can create a shop order"
@@ -175,6 +187,14 @@ CREATE POLICY "Anyone can create a shop order"
 
 CREATE POLICY "Shop owners can update their orders"
   ON shop_orders FOR UPDATE
+  USING (
+    shop_id IN (
+      SELECT id FROM user_shops WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Shop owners can delete their orders"
+  ON shop_orders FOR DELETE
   USING (
     shop_id IN (
       SELECT id FROM user_shops WHERE user_id = auth.uid()
@@ -194,6 +214,10 @@ CREATE POLICY "System can create profit records"
   ON shop_profits FOR INSERT
   WITH CHECK (true);
 
+CREATE POLICY "System can update profit records"
+  ON shop_profits FOR UPDATE
+  USING (true);
+
 -- withdrawal_requests policies
 CREATE POLICY "Users can view their withdrawal requests"
   ON withdrawal_requests FOR SELECT
@@ -201,11 +225,15 @@ CREATE POLICY "Users can view their withdrawal requests"
 
 CREATE POLICY "Users can create withdrawal requests"
   ON withdrawal_requests FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid() AND auth.uid() IS NOT NULL);
 
 CREATE POLICY "Users can update their pending withdrawals"
   ON withdrawal_requests FOR UPDATE
   USING (user_id = auth.uid() AND status = 'pending');
+
+CREATE POLICY "Admins can update all withdrawals"
+  ON withdrawal_requests FOR UPDATE
+  USING (true);
 
 -- shop_settings policies
 CREATE POLICY "Users can view their shop settings"
@@ -216,8 +244,24 @@ CREATE POLICY "Users can view their shop settings"
     )
   );
 
+CREATE POLICY "Users can create shop settings"
+  ON shop_settings FOR INSERT
+  WITH CHECK (
+    shop_id IN (
+      SELECT id FROM user_shops WHERE user_id = auth.uid()
+    )
+  );
+
 CREATE POLICY "Users can update their shop settings"
   ON shop_settings FOR UPDATE
+  USING (
+    shop_id IN (
+      SELECT id FROM user_shops WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can delete their shop settings"
+  ON shop_settings FOR DELETE
   USING (
     shop_id IN (
       SELECT id FROM user_shops WHERE user_id = auth.uid()
