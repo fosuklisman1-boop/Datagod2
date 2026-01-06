@@ -60,6 +60,8 @@ export default function MTNFulfillmentLogsPage() {
   const [summary, setSummary] = useState<Summary>({ total: 0, pending: 0, completed: 0, failed: 0, retrying: 0 })
   const [activeTab, setActiveTab] = useState<string>("all")
   const [retrying, setRetrying] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncingId, setSyncingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (adminLoading) return
@@ -135,6 +137,76 @@ export default function MTNFulfillmentLogsPage() {
     }
   }
 
+  // Sync status for a single order from Sykes API
+  const handleSyncStatus = async (logId: string) => {
+    try {
+      setSyncingId(logId)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/fulfillment/sync-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ tracking_id: logId }),
+      })
+
+      const data = await response.json()
+      
+      if (response.ok && data.success) {
+        toast.success(data.message || "Status synced")
+        loadLogs()
+      } else {
+        toast.error(data.error || data.message || "Failed to sync status")
+      }
+    } catch (error) {
+      console.error("Error syncing status:", error)
+      toast.error("Error syncing status")
+    } finally {
+      setSyncingId(null)
+    }
+  }
+
+  // Sync all pending orders from Sykes API
+  const handleSyncAllPending = async () => {
+    try {
+      setSyncing(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/fulfillment/sync-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ sync_all_pending: true }),
+      })
+
+      const data = await response.json()
+      
+      if (response.ok && data.success) {
+        toast.success(data.message || `Synced ${data.total} orders`)
+        loadLogs()
+      } else {
+        toast.error(data.error || "Failed to sync pending orders")
+      }
+    } catch (error) {
+      console.error("Error syncing all pending:", error)
+      toast.error("Error syncing pending orders")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
@@ -189,10 +261,24 @@ export default function MTNFulfillmentLogsPage() {
               <p className="text-muted-foreground">Track MTN API orders and their status</p>
             </div>
           </div>
-          <Button onClick={loadLogs} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={handleSyncAllPending} 
+              disabled={syncing || summary.pending === 0}
+            >
+              {syncing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Sync Pending ({summary.pending})
+            </Button>
+            <Button onClick={loadLogs} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {/* Summary Cards */}
@@ -303,23 +389,42 @@ export default function MTNFulfillmentLogsPage() {
                               )}
                             </TableCell>
                             <TableCell>
-                              {(log.status === "failed" || log.status === "error") && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleRetry(log.id, log.shop_order_id)}
-                                  disabled={retrying === log.id}
-                                >
-                                  {retrying === log.id ? (
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                  ) : (
-                                    <>
-                                      <Send className="w-3 h-3 mr-1" />
-                                      Retry
-                                    </>
-                                  )}
-                                </Button>
-                              )}
+                              <div className="flex gap-1">
+                                {/* Sync button for pending orders */}
+                                {(log.status === "pending" || log.status === "processing") && log.mtn_order_id && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleSyncStatus(log.id)}
+                                    disabled={syncingId === log.id}
+                                    title="Check status from Sykes API"
+                                  >
+                                    {syncingId === log.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="w-3 h-3" />
+                                    )}
+                                  </Button>
+                                )}
+                                {/* Retry button for failed orders */}
+                                {(log.status === "failed" || log.status === "error") && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleRetry(log.id, log.shop_order_id)}
+                                    disabled={retrying === log.id}
+                                  >
+                                    {retrying === log.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <>
+                                        <Send className="w-3 h-3 mr-1" />
+                                        Retry
+                                      </>
+                                    )}
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}

@@ -125,7 +125,8 @@ CREATE POLICY "Users can view their own shop"
 
 CREATE POLICY "Authenticated users can create a shop"
   ON user_shops FOR INSERT
-  WITH CHECK (auth.uid() = user_id AND auth.uid() IS NOT NULL);
+  WITH
+   CHECK (auth.uid() = user_id AND auth.uid() IS NOT NULL);
 
 CREATE POLICY "Users can update their own shop"
   ON user_shops FOR UPDATE

@@ -389,6 +389,144 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
 }
 
 /**
+ * Check MTN order status from Sykes API
+ */
+export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
+  success: boolean
+  status?: "pending" | "completed" | "failed"
+  message: string
+  order?: MTNWebhookPayload["order"]
+}> {
+  const traceId = generateTraceId()
+  
+  try {
+    log("info", "StatusCheck", `Checking status for MTN order ${mtnOrderId}`, { traceId, mtnOrderId })
+    
+    const response = await fetch(`${MTN_API_BASE_URL}/api/orders?id=${mtnOrderId}`, {
+      method: "GET",
+      headers: {
+        "X-API-KEY": MTN_API_KEY,
+        "Content-Type": "application/json",
+      },
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      log("error", "StatusCheck", `Failed to check order status: ${response.status}`, { traceId, error: errorText })
+      return {
+        success: false,
+        message: `API error: ${response.status}`,
+      }
+    }
+
+    const data = await response.json()
+    log("info", "StatusCheck", `Order status retrieved`, { traceId, data })
+
+    // The API returns an array of orders or a single order
+    const order = Array.isArray(data) ? data[0] : data.order || data
+    
+    if (!order) {
+      return {
+        success: false,
+        message: "Order not found",
+      }
+    }
+
+    return {
+      success: true,
+      status: order.status,
+      message: order.message || "Status retrieved",
+      order,
+    }
+  } catch (error) {
+    log("error", "StatusCheck", `Error checking order status`, { traceId, error: String(error) })
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to check status",
+    }
+  }
+}
+
+/**
+ * Sync MTN order status from API and update local tracking
+ */
+export async function syncMTNOrderStatus(trackingId: string): Promise<{
+  success: boolean
+  newStatus?: string
+  message: string
+}> {
+  try {
+    // Get tracking record
+    const { data: tracking, error: fetchError } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("*")
+      .eq("id", trackingId)
+      .single()
+
+    if (fetchError || !tracking) {
+      return { success: false, message: "Tracking record not found" }
+    }
+
+    if (!tracking.mtn_order_id) {
+      return { success: false, message: "No MTN order ID in tracking record" }
+    }
+
+    // Check status from API
+    const statusResult = await checkMTNOrderStatus(tracking.mtn_order_id)
+    
+    if (!statusResult.success || !statusResult.status) {
+      return { success: false, message: statusResult.message }
+    }
+
+    // If status changed, update tracking and shop order
+    if (statusResult.status !== tracking.status) {
+      const newStatus = statusResult.status
+      
+      // Update tracking
+      await supabase
+        .from("mtn_fulfillment_tracking")
+        .update({
+          status: newStatus,
+          external_status: statusResult.order?.status,
+          external_message: statusResult.order?.message,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", trackingId)
+
+      // Update shop_orders if completed or failed
+      if (tracking.shop_order_id && (newStatus === "completed" || newStatus === "failed")) {
+        await supabase
+          .from("shop_orders")
+          .update({
+            order_status: newStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", tracking.shop_order_id)
+      }
+
+      // Update orders table if bulk order
+      if (tracking.order_id && (newStatus === "completed" || newStatus === "failed")) {
+        await supabase
+          .from("orders")
+          .update({
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", tracking.order_id)
+      }
+
+      console.log(`[MTN] Synced order ${tracking.mtn_order_id} status: ${tracking.status} -> ${newStatus}`)
+      return { success: true, newStatus, message: `Status updated to ${newStatus}` }
+    }
+
+    return { success: true, newStatus: tracking.status, message: "Status unchanged" }
+  } catch (error) {
+    console.error("[MTN] Error syncing order status:", error)
+    return { success: false, message: error instanceof Error ? error.message : "Sync failed" }
+  }
+}
+
+/**
  * Save MTN order to tracking table
  * @param orderId - The order ID (either from shop_orders or orders table)
  * @param mtnOrderId - The MTN order ID from the API response
