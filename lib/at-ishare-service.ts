@@ -55,9 +55,9 @@ class ATiShareService {
       console.log(`[CODECRAFT-FULFILL] Network: ${network}`)
       console.log(`[CODECRAFT-FULFILL] Is BigTime: ${isBigTime}`)
 
-      // Validate inputs
-      if (!phoneNumber || !sizeGb || !orderId) {
-        const errorMsg = `Missing required fields: phoneNumber=${phoneNumber}, sizeGb=${sizeGb}, orderId=${orderId}`
+      // Validate inputs - sizeGb must be greater than 0
+      if (!phoneNumber || !orderId) {
+        const errorMsg = `Missing required fields: phoneNumber=${phoneNumber}, orderId=${orderId}`
         console.error(`[CODECRAFT-FULFILL] ❌ ${errorMsg}`)
         // Log this validation error
         try {
@@ -77,6 +77,31 @@ class ATiShareService {
         return {
           success: false,
           errorCode: "INVALID_INPUT",
+          message: errorMsg,
+        }
+      }
+
+      // Validate sizeGb - must be greater than 0
+      if (!sizeGb || sizeGb <= 0) {
+        const errorMsg = `Invalid size: ${sizeGb}GB. Size must be greater than 0.`
+        console.error(`[CODECRAFT-FULFILL] ❌ ${errorMsg}`)
+        try {
+          await this.logFulfillment(
+            orderId,
+            "failed",
+            { validation_error: true, received_size: sizeGb },
+            errorMsg,
+            undefined,
+            phoneNumber,
+            network,
+            orderType
+          )
+        } catch (e) {
+          console.error(`[CODECRAFT-FULFILL] Could not log validation error:`, e)
+        }
+        return {
+          success: false,
+          errorCode: "INVALID_SIZE",
           message: errorMsg,
         }
       }
