@@ -249,6 +249,33 @@ export async function POST(request: NextRequest) {
             } else if (shouldFulfill && !shopOrderData?.customer_phone) {
               console.error(`[WEBHOOK] ❌ Cannot fulfill shop order ${paymentData.order_id}: No customer_phone`)
             }
+
+            // Handle MTN fulfillment separately via unified fulfillment endpoint
+            const isMTNNetwork = networkLower === "mtn"
+            if (isMTNNetwork && shopOrderData?.customer_phone) {
+              console.log(`[WEBHOOK] MTN order detected. Triggering unified fulfillment for shop order ${paymentData.order_id}`)
+              const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+              
+              // Non-blocking MTN fulfillment trigger via unified endpoint
+              fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.datagod.store'}/api/fulfillment/process-order`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  shop_order_id: paymentData.order_id,
+                  network: "MTN",
+                  phone_number: shopOrderData.customer_phone,
+                  volume_gb: sizeGb,
+                  customer_name: shopOrderData.customer_phone, // Using phone as fallback
+                }),
+              }).then(async (res) => {
+                const result = await res.json()
+                console.log(`[WEBHOOK] ✓ MTN fulfillment triggered for shop order ${paymentData.order_id}:`, result)
+              }).catch(err => {
+                console.error(`[WEBHOOK] ❌ Error triggering MTN fulfillment for shop order ${paymentData.order_id}:`, err)
+              })
+            }
           }
 
           // Create shop profit record for the sub-agent/shop owner
