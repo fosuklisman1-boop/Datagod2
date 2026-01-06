@@ -130,7 +130,10 @@ export async function GET(request: NextRequest) {
 
     if (fetchError) {
       console.error("[VERIFY-PAYMENT] Error fetching pending orders:", fetchError)
-      return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 })
+      return NextResponse.json({
+        error: "Failed to fetch orders",
+        details: fetchError.message || fetchError,
+      }, { status: 500 })
     }
 
     if (!pendingOrders || pendingOrders.length === 0) {
