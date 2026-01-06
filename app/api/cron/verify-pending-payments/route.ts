@@ -118,15 +118,15 @@ export async function GET(request: NextRequest) {
     // Get pending/abandoned shop_orders with payment references older than threshold
     // Also ensure order_status is not already processing/completed (prevents double fulfillment)
     // Include "abandoned" so if user retries and succeeds, we can process it
-    const { data: pendingOrders, error: fetchError } = await supabase
-      .from("shop_orders")
-      .select("id, payment_reference, network, customer_phone, volume_gb, customer_name, payment_status, order_status, created_at")
-      .in("payment_status", ["pending", "abandoned"]) // Check both pending and abandoned
-      .eq("order_status", "pending") // Only orders not yet processing/completed
-      .not("payment_reference", "is", null)
-      .lt("created_at", thresholdTime)
-      .order("created_at", { ascending: true })
-      .limit(50)
+      const { data: pendingOrders, error: fetchError } = await supabase
+        .from("shop_orders")
+        .select("id, reference_code, network, customer_phone, volume_gb, customer_name, payment_status, order_status, created_at")
+        .in("payment_status", ["pending", "abandoned"]) // Check both pending and abandoned
+        .eq("order_status", "pending") // Only orders not yet processing/completed
+        .not("reference_code", "is", null)
+        .lt("created_at", thresholdTime)
+        .order("created_at", { ascending: true })
+        .limit(50)
 
     if (fetchError) {
       console.error("[VERIFY-PAYMENT] Error fetching pending orders:", fetchError)
@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
     for (const order of pendingOrders) {
       try {
         // Verify with Paystack
-        const paystackResult = await verifyWithPaystack(order.payment_reference)
+          const paystackResult = await verifyWithPaystack(order.reference_code)
         console.log(`[VERIFY-PAYMENT] Order ${order.id}: Paystack status = ${paystackResult.status}`)
 
         if (paystackResult.status === "success") {
@@ -181,7 +181,7 @@ export async function GET(request: NextRequest) {
             console.log(`[VERIFY-PAYMENT] ⏭️ Order ${order.id} already processed, skipping`)
             results.push({
               id: order.id,
-              reference: order.payment_reference,
+                 reference: order.reference_code,
               paystack_status: "success",
               action: "already_processed",
             })
@@ -205,7 +205,7 @@ export async function GET(request: NextRequest) {
             
             results.push({
               id: order.id,
-              reference: order.payment_reference,
+                 reference: order.reference_code,
               paystack_status: "success",
               action: "payment_updated_fulfillment_exists",
               fulfillment: `Already tracked: ${existingTracking.status}`,
@@ -226,7 +226,7 @@ export async function GET(request: NextRequest) {
             console.error(`[VERIFY-PAYMENT] Failed to update order ${order.id}:`, updateError)
             results.push({
               id: order.id,
-              reference: order.payment_reference,
+                 reference: order.reference_code,
               paystack_status: "success",
               action: "update_failed",
             })
@@ -245,7 +245,7 @@ export async function GET(request: NextRequest) {
 
           results.push({
             id: order.id,
-            reference: order.payment_reference,
+               reference: order.reference_code,
             paystack_status: "success",
             action: "verified_and_updated",
             fulfillment: fulfillmentResult.success ? "triggered" : fulfillmentResult.message,
@@ -269,7 +269,7 @@ export async function GET(request: NextRequest) {
           if (!updateError) {
             results.push({
               id: order.id,
-              reference: order.payment_reference,
+                 reference: order.reference_code,
               paystack_status: paystackResult.status,
               action: "marked_failed",
             })
@@ -290,7 +290,7 @@ export async function GET(request: NextRequest) {
           if (!updateError) {
             results.push({
               id: order.id,
-              reference: order.payment_reference,
+                 reference: order.reference_code,
               paystack_status: "abandoned",
               action: "marked_abandoned",
             })
@@ -302,7 +302,7 @@ export async function GET(request: NextRequest) {
           // Still pending on Paystack
           results.push({
             id: order.id,
-            reference: order.payment_reference,
+               reference: order.reference_code,
             paystack_status: "pending",
             action: "still_pending",
           })
@@ -316,7 +316,7 @@ export async function GET(request: NextRequest) {
         console.error(`[VERIFY-PAYMENT] Error processing order ${order.id}:`, err)
         results.push({
           id: order.id,
-          reference: order.payment_reference,
+             reference: order.reference_code,
           paystack_status: "error",
           action: err instanceof Error ? err.message : "Unknown error",
         })
