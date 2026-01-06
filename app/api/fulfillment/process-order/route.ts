@@ -156,11 +156,11 @@ async function handleMTNAutoFulfillment(
       console.error("[FULFILLMENT] Failed to save tracking record")
     }
 
-    // Update shop_orders
+    // Update shop_orders - set to "processing" so it doesn't appear in admin download queue
     const { error: updateError } = await supabase
       .from("shop_orders")
       .update({
-        order_status: "pending",
+        order_status: "processing",
         fulfillment_method: "auto_mtn",
         external_order_id: mtnResponse.order_id,
         updated_at: new Date().toISOString(),
@@ -176,7 +176,7 @@ async function handleMTNAutoFulfillment(
       await supabase.from("fulfillment_logs").insert({
         order_id: shopOrderId,
         order_type: "shop",
-        status: "pending",
+        status: "processing",
         external_api: "MTN",
         external_order_id: mtnResponse.order_id,
         external_response: mtnResponse,
