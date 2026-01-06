@@ -55,7 +55,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     // Verify admin access (checks both user_metadata and users table)
-    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
     if (!isAdmin) {
       return errorResponse
     }
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
         price: parseFloat(price),
         description: description || "",
         updated_at: new Date(),
-        updated_by: user.id,
+        updated_by: userId,
       })
       .eq("name", "default")
       .select()
