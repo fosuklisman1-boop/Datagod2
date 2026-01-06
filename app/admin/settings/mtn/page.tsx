@@ -37,20 +37,17 @@ export default function MTNSettingsPage() {
   const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
-    if (!isAdmin && !adminLoading) {
-      router.push("/")
-      return
-    }
+    if (adminLoading) return
+    
+    if (!isAdmin) return // useAdminProtected handles redirect
 
-    if (isAdmin && !adminLoading) {
-      loadSettings()
-      loadBalance()
-      
-      // Refresh balance every 30 seconds
-      const balanceInterval = setInterval(loadBalance, 30000)
-      return () => clearInterval(balanceInterval)
-    }
-  }, [isAdmin, adminLoading, router])
+    loadSettings()
+    loadBalance()
+    
+    // Refresh balance every 30 seconds
+    const balanceInterval = setInterval(loadBalance, 30000)
+    return () => clearInterval(balanceInterval)
+  }, [isAdmin, adminLoading])
 
   const loadSettings = async () => {
     try {
