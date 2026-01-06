@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = user.id
+    const userEmail = user.email // Email from auth user object
 
     // Get user's wallet
     const { data: walletData, error: walletError } = await supabaseAdmin
@@ -228,7 +229,7 @@ export async function POST(request: NextRequest) {
           network: apiNetwork,
           orderType: "wallet",  // Wallet orders use orders table
           isBigTime,
-          customer_email: isBigTime ? user.email : undefined,
+          customer_email: isBigTime ? userEmail : undefined,
         }).then(result => {
           console.log(`[FULFILLMENT] Fulfillment response for order ${order[0].id}:`, result)
         }).catch(err => {
