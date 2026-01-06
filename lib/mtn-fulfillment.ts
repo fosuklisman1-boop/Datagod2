@@ -390,6 +390,7 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
 
 /**
  * Check MTN order status from Sykes API
+ * Tries multiple endpoint formats to find the correct one
  */
 export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
   success: boolean
@@ -402,7 +403,8 @@ export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
   try {
     log("info", "StatusCheck", `Checking status for MTN order ${mtnOrderId}`, { traceId, mtnOrderId })
     
-    const response = await fetch(`${MTN_API_BASE_URL}/api/orders?id=${mtnOrderId}`, {
+    // Try path-based endpoint first: /api/orders/{id}
+    let response = await fetch(`${MTN_API_BASE_URL}/api/orders/${mtnOrderId}`, {
       method: "GET",
       headers: {
         "X-API-KEY": MTN_API_KEY,
@@ -410,25 +412,77 @@ export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
       },
     })
 
+    // If that fails with 404, try query parameter format: /api/orders?id={id}
+    if (response.status === 404) {
+      log("info", "StatusCheck", `Path format 404, trying query param format`, { traceId })
+      response = await fetch(`${MTN_API_BASE_URL}/api/orders?id=${mtnOrderId}`, {
+        method: "GET",
+        headers: {
+          "X-API-KEY": MTN_API_KEY,
+          "Content-Type": "application/json",
+        },
+      })
+    }
+
+    // If still 404, try order_id query param
+    if (response.status === 404) {
+      log("info", "StatusCheck", `Query id format 404, trying order_id param`, { traceId })
+      response = await fetch(`${MTN_API_BASE_URL}/api/orders?order_id=${mtnOrderId}`, {
+        method: "GET",
+        headers: {
+          "X-API-KEY": MTN_API_KEY,
+          "Content-Type": "application/json",
+        },
+      })
+    }
+
+    const responseText = await response.text()
+    log("info", "StatusCheck", `API response: ${response.status}`, { traceId, responseText })
+
     if (!response.ok) {
-      const errorText = await response.text()
-      log("error", "StatusCheck", `Failed to check order status: ${response.status}`, { traceId, error: errorText })
       return {
         success: false,
-        message: `API error: ${response.status}`,
+        message: `API error: ${response.status} - ${responseText}`,
       }
     }
 
-    const data = await response.json()
-    log("info", "StatusCheck", `Order status retrieved`, { traceId, data })
-
-    // The API returns an array of orders or a single order
-    const order = Array.isArray(data) ? data[0] : data.order || data
-    
-    if (!order) {
+    let data
+    try {
+      data = JSON.parse(responseText)
+    } catch {
       return {
         success: false,
-        message: "Order not found",
+        message: `Invalid JSON response: ${responseText.slice(0, 100)}`,
+      }
+    }
+
+    log("info", "StatusCheck", `Order status retrieved`, { traceId, data })
+
+    // Handle various response formats:
+    // 1. Array of orders: [{id, status, ...}]
+    // 2. Single order wrapped: {order: {id, status, ...}}
+    // 3. Direct order object: {id, status, ...}
+    // 4. Data wrapper: {data: [{id, status, ...}]}
+    // 5. Orders wrapper: {orders: [{id, status, ...}]}
+    let order
+    
+    if (Array.isArray(data)) {
+      // Array format - find matching order
+      order = data.find((o: any) => o.id === mtnOrderId) || data[0]
+    } else if (data.order) {
+      order = data.order
+    } else if (data.data && Array.isArray(data.data)) {
+      order = data.data.find((o: any) => o.id === mtnOrderId) || data.data[0]
+    } else if (data.orders && Array.isArray(data.orders)) {
+      order = data.orders.find((o: any) => o.id === mtnOrderId) || data.orders[0]
+    } else if (data.id) {
+      order = data
+    }
+    
+    if (!order || !order.status) {
+      return {
+        success: false,
+        message: `Order not found or no status. Response: ${JSON.stringify(data).slice(0, 200)}`,
       }
     }
 
