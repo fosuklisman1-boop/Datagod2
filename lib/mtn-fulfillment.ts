@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase"
+import { supabaseAdmin as supabase } from "@/lib/supabase"
 import crypto from "crypto"
 import {
   mtnConfig,
@@ -123,13 +123,26 @@ export function validatePhoneNetworkMatch(
  */
 export async function isAutoFulfillmentEnabled(): Promise<boolean> {
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("app_settings")
       .select("value")
       .eq("key", "mtn_auto_fulfillment_enabled")
-      .single()
+      .maybeSingle()
 
-    return data?.value === "true"
+    if (error) {
+      console.error("[MTN] Error checking auto-fulfillment setting:", error)
+      return false
+    }
+
+    // If setting doesn't exist, default to false
+    if (!data) {
+      console.log("[MTN] Auto-fulfillment setting not found, defaulting to false")
+      return false
+    }
+
+    const isEnabled = data.value === "true"
+    console.log(`[MTN] Auto-fulfillment enabled: ${isEnabled}`)
+    return isEnabled
   } catch (error) {
     console.error("[MTN] Error checking auto-fulfillment setting:", error)
     return false
@@ -141,15 +154,23 @@ export async function isAutoFulfillmentEnabled(): Promise<boolean> {
  */
 export async function setAutoFulfillmentEnabled(enabled: boolean): Promise<boolean> {
   try {
+    // Use upsert to create or update the setting
     const { error } = await supabase
       .from("app_settings")
-      .update({
+      .upsert({
+        key: "mtn_auto_fulfillment_enabled",
         value: enabled ? "true" : "false",
         updated_at: new Date().toISOString(),
+      }, {
+        onConflict: "key",
       })
-      .eq("key", "mtn_auto_fulfillment_enabled")
 
-    if (error) throw error
+    if (error) {
+      console.error("[MTN] Upsert error:", error)
+      throw error
+    }
+    
+    console.log(`[MTN] Auto-fulfillment set to: ${enabled}`)
     return true
   } catch (error) {
     console.error("[MTN] Error setting auto-fulfillment:", error)
