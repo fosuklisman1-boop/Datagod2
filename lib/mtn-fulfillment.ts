@@ -632,18 +632,22 @@ export async function saveMTNTracking(
 
 /**
  * Update MTN order status from webhook
+ * Updates both mtn_fulfillment_tracking and the corresponding order table (shop_orders or orders)
  */
 export async function updateMTNOrderFromWebhook(
   webhook: MTNWebhookPayload
 ): Promise<boolean> {
   try {
     const mtnOrderId = webhook.order.id
+    // Map API status to our status - include "processing"
     const newStatus =
       webhook.order.status === "completed"
         ? "completed"
         : webhook.order.status === "failed"
           ? "failed"
-          : "pending"
+          : webhook.order.status === "processing"
+            ? "processing"
+            : "pending"
 
     // Update tracking table
     const { error: trackingError } = await supabase
@@ -654,15 +658,16 @@ export async function updateMTNOrderFromWebhook(
         external_message: webhook.order.message,
         webhook_payload: webhook,
         webhook_received_at: new Date(webhook.timestamp),
+        updated_at: new Date().toISOString(),
       })
       .eq("mtn_order_id", mtnOrderId)
 
     if (trackingError) throw trackingError
 
-    // Get the shop_order_id to update shop_orders table
+    // Get the tracking record to update the corresponding order table
     const { data: tracking } = await supabase
       .from("mtn_fulfillment_tracking")
-      .select("shop_order_id")
+      .select("shop_order_id, order_id, order_type")
       .eq("mtn_order_id", mtnOrderId)
       .single()
 
@@ -671,31 +676,46 @@ export async function updateMTNOrderFromWebhook(
       return false
     }
 
-    // Update shop_orders status
-    const shopOrderStatus =
-      newStatus === "completed"
-        ? "completed"
-        : newStatus === "failed"
-          ? "failed"
-          : "pending"
+    // Update the corresponding order table based on order_type
+    if (tracking.order_type === "bulk" && tracking.order_id) {
+      // Update bulk orders table
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tracking.order_id)
 
-    const { error: shopError } = await supabase
-      .from("shop_orders")
-      .update({
-        order_status: shopOrderStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", tracking.shop_order_id)
+      if (orderError) {
+        console.error("[MTN] Error updating bulk order:", orderError)
+      } else {
+        console.log(`[MTN] Updated bulk order ${tracking.order_id} status to ${newStatus}`)
+      }
+    } else if (tracking.shop_order_id) {
+      // Update shop_orders table
+      const { error: shopError } = await supabase
+        .from("shop_orders")
+        .update({
+          order_status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tracking.shop_order_id)
 
-    if (shopError) throw shopError
+      if (shopError) {
+        console.error("[MTN] Error updating shop order:", shopError)
+      } else {
+        console.log(`[MTN] Updated shop order ${tracking.shop_order_id} status to ${newStatus}`)
+      }
+    }
 
     // Add fulfillment log
     const { error: logError } = await supabase
       .from("fulfillment_logs")
       .insert({
-        order_id: tracking.shop_order_id,
-        order_type: "shop",
-        status: shopOrderStatus,
+        order_id: tracking.shop_order_id || tracking.order_id,
+        order_type: tracking.order_type || "shop",
+        status: newStatus,
         external_api: "MTN",
         external_order_id: mtnOrderId,
         external_response: webhook.order,

@@ -105,6 +105,8 @@ export async function POST(request: NextRequest) {
           await handleOrderCompleted(traceId, payload)
         } else if (payload.order.status === "failed") {
           await handleOrderFailed(traceId, payload)
+        } else if (payload.order.status === "processing") {
+          await handleOrderProcessing(traceId, payload)
         } else if (payload.order.status === "pending") {
           await handleOrderPending(traceId, payload)
         }
@@ -120,8 +122,11 @@ export async function POST(request: NextRequest) {
         await handleOrderFailed(traceId, payload)
         break
 
-      case "order.pending":
       case "order.processing":
+        await handleOrderProcessing(traceId, payload)
+        break
+
+      case "order.pending":
         await handleOrderPending(traceId, payload)
         break
 
@@ -191,17 +196,17 @@ async function handleOrderCompleted(
 ): Promise<void> {
   const { order } = payload
 
-  // Update order status in database
+  // Update order status in database (updates both tracking and order tables)
   const updated = await updateMTNOrderFromWebhook(payload)
   if (!updated) {
     log("error", "Webhook", "Failed to update order from webhook", { traceId, mtnOrderId: order.id })
     return
   }
 
-  // Get order details for notification
+  // Get order details for notification and profit update
   const { data: tracking } = await supabase
     .from("mtn_fulfillment_tracking")
-    .select("shop_order_id, recipient_phone")
+    .select("shop_order_id, order_id, order_type, recipient_phone")
     .eq("mtn_order_id", order.id)
     .single()
 
@@ -221,18 +226,10 @@ async function handleOrderCompleted(
       log("warn", "Webhook", "Failed to send success SMS", { traceId, error: String(smsError) })
     }
 
-    // Update shop_orders
-    await supabase
-      .from("shop_orders")
-      .update({
-        order_status: "completed",
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", tracking.shop_order_id)
-
-    // Update profit tracking if needed
-    await updateProfitOnCompletion(tracking.shop_order_id)
+    // Update profit tracking for shop orders
+    if (tracking.shop_order_id && tracking.order_type !== "bulk") {
+      await updateProfitOnCompletion(tracking.shop_order_id)
+    }
   }
 
   log("info", "Webhook", "Order completed successfully", { traceId, mtnOrderId: order.id })
@@ -247,33 +244,24 @@ async function handleOrderFailed(
 ): Promise<void> {
   const { order } = payload
 
-  // Update order status in database
+  // Update order status in database (updates both tracking and order tables)
   await updateMTNOrderFromWebhook(payload)
 
   // Get order details for notification
   const { data: tracking } = await supabase
     .from("mtn_fulfillment_tracking")
-    .select("shop_order_id, recipient_phone, retry_count")
+    .select("shop_order_id, order_id, order_type, recipient_phone, retry_count")
     .eq("mtn_order_id", order.id)
     .single()
 
   if (tracking) {
-    // Update shop_orders
-    await supabase
-      .from("shop_orders")
-      .update({
-        order_status: "failed",
-        failure_reason: order.message,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", tracking.shop_order_id)
-
     // Send failure SMS to customer
     try {
+      const orderId = tracking.shop_order_id || tracking.order_id || order.id.toString()
       await sendSMS({
         phone: tracking.recipient_phone,
         message: SMSTemplates.fulfillmentFailed(
-          tracking.shop_order_id.substring(0, 8),
+          orderId.substring(0, 8),
           tracking.recipient_phone,
           order.network,
           (order.size_mb / 1000).toString(),
@@ -308,7 +296,7 @@ async function handleOrderFailed(
 }
 
 /**
- * Handle pending/processing order
+ * Handle pending order
  */
 async function handleOrderPending(
   traceId: string,
@@ -316,18 +304,28 @@ async function handleOrderPending(
 ): Promise<void> {
   const { order } = payload
 
-  // Just update tracking status
-  await supabase
-    .from("mtn_fulfillment_tracking")
-    .update({
-      status: "processing",
-      external_status: order.status,
-      external_message: order.message,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("mtn_order_id", order.id)
+  // Update tracking status
+  await updateMTNOrderFromWebhook(payload)
 
-  log("info", "Webhook", "Order status updated to pending/processing", {
+  log("info", "Webhook", "Order status updated to pending", {
+    traceId,
+    mtnOrderId: order.id,
+  })
+}
+
+/**
+ * Handle processing order
+ */
+async function handleOrderProcessing(
+  traceId: string,
+  payload: MTNWebhookPayload
+): Promise<void> {
+  const { order } = payload
+
+  // Update tracking status and order status via shared function
+  await updateMTNOrderFromWebhook(payload)
+
+  log("info", "Webhook", "Order status updated to processing", {
     traceId,
     mtnOrderId: order.id,
   })
