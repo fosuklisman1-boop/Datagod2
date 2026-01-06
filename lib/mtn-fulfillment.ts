@@ -678,10 +678,10 @@ export async function saveMTNTracking(
 ): Promise<string | null> {
   try {
     // Build insert data based on order type
-    // Set status to "processing" since the order was successfully sent to the API
+    // Set status to "pending" - the cron job will sync the actual status from Sykes
     const insertData: Record<string, unknown> = {
       mtn_order_id: mtnOrderId,
-      status: "processing",
+      status: "pending",
       recipient_phone: request.recipient_phone,
       network: request.network,
       size_gb: request.size_gb,
