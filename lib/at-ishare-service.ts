@@ -447,42 +447,52 @@ class ATiShareService {
       let actualStatus = "processing"
       let message = ""
 
+      // Only mark as completed if we get a definitive success status
       if (orderStatus.includes("successful") || orderStatus.includes("delivered") || orderStatus.includes("completed") || orderStatus === "success") {
         actualStatus = "completed"
         message = "Order delivered successfully"
-      } else if (orderStatus.includes("failed") || orderStatus.includes("error") || orderStatus.includes("cancelled") || orderStatus.includes("canceled") || orderStatus.includes("rejected") || orderStatus.includes("refund")) {
+      } 
+      // Only mark as failed if we get an EXPLICIT failure (not just "order not found")
+      else if (orderStatus.includes("failed") || orderStatus.includes("cancelled") || orderStatus.includes("canceled") || orderStatus.includes("rejected") || orderStatus.includes("refund")) {
         actualStatus = "failed"
         message = data.order_details?.order_status || data.message || "Delivery failed/cancelled"
-      } else if (orderStatus.includes("pending") || orderStatus.includes("processing") || orderStatus === "") {
+      } 
+      // Everything else stays as processing (including empty, pending, error, not found)
+      else {
         actualStatus = "processing"
-        message = "Order still processing"
+        message = orderStatus ? `Status: ${orderStatus}` : "Order still processing or not found in system"
       }
 
       console.log(`[CODECRAFT] Determined status: ${actualStatus}, message: ${message}`)
 
-      // Update the order status in database
-      if (orderType === "wallet") {
+      // Only update database if status changed to a final state (completed or failed)
+      // Don't update if still processing to avoid overwriting
+      if (actualStatus === "completed" || actualStatus === "failed") {
+        if (orderType === "wallet") {
+          await this.supabase
+            .from("orders")
+            .update({ status: actualStatus, updated_at: new Date().toISOString() })
+            .eq("id", orderId)
+        } else {
+          await this.supabase
+            .from("shop_orders")
+            .update({ order_status: actualStatus, updated_at: new Date().toISOString() })
+            .eq("id", orderId)
+        }
+
+        // Also update fulfillment log
         await this.supabase
-          .from("orders")
-          .update({ status: actualStatus, updated_at: new Date().toISOString() })
-          .eq("id", orderId)
+          .from("fulfillment_logs")
+          .update({ 
+            status: actualStatus === "completed" ? "success" : actualStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq("order_id", orderId)
+        
+        console.log(`[CODECRAFT] Order ${orderId} status updated to: ${actualStatus}`)
       } else {
-        await this.supabase
-          .from("shop_orders")
-          .update({ order_status: actualStatus, updated_at: new Date().toISOString() })
-          .eq("id", orderId)
+        console.log(`[CODECRAFT] Order ${orderId} still processing, not updating database`)
       }
-
-      // Also update fulfillment log
-      await this.supabase
-        .from("fulfillment_logs")
-        .update({ 
-          status: actualStatus === "completed" ? "success" : actualStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq("order_id", orderId)
-
-      console.log(`[CODECRAFT] Order ${orderId} verified as: ${actualStatus}`)
 
       return { actualStatus, message }
     } catch (error) {
