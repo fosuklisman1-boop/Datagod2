@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet } from "lucide-react"
+import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import Link from "next/link"
 
 interface MTNSettings {
   enabled: boolean
@@ -307,6 +308,27 @@ export default function MTNSettingsPage() {
 
         {/* Info Cards */}
         <div className="grid md:grid-cols-2 gap-4">
+          {/* View Fulfillment Logs Card */}
+          <Card className="bg-purple-50 border-purple-200">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-5 w-5 text-purple-600" />
+                Fulfillment Logs
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm space-y-3 text-purple-900">
+              <p>
+                View all MTN orders sent to the API, their status, and retry failed orders.
+              </p>
+              <Link href="/admin/mtn-logs">
+                <Button className="w-full bg-purple-600 hover:bg-purple-700">
+                  <FileText className="h-4 w-4 mr-2" />
+                  View MTN Fulfillment Logs
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
           <Card className="bg-blue-50 border-blue-200">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -325,7 +347,9 @@ export default function MTNSettingsPage() {
               </p>
             </CardContent>
           </Card>
+        </div>
 
+        <div className="grid md:grid-cols-1 gap-4">
           <Card className="bg-amber-50 border-amber-200">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
