@@ -207,6 +207,12 @@ class ATiShareService {
 
       console.log(`[CODECRAFT-FULFILL] Response Data:`, responseData)
 
+      // Check if Code Craft returned their own order/transaction ID
+      const codecraftOrderId = responseData.order_id || responseData.transaction_id || responseData.id || null
+      if (codecraftOrderId) {
+        console.log(`[CODECRAFT-FULFILL] Code Craft returned order ID: ${codecraftOrderId}`)
+      }
+
       // Handle response based on HTTP status code
       // HTTP 200 = Success (as per API documentation)
       // Other codes = Failed
@@ -214,13 +220,16 @@ class ATiShareService {
         console.log(`[CODECRAFT] Order request accepted: ${orderId}`)
         console.log(`[CODECRAFT] API Message: ${responseData.message || "Sent Successfully"}`)
         
+        // Store Code Craft's reference if returned (for later verification)
+        const externalRef = codecraftOrderId || orderId
+        
         // Log fulfillment attempt (initially as "processing")
         await this.logFulfillment(
           orderId,
           "processing",
-          responseData,
+          { ...responseData, codecraft_reference: externalRef },
           null,
-          orderId,
+          externalRef,  // Use Code Craft's reference if available
           phoneNumber,
           network,
           orderType
@@ -235,7 +244,8 @@ class ATiShareService {
           await new Promise(resolve => setTimeout(resolve, pollIntervals[i]))
 
           // Verify the actual status from Code Craft
-          verifyResult = await this.verifyAndUpdateStatus(orderId, network, orderType, isBigTime)
+          // Pass codecraftOrderId if they returned one
+          verifyResult = await this.verifyAndUpdateStatus(orderId, network, orderType, isBigTime, codecraftOrderId || undefined)
           
           console.log(`[CODECRAFT] Verification attempt ${i + 1}: ${verifyResult.actualStatus}`)
 
@@ -361,18 +371,23 @@ class ATiShareService {
     orderId: string, 
     network: string, 
     orderType: "wallet" | "shop",
-    isBigTime: boolean = false
+    isBigTime: boolean = false,
+    externalReference?: string  // Code Craft's order ID if different from ours
   ): Promise<{ actualStatus: string; message?: string }> {
     try {
       console.log(`[CODECRAFT] Verifying actual delivery status for order ${orderId}`)
       console.log(`[CODECRAFT] Network: ${network}, isBigTime: ${isBigTime}`)
+      console.log(`[CODECRAFT] External reference: ${externalReference || "none (using orderId)"}`)
 
       // Determine correct endpoint
       const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
       const url = `${codecraftApiUrl}/${endpoint}`
 
+      // Use external reference if available, otherwise use our orderId
+      const lookupRef = externalReference || orderId
+
       const requestBody = {
-        reference_id: orderId,
+        reference_id: lookupRef,
         agent_api: codecraftApiKey,
       }
 
