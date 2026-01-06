@@ -29,6 +29,8 @@ export async function GET(request: NextRequest) {
       .select(`
         id,
         shop_order_id,
+        order_id,
+        order_type,
         mtn_order_id,
         status,
         recipient_phone,

@@ -83,9 +83,10 @@ export default function MTNFulfillmentLogsPage() {
       }
 
       const statusParam = activeTab !== "all" ? `&status=${activeTab}` : ""
-      const response = await fetch(`/api/admin/fulfillment/mtn-logs?limit=100${statusParam}`, {
+      const response = await fetch(`/api/admin/fulfillment/mtn-logs?limit=100${statusParam}&t=${Date.now()}`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
+          "Cache-Control": "no-cache",
         },
       })
 
