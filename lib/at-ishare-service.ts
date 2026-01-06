@@ -14,6 +14,7 @@ interface FulfillmentRequest {
   network?: string
   orderType?: "wallet" | "shop"  // wallet = orders table, shop = shop_orders table
   isBigTime?: boolean  // true for AT-BigTime orders (uses special.php endpoint)
+  customer_email?: string // For Big Time orders, mapped to client_email
 }
 
 interface FulfillmentResponse {
@@ -43,7 +44,7 @@ class ATiShareService {
    * For AT-BigTime orders, uses the special.php endpoint
    */
   async fulfillOrder(request: FulfillmentRequest): Promise<FulfillmentResponse> {
-    const { phoneNumber, sizeGb, orderId, network = "AT", orderType = "wallet", isBigTime = false } = request
+    const { phoneNumber, sizeGb, orderId, network = "AT", orderType = "wallet", isBigTime = false, customer_email } = request
 
     try {
       console.log(`[CODECRAFT-FULFILL] Starting fulfillment request`)
@@ -108,12 +109,17 @@ class ATiShareService {
       }
 
       // Prepare Code Craft Network API request
-      const apiRequest = {
+
+      // Build API request, add client_email for Big Time
+      const apiRequest: Record<string, any> = {
         agent_api: codecraftApiKey,
         recipient_number: phoneNumber,
         network: network,
         gig: sizeGb.toString(),
         reference_id: orderId,
+      };
+      if (isBigTime && customer_email) {
+        apiRequest.client_email = customer_email;
       }
 
       // Use different endpoint for BigTime orders

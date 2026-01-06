@@ -228,6 +228,7 @@ export async function POST(request: NextRequest) {
           network: apiNetwork,
           orderType: "wallet",  // Wallet orders use orders table
           isBigTime,
+          customer_email: isBigTime ? user.email : undefined,
         }).then(result => {
           console.log(`[FULFILLMENT] Fulfillment response for order ${order[0].id}:`, result)
         }).catch(err => {
