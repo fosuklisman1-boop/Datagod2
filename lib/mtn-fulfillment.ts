@@ -486,24 +486,41 @@ export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
       }
     }
 
+    // Log the raw status for debugging
+    console.log(`[MTN-STATUS] Raw API status for order ${mtnOrderId}: "${order.status}" (type: ${typeof order.status})`)
+
     // Normalize status from API to our expected values
     let normalizedStatus: "pending" | "processing" | "completed" | "failed" = "pending"
-    const apiStatus = String(order.status).toLowerCase()
+    const apiStatus = String(order.status).toLowerCase().trim()
     
-    if (apiStatus === "completed" || apiStatus === "success" || apiStatus === "delivered") {
+    // Completed status variations
+    if (apiStatus === "completed" || apiStatus === "success" || apiStatus === "delivered" || 
+        apiStatus === "done" || apiStatus === "fulfilled" || apiStatus === "sent" ||
+        apiStatus === "successful" || apiStatus === "complete") {
       normalizedStatus = "completed"
-    } else if (apiStatus === "failed" || apiStatus === "error" || apiStatus === "cancelled") {
+    } 
+    // Failed status variations
+    else if (apiStatus === "failed" || apiStatus === "error" || apiStatus === "cancelled" ||
+             apiStatus === "rejected" || apiStatus === "expired" || apiStatus === "refunded") {
       normalizedStatus = "failed"
-    } else if (apiStatus === "processing" || apiStatus === "in_progress" || apiStatus === "queued") {
+    } 
+    // Processing status variations
+    else if (apiStatus === "processing" || apiStatus === "in_progress" || apiStatus === "queued" ||
+             apiStatus === "in-progress" || apiStatus === "sending" || apiStatus === "submitted") {
       normalizedStatus = "processing"
-    } else if (apiStatus === "pending") {
+    } 
+    // Pending status
+    else if (apiStatus === "pending" || apiStatus === "waiting" || apiStatus === "new") {
       normalizedStatus = "pending"
-    } else {
-      // Unknown status - log and default to processing (safer than pending)
+    } 
+    // Unknown status - log it clearly
+    else {
+      console.warn(`[MTN-STATUS] ⚠️ UNKNOWN API status: "${order.status}" for order ${mtnOrderId} - defaulting to processing`)
       log("warn", "StatusCheck", `Unknown API status: ${order.status}, defaulting to processing`, { traceId })
       normalizedStatus = "processing"
     }
 
+    console.log(`[MTN-STATUS] Normalized: "${order.status}" -> "${normalizedStatus}"`)
     log("info", "StatusCheck", `Status normalized: ${order.status} -> ${normalizedStatus}`, { traceId })
 
     return {
