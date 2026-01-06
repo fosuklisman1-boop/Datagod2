@@ -1,49 +1,20 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify auth token
-    const authHeader = request.headers.get("authorization")
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    const token = authHeader.substring(7)
-
-    // Verify the token is from an admin
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
-    
-    // Get user from token
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token)
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: "Invalid token" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const { data: userData, error: checkError } = await supabaseAdmin
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .single()
-
-    if (checkError || userData?.role !== "admin") {
-      return NextResponse.json(
-        { error: "Only admins can set up RLS policies" },
-        { status: 403 }
-      )
+    // Verify admin access (checks both user_metadata and users table)
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) {
+      return errorResponse
     }
 
     // Create the RLS policies using RPC or raw SQL
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
     const { error: policyError } = await supabaseAdmin.rpc("create_admin_complaint_policies", {})
 
     if (policyError) {

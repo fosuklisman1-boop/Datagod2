@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { checkMTNBalance } from "@/lib/mtn-fulfillment"
 import { supabase } from "@/lib/supabase"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 /**
  * GET /api/admin/fulfillment/mtn-balance
@@ -9,27 +10,9 @@ import { supabase } from "@/lib/supabase"
 export async function GET(request: NextRequest) {
   try {
     // Verify admin access
-    const authHeader = request.headers.get("authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const token = authHeader.slice(7)
-    const { data: user, error: userError } = await supabase.auth.getUser(token)
-
-    if (userError || !user?.user?.id) {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 })
-    }
-
-    // Check if user is admin (users table)
-    const { data: userData, error: userError2 } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.user.id)
-      .single()
-
-    if (userError2 || userData?.role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) {
+      return errorResponse
     }
 
     // Get MTN balance

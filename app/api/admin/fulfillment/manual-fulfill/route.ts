@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { createMTNOrder, saveMTNTracking, MTNOrderRequest } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -13,6 +14,12 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
  */
 export async function POST(request: NextRequest) {
   try {
+    // Verify admin access
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) {
+      return errorResponse
+    }
+
     const body = await request.json()
     const { shop_order_id } = body
 

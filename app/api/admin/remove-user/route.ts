@@ -1,24 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 export async function DELETE(req: NextRequest) {
   try {
+    // Verify admin access (checks both user_metadata and users table)
+    const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+    if (!isAdmin) {
+      return errorResponse
+    }
+
     const { userId } = await req.json()
 
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
     }
-
-    // Get authorization token from headers
-    const authHeader = req.headers.get("authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    const token = authHeader.slice(7)
 
     // Create Supabase client with service role for admin operations
     const supabaseAdmin = createClient(
@@ -26,31 +22,7 @@ export async function DELETE(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY || ""
     )
 
-    // Verify user is admin using the token
-    const { data: { user: currentUser }, error: userError } = await supabaseAdmin.auth.getUser(token)
-
-    if (userError || !currentUser) {
-      return NextResponse.json(
-        { error: "Invalid authentication token" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const { data: userData } = await supabaseAdmin
-      .from("users")
-      .select("role")
-      .eq("id", currentUser.id)
-      .single()
-
-    if (userData?.role !== "admin") {
-      return NextResponse.json(
-        { error: "User not allowed to perform this action" },
-        { status: 403 }
-      )
-    }
-
-    console.log(`[REMOVE-USER] Admin ${currentUser.id} removing user ${userId}`)
+    console.log(`[REMOVE-USER] Admin removing user ${userId}`)
 
     // Delete all related data (in reverse order of dependencies)
     // These have ON DELETE CASCADE, but we'll explicitly delete for logging and safety
