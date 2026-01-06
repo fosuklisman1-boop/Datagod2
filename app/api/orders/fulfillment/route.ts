@@ -197,21 +197,32 @@ async function handleRetryFulfillment(
     // Check if order exists in orders table (wallet orders)
     let order: any = null
     let orderType: "wallet" | "shop" = "wallet"
+    let customerEmail: string | undefined = undefined
     
     const { data: walletOrder, error: walletOrderError } = await supabaseAdmin
       .from("orders")
-      .select("network, phone_number, size")
+      .select("network, phone_number, size, user_id")
       .eq("id", orderId)
       .single()
 
     if (walletOrder) {
       order = walletOrder
       orderType = "wallet"
+      
+      // Fetch user email for wallet orders (needed for BigTime)
+      if (walletOrder.user_id) {
+        const { data: userData } = await supabaseAdmin
+          .from("users")
+          .select("email")
+          .eq("id", walletOrder.user_id)
+          .single()
+        customerEmail = userData?.email
+      }
     } else {
       // Check shop_orders table
       const { data: shopOrder, error: shopOrderError } = await supabaseAdmin
         .from("shop_orders")
-        .select("network, customer_phone, volume_gb")
+        .select("network, customer_phone, volume_gb, customer_email")
         .eq("id", orderId)
         .single()
 
@@ -222,6 +233,7 @@ async function handleRetryFulfillment(
           size: shopOrder.volume_gb,
         }
         orderType = "shop"
+        customerEmail = shopOrder.customer_email
       }
     }
 
@@ -253,7 +265,7 @@ async function handleRetryFulfillment(
     // Attempt retry using fulfillOrder directly
     const sizeGb = parseInt(order.size?.toString().replace(/[^0-9]/g, "")) || 0
     
-    console.log(`[FULFILLMENT] Retrying with: phone=${order.phone_number}, size=${sizeGb}GB, network=${order.network}, isBigTime=${isBigTime}`)
+    console.log(`[FULFILLMENT] Retrying with: phone=${order.phone_number}, size=${sizeGb}GB, network=${order.network}, isBigTime=${isBigTime}, email=${customerEmail || "NONE"}`)
 
     const result = await atishareService.fulfillOrder({
       phoneNumber: order.phone_number,
@@ -263,6 +275,7 @@ async function handleRetryFulfillment(
                networkLower.includes("telecel") ? "TELECEL" : "AT",
       orderType,
       isBigTime,
+      customer_email: isBigTime ? customerEmail : undefined,
     })
 
     if (result.success) {
