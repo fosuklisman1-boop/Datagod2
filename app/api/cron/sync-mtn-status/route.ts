@@ -19,7 +19,8 @@ async function fetchAllSykesOrders(): Promise<{ success: boolean; orders: any[];
   try {
     console.log("[CRON] Fetching all orders from Sykes API...")
     
-    const response = await fetch(`${MTN_API_BASE_URL}/api/orders`, {
+    // Use limit=5000 to get all orders (API defaults to only 20)
+    const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
       method: "GET",
       headers: {
         "X-API-KEY": MTN_API_KEY,
