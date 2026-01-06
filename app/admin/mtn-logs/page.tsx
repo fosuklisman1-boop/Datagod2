@@ -28,6 +28,8 @@ import Link from "next/link"
 interface MTNLog {
   id: string
   shop_order_id: string
+  order_id: string | null
+  order_type: "shop" | "bulk" | null
   mtn_order_id: number | null
   status: "pending" | "processing" | "completed" | "failed" | "retrying" | "error"
   recipient_phone: string
@@ -358,6 +360,7 @@ export default function MTNFulfillmentLogsPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Status</TableHead>
+                          <TableHead>Type</TableHead>
                           <TableHead>MTN Order ID</TableHead>
                           <TableHead>Phone</TableHead>
                           <TableHead>Size</TableHead>
@@ -371,6 +374,11 @@ export default function MTNFulfillmentLogsPage() {
                         {logs.map((log) => (
                           <TableRow key={log.id}>
                             <TableCell>{getStatusBadge(log.status)}</TableCell>
+                            <TableCell>
+                              <Badge variant={log.order_type === "bulk" ? "secondary" : "outline"}>
+                                {log.order_type === "bulk" ? "Bulk" : "Shop"}
+                              </Badge>
+                            </TableCell>
                             <TableCell>
                               {log.mtn_order_id ? (
                                 <span className="font-mono">{log.mtn_order_id}</span>
