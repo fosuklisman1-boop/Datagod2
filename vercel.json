@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/sync-mtn-status",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/verify-pending-payments",
+      "schedule": "*/2 * * * *"
     }
   ]
 }
