@@ -115,14 +115,49 @@ function normalizeStatus(apiStatus: string): "pending" | "processing" | "complet
 }
 
 /**
+ * Check if MTN auto-fulfillment is enabled in app_settings
+ */
+async function isMTNAutoFulfillmentEnabled(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "mtn_auto_fulfillment_enabled")
+      .single()
+    
+    if (error || !data) {
+      // Default to disabled if setting doesn't exist
+      return false
+    }
+    
+    return data.value === "true" || data.value === true
+  } catch (error) {
+    console.warn("[CRON] Error checking MTN auto-fulfillment setting:", error)
+    return false
+  }
+}
+
+/**
  * GET /api/cron/sync-mtn-status
  * 
  * Cron job to sync MTN order statuses from Sykes API.
  * OPTIMIZED: Fetches all orders once and matches locally.
+ * Only runs when MTN auto-fulfillment is enabled.
  */
 export async function GET(request: NextRequest) {
   try {
     console.log("[CRON] Starting MTN status sync...")
+
+    // Check if MTN auto-fulfillment is enabled
+    const mtnEnabled = await isMTNAutoFulfillmentEnabled()
+    if (!mtnEnabled) {
+      console.log("[CRON] MTN auto-fulfillment is disabled. Skipping sync.")
+      return NextResponse.json({
+        success: true,
+        message: "MTN auto-fulfillment is disabled. Sync skipped.",
+        skipped: true,
+      })
+    }
 
     // Step 1: Fetch ALL orders from Sykes API in a single call
     const sykesResult = await fetchAllSykesOrders()
