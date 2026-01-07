@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
     // Send SMS if phone number provided
     if (phone) {
       try {
-        const smsMessage = `${shop.shop_name} has invited you to become a sub-agent on DataGod! Join here: ${inviteUrl} (Expires in 7 days)`
+        const smsMessage = `${shop.shop_name} has invited you to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`
         
         await sendSMS({
           phone: phone,
