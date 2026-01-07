@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
+import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { 
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled, 
   createMTNOrder, 
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest) {
       console.log("[WALLET-DEBIT] Checking if order is a shop order...")
       const { data: shopOrder, error: shopOrderError } = await supabase
         .from("shop_orders")
-        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone")
+        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_email, customer_name, total_price")
         .eq("id", orderId)
         .maybeSingle()
 
@@ -182,6 +183,33 @@ export async function POST(request: NextRequest) {
           console.error("[WALLET-DEBIT] Failed to update shop order:", updateShopOrderError)
         } else {
           console.log("[WALLET-DEBIT] ✓ Shop order payment status updated to completed")
+          
+          // Track customer NOW that payment is confirmed
+          // This prevents inflated customer revenue from abandoned orders
+          try {
+            const trackingResult = await customerTrackingService.trackCustomer({
+              shopId: shopOrder.shop_id,
+              phoneNumber: shopOrder.customer_phone,
+              email: shopOrder.customer_email || "",
+              customerName: shopOrder.customer_name || "Customer",
+              totalPrice: shopOrder.total_price || amount,
+              slug: "wallet-purchase",
+              orderId: orderId,
+            })
+            
+            // Update shop_orders with the customer ID
+            if (trackingResult?.customerId) {
+              await supabase
+                .from("shop_orders")
+                .update({ shop_customer_id: trackingResult.customerId })
+                .eq("id", orderId)
+              
+              console.log(`[WALLET-DEBIT] ✓ Customer tracked: ${trackingResult.customerId}, Repeat: ${trackingResult.isRepeatCustomer}`)
+            }
+          } catch (trackingError) {
+            console.error("[WALLET-DEBIT] Customer tracking error (non-blocking):", trackingError)
+            // Continue without tracking if it fails
+          }
           
           // Send SMS notification about successful purchase
           if (shopOrder.customer_phone) {

@@ -4,6 +4,7 @@ import crypto from "crypto"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
+import { customerTrackingService } from "@/lib/customer-tracking-service"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
   createMTNOrder,
@@ -146,10 +147,10 @@ export async function POST(request: NextRequest) {
       if (paymentData.order_id && paymentData.shop_id) {
         console.log(`[WEBHOOK] Updating shop order payment status for order: ${paymentData.order_id}`)
         
-        // Get shop order details to create profit record
+        // Get shop order details to create profit record and track customer
         const { data: shopOrderData, error: orderFetchError } = await supabase
           .from("shop_orders")
-          .select("id, shop_id, profit_amount, customer_phone, customer_email, network, volume_gb, total_price, reference_code, parent_shop_id, parent_profit_amount")
+          .select("id, shop_id, profit_amount, customer_phone, customer_email, customer_name, network, volume_gb, total_price, reference_code, parent_shop_id, parent_profit_amount")
           .eq("id", paymentData.order_id)
           .single()
 
@@ -177,6 +178,33 @@ export async function POST(request: NextRequest) {
             console.error("Error updating shop order payment status:", shopOrderError)
           } else {
             console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} payment status updated to completed`)
+            
+            // Track customer NOW that payment is confirmed
+            // This prevents inflated customer revenue from abandoned orders
+            try {
+              const trackingResult = await customerTrackingService.trackCustomer({
+                shopId: shopOrderData.shop_id,
+                phoneNumber: shopOrderData.customer_phone,
+                email: shopOrderData.customer_email || "",
+                customerName: shopOrderData.customer_name || "Customer",
+                totalPrice: shopOrderData.total_price,
+                slug: "storefront",
+                orderId: paymentData.order_id,
+              })
+              
+              // Update shop_orders with the customer ID
+              if (trackingResult?.customerId) {
+                await supabase
+                  .from("shop_orders")
+                  .update({ shop_customer_id: trackingResult.customerId })
+                  .eq("id", paymentData.order_id)
+                
+                console.log(`[WEBHOOK] ✓ Customer tracked: ${trackingResult.customerId}, Repeat: ${trackingResult.isRepeatCustomer}`)
+              }
+            } catch (trackingError) {
+              console.error("[WEBHOOK] Customer tracking error (non-blocking):", trackingError)
+              // Continue without tracking if it fails
+            }
             
             // Send SMS to customer about payment confirmation
             if (shopOrderData?.customer_phone) {

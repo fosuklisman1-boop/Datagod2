@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { customerTrackingService } from "@/lib/customer-tracking-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -39,23 +38,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Track customer BEFORE creating order
-    let shop_customer_id: string | undefined
-    try {
-      const trackingResult = await customerTrackingService.trackCustomer({
-        shopId: shop_id,
-        phoneNumber: customer_phone,
-        email: customer_email,
-        customerName: customer_name || "Guest",
-        totalPrice: parseFloat(total_price.toString()),
-        slug: shop_slug || "storefront",
-      })
-      shop_customer_id = trackingResult.customerId
-      console.log(`[SHOP-ORDER] Customer tracked: ${shop_customer_id}, Repeat: ${trackingResult.isRepeatCustomer}`)
-    } catch (trackingError) {
-      console.error('[SHOP-ORDER] Customer tracking error (non-blocking):', trackingError)
-      // Continue without tracking if it fails - order should still be created
-    }
+    // NOTE: Customer tracking is now done AFTER payment is confirmed
+    // This prevents inflated customer revenue from abandoned orders
+    // See: Paystack webhook and wallet/debit route for customer tracking
 
     // Check if this shop has a parent shop (sub-agent scenario)
     let parent_shop_id: string | null = null
@@ -189,7 +174,7 @@ export async function POST(request: NextRequest) {
           order_status: "pending",
           payment_status: "pending",
           reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-          shop_customer_id: shop_customer_id || null,
+          shop_customer_id: null, // Will be set when payment is confirmed
           parent_shop_id: parent_shop_id || null,
           parent_profit_amount: parent_profit_amount !== null ? parseFloat(parent_profit_amount.toString()) : 0,
           created_at: new Date().toISOString(),
@@ -210,21 +195,6 @@ export async function POST(request: NextRequest) {
       parent_shop_id: data[0].parent_shop_id,
       parent_profit_amount: data[0].parent_profit_amount
     })
-
-    // Create tracking record after order is created
-    if (shop_customer_id) {
-      try {
-        await customerTrackingService.createTrackingRecord(
-          shop_id,
-          data[0].id,
-          shop_customer_id,
-          shop_slug || "storefront"
-        )
-        console.log(`[SHOP-ORDER] Tracking record created for order ${data[0].id}`)
-      } catch (trackingError) {
-        console.error('[SHOP-ORDER] Tracking record creation error (non-blocking):', trackingError)
-      }
-    }
 
     return NextResponse.json({
       success: true,

@@ -210,9 +210,8 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
         dispatch({ type: 'SET_STATE', payload: 'ORDER_CREATING' })
         dispatch({ type: 'SET_PROGRESS', payload: 75 })
 
-        // Simulate API call (replace with actual API)
+        // Import shop service
         const { shopOrderService } = await import('@/lib/shop-service')
-        const { customerTrackingService } = await import('@/lib/customer-tracking-service')
 
         if (!state.selectedPackage || !shopData) {
           throw {
@@ -226,23 +225,9 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
         const normalizedPhone = normalizePhoneNumber(state.customerData.phone)
         const totalPrice = pkg.price + pkg.profit_margin
 
-        // Track customer (create or update)
-        let customerId: string
-        try {
-          const trackingResult = await customerTrackingService.trackCustomer({
-            shopId: shopData.id,
-            phoneNumber: normalizedPhone,
-            email: state.customerData.email,
-            customerName: state.customerData.name,
-            totalPrice: totalPrice,
-            slug: shopData.shop_slug,
-          })
-          customerId = trackingResult.customerId
-          console.log(`[ORDER] Customer tracked: ${customerId}, Repeat: ${trackingResult.isRepeatCustomer}`)
-        } catch (trackingError) {
-          console.error('[ORDER] Customer tracking error (non-blocking):', trackingError)
-          customerId = '' // Continue without tracking if it fails
-        }
+        // NOTE: Customer tracking is now done AFTER payment is confirmed
+        // This prevents inflated customer revenue from abandoned orders
+        // See: Paystack webhook and wallet/debit route for customer tracking
 
         const order = await shopOrderService.createShopOrder({
           shop_id: shopData.id,
@@ -256,23 +241,7 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
           base_price: pkg.price,
           profit_amount: pkg.profit_margin,
           total_price: totalPrice,
-          shop_customer_id: customerId || undefined,
         })
-
-        // Create tracking record after order is created
-        if (customerId) {
-          try {
-            await customerTrackingService.createTrackingRecord(
-              shopData.id,
-              order.id,
-              customerId,
-              shopData.shop_slug
-            )
-            console.log(`[ORDER] Tracking record created for order ${order.id}`)
-          } catch (trackingError) {
-            console.error('[ORDER] Tracking record creation error (non-blocking):', trackingError)
-          }
-        }
 
         dispatch({ type: 'SET_ORDER', payload: order })
         dispatch({ type: 'SET_PROGRESS', payload: 100 })
