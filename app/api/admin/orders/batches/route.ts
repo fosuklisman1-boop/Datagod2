@@ -14,7 +14,7 @@ export async function GET() {
       .from("order_download_batches")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(10000) // Override default 1000 limit to support larger datasets
+      .range(0, 9999) // Pagination instead of hardcoded limit
 
     if (error) {
       console.warn("Note: order_download_batches table may not exist yet:", error.message)

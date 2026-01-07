@@ -36,7 +36,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .from('user_shops')
       .select('shop_slug, updated_at')
       .eq('is_active', true)
-      .limit(10000) // Sitemap limit is 50,000 URLs but being conservative
+      .range(0, 49999) // Fetch up to 50,000 shops for sitemap
 
     if (!error && shops) {
       shopRoutes = shops.map((shop) => ({

@@ -69,14 +69,20 @@ export async function GET(request: NextRequest) {
       .select("id", { count: "exact", head: true })
       .not("parent_shop_id", "is", null)
 
-    // Get all orders with pricing info
+    // Get total orders count
+    const { count: totalOrdersCount, error: totalOrdersError } = await supabase
+      .from("shop_orders")
+      .select("id", { count: "exact", head: true })
+
+    // Get total revenue and completed orders in one paginated query
     const { data: orders, error: ordersError } = await supabase
       .from("shop_orders")
       .select("id, total_price, order_status")
-      .limit(10000) // Override default 1000 limit to support larger datasets
+      .order("created_at", { ascending: false })
+      .range(0, 9999) // Get first 10k records for revenue calculation
 
-    // Calculate totals
-    const totalOrders = orders?.length || 0
+    // Calculate totals from fetched data
+    const totalOrders = totalOrdersCount || 0
     const totalRevenue = orders?.reduce((sum: number, order: any) => {
       return sum + (order.total_price || 0)
     }, 0) || 0
@@ -87,8 +93,11 @@ export async function GET(request: NextRequest) {
       .select("id", { count: "exact", head: true })
       .eq("is_active", false)
 
-    // Get completed orders count
-    const completedOrdersCount = orders?.filter((o: any) => o.order_status === "completed").length || 0
+    // Get completed orders count with exact count
+    const { count: completedOrdersCount, error: completedError } = await supabase
+      .from("shop_orders")
+      .select("id", { count: "exact", head: true })
+      .eq("order_status", "completed")
 
     return NextResponse.json(
       {
@@ -98,8 +107,8 @@ export async function GET(request: NextRequest) {
         totalOrders: totalOrders,
         totalRevenue: totalRevenue,
         pendingShops: pendingShops || 0,
-        completedOrders: completedOrdersCount,
-        successRate: totalOrders ? ((completedOrdersCount / totalOrders) * 100).toFixed(2) : 0,
+        completedOrders: completedOrdersCount || 0,
+        successRate: totalOrders ? ((((completedOrdersCount || 0) / totalOrders) * 100).toFixed(2)) : 0,
         totalWalletBalance,
         totalProfitBalance,
       },
