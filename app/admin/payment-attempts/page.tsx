@@ -193,7 +193,7 @@ export default function PaymentAttemptsPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Attempts</CardTitle>
@@ -266,7 +266,7 @@ export default function PaymentAttemptsPage() {
           <CardTitle>Filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
             <div className="lg:col-span-2">
               <Label htmlFor="search">Search</Label>
               <div className="relative">

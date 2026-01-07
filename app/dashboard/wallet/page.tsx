@@ -243,11 +243,11 @@ export default function WalletPage() {
   }
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 px-2 sm:px-4">
         {/* Page Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Wallet</h1>
-          <p className="text-gray-600 mt-1">Manage your account balance and funds</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Wallet</h1>
+          <p className="text-gray-600 mt-1 text-sm sm:text-base">Manage your account balance and funds</p>
         </div>
 
         {/* Balance Card */}
@@ -256,17 +256,17 @@ export default function WalletPage() {
             <CardTitle className="text-white">Current Balance</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-blue-100 text-sm">Available Balance</p>
                 <p className="text-2xl sm:text-3xl md:text-4xl font-bold">GHS {walletData.balance.toFixed(2)}</p>
               </div>
               <Wallet className="w-16 h-16 text-blue-100 opacity-50" />
             </div>
-            <div className="flex gap-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
               <Button 
                 onClick={() => setShowTopUp(!showTopUp)}
-                className="bg-white text-blue-600 hover:bg-gray-100 flex-1"
+                className="bg-white text-blue-600 hover:bg-gray-100 w-full sm:w-auto"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Funds
@@ -283,7 +283,7 @@ export default function WalletPage() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Credited</CardTitle>
@@ -334,30 +334,30 @@ export default function WalletPage() {
               </Alert>
             ) : (
               <>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div className="overflow-x-auto rounded-md border border-gray-100">
+                  <table className="min-w-[600px] w-full text-xs sm:text-sm">
                     <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Description</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Amount</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Type</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Reference</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Description</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Type</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Reference</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {transactions.map((transaction) => (
                         <tr key={transaction.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 text-sm">
+                          <td className="px-4 py-3">
                             {new Date(transaction.created_at).toLocaleDateString()}
                           </td>
-                          <td className="px-6 py-4 text-sm">{transaction.description}</td>
-                          <td className={`px-6 py-4 text-sm font-semibold ${
+                          <td className="px-4 py-3">{transaction.description}</td>
+                          <td className={`px-4 py-3 font-semibold ${
                             transaction.type.includes("credit") ? "text-green-600" : "text-red-600"
                           }`}>
                             {transaction.type.includes("credit") ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
                           </td>
-                          <td className="px-6 py-4 text-sm">
+                          <td className="px-4 py-3">
                             <Badge className={
                               transaction.type.includes("credit")
                                 ? "bg-green-100 text-green-800"
@@ -366,7 +366,7 @@ export default function WalletPage() {
                               {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
                             </Badge>
                           </td>
-                          <td className="px-6 py-4 text-sm font-mono text-gray-600">
+                          <td className="px-4 py-3 font-mono text-gray-600">
                             {transaction.reference?.slice(-8) || "—"}
                           </td>
                         </tr>

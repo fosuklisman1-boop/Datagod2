@@ -278,26 +278,27 @@ export default function MTNFulfillmentLogsPage() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto p-6 max-w-7xl">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 py-4">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <Link href="/admin/settings/mtn">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="w-full sm:w-auto">
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to MTN Settings
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold">MTN Fulfillment Logs</h1>
-              <p className="text-muted-foreground">Track MTN API orders and their status</p>
+              <h1 className="text-xl sm:text-2xl font-bold">MTN Fulfillment Logs</h1>
+              <p className="text-muted-foreground text-sm">Track MTN API orders and their status</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-center sm:gap-2">
             <Button 
               variant="default"
               onClick={handleTriggerCronSync} 
               disabled={syncing}
+              className="w-full sm:w-auto"
             >
               {syncing ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -310,6 +311,7 @@ export default function MTNFulfillmentLogsPage() {
               variant="outline" 
               onClick={handleSyncAllPending} 
               disabled={syncing || (summary.pending + summary.processing) === 0}
+              className="w-full sm:w-auto"
             >
               {syncing ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -318,7 +320,7 @@ export default function MTNFulfillmentLogsPage() {
               )}
               Sync Pending ({summary.pending + summary.processing})
             </Button>
-            <Button onClick={loadLogs} disabled={loading}>
+            <Button onClick={loadLogs} disabled={loading} className="w-full sm:w-auto">
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
@@ -326,48 +328,18 @@ export default function MTNFulfillmentLogsPage() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold">{summary.total}</div>
-              <div className="text-sm text-muted-foreground">Total Orders</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-yellow-500">{summary.pending}</div>
-              <div className="text-sm text-muted-foreground">Pending</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-blue-500">{summary.processing}</div>
-              <div className="text-sm text-muted-foreground">Processing</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-green-500">{summary.completed}</div>
-              <div className="text-sm text-muted-foreground">Completed</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-red-500">{summary.failed}</div>
-              <div className="text-sm text-muted-foreground">Failed</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-orange-500">{summary.retrying}</div>
-              <div className="text-sm text-muted-foreground">Retrying</div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-6">
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold">{summary.total}</div><div className="text-xs sm:text-sm text-muted-foreground">Total Orders</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-yellow-500">{summary.pending}</div><div className="text-xs sm:text-sm text-muted-foreground">Pending</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-blue-500">{summary.processing}</div><div className="text-xs sm:text-sm text-muted-foreground">Processing</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-green-500">{summary.completed}</div><div className="text-xs sm:text-sm text-muted-foreground">Completed</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-red-500">{summary.failed}</div><div className="text-xs sm:text-sm text-muted-foreground">Failed</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-orange-500">{summary.retrying}</div><div className="text-xs sm:text-sm text-muted-foreground">Retrying</div></CardContent></Card>
         </div>
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4">
+          <TabsList className="mb-4 flex flex-wrap gap-2">
             <TabsTrigger value="all">All ({summary.total})</TabsTrigger>
             <TabsTrigger value="pending">Pending ({summary.pending})</TabsTrigger>
             <TabsTrigger value="processing">Processing ({summary.processing})</TabsTrigger>
@@ -394,8 +366,8 @@ export default function MTNFulfillmentLogsPage() {
                     No MTN fulfillment orders found
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
+                  <div className="overflow-x-auto rounded-md border border-emerald-100/40">
+                    <Table className="min-w-[700px] text-xs sm:text-sm">
                       <TableHeader>
                         <TableRow>
                           <TableHead>Status</TableHead>

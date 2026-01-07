@@ -302,7 +302,7 @@ export default function SubAgentsPage() {
                       </div>
                       <div className="flex items-center gap-4 text-sm">
                         <div className="text-center">
-                          <div className="font-semibold">{agent.total_orders}</div>
+                  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3">
                           <div className="text-gray-500">Orders</div>
                         </div>
                         <div className="text-center">

@@ -795,30 +795,28 @@ export default function AdminOrdersPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
+                      <table className="min-w-[600px] w-full text-xs sm:text-sm">
                         <thead className="bg-gray-50 border-b">
                           <tr>
-                            <th className="px-4 py-2 text-left font-semibold text-gray-700">Order ID</th>
-                            <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
-                            <th className="px-4 py-2 text-left font-semibold text-gray-700">Package</th>
-                            <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
-                            <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
-                            <th className="px-4 py-2 text-center font-semibold text-gray-700">Date</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Order ID</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Network</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Package</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Phone</th>
+                            <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 whitespace-nowrap">Price (GHS)</th>
+                            <th className="px-2 sm:px-4 py-2 text-center font-semibold text-gray-700 whitespace-nowrap">Date</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
                           {pendingOrders.map((order) => (
                             <tr key={order.id} className="hover:bg-gray-50">
-                              <td className="px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
-                              <td className="px-4 py-3">
-                                <Badge className={`${getNetworkColor(order.network)} border`}>
-                                  {order.network}
-                                </Badge>
+                              <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold break-all max-w-[120px]">{order.id}</td>
+                              <td className="px-2 sm:px-4 py-3">
+                                <Badge className={`${getNetworkColor(order.network)} border text-xs`}>{order.network}</Badge>
                               </td>
-                              <td className="px-4 py-3">{order.size}GB</td>
-                              <td className="px-4 py-3 font-mono">{order.phone_number}</td>
-                              <td className="px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
-                              <td className="px-4 py-3 text-center text-xs text-gray-500">
+                              <td className="px-2 sm:px-4 py-3">{order.size}GB</td>
+                              <td className="px-2 sm:px-4 py-3 font-mono text-xs break-all max-w-[120px]">{order.phone_number}</td>
+                              <td className="px-2 sm:px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
+                              <td className="px-2 sm:px-4 py-3 text-center text-xs text-gray-500">
                                 <div>{new Date(order.created_at).toLocaleDateString()}</div>
                                 <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
                               </td>

@@ -286,7 +286,7 @@ export default function DataPackagesPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 px-2 sm:px-4 md:px-8 w-full max-w-full">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
@@ -363,16 +363,16 @@ export default function DataPackagesPage() {
 
         {/* Packages Display */}
         {viewMode === "grid" ? (
-          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPackages.map((pkg) => (
-              <Card key={pkg.id} className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 cursor-pointer group border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60 overflow-hidden flex flex-col">
+              <Card key={pkg.id} className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 cursor-pointer group border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60 overflow-hidden flex flex-col w-full min-w-0">
                 {/* Logo Section */}
-                <div className="h-20 sm:h-24 md:h-32 w-full bg-gray-100 flex items-center justify-center overflow-hidden">
+                <div className="h-16 sm:h-20 md:h-32 w-full bg-gray-100 flex items-center justify-center overflow-hidden">
                   {getNetworkLogo(pkg.network) && (
                     <img 
                       src={getNetworkLogo(pkg.network)} 
                       alt={pkg.network}
-                      className="h-16 sm:h-20 md:h-24 w-16 sm:w-20 md:w-24 object-contain"
+                      className="h-12 sm:h-16 md:h-24 w-12 sm:w-16 md:w-24 object-contain"
                     />
                   )}
                 </div>
@@ -407,7 +407,7 @@ export default function DataPackagesPage() {
                   <Button 
                     onClick={() => handlePurchase(pkg)}
                     disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price}
-                    className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 hover:from-cyan-700 hover:via-blue-700 hover:to-violet-700 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 hover:from-cyan-700 hover:via-blue-700 hover:to-violet-700 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
                   >
                     {purchasing === pkg.id ? (
                       <>
@@ -425,42 +425,42 @@ export default function DataPackagesPage() {
             ))}
           </div>
         ) : (
-          <Card className="hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60 w-full">
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="overflow-x-auto w-full">
+                <table className="min-w-[600px] sm:min-w-full w-full text-xs sm:text-sm">
                   <thead className="bg-gradient-to-r from-cyan-100/60 via-blue-100/60 to-violet-100/60 backdrop-blur border-b border-cyan-200/40">
                     <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Logo</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Network</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Size</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Price</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Description</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Action</th>
+                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Logo</th>
+                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Network</th>
+                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Size</th>
+                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Price</th>
+                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Description</th>
+                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-cyan-100/40">
                     {filteredPackages.map((pkg) => (
                       <tr key={pkg.id} className="hover:bg-cyan-100/30 hover:backdrop-blur transition-colors duration-200 cursor-pointer">
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-2 sm:px-6 py-2 sm:py-4">
                           {getNetworkLogo(pkg.network) && (
                             <img 
                               src={getNetworkLogo(pkg.network)} 
                               alt={pkg.network}
-                              className="h-8 w-8 object-contain"
+                              className="h-6 w-6 sm:h-8 sm:w-8 object-contain"
                             />
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{pkg.network}</td>
-                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
-                        <td className="px-6 py-4 text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">GHS {(pkg.price || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-2 sm:px-6 py-2 sm:py-4 font-medium text-gray-900 whitespace-nowrap">{pkg.network}</td>
+                        <td className="px-2 sm:px-6 py-2 sm:py-4 font-semibold text-gray-900 whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
+                        <td className="px-2 sm:px-6 py-2 sm:py-4 font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent whitespace-nowrap">GHS {(pkg.price || 0).toFixed(2)}</td>
+                        <td className="px-2 sm:px-6 py-2 sm:py-4 text-gray-600 whitespace-nowrap">{pkg.description || "-"}</td>
+                        <td className="px-2 sm:px-6 py-2 sm:py-4">
                           <Button 
                             size="sm" 
                             onClick={() => handlePurchase(pkg)}
                             disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price}
-                            className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
                           >
                             {purchasing === pkg.id ? (
                               <>
@@ -484,7 +484,7 @@ export default function DataPackagesPage() {
         )}
 
         {/* Results Count */}
-        <p className="text-sm text-gray-600">
+        <p className="text-xs sm:text-sm text-gray-600 px-1 sm:px-0">
           Showing {filteredPackages.length} of {packages.length} packages
         </p>
 

@@ -8,19 +8,19 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {/* Navigation */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+      <nav className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-6 py-4 border-b border-gray-200">
         <div className="flex items-center gap-3">
           <div className="bg-white p-2 rounded-lg">
             <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6 rounded-lg object-cover" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">DATAGOD</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">DATAGOD</h1>
         </div>
-        <div className="flex gap-4">
+        <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-center sm:gap-4">
           <Link href="/auth/login">
-            <Button variant="outline">Sign In</Button>
+            <Button variant="outline" className="w-full sm:w-auto">Sign In</Button>
           </Link>
           <Link href="/auth/signup">
-            <Button className="bg-gradient-to-r from-blue-600 to-purple-600">
+            <Button className="bg-gradient-to-r from-blue-600 to-purple-600 w-full sm:w-auto">
               Get Started
             </Button>
           </Link>
@@ -28,54 +28,51 @@ export default function HomePage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-20">
-        <div className="text-center space-y-4 sm:space-y-6 mb-12 sm:mb-16">
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900">
+      <section className="max-w-6xl mx-auto px-2 sm:px-6 py-8 sm:py-20">
+        <div className="text-center space-y-4 sm:space-y-6 mb-8 sm:mb-16">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900">
             Your Data Hub Solution
           </h2>
-          <p className="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto">
+          <p className="text-base sm:text-xl text-gray-600 max-w-2xl mx-auto">
             Buy data packages from multiple networks, manage your wallet, and track your orders all in one place.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
             <Link href="/auth/login">
-              <Button size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 gap-2">
+              <Button size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 gap-2 w-full sm:w-auto">
                 Login to Dashboard
                 <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
-            <Button size="lg" variant="outline">
+            <Button size="lg" variant="outline" className="w-full sm:w-auto">
               Learn More
             </Button>
           </div>
         </div>
 
         {/* Features Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-20">
-          <div className="p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mt-10 sm:mt-20">
+          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
             <Package className="w-8 h-8 text-blue-600 mb-4" />
             <h3 className="font-semibold text-gray-900 mb-2">Data Packages</h3>
             <p className="text-sm text-gray-600">
               Browse and purchase data packages from multiple networks
             </p>
           </div>
-
-          <div className="p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
+          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
             <Zap className="w-8 h-8 text-purple-600 mb-4" />
             <h3 className="font-semibold text-gray-900 mb-2">Instant Delivery</h3>
             <p className="text-sm text-gray-600">
               Get your data packages delivered instantly to your account
             </p>
           </div>
-
-          <div className="p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
+          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
             <Users className="w-8 h-8 text-green-600 mb-4" />
             <h3 className="font-semibold text-gray-900 mb-2">24/7 Support</h3>
             <p className="text-sm text-gray-600">
               Our support team is always available to help you
             </p>
           </div>
-
-          <div className="p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
+          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow">
             <Lock className="w-8 h-8 text-orange-600 mb-4" />
             <h3 className="font-semibold text-gray-900 mb-2">Secure & Safe</h3>
             <p className="text-sm text-gray-600">
@@ -86,14 +83,14 @@ export default function HomePage() {
       </section>
 
       {/* CTA Section */}
-      <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-12 sm:py-16 mt-12 sm:mt-20">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center space-y-4 sm:space-y-6">
-          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold">Ready to Get Started?</h2>
-          <p className="text-base sm:text-lg text-blue-100">
+      <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-8 sm:py-16 mt-8 sm:mt-20">
+        <div className="max-w-4xl mx-auto px-2 sm:px-6 text-center space-y-4 sm:space-y-6">
+          <h2 className="text-xl sm:text-3xl md:text-4xl font-bold">Ready to Get Started?</h2>
+          <p className="text-sm sm:text-lg text-blue-100">
             Join thousands of users who trust DATAGOD for their data needs
           </p>
           <Link href="/auth/signup">
-            <Button size="lg" className="bg-white text-blue-600 hover:bg-gray-100">
+            <Button size="lg" className="bg-white text-blue-600 hover:bg-gray-100 w-full sm:w-auto">
               Create Your Account
             </Button>
           </Link>
@@ -101,9 +98,9 @@ export default function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-gray-400 py-8 sm:py-12">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-8">
+      <footer className="bg-gray-900 text-gray-400 py-8 sm:py-12 mt-8">
+        <div className="max-w-6xl mx-auto px-2 sm:px-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <Lock className="w-5 h-5 text-blue-400" />

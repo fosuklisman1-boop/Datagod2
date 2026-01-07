@@ -153,7 +153,7 @@ export default function AdminShopsPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {pendingShops.map((shop) => (
                   <Card key={shop.id} className="border-l-4 border-l-orange-500 bg-gradient-to-br from-orange-50/60 to-yellow-50/40 backdrop-blur-xl border border-orange-200/40 hover:border-orange-300/60 hover:shadow-lg transition-all">
                     <CardContent className="pt-6">
@@ -212,7 +212,7 @@ export default function AdminShopsPage() {
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="min-w-[600px] w-full text-xs sm:text-sm">
                     <thead className="bg-gradient-to-r from-violet-100/60 to-purple-100/60 backdrop-blur border-b border-violet-200/40">
                       <tr>
                         <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop Name</th>

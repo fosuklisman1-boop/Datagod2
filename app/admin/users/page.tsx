@@ -389,14 +389,14 @@ export default function AdminUsersPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 px-2 sm:px-4">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">User Management</h1>
             <p className="text-gray-500 mt-1">Manage user roles, balances, and account status</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 items-center">
+          <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row items-stretch sm:items-center">
             {/* Role Filter for Downloads */}
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-gray-500" />
@@ -416,7 +416,7 @@ export default function AdminUsersPage() {
             <Button
               onClick={handleDownloadEmails}
               variant="outline"
-              className="text-sm gap-2"
+              className="text-sm gap-2 w-full sm:w-auto"
               title={`Download emails for ${downloadRoleFilter === 'all' ? 'all users' : downloadRoleFilter}`}
             >
               <Download className="w-4 h-4" />
@@ -425,7 +425,7 @@ export default function AdminUsersPage() {
             <Button
               onClick={handleDownloadPhoneNumbers}
               variant="outline"
-              className="text-sm gap-2"
+              className="text-sm gap-2 w-full sm:w-auto"
               title={`Download phone numbers for ${downloadRoleFilter === 'all' ? 'all users' : downloadRoleFilter}`}
             >
               <Download className="w-4 h-4" />
@@ -434,7 +434,7 @@ export default function AdminUsersPage() {
             <Button
               onClick={handleDownloadAll}
               variant="outline"
-              className="text-sm gap-2"
+              className="text-sm gap-2 w-full sm:w-auto"
               title={`Download all data for ${downloadRoleFilter === 'all' ? 'all users' : downloadRoleFilter}`}
             >
               <Download className="w-4 h-4" />
@@ -456,14 +456,14 @@ export default function AdminUsersPage() {
                   placeholder="Search by email, phone or shop..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="border-emerald-200/40 focus:border-emerald-500"
+                  className="border-emerald-200/40 focus:border-emerald-500 text-sm px-2 py-2"
                 />
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto rounded-md border border-emerald-100/40">
+              <table className="min-w-[600px] w-full text-xs sm:text-sm">
                 <thead className="bg-gradient-to-r from-emerald-100/60 to-teal-100/60 backdrop-blur border-b border-emerald-200/40">
                   <tr>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Email</th>

@@ -294,7 +294,7 @@ export default function ShopDashboardPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
+        <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {/* Available Balance */}
           <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -361,7 +361,7 @@ export default function ShopDashboardPage() {
         </div>
 
         {/* Customer Stats Section */}
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3 lg:gap-4 pt-2">
+        <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 pt-2">
             {/* Total Customers */}
             <Link href="/dashboard/customers">
               <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/60 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40 cursor-pointer hover:border-indigo-300/80 group">

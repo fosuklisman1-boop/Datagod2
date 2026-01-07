@@ -389,7 +389,7 @@ export default function ProfilePage() {
             <CardDescription>Your personal details</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-2">
               <div>
                 <label className="text-sm font-medium text-gray-700">First Name</label>
                 <Input value={profile.firstName} readOnly className="mt-1" />
@@ -452,7 +452,7 @@ export default function ProfilePage() {
             <CardDescription>Your performance metrics</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
               <div className="p-4 bg-blue-50 rounded-lg">
                 <p className="text-sm text-gray-600">Total Orders</p>
                 <p className="text-2xl font-bold text-blue-600">{stats.totalOrders.toLocaleString()}</p>

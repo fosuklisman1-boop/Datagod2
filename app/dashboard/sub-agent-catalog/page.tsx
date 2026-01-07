@@ -150,9 +150,9 @@ export default function SubAgentCatalogPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 px-2 sm:px-4">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
           <div>
             <h1 className="text-2xl font-bold">Sub-Agent Catalog</h1>
             <p className="text-gray-500">
@@ -169,7 +169,7 @@ export default function SubAgentCatalogPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -251,43 +251,45 @@ export default function SubAgentCatalogPage() {
                 </Link>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Network</TableHead>
-                    <TableHead>Size</TableHead>
-                    <TableHead className="text-right">Admin Price</TableHead>
-                    <TableHead className="text-right">Your Margin</TableHead>
-                    <TableHead className="text-right">Wholesale Price</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {catalog.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.package.network}</TableCell>
-                      <TableCell>{item.package.size}</TableCell>
-                      <TableCell className="text-right">GHS {(item.package?.price || 0).toFixed(2)}</TableCell>
-                      <TableCell className="text-right text-green-600">
-                        +GHS {(item.wholesale_margin || 0).toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right font-bold">
-                        GHS {(item.wholesale_price || 0).toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => handleRemoveFromCatalog(item.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+              <div className="overflow-x-auto rounded-md border border-gray-100">
+                <Table className="min-w-[600px] w-full text-xs sm:text-sm">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Network</TableHead>
+                      <TableHead>Size</TableHead>
+                      <TableHead className="text-right">Admin Price</TableHead>
+                      <TableHead className="text-right">Your Margin</TableHead>
+                      <TableHead className="text-right">Wholesale Price</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {catalog.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.package.network}</TableCell>
+                        <TableCell>{item.package.size}</TableCell>
+                        <TableCell className="text-right">GHS {(item.package?.price || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right text-green-600">
+                          +GHS {(item.wholesale_margin || 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right font-bold">
+                          GHS {(item.wholesale_price || 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleRemoveFromCatalog(item.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>

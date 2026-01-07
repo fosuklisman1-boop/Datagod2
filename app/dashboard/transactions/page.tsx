@@ -125,7 +125,7 @@ export default function TransactionsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 px-2 sm:px-4">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Transactions</h1>
@@ -133,7 +133,7 @@ export default function TransactionsPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
@@ -235,33 +235,33 @@ export default function TransactionsPage() {
             <CardDescription>Your financial transaction history</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto rounded-md border border-gray-100">
+              <table className="min-w-[700px] w-full text-xs sm:text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Type</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Source</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Amount</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Balance Before</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Balance After</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Order ID</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Type</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Source</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Balance Before</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Balance After</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Status</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Order ID</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {transactions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">
+                      <td colSpan={9} className="px-4 py-4 text-center text-sm text-gray-500">
                         No transactions found
                       </td>
                     </tr>
                   ) : (
                     transactions.map((txn) => (
                       <tr key={txn.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm">{new Date(txn.created_at).toLocaleDateString()}</td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-4 py-3">{new Date(txn.created_at).toLocaleDateString()}</td>
+                        <td className="px-4 py-3">
                           <Badge className={
                             txn.type === "credit" ? "bg-green-100 text-green-800" :
                             txn.type === "debit" ? "bg-red-100 text-red-800" :
@@ -270,15 +270,15 @@ export default function TransactionsPage() {
                             {txn.type.charAt(0).toUpperCase() + txn.type.slice(1)}
                           </Badge>
                         </td>
-                        <td className="px-6 py-4 text-sm">{txn.description}</td>
-                        <td className={`px-6 py-4 text-sm font-semibold ${
+                        <td className="px-4 py-3">{txn.description}</td>
+                        <td className={`px-4 py-3 font-semibold ${
                           txn.type === "credit" ? "text-green-600" : "text-red-600"
                         }`}>
                           {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
                         </td>
-                        <td className="px-6 py-4 text-sm">GHS {formatAmount(txn.balance_before)}</td>
-                        <td className="px-6 py-4 text-sm font-semibold">GHS {formatAmount(txn.balance_after)}</td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-4 py-3">GHS {formatAmount(txn.balance_before)}</td>
+                        <td className="px-4 py-3 font-semibold">GHS {formatAmount(txn.balance_after)}</td>
+                        <td className="px-4 py-3">
                           <Badge className={
                             txn.status === "completed" ? "bg-green-100 text-green-800" :
                             txn.status === "pending" ? "bg-yellow-100 text-yellow-800" :
@@ -287,8 +287,8 @@ export default function TransactionsPage() {
                             {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
                           </Badge>
                         </td>
-                        <td className="px-6 py-4 text-sm">{txn.order_id || "—"}</td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-4 py-3">{txn.order_id || "—"}</td>
+                        <td className="px-4 py-3">
                           <Button size="sm" variant="outline">View</Button>
                         </td>
                       </tr>

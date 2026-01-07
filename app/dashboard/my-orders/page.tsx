@@ -163,7 +163,7 @@ export default function MyOrdersPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 px-2 sm:px-4">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Orders</h1>
@@ -171,7 +171,7 @@ export default function MyOrdersPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
+        <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
@@ -307,47 +307,47 @@ export default function MyOrdersPage() {
             <CardDescription>{filteredOrders.length === 0 ? "No orders found" : `Showing ${filteredOrders.length} order(s)`}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto rounded-md border border-gray-100">
+              <table className="min-w-[700px] w-full text-xs sm:text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Order Details</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Phone Number</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Amount</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Order Details</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Phone Number</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Status</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                         {searchPhone.trim() ? "No orders found matching your search." : "No orders found. Start by purchasing a data package!"}
                       </td>
                     </tr>
                   ) : (
                     filteredOrders.map((order) => (
                       <tr key={order.id} className="hover:bg-gray-50 border-b">
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-4 py-3">
                           <div>
                             <p className="font-medium">{order.package_name}</p>
                             <p className="text-xs text-gray-600">{order.network_name}</p>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-sm font-mono">{order.phone_number}</td>
-                        <td className="px-6 py-4 text-sm font-semibold">GHS {(order.total_price || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-4 py-3 font-mono">{order.phone_number}</td>
+                        <td className="px-4 py-3 font-semibold">GHS {(order.total_price || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3">
                           <div>{new Date(order.created_at).toLocaleDateString()}</div>
                           <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
                         </td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-4 py-3">
                           <Badge className={getStatusBadgeColor(order.order_status)}>
                             {order.order_status.charAt(0).toUpperCase() + order.order_status.slice(1)}
                           </Badge>
                         </td>
-                        <td className="px-6 py-4 text-sm">
-                          <div className="flex gap-2">
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-2 sm:flex-row">
                             <Button size="sm" variant="outline">View</Button>
                             <Button
                               size="sm"

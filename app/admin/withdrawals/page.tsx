@@ -191,7 +191,7 @@ export default function WithdrawalsPage() {
         </div>
 
         {/* Filter Buttons */}
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2 sm:gap-3 md:gap-4">
           {["pending", "approved", "rejected", "completed", "all"].map((status) => (
             <Button
               key={status}
@@ -216,7 +216,7 @@ export default function WithdrawalsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {withdrawals.map((withdrawal) => (
               <Card key={withdrawal.id} className="hover:shadow-lg transition-all">
                 <CardContent className="pt-6">
