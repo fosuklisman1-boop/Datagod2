@@ -40,6 +40,7 @@ export default function AdminDashboardPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [navigating, setNavigating] = useState<string | null>(null)
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -94,6 +95,13 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleNavigate = async (path: string) => {
+    setNavigating(path)
+    // Small delay to show loading state
+    await new Promise(resolve => setTimeout(resolve, 200))
+    router.push(path)
   }
 
   if (adminLoading) {
@@ -225,10 +233,18 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
               <Button
-                onClick={() => router.push("/admin/shops")}
+                onClick={() => handleNavigate("/admin/shops")}
+                disabled={navigating !== null}
                 className="bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700"
               >
-                Review Now
+                {navigating === "/admin/shops" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Review Now"
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -249,10 +265,18 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <Button
-                onClick={() => router.push("/admin/packages")}
+                onClick={() => handleNavigate("/admin/packages")}
+                disabled={navigating !== null}
                 className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold"
               >
-                Go to Packages
+                {navigating === "/admin/packages" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to Packages"
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -270,10 +294,18 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <Button
-                onClick={() => router.push("/admin/users")}
+                onClick={() => handleNavigate("/admin/users")}
+                disabled={navigating !== null}
                 className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold"
               >
-                Go to Users
+                {navigating === "/admin/users" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to Users"
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -291,10 +323,18 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <Button
-                onClick={() => router.push("/admin/orders")}
+                onClick={() => handleNavigate("/admin/orders")}
+                disabled={navigating !== null}
                 className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-semibold"
               >
-                Go to Orders
+                {navigating === "/admin/orders" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to Orders"
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -312,10 +352,18 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <Button
-                onClick={() => router.push("/admin/order-payment-status")}
+                onClick={() => handleNavigate("/admin/order-payment-status")}
+                disabled={navigating !== null}
                 className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold"
               >
-                Go to Payment Status
+                {navigating === "/admin/order-payment-status" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to Payment Status"
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -333,10 +381,18 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <Button
-                onClick={() => router.push("/admin/shops")}
+                onClick={() => handleNavigate("/admin/shops")}
+                disabled={navigating !== null}
                 className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold"
               >
-                Go to Shops
+                {navigating === "/admin/shops" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to Shops"
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -354,10 +410,18 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <Button
-                onClick={() => router.push("/admin/withdrawals")}
+                onClick={() => handleNavigate("/admin/withdrawals")}
+                disabled={navigating !== null}
                 className="w-full bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white font-semibold"
               >
-                Go to Withdrawals
+                {navigating === "/admin/withdrawals" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to Withdrawals"
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -375,10 +439,18 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <Button
-                onClick={() => router.push("/admin/complaints")}
+                onClick={() => handleNavigate("/admin/complaints")}
+                disabled={navigating !== null}
                 className="w-full bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-semibold"
               >
-                Go to Complaints
+                {navigating === "/admin/complaints" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to Complaints"
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -396,10 +468,18 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <Button
-                onClick={() => router.push("/admin/afa-management")}
+                onClick={() => handleNavigate("/admin/afa-management")}
+                disabled={navigating !== null}
                 className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-semibold"
               >
-                Go to AFA Settings
+                {navigating === "/admin/afa-management" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to AFA Settings"
+                )}
               </Button>
             </CardContent>
           </Card>
