@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     // Get setting
     const { data, error } = await supabase
-      .from("app_settings")
+      .from("admin_settings")
       .select("key, value, updated_at")
       .eq("key", "mtn_auto_fulfillment_enabled")
       .single()
@@ -50,9 +50,12 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Extract enabled value from JSON object
+    const enabled = data.value?.enabled === true
+
     return NextResponse.json({
       success: true,
-      enabled: data.value === "true",
+      enabled,
       updated_at: data.updated_at,
     })
   } catch (error) {

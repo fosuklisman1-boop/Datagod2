@@ -124,7 +124,7 @@ export function validatePhoneNetworkMatch(
 export async function isAutoFulfillmentEnabled(): Promise<boolean> {
   try {
     const { data, error } = await supabase
-      .from("app_settings")
+      .from("admin_settings")
       .select("value")
       .eq("key", "mtn_auto_fulfillment_enabled")
       .maybeSingle()
@@ -140,7 +140,8 @@ export async function isAutoFulfillmentEnabled(): Promise<boolean> {
       return false
     }
 
-    const isEnabled = data.value === "true"
+    // Extract enabled value from JSON object
+    const isEnabled = data.value?.enabled === true
     console.log(`[MTN] Auto-fulfillment enabled: ${isEnabled}`)
     return isEnabled
   } catch (error) {
@@ -156,10 +157,10 @@ export async function setAutoFulfillmentEnabled(enabled: boolean): Promise<boole
   try {
     // Use upsert to create or update the setting
     const { error } = await supabase
-      .from("app_settings")
+      .from("admin_settings")
       .upsert({
         key: "mtn_auto_fulfillment_enabled",
-        value: enabled ? "true" : "false",
+        value: { enabled },
         updated_at: new Date().toISOString(),
       }, {
         onConflict: "key",
