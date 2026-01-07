@@ -228,82 +228,147 @@ export default function TransactionsPage() {
           </CardContent>
         </Card>
 
-        {/* Transactions Table */}
+        {/* Transactions List */}
         <Card>
           <CardHeader>
             <CardTitle>Transactions List</CardTitle>
             <CardDescription>Your financial transaction history</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md border border-gray-100">
-              <table className="min-w-[700px] w-full text-xs sm:text-sm">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Type</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Source</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Balance Before</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Balance After</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Status</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Order ID</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {transactions.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="px-4 py-4 text-center text-sm text-gray-500">
-                        No transactions found
-                      </td>
-                    </tr>
-                  ) : (
-                    transactions.map((txn) => (
-                      <tr key={txn.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">{new Date(txn.created_at).toLocaleDateString()}</td>
-                        <td className="px-4 py-3">
-                          <Badge className={
-                            txn.type === "credit" ? "bg-green-100 text-green-800" :
-                            txn.type === "debit" ? "bg-red-100 text-red-800" :
-                            "bg-orange-100 text-orange-800"
-                          }>
-                            {txn.type.charAt(0).toUpperCase() + txn.type.slice(1)}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">{txn.description}</td>
-                        <td className={`px-4 py-3 font-semibold ${
+            {transactions.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No transactions found
+              </div>
+            ) : (
+              <>
+                {/* Mobile Card View */}
+                <div className="md:hidden space-y-3">
+                  {transactions.map((txn) => (
+                    <div key={txn.id} className="border rounded-lg p-4 bg-white shadow-sm">
+                      {/* Header: Date + Status */}
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <p className="text-xs text-gray-500">
+                            {new Date(txn.created_at).toLocaleDateString()}
+                          </p>
+                          <p className="text-sm text-gray-700 mt-1 line-clamp-1">{txn.description}</p>
+                        </div>
+                        <Badge className={
+                          txn.status === "completed" ? "bg-green-100 text-green-800" :
+                          txn.status === "pending" ? "bg-yellow-100 text-yellow-800" :
+                          "bg-red-100 text-red-800"
+                        }>
+                          {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
+                        </Badge>
+                      </div>
+                      
+                      {/* Amount + Type */}
+                      <div className="flex justify-between items-center mb-3">
+                        <Badge className={
+                          txn.type === "credit" ? "bg-green-100 text-green-800" :
+                          txn.type === "debit" ? "bg-red-100 text-red-800" :
+                          "bg-orange-100 text-orange-800"
+                        }>
+                          {txn.type.charAt(0).toUpperCase() + txn.type.slice(1)}
+                        </Badge>
+                        <span className={`text-lg font-bold ${
                           txn.type === "credit" ? "text-green-600" : "text-red-600"
                         }`}>
                           {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
-                        </td>
-                        <td className="px-4 py-3">GHS {formatAmount(txn.balance_before)}</td>
-                        <td className="px-4 py-3 font-semibold">GHS {formatAmount(txn.balance_after)}</td>
-                        <td className="px-4 py-3">
-                          <Badge className={
-                            txn.status === "completed" ? "bg-green-100 text-green-800" :
-                            txn.status === "pending" ? "bg-yellow-100 text-yellow-800" :
-                            "bg-red-100 text-red-800"
-                          }>
-                            {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">{txn.order_id || "—"}</td>
-                        <td className="px-4 py-3">
-                          <Button size="sm" variant="outline">View</Button>
-                        </td>
+                        </span>
+                      </div>
+                      
+                      {/* Balance Info */}
+                      <div className="grid grid-cols-2 gap-2 text-xs border-t pt-3">
+                        <div>
+                          <span className="text-gray-500">Before:</span>
+                          <span className="ml-1 font-medium">GHS {formatAmount(txn.balance_before)}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">After:</span>
+                          <span className="ml-1 font-semibold">GHS {formatAmount(txn.balance_after)}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Order ID + Action */}
+                      <div className="flex justify-between items-center mt-3 pt-3 border-t">
+                        <span className="text-xs text-gray-500">
+                          {txn.order_id ? `#${txn.order_id.slice(0, 8)}...` : "No order"}
+                        </span>
+                        <Button size="sm" variant="outline">View</Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table View */}
+                <div className="hidden md:block overflow-x-auto rounded-md border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Type</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Source</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Balance Before</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Balance After</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Status</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Order ID</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Actions</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-4 flex justify-between items-center">
+                    </thead>
+                    <tbody className="divide-y">
+                      {transactions.map((txn) => (
+                        <tr key={txn.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">{new Date(txn.created_at).toLocaleDateString()}</td>
+                          <td className="px-4 py-3">
+                            <Badge className={
+                              txn.type === "credit" ? "bg-green-100 text-green-800" :
+                              txn.type === "debit" ? "bg-red-100 text-red-800" :
+                              "bg-orange-100 text-orange-800"
+                            }>
+                              {txn.type.charAt(0).toUpperCase() + txn.type.slice(1)}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">{txn.description}</td>
+                          <td className={`px-4 py-3 font-semibold ${
+                            txn.type === "credit" ? "text-green-600" : "text-red-600"
+                          }`}>
+                            {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
+                          </td>
+                          <td className="px-4 py-3">GHS {formatAmount(txn.balance_before)}</td>
+                          <td className="px-4 py-3 font-semibold">GHS {formatAmount(txn.balance_after)}</td>
+                          <td className="px-4 py-3">
+                            <Badge className={
+                              txn.status === "completed" ? "bg-green-100 text-green-800" :
+                              txn.status === "pending" ? "bg-yellow-100 text-yellow-800" :
+                              "bg-red-100 text-red-800"
+                            }>
+                              {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">{txn.order_id || "—"}</td>
+                          <td className="px-4 py-3">
+                            <Button size="sm" variant="outline">View</Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            
+            {/* Pagination */}
+            <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-3">
               <p className="text-sm text-gray-600">Showing {transactions.length} transaction(s)</p>
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 
                   onClick={() => setPage(page - 1)}
                   disabled={page === 1}
+                  size="sm"
+                  className="px-4"
                 >
                   Previous
                 </Button>
@@ -311,6 +376,8 @@ export default function TransactionsPage() {
                   variant="outline"
                   onClick={() => setPage(page + 1)}
                   disabled={transactions.length < pageSize}
+                  size="sm"
+                  className="px-4"
                 >
                   Next
                 </Button>
