@@ -41,13 +41,41 @@ export async function GET(request: NextRequest) {
       .from("admin_settings")
       .select("key, value, updated_at")
       .eq("key", "mtn_auto_fulfillment_enabled")
-      .single()
+      .maybeSingle()
 
     if (error) {
+      console.error("[MTN] Error reading setting:", error)
       return NextResponse.json(
-        { error: "Setting not found" },
-        { status: 404 }
+        { error: error.message },
+        { status: 500 }
       )
+    }
+
+    // If setting doesn't exist, create it with default value
+    if (!data) {
+      const { data: newData, error: insertError } = await supabase
+        .from("admin_settings")
+        .insert({
+          key: "mtn_auto_fulfillment_enabled",
+          value: { enabled: false },
+          description: "Controls whether MTN orders are auto-fulfilled via MTN API or sent to admin queue",
+        })
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error("[MTN] Error creating setting:", insertError)
+        return NextResponse.json(
+          { error: insertError.message },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({
+        success: true,
+        enabled: false,
+        updated_at: newData.updated_at,
+      })
     }
 
     // Extract enabled value from JSON object

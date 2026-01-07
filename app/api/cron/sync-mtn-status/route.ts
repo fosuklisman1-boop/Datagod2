@@ -115,22 +115,23 @@ function normalizeStatus(apiStatus: string): "pending" | "processing" | "complet
 }
 
 /**
- * Check if MTN auto-fulfillment is enabled in app_settings
+ * Check if MTN auto-fulfillment is enabled in admin_settings
  */
 async function isMTNAutoFulfillmentEnabled(): Promise<boolean> {
   try {
     const { data, error } = await supabase
-      .from("app_settings")
+      .from("admin_settings")
       .select("value")
       .eq("key", "mtn_auto_fulfillment_enabled")
-      .single()
+      .maybeSingle()
     
     if (error || !data) {
       // Default to disabled if setting doesn't exist
       return false
     }
     
-    return data.value === "true" || data.value === true
+    // Extract enabled value from JSON object
+    return data.value?.enabled === true
   } catch (error) {
     console.warn("[CRON] Error checking MTN auto-fulfillment setting:", error)
     return false
