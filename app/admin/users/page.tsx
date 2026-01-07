@@ -9,12 +9,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { Trash2, Eye, Shield, Download, Loader2, Wallet, ShoppingCart, Store, ArrowDownCircle, TrendingUp, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react"
+import { Trash2, Eye, Shield, Download, Loader2, Wallet, ShoppingCart, Store, ArrowDownCircle, TrendingUp, Clock, CheckCircle, XCircle, AlertCircle, Filter } from "lucide-react"
 import { adminUserService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -107,6 +108,7 @@ export default function AdminUsersPage() {
   const [isChangingPassword, setIsChangingPassword] = useState(false)
   const [userStats, setUserStats] = useState<UserStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [downloadRoleFilter, setDownloadRoleFilter] = useState<string>("all")
 
   useEffect(() => {
     checkAdminAccess()
@@ -308,13 +310,25 @@ export default function AdminUsersPage() {
     document.body.removeChild(element)
   }
 
+  // Get users filtered by download role filter
+  const getUsersForDownload = () => {
+    if (downloadRoleFilter === "all") return filteredUsers
+    return filteredUsers.filter(user => user.role === downloadRoleFilter)
+  }
+
   const handleDownloadEmails = () => {
     try {
+      const usersToDownload = getUsersForDownload()
+      if (usersToDownload.length === 0) {
+        toast.error("No users found for the selected role")
+        return
+      }
       const headers = ["Email"]
-      const rows = filteredUsers.map((user) => [user.email])
+      const rows = usersToDownload.map((user) => [user.email])
       const csv = [headers, ...rows].map((row) => row.join(",")).join("\n")
-      downloadAsCSV(`emails_${new Date().toISOString().split("T")[0]}.csv`, csv)
-      toast.success("Emails downloaded successfully")
+      const roleLabel = downloadRoleFilter === "all" ? "all" : downloadRoleFilter
+      downloadAsCSV(`emails_${roleLabel}_${new Date().toISOString().split("T")[0]}.csv`, csv)
+      toast.success(`${usersToDownload.length} emails downloaded successfully`)
     } catch (error) {
       console.error("Error downloading emails:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to download emails"
@@ -324,11 +338,17 @@ export default function AdminUsersPage() {
 
   const handleDownloadPhoneNumbers = () => {
     try {
+      const usersToDownload = getUsersForDownload()
+      if (usersToDownload.length === 0) {
+        toast.error("No users found for the selected role")
+        return
+      }
       const headers = ["Phone Number"]
-      const rows = filteredUsers.map((user) => [user.phoneNumber || ""])
+      const rows = usersToDownload.map((user) => [user.phoneNumber || ""])
       const csv = [headers, ...rows].map((row) => row.join(",")).join("\n")
-      downloadAsCSV(`phone_numbers_${new Date().toISOString().split("T")[0]}.csv`, csv)
-      toast.success("Phone numbers downloaded successfully")
+      const roleLabel = downloadRoleFilter === "all" ? "all" : downloadRoleFilter
+      downloadAsCSV(`phone_numbers_${roleLabel}_${new Date().toISOString().split("T")[0]}.csv`, csv)
+      toast.success(`${usersToDownload.length} phone numbers downloaded successfully`)
     } catch (error) {
       console.error("Error downloading phone numbers:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to download phone numbers"
@@ -338,8 +358,13 @@ export default function AdminUsersPage() {
 
   const handleDownloadAll = () => {
     try {
+      const usersToDownload = getUsersForDownload()
+      if (usersToDownload.length === 0) {
+        toast.error("No users found for the selected role")
+        return
+      }
       const headers = ["Email", "Phone Number", "Role", "Wallet Balance (GHS)", "Shop Balance (GHS)", "Shop Name", "Total Customers", "Joined Date"]
-      const rows = filteredUsers.map((user) => [
+      const rows = usersToDownload.map((user) => [
         user.email,
         user.phoneNumber || "",
         user.role,
@@ -350,8 +375,9 @@ export default function AdminUsersPage() {
         new Date(user.created_at).toLocaleDateString(),
       ])
       const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n")
-      downloadAsCSV(`all_users_${new Date().toISOString().split("T")[0]}.csv`, csv)
-      toast.success("User data downloaded successfully")
+      const roleLabel = downloadRoleFilter === "all" ? "all" : downloadRoleFilter
+      downloadAsCSV(`users_${roleLabel}_${new Date().toISOString().split("T")[0]}.csv`, csv)
+      toast.success(`${usersToDownload.length} users downloaded successfully`)
     } catch (error) {
       console.error("Error downloading user data:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to download user data"
@@ -370,33 +396,49 @@ export default function AdminUsersPage() {
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">User Management</h1>
             <p className="text-gray-500 mt-1">Manage user roles, balances, and account status</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 items-center">
+            {/* Role Filter for Downloads */}
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-500" />
+              <Select value={downloadRoleFilter} onValueChange={setDownloadRoleFilter}>
+                <SelectTrigger className="w-[140px] text-sm">
+                  <SelectValue placeholder="Filter by role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  <SelectItem value="user">Users</SelectItem>
+                  <SelectItem value="shop_owner">Shop Owners</SelectItem>
+                  <SelectItem value="sub_agent">Sub Agents</SelectItem>
+                  <SelectItem value="admin">Admins</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button
               onClick={handleDownloadEmails}
               variant="outline"
               className="text-sm gap-2"
-              title="Download all email addresses"
+              title={`Download emails for ${downloadRoleFilter === 'all' ? 'all users' : downloadRoleFilter}`}
             >
               <Download className="w-4 h-4" />
-              Download Emails
+              Emails
             </Button>
             <Button
               onClick={handleDownloadPhoneNumbers}
               variant="outline"
               className="text-sm gap-2"
-              title="Download all phone numbers"
+              title={`Download phone numbers for ${downloadRoleFilter === 'all' ? 'all users' : downloadRoleFilter}`}
             >
               <Download className="w-4 h-4" />
-              Download Phones
+              Phones
             </Button>
             <Button
               onClick={handleDownloadAll}
               variant="outline"
               className="text-sm gap-2"
-              title="Download all user data"
+              title={`Download all data for ${downloadRoleFilter === 'all' ? 'all users' : downloadRoleFilter}`}
             >
               <Download className="w-4 h-4" />
-              Download All
+              All Data
             </Button>
           </div>
         </div>
