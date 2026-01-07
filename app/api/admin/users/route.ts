@@ -81,6 +81,7 @@ export async function GET(req: NextRequest) {
       .from("user_shops")
       .select("id, user_id, shop_name, created_at")
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (shopsError) {
       console.error("Error fetching shops:", shopsError)

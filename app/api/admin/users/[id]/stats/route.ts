@@ -112,7 +112,7 @@ export async function GET(
         adminClient.from("shop_available_balance").select("*").eq("shop_id", shopId).single(),
         adminClient.from("shop_orders").select("id, total_amount, profit_amount, status, order_status, payment_status, created_at").eq("shop_id", shopId),
         adminClient.from("shop_profits").select("id, profit_amount, status, created_at").eq("shop_id", shopId),
-        adminClient.from("withdrawal_requests").select("*").eq("shop_id", shopId).order("created_at", { ascending: false })
+        adminClient.from("withdrawal_requests").select("*").eq("shop_id", shopId).order("created_at", { ascending: false }).range(0, 999)
       ])
 
       const shopOrders = shopOrdersData.data || []

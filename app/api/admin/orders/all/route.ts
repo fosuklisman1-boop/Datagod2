@@ -29,11 +29,12 @@ export async function GET(request: NextRequest) {
 
     console.log(`Fetching all orders with search: "${searchQuery}" (type: ${searchType})`)
 
-    // Fetch all bulk orders (any status)
+    // Fetch all bulk orders (any status) with pagination
     let bulkOrdersQuery = supabase
       .from("orders")
       .select("id, created_at, phone_number, price, status, size, network, transaction_code, order_code")
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     const { data: bulkOrders, error: bulkError } = await bulkOrdersQuery
 
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`Found ${bulkOrders?.length || 0} bulk orders`)
 
-    // Fetch all shop orders (any status)
+    // Fetch all shop orders (any status) with pagination
     const { data: shopOrdersData, error: shopError } = await supabase
       .from("shop_orders")
       .select(`
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
         transaction_id
       `)
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (shopError) {
       console.error("Supabase error fetching shop orders:", shopError)
@@ -68,7 +70,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`Found ${shopOrdersData?.length || 0} shop orders`)
 
-    // Fetch wallet payments to get Paystack references
+    // Fetch wallet payments to get Paystack references with pagination
     const { data: walletPayments, error: walletPaymentsError } = await supabase
       .from("wallet_payments")
       .select(`
@@ -83,6 +85,7 @@ export async function GET(request: NextRequest) {
         order_id
       `)
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (walletPaymentsError) {
       console.error("Supabase error fetching wallet payments:", walletPaymentsError)

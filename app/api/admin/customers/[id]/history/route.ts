@@ -51,6 +51,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       .eq("shop_customer_id", id)
       .eq("shop_id", shop.id)
       .order("created_at", { ascending: false })
+      .range(0, 999) // Paginate instead of unlimited
 
     if (error) {
       console.error("Error fetching orders:", error)

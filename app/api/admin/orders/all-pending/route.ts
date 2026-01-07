@@ -10,12 +10,13 @@ export async function GET() {
   try {
     console.log("Fetching all pending orders (bulk orders from orders table)...")
     
-    // Fetch regular bulk orders (from orders table)
+    // Fetch regular bulk orders (from orders table) with pagination
     const { data: bulkOrders, error: bulkError } = await supabase
       .from("orders")
       .select("id, created_at, phone_number, price, status, size, network")
       .eq("status", "pending")
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (bulkError) {
       console.error("Supabase error fetching bulk orders:", bulkError)

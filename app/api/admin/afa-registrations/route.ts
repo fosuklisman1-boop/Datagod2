@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
         created_at
       `)
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (afaError) {
       console.error("Error fetching AFA orders:", afaError)
