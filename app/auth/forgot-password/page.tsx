@@ -2,11 +2,27 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { Metadata } from "next"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Mail, MessageCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { supportSettingsService } from "@/lib/support-settings-service"
+
+export const metadata: Metadata = {
+  title: "Reset Your Password | DATAGOD",
+  description: "Forgot your DATAGOD password? Reset it easily using your email or contact our support team.",
+  robots: {
+    index: false,
+    follow: true,
+  },
+  openGraph: {
+    title: "Reset Your Password | DATAGOD",
+    description: "Regain access to your DATAGOD account quickly and securely.",
+    type: "website",
+    url: "https://www.datagod.store/auth/forgot-password",
+  },
+};
 
 export default function ForgotPasswordPage() {
   const [supportSettings, setSupportSettings] = useState<any>(null)

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { Metadata } from "next"
 import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,6 +14,21 @@ import { Grid3x3, List, Search, Loader2 } from "lucide-react"
 import { PhoneNumberModal } from "@/components/phone-number-modal"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
+
+export const metadata: Metadata = {
+  title: "Available Data Packages | Buy Data Online | DATAGOD",
+  description: "Browse all available data packages from MTN, Telecel, AT, and other networks. Find the perfect package for your needs.",
+  robots: {
+    index: false,
+    follow: true,
+  },
+  openGraph: {
+    title: "Available Data Packages | Buy Data Online | DATAGOD",
+    description: "Explore affordable data packages from all major networks in Ghana.",
+    type: "website",
+    url: "https://www.datagod.store/dashboard/data-packages",
+  },
+};
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
 import { toast } from "sonner"
 

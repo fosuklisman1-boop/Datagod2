@@ -1,12 +1,60 @@
 "use client"
 
 import Link from "next/link"
+import { Metadata } from "next"
 import { Button } from "@/components/ui/button"
 import { Package, Zap, Users, ArrowRight, Lock } from "lucide-react"
+
+export const metadata: Metadata = {
+  title: "DATAGOD - Buy Data Packages & Airtime | Start Today",
+  description: "Affordable mobile data, airtime, and digital services for Ghana. Instant delivery from MTN, Telecel, AT and more. Sign up today for quick access.",
+  keywords: [
+    "buy data packages",
+    "mobile airtime",
+    "data bundles",
+    "instant delivery",
+    "Ghana data services",
+  ],
+  openGraph: {
+    title: "DATAGOD - Buy Data Packages & Airtime | Start Today",
+    description: "Affordable mobile data, airtime, and digital services for Ghana. Instant delivery from MTN, Telecel, AT and more.",
+    type: "website",
+    url: "https://www.datagod.store",
+    images: [
+      {
+        url: "https://www.datagod.store/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "DATAGOD Homepage",
+      },
+    ],
+  },
+};
 
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      {/* Organization + Website Schema */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "DATAGOD",
+            url: "https://www.datagod.store",
+            description: "Buy affordable data packages from multiple networks with instant delivery",
+            potentialAction: {
+              "@type": "SearchAction",
+              target: {
+                "@type": "EntryPoint",
+                urlTemplate: "https://www.datagod.store/shop?search={search_term_string}",
+              },
+              query_input: "required name=search_term_string",
+            },
+          }),
+        }}
+      />
       {/* Navigation */}
       <nav className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-6 py-4 border-b border-gray-200">
         <div className="flex items-center gap-3">

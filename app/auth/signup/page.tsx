@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { Metadata } from "next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,6 +11,21 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
+
+export const metadata: Metadata = {
+  title: "Create Your DATAGOD Account | Free Registration",
+  description: "Sign up for free on DATAGOD to buy data packages, airtime, and digital services. Fast registration, instant access to all features.",
+  robots: {
+    index: false,
+    follow: true,
+  },
+  openGraph: {
+    title: "Create Your DATAGOD Account | Free Registration",
+    description: "Sign up for free to access affordable data packages and instant delivery.",
+    type: "website",
+    url: "https://www.datagod.store/auth/signup",
+  },
+};
 
 export default function SignupPage() {
   const router = useRouter()
