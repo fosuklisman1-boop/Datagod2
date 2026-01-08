@@ -2,18 +2,22 @@ User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /admin-setup
-Disallow: /auth
-Disallow: /dashboard
-Disallow: /api
+Disallow: /api/admin/
+Disallow: /api/webhooks/
+Disallow: /api/cron/
 Disallow: /*.json$
 Disallow: /*?*
 Disallow: /*#*
 
-# Allow specific paths
+# Allow public pages that should be indexed
+Allow: /auth/login
+Allow: /auth/signup
+Allow: /join
 Allow: /shop/
+Allow: /dashboard/
 
 # Crawl delay and request rate
 Crawl-delay: 1
 
-# Sitemap
-Sitemap: https://datagod.com/sitemap.xml
+# Sitemap - FIXED to use correct domain
+Sitemap: https://www.datagod.store/sitemap.xml
