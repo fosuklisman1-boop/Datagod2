@@ -18,11 +18,7 @@ const nextConfig: NextConfig = {
   // Redirects
   redirects: async () => {
     return [
-      {
-        source: "/favicon.ico",
-        destination: "/favicon_custom.ico",
-        permanent: true,
-      },
+      // Removed favicon redirect - Google prefers direct access to /favicon.ico
       // Marketing and common routes
       {
         source: "/community",

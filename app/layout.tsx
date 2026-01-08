@@ -42,7 +42,7 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
     shortcut: "/favicon.ico",
   },
-  metadataBase: new URL("https://datagod.com"),
+  metadataBase: new URL("https://www.datagod.store"),
   robots: {
     index: true,
     follow: true,
