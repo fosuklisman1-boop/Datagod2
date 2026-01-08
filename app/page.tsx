@@ -1,35 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { Metadata } from "next"
 import { Button } from "@/components/ui/button"
 import { Package, Zap, Users, ArrowRight, Lock } from "lucide-react"
-
-export const metadata: Metadata = {
-  title: "DATAGOD - Buy Data Packages & Airtime | Start Today",
-  description: "Affordable mobile data, airtime, and digital services for Ghana. Instant delivery from MTN, Telecel, AT and more. Sign up today for quick access.",
-  keywords: [
-    "buy data packages",
-    "mobile airtime",
-    "data bundles",
-    "instant delivery",
-    "Ghana data services",
-  ],
-  openGraph: {
-    title: "DATAGOD - Buy Data Packages & Airtime | Start Today",
-    description: "Affordable mobile data, airtime, and digital services for Ghana. Instant delivery from MTN, Telecel, AT and more.",
-    type: "website",
-    url: "https://www.datagod.store",
-    images: [
-      {
-        url: "https://www.datagod.store/og-image.png",
-        width: 1200,
-        height: 630,
-        alt: "DATAGOD Homepage",
-      },
-    ],
-  },
-};
 
 export default function HomePage() {
   return (

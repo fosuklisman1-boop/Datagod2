@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Metadata } from "next"
 import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,21 +12,6 @@ import { Wallet, Plus, Minus, TrendingUp, TrendingDown, AlertCircle, Loader2 } f
 import { WalletTopUp } from "@/components/wallet-top-up"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-
-export const metadata: Metadata = {
-  title: "My Wallet | Top-Up & Manage Balance | DATAGOD",
-  description: "Manage your DATAGOD wallet. Top-up your balance, view transaction history, and track your spending.",
-  robots: {
-    index: false,
-    follow: true,
-  },
-  openGraph: {
-    title: "My Wallet | Top-Up & Manage Balance | DATAGOD",
-    description: "Easily manage your DATAGOD wallet and top-up balance for quick data purchases.",
-    type: "website",
-    url: "https://www.datagod.store/dashboard/wallet",
-  },
-};
 
 interface WalletData {
   balance: number

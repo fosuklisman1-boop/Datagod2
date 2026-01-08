@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { Metadata } from "next"
 import { useAuth } from "@/hooks/use-auth"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
@@ -13,21 +12,6 @@ import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2, Wallet } from "lucide-react"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
-
-export const metadata: Metadata = {
-  title: "Dashboard | Manage Your Account | DATAGOD",
-  description: "Access your DATAGOD dashboard to manage orders, track purchases, and view your wallet balance.",
-  robots: {
-    index: false,
-    follow: true,
-  },
-  openGraph: {
-    title: "Dashboard | Manage Your Account | DATAGOD",
-    description: "Your personal DATAGOD dashboard for orders and account management.",
-    type: "website",
-    url: "https://www.datagod.store/dashboard",
-  },
-};
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number | string): string => {

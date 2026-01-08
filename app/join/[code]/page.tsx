@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Metadata } from "next"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,21 +11,6 @@ import { Badge } from "@/components/ui/badge"
 import { Loader2, Store, CheckCircle, AlertCircle, Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
-
-export const metadata: Metadata = {
-  title: "Join as a Sub-Agent | DATAGOD",
-  description: "Join DATAGOD as a sub-agent and start earning. Access exclusive features and grow your business with our platform.",
-  robots: {
-    index: true,
-    follow: true,
-  },
-  openGraph: {
-    title: "Join as a Sub-Agent | DATAGOD",
-    description: "Become a DATAGOD sub-agent and start earning today. Join our growing community of successful resellers.",
-    type: "website",
-    url: "https://www.datagod.store/join",
-  },
-};
 
 interface InviteData {
   code: string

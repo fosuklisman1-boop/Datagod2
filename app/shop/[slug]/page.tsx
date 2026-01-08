@@ -3,7 +3,6 @@
 import { useEffect, useState, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { Metadata } from "next"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,57 +16,6 @@ import { validatePhoneNumber } from "@/lib/phone-validation"
 import { redirectToPayment } from "@/lib/payment-redirect"
 import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft, AlignJustify } from "lucide-react"
 import { toast } from "sonner"
-
-// Dynamic metadata for shop pages
-export async function generateMetadata(
-  { params }: { params: { slug: string } }
-): Promise<Metadata> {
-  const slug = params.slug as string
-  try {
-    const shop = await shopService.getShopBySlug(slug)
-    if (!shop) {
-      return {
-        title: "Shop Not Found | DATAGOD",
-        description: "The requested shop could not be found.",
-      }
-    }
-
-    const shopName = shop.name || "Shop"
-    return {
-      title: `${shopName} | Buy Data & Airtime | DATAGOD`,
-      description: `Visit ${shopName} on DATAGOD to buy affordable data packages and airtime. Fast delivery, secure payment.`,
-      robots: {
-        index: true,
-        follow: true,
-      },
-      openGraph: {
-        title: `${shopName} | Buy Data & Airtime | DATAGOD`,
-        description: `Shop with ${shopName} for affordable data packages and mobile services.`,
-        type: "website",
-        url: `https://www.datagod.store/shop/${slug}`,
-        images: [
-          {
-            url: "https://www.datagod.store/og-image.png",
-            width: 1200,
-            height: 630,
-            alt: shopName,
-          },
-        ],
-      },
-      twitter: {
-        card: "summary_large_image",
-        title: `${shopName} | Buy Data & Airtime | DATAGOD`,
-        description: `Shop with ${shopName} for affordable data packages and mobile services.`,
-        images: ["https://www.datagod.store/og-image.png"],
-      },
-    }
-  } catch (error) {
-    return {
-      title: "Shop | DATAGOD",
-      description: "Browse data packages and airtime on DATAGOD.",
-    }
-  }
-}
 
 export default function ShopStorefront() {
   const params = useParams()
