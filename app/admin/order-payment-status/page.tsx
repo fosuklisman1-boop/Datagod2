@@ -16,6 +16,8 @@ interface AllOrder {
   id: string
   type: string
   phone_number: string
+  customer_email?: string
+  store_name?: string
   network: string
   volume_gb: number
   price: number
@@ -226,8 +228,10 @@ export default function OrderPaymentStatusPage() {
                   <thead className="bg-gray-50 border-b">
                     <tr>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Type</th>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Store</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Reference</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Email</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Volume</th>
                       <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
@@ -245,10 +249,16 @@ export default function OrderPaymentStatusPage() {
                             {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : "Wallet"}
                           </Badge>
                         </td>
+                        <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
+                          {order.type === "shop" ? (order.store_name || "-") : "-"}
+                        </td>
                         <td className="px-4 py-3 font-mono text-xs max-w-xs truncate" title={order.payment_reference}>
                           {order.payment_reference}
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">{order.phone_number}</td>
+                        <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.customer_email || "-"}>
+                          {order.type === "shop" ? (order.customer_email || "-") : "-"}
+                        </td>
                         <td className="px-4 py-3">
                           <Badge className={`${getNetworkColor(order.network)} border`}>
                             {order.network}

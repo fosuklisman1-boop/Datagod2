@@ -52,13 +52,18 @@ export async function GET(request: NextRequest) {
         id,
         created_at,
         customer_phone,
+        customer_email,
         total_price,
         order_status,
         volume_gb,
         network,
         reference_code,
         payment_status,
-        transaction_id
+        transaction_id,
+        shop_id,
+        user_shops:shop_id (
+          shop_name
+        )
       `)
       .order("created_at", { ascending: false })
       .range(0, 9999) // Paginate instead of unlimited
@@ -111,6 +116,8 @@ export async function GET(request: NextRequest) {
       id: order.id,
       type: "shop",
       phone_number: order.customer_phone || "-",
+      customer_email: order.customer_email || "-",
+      store_name: order.user_shops?.shop_name || "-",
       network: normalizeNetwork(order.network),
       volume_gb: order.volume_gb,
       price: order.total_price,
