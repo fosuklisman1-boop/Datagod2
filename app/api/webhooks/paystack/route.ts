@@ -259,7 +259,11 @@ export async function POST(request: NextRequest) {
             console.log(`[WEBHOOK] Shop order network: "${shopOrderData?.network}" | Auto-fulfillable: ${isAutoFulfillable} | Auto-fulfill enabled: ${autoFulfillEnabled} | Should fulfill: ${shouldFulfill}`)
             
             if (shouldFulfill && shopOrderData?.customer_phone) {
-              console.log(`[WEBHOOK] Triggering Code Craft fulfillment for shop order ${paymentData.order_id}`)
+              // Check if order is in blacklist queue
+              if (shopOrderData?.queue === "blacklisted") {
+                console.log(`[WEBHOOK] ⚠️ Order ${paymentData.order_id} is in blacklist queue - skipping Code Craft fulfillment`)
+              } else {
+                console.log(`[WEBHOOK] Triggering Code Craft fulfillment for shop order ${paymentData.order_id}`)
               console.log(`[WEBHOOK] Raw volume_gb value:`, shopOrderData.volume_gb, `(type: ${typeof shopOrderData.volume_gb})`)
               
               // Parse size - handle different formats
@@ -293,6 +297,7 @@ export async function POST(request: NextRequest) {
               }).catch(err => {
                 console.error(`[WEBHOOK] ❌ Error triggering fulfillment for shop order ${paymentData.order_id}:`, err)
               })
+              }
             } else if (isAutoFulfillable && !autoFulfillEnabled) {
               console.log(`[WEBHOOK] ℹ Auto-fulfillment disabled. Shop order ${paymentData.order_id} will go to admin queue.`)
             } else if (shouldFulfill && !shopOrderData?.customer_phone) {
