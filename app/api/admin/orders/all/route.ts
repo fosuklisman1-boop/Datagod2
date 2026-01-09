@@ -61,10 +61,10 @@ export async function GET(request: NextRequest) {
         payment_status,
         transaction_id,
         shop_id,
-        user_shops:shop_id (
+        user_shops!shop_id (
           shop_name,
           user_id,
-          profiles:user_id (
+          profiles!user_id (
             email
           )
         )
