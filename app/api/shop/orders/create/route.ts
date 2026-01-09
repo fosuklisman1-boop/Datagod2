@@ -45,11 +45,13 @@ export async function POST(request: NextRequest) {
 
     // Check if phone number is blacklisted
     let phoneQueue = "default"
+    let orderStatus = "pending"
     try {
       const isBlacklisted = await isPhoneBlacklisted(customer_phone)
       if (isBlacklisted) {
         phoneQueue = "blacklisted"
-        console.log(`[SHOP-ORDER] Phone ${customer_phone} is blacklisted - setting queue to 'blacklisted'`)
+        orderStatus = "blacklisted"
+        console.log(`[SHOP-ORDER] Phone ${customer_phone} is blacklisted - setting queue to 'blacklisted' and order_status to 'blacklisted'`)
       }
     } catch (blacklistError) {
       console.warn("[SHOP-ORDER] Error checking blacklist:", blacklistError)
@@ -185,7 +187,7 @@ export async function POST(request: NextRequest) {
           base_price: parseFloat(base_price.toString()),
           profit_amount: parseFloat(profit_amount.toString()),
           total_price: parseFloat(total_price.toString()),
-          order_status: "pending",
+          order_status: orderStatus,
           payment_status: "pending",
           reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
           shop_customer_id: null, // Will be set when payment is confirmed

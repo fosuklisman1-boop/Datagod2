@@ -120,11 +120,13 @@ export async function POST(request: NextRequest) {
 
     // Check if phone is blacklisted
     let phoneQueue = "default"
+    let orderStatus = "pending"
     try {
       const isBlacklisted = await isPhoneBlacklisted(phoneNumber)
       if (isBlacklisted) {
         phoneQueue = "blacklisted"
-        console.log(`[PURCHASE] Phone ${phoneNumber} is blacklisted - setting queue to 'blacklisted'`)
+        orderStatus = "blacklisted"
+        console.log(`[PURCHASE] Phone ${phoneNumber} is blacklisted - setting queue to 'blacklisted' and status to 'blacklisted'`)
       }
     } catch (blacklistError) {
       console.warn("[PURCHASE] Error checking blacklist:", blacklistError)
@@ -142,7 +144,7 @@ export async function POST(request: NextRequest) {
           size,
           price,
           phone_number: phoneNumber,
-          status: "pending",
+          status: orderStatus,
           queue: phoneQueue,
           order_code: `ORD-${Date.now()}`,
           created_at: new Date().toISOString(),
