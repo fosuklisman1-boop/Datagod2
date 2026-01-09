@@ -167,9 +167,15 @@ export default function AdminComplaintsPage() {
 
       console.log("Update response:", data)
 
-      setComplaints(
-        complaints.map((c) => (c.id === complaint.id ? data : c))
-      )
+      // Only update complaints list if data was returned (non-null)
+      if (data && data.id) {
+        setComplaints(
+          complaints.map((c) => (c.id === complaint.id ? data : c))
+        )
+      } else {
+        // If no data returned, just remove from list and refetch
+        setComplaints(complaints.filter((c) => c.id !== complaint.id))
+      }
       setStatusFilter("all")
       setShowModal(false)
       setResolutionNotes("")
@@ -219,9 +225,15 @@ export default function AdminComplaintsPage() {
         // Don't fail the rejection if notification fails
       }
 
-      setComplaints(
-        complaints.map((c) => (c.id === complaint.id ? data : c))
-      )
+      // Only update complaints list if data was returned (non-null)
+      if (data && data.id) {
+        setComplaints(
+          complaints.map((c) => (c.id === complaint.id ? data : c))
+        )
+      } else {
+        // If no data returned, just remove from list and refetch
+        setComplaints(complaints.filter((c) => c.id !== complaint.id))
+      }
       setStatusFilter("all")
       setShowModal(false)
       setSelectedComplaint(null)
