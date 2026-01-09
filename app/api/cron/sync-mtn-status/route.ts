@@ -41,7 +41,17 @@ async function fetchAllSykesOrders(): Promise<{ success: boolean; orders: any[];
 
     let data
     try {
-      data = JSON.parse(responseText)
+      // Extract JSON from response (strip any PHP warnings/HTML before the JSON)
+      const jsonMatch = responseText.match(/\{[\s\S]*\}|\[[\s\S]*\]/)
+      if (jsonMatch) {
+        data = JSON.parse(jsonMatch[0])
+      } else {
+        return {
+          success: false,
+          orders: [],
+          message: `No JSON found in response: ${responseText.slice(0, 100)}`,
+        }
+      }
     } catch {
       return {
         success: false,

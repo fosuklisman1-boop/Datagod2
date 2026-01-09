@@ -197,7 +197,23 @@ export async function checkMTNBalance(): Promise<number | null> {
       throw new Error(`MTN API error: ${response.status} ${response.statusText}`)
     }
 
-    const data = await response.json()
+    // Get raw response text (API sometimes returns PHP warnings before JSON)
+    const responseText = await response.text()
+    
+    // Extract JSON from response (strip any PHP warnings/HTML before the JSON)
+    let data: Record<string, unknown>
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        data = JSON.parse(jsonMatch[0])
+      } else {
+        console.warn("[MTN] No JSON found in balance response:", responseText.slice(0, 500))
+        return null
+      }
+    } catch {
+      console.warn("[MTN] Failed to parse balance response:", responseText.slice(0, 500))
+      return null
+    }
     
     // API returns { success: true, balance: 1000.50 } or similar
     // Handle various response formats
@@ -306,8 +322,39 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
       signal: AbortSignal.timeout(REQUEST_TIMEOUT),
     })
 
-    const data = (await response.json()) as MTNOrderResponse
+    // Get raw response text (API sometimes returns PHP warnings before JSON)
+    const responseText = await response.text()
     const latency = Date.now() - startTime
+
+    // Extract JSON from response (strip any PHP warnings/HTML before the JSON)
+    let data: MTNOrderResponse
+    try {
+      // Find the JSON object in the response (it starts with { and ends with })
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        data = JSON.parse(jsonMatch[0]) as MTNOrderResponse
+      } else {
+        log("error", "Order", "No JSON found in API response", { traceId, responseText: responseText.slice(0, 500) })
+        recordFailure(mtnConfig)
+        recordMetrics(false, latency)
+        return {
+          success: false,
+          message: `Invalid API response: ${responseText.slice(0, 200)}`,
+          traceId,
+          error_type: "API_ERROR",
+        }
+      }
+    } catch (parseError) {
+      log("error", "Order", "Failed to parse API response", { traceId, responseText: responseText.slice(0, 500), parseError })
+      recordFailure(mtnConfig)
+      recordMetrics(false, latency)
+      return {
+        success: false,
+        message: `Failed to parse API response: ${responseText.slice(0, 200)}`,
+        traceId,
+        error_type: "API_ERROR",
+      }
+    }
 
     // Check HTTP status first
     if (!response.ok) {
