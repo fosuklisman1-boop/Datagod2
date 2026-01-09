@@ -149,9 +149,47 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    // Update shop_orders: reset blacklisted orders back to pending if they haven't been processed
+    const { data: shopOrdersUpdated, error: shopOrdersError } = await supabase
+      .from("shop_orders")
+      .update({
+        order_status: "pending",
+        queue: "default",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("customer_phone", phone)
+      .eq("order_status", "blacklisted")
+      .select()
+
+    if (shopOrdersError) {
+      console.error("[BLACKLIST] Error updating shop_orders:", shopOrdersError)
+    } else if (shopOrdersUpdated && shopOrdersUpdated.length > 0) {
+      console.log(`[BLACKLIST] ✓ Updated ${shopOrdersUpdated.length} shop_orders back to pending for phone: ${phone}`)
+    }
+
+    // Update orders (wallet): reset blacklisted orders back to pending if they haven't been processed
+    const { data: ordersUpdated, error: ordersError } = await supabase
+      .from("orders")
+      .update({
+        status: "pending",
+        queue: "default",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("phone_number", phone)
+      .eq("status", "blacklisted")
+      .select()
+
+    if (ordersError) {
+      console.error("[BLACKLIST] Error updating orders:", ordersError)
+    } else if (ordersUpdated && ordersUpdated.length > 0) {
+      console.log(`[BLACKLIST] ✓ Updated ${ordersUpdated.length} orders back to pending for phone: ${phone}`)
+    }
+
     return NextResponse.json({
       success: true,
       message: `Removed ${phone} from blacklist`,
+      shopOrdersUpdated: shopOrdersUpdated?.length || 0,
+      wallletOrdersUpdated: ordersUpdated?.length || 0,
     })
   } catch (error) {
     console.error("[BLACKLIST] Error:", error)
