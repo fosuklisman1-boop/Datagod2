@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
         // Get shop order details to create profit record and track customer
         const { data: shopOrderData, error: orderFetchError } = await supabase
           .from("shop_orders")
-          .select("id, shop_id, profit_amount, customer_phone, customer_email, customer_name, network, volume_gb, total_price, reference_code, parent_shop_id, parent_profit_amount")
+          .select("id, shop_id, profit_amount, customer_phone, customer_email, customer_name, network, volume_gb, total_price, reference_code, parent_shop_id, parent_profit_amount, queue")
           .eq("id", paymentData.order_id)
           .single()
 
@@ -314,6 +314,12 @@ export async function POST(request: NextRequest) {
                 // Non-blocking MTN fulfillment via direct API call
                 (async () => {
                   try {
+                    // Check if order is in blacklist queue
+                    if (shopOrderData?.queue === "blacklisted") {
+                      console.log(`[WEBHOOK] ⚠️ Order ${paymentData.order_id} is in blacklist queue - skipping MTN fulfillment`)
+                      return
+                    }
+
                     console.log(`[WEBHOOK] Calling MTN API for shop order ${paymentData.order_id}: ${normalizedPhone}, ${sizeGb}GB`)
                     const mtnRequest = {
                       recipient_phone: normalizedPhone,

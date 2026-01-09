@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     // Fetch order details
     const { data: orderData, error: fetchError } = await supabase
       .from("shop_orders")
-      .select("id, network, volume_gb, customer_phone, customer_name, order_status")
+      .select("id, network, volume_gb, customer_phone, customer_name, order_status, queue")
       .eq("id", shop_order_id)
       .single()
 
@@ -59,6 +59,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: `Network ${orderData.network} is not MTN` },
         { status: 400 }
+      )
+    }
+
+    // Check if order is in blacklist queue
+    if (orderData.queue === "blacklisted") {
+      console.log(`[MANUAL-FULFILL] ⚠️ Order ${shop_order_id} is in blacklist queue - rejecting fulfillment`)
+      return NextResponse.json(
+        { error: "Order is blacklisted - fulfillment not allowed" },
+        { status: 403 }
       )
     }
 

@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
       console.log("[WALLET-DEBIT] Checking if order is a shop order...")
       const { data: shopOrder, error: shopOrderError } = await supabase
         .from("shop_orders")
-        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_email, customer_name, total_price")
+        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_email, customer_name, total_price, queue")
         .eq("id", orderId)
         .maybeSingle()
 
@@ -280,6 +280,12 @@ export async function POST(request: NextRequest) {
               // Non-blocking MTN fulfillment via direct API call
               (async () => {
                 try {
+                  // Check if order is in blacklist queue
+                  if (shopOrder.queue === "blacklisted") {
+                    console.log(`[WALLET-DEBIT] ⚠️ Order ${orderId} is in blacklist queue - skipping MTN fulfillment`)
+                    return
+                  }
+
                   console.log(`[WALLET-DEBIT] Calling MTN API for order ${orderId}: ${normalizedPhone}, ${sizeGb}GB`)
                   const mtnRequest = {
                     recipient_phone: normalizedPhone,
