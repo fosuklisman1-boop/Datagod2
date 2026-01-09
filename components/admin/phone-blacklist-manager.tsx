@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Trash2, Upload, Plus } from "lucide-react"
+import { AlertCircle, Trash2, Upload, Plus, ChevronLeft, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
@@ -25,6 +25,8 @@ export default function PhoneBlacklistManager() {
   const [searching, setSearching] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [authToken, setAuthToken] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
 
   // Get auth token on mount
   useEffect(() => {
@@ -48,6 +50,7 @@ export default function PhoneBlacklistManager() {
   const loadBlacklist = async (query = "") => {
     try {
       setLoading(true)
+      setCurrentPage(1) // Reset to first page on new search
       const response = await fetch(`/api/admin/blacklist?search=${encodeURIComponent(query)}`, {
         headers: getHeaders(),
       })
@@ -246,41 +249,93 @@ export default function PhoneBlacklistManager() {
               No blacklisted numbers yet
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Phone Number</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Added</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {blacklist.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell className="font-mono">{entry.phone_number}</TableCell>
-                      <TableCell>{entry.reason || "-"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(entry.created_at).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => removeNumber(entry.phone_number)}
-                          className="gap-1 bg-black text-white hover:bg-gray-800"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Remove
-                        </Button>
-                      </TableCell>
+            <div className="space-y-4">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Phone Number</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Added</TableHead>
+                      <TableHead>Action</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {(() => {
+                      const startIndex = (currentPage - 1) * itemsPerPage
+                      const endIndex = startIndex + itemsPerPage
+                      const paginatedBlacklist = blacklist.slice(startIndex, endIndex)
+                      return paginatedBlacklist.map((entry) => (
+                        <TableRow key={entry.id}>
+                          <TableCell className="font-mono">{entry.phone_number}</TableCell>
+                          <TableCell>{entry.reason || "-"}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {new Date(entry.created_at).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => removeNumber(entry.phone_number)}
+                              className="gap-1 bg-black text-white hover:bg-gray-800"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Remove
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    })()}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination Controls */}
+              {blacklist.length > itemsPerPage && (
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, blacklist.length)} of {blacklist.length}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="gap-1"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.ceil(blacklist.length / itemsPerPage) }, (_, i) => i + 1).map(
+                        (page) => (
+                          <Button
+                            key={page}
+                            variant={currentPage === page ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setCurrentPage(page)}
+                            className="w-8 h-8 p-0"
+                          >
+                            {page}
+                          </Button>
+                        )
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.min(Math.ceil(blacklist.length / itemsPerPage), p + 1))}
+                      disabled={currentPage >= Math.ceil(blacklist.length / itemsPerPage)}
+                      className="gap-1"
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
         </CardContent>
       </Card>
     </div>
