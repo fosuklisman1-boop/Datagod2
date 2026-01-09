@@ -228,6 +228,28 @@ export async function POST(request: NextRequest) {
       } catch (smsError) {
         console.warn("[SHOP-ORDER] Failed to send blacklist notification SMS:", smsError)
       }
+
+      // Send admin notification
+      try {
+        const { data: shopOwner } = await supabase
+          .from("users")
+          .select("phone_number")
+          .eq("id", (await supabase.from("user_shops").select("user_id").eq("id", shop_id).single()).data?.user_id)
+          .single()
+
+        if (shopOwner?.phone_number) {
+          const adminSMS = `[ALERT] DATAGOD: Order ${data[0].id.substring(0, 8)} from blacklisted number ${customer_phone} attempted to place a ${network} order. Order blocked.`
+          await sendSMS({
+            phone: shopOwner.phone_number,
+            message: adminSMS,
+            type: 'admin_alert',
+            reference: data[0].id,
+          }).catch(err => console.error("[SHOP-ORDER] Admin SMS error:", err))
+          console.log("[SHOP-ORDER] ✓ Admin alert SMS sent to", shopOwner.phone_number)
+        }
+      } catch (adminError) {
+        console.warn("[SHOP-ORDER] Failed to send admin alert SMS:", adminError)
+      }
     }
 
     return NextResponse.json({
