@@ -9,6 +9,7 @@ import {
   MTNOrderRequest,
 } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { isPhoneBlacklisted } from "@/lib/blacklist"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -52,6 +53,21 @@ export async function POST(request: NextRequest) {
         { error: "Missing required fields" },
         { status: 400 }
       )
+    }
+
+    // Check if phone is blacklisted - if so, reject fulfillment
+    try {
+      const isBlacklisted = await isPhoneBlacklisted(phone_number)
+      if (isBlacklisted) {
+        console.log(`[FULFILLMENT] ⚠️ Phone ${phone_number} is blacklisted - rejecting fulfillment`)
+        return NextResponse.json(
+          { error: "Phone number is blacklisted - fulfillment not allowed", success: false },
+          { status: 403 }
+        )
+      }
+    } catch (blacklistError) {
+      console.warn("[FULFILLMENT] Error checking blacklist, continuing:", blacklistError)
+      // Continue with fulfillment if blacklist check fails
     }
 
     // Check if MTN auto-fulfillment is enabled

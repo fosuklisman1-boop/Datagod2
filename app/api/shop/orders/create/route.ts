@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { isPhoneBlacklisted } from "@/lib/blacklist"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -41,6 +42,19 @@ export async function POST(request: NextRequest) {
     // NOTE: Customer tracking is now done AFTER payment is confirmed
     // This prevents inflated customer revenue from abandoned orders
     // See: Paystack webhook and wallet/debit route for customer tracking
+
+    // Check if phone number is blacklisted
+    let phoneQueue = "default"
+    try {
+      const isBlacklisted = await isPhoneBlacklisted(customer_phone)
+      if (isBlacklisted) {
+        phoneQueue = "blacklisted"
+        console.log(`[SHOP-ORDER] Phone ${customer_phone} is blacklisted - setting queue to 'blacklisted'`)
+      }
+    } catch (blacklistError) {
+      console.warn("[SHOP-ORDER] Error checking blacklist:", blacklistError)
+      // Continue with default queue if blacklist check fails
+    }
 
     // Check if this shop has a parent shop (sub-agent scenario)
     let parent_shop_id: string | null = null
@@ -177,6 +191,7 @@ export async function POST(request: NextRequest) {
           shop_customer_id: null, // Will be set when payment is confirmed
           parent_shop_id: parent_shop_id || null,
           parent_profit_amount: parent_profit_amount !== null ? parseFloat(parent_profit_amount.toString()) : 0,
+          queue: phoneQueue,
           created_at: new Date().toISOString(),
         },
       ])

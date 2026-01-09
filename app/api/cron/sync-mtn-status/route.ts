@@ -203,8 +203,54 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 })
     }
 
-    if (!pendingOrders || pendingOrders.length === 0) {
-      console.log("[CRON] No pending/processing orders to sync")
+    // Filter out orders from blacklisted numbers - don't process them
+    let ordersToProcess = pendingOrders || []
+    if (ordersToProcess.length > 0) {
+      // Get all shop_order and order IDs to check if their phones are in blacklist
+      const shopOrderIds = ordersToProcess
+        .filter((o: any) => o.shop_order_id)
+        .map((o: any) => o.shop_order_id)
+      const bulkOrderIds = ordersToProcess
+        .filter((o: any) => o.order_id)
+        .map((o: any) => o.order_id)
+
+      // Check shop_orders for blacklisted queue
+      if (shopOrderIds.length > 0) {
+        const { data: blacklistedShopOrders } = await supabase
+          .from("shop_orders")
+          .select("id")
+          .in("id", shopOrderIds)
+          .eq("queue", "blacklisted")
+        
+        const blacklistedShopIds = new Set((blacklistedShopOrders || []).map((o: any) => o.id))
+        ordersToProcess = ordersToProcess.filter((o: any) => 
+          !o.shop_order_id || !blacklistedShopIds.has(o.shop_order_id)
+        )
+        if (blacklistedShopIds.size > 0) {
+          console.log(`[CRON] ⚠️ Skipping ${blacklistedShopIds.size} blacklisted shop order(s)`)
+        }
+      }
+
+      // Check orders for blacklisted queue
+      if (bulkOrderIds.length > 0) {
+        const { data: blacklistedBulkOrders } = await supabase
+          .from("orders")
+          .select("id")
+          .in("id", bulkOrderIds)
+          .eq("queue", "blacklisted")
+        
+        const blacklistedBulkIds = new Set((blacklistedBulkOrders || []).map((o: any) => o.id))
+        ordersToProcess = ordersToProcess.filter((o: any) => 
+          !o.order_id || !blacklistedBulkIds.has(o.order_id)
+        )
+        if (blacklistedBulkIds.size > 0) {
+          console.log(`[CRON] ⚠️ Skipping ${blacklistedBulkIds.size} blacklisted bulk order(s)`)
+        }
+      }
+    }
+
+    if (!ordersToProcess || ordersToProcess.length === 0) {
+      console.log("[CRON] No pending/processing orders to sync (all blacklisted or none available)")
       return NextResponse.json({ 
         success: true, 
         message: "No orders to sync",
@@ -213,7 +259,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    console.log(`[CRON] Found ${pendingOrders.length} local orders to sync against ${sykesResult.orders.length} Sykes orders`)
+    console.log(`[CRON] Found ${ordersToProcess.length} orders to sync (${pendingOrders?.length || 0} total, ${(pendingOrders?.length || 0) - ordersToProcess.length} blacklisted) against ${sykesResult.orders.length} Sykes orders`)
 
     let synced = 0
     let failed = 0
@@ -221,7 +267,7 @@ export async function GET(request: NextRequest) {
     const results: Array<{ id: string; mtn_order_id: number; oldStatus: string; newStatus: string | null; error?: string }> = []
 
     // Step 3: Process each pending order by looking up in the Sykes map
-    for (const order of pendingOrders) {
+    for (const order of ordersToProcess) {
       try {
         // Look up this order in the Sykes order map
         const mtnOrderIdStr = String(order.mtn_order_id)
