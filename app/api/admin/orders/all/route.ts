@@ -74,6 +74,21 @@ export async function GET(request: NextRequest) {
       throw new Error(`Failed to fetch shop orders: ${shopError.message}`)
     }
 
+    // Get shop owner emails from auth.users table
+    const userIds = [...new Set((shopOrdersData || []).map((o: any) => o.user_shops?.user_id).filter(Boolean))]
+    let userEmails: { [key: string]: string } = {}
+    
+    if (userIds.length > 0) {
+      const { data: authUsers } = await supabase.auth.admin.listUsers()
+      if (authUsers?.users) {
+        userEmails = Object.fromEntries(
+          authUsers.users
+            .filter(u => userIds.includes(u.id))
+            .map(u => [u.id, u.email || "-"])
+        )
+      }
+    }
+
     console.log(`Found ${shopOrdersData?.length || 0} shop orders`)
 
     // Fetch wallet payments to get Paystack references with pagination
@@ -118,7 +133,7 @@ export async function GET(request: NextRequest) {
       type: "shop",
       phone_number: order.customer_phone || "-",
       customer_email: order.customer_email || "-",
-      shop_owner_email: "-", // profiles table doesn't exist, using fallback
+      shop_owner_email: userEmails[order.user_shops?.user_id] || "-",
       store_name: order.user_shops?.shop_name || "-",
       network: normalizeNetwork(order.network),
       volume_gb: order.volume_gb,
