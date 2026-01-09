@@ -316,6 +316,18 @@ export async function POST(request: NextRequest) {
               return
             }
 
+            // Secondary check: verify phone number against blacklist
+            try {
+              const isBlacklisted = await isPhoneBlacklisted(phoneNumber)
+              if (isBlacklisted) {
+                console.log(`[FULFILLMENT] ⚠️ Phone ${phoneNumber} is blacklisted - skipping MTN fulfillment`)
+                return
+              }
+            } catch (blacklistError) {
+              console.warn("[FULFILLMENT] Error checking blacklist:", blacklistError)
+              // Continue if blacklist check fails
+            }
+
             const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
             const normalizedPhone = normalizePhoneNumber(phoneNumber)
             console.log(`[FULFILLMENT] Calling MTN API for order ${order[0].id}: ${normalizedPhone}, ${sizeGb}GB`)

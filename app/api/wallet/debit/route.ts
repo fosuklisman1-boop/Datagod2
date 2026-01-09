@@ -286,6 +286,19 @@ export async function POST(request: NextRequest) {
                     return
                   }
 
+                  // Secondary check: verify phone number against blacklist
+                  try {
+                    const { isPhoneBlacklisted } = await import("@/lib/blacklist")
+                    const isBlacklisted = await isPhoneBlacklisted(shopOrder.customer_phone)
+                    if (isBlacklisted) {
+                      console.log(`[WALLET-DEBIT] ⚠️ Phone ${shopOrder.customer_phone} is blacklisted - skipping MTN fulfillment`)
+                      return
+                    }
+                  } catch (blacklistError) {
+                    console.warn("[WALLET-DEBIT] Error checking blacklist:", blacklistError)
+                    // Continue if blacklist check fails
+                  }
+
                   console.log(`[WALLET-DEBIT] Calling MTN API for order ${orderId}: ${normalizedPhone}, ${sizeGb}GB`)
                   const mtnRequest = {
                     recipient_phone: normalizedPhone,

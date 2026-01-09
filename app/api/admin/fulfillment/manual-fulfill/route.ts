@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { createMTNOrder, saveMTNTracking, MTNOrderRequest } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -69,6 +70,21 @@ export async function POST(request: NextRequest) {
         { error: "Order is blacklisted - fulfillment not allowed" },
         { status: 403 }
       )
+    }
+
+    // Secondary check: verify phone number against blacklist
+    try {
+      const isBlacklisted = await isPhoneBlacklisted(orderData.customer_phone)
+      if (isBlacklisted) {
+        console.log(`[MANUAL-FULFILL] ⚠️ Phone ${orderData.customer_phone} is blacklisted - rejecting fulfillment`)
+        return NextResponse.json(
+          { error: "Phone number is blacklisted - fulfillment not allowed" },
+          { status: 403 }
+        )
+      }
+    } catch (blacklistError) {
+      console.warn("[MANUAL-FULFILL] Error checking blacklist:", blacklistError)
+      // Continue if blacklist check fails
     }
 
     // Create MTN order
