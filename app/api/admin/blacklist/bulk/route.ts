@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
       .insert(records)
       .select()
 
+    const importedCount = Array.isArray(data) ? data.length : 0
+
     if (error) {
       console.error("[BLACKLIST-BULK] Error bulk importing:", error)
       // Don't fail completely if some duplicates exist
@@ -48,7 +50,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: true,
           message: "Bulk import completed (some numbers may already exist)",
-          imported: (data as any[])?.length || 0,
+          imported: importedCount,
           total_requested: phones.length,
         })
       }
@@ -60,8 +62,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Successfully imported ${(data as any[])?.length || 0} phone numbers`,
-      imported: (data as any[])?.length || 0,
+      message: `Successfully imported ${importedCount} phone numbers`,
+      imported: importedCount,
       total_requested: phones.length,
     })
   } catch (error) {
