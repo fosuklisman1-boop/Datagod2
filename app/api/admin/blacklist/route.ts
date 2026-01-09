@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -165,6 +166,21 @@ export async function DELETE(request: NextRequest) {
       console.error("[BLACKLIST] Error updating shop_orders:", shopOrdersError)
     } else if (shopOrdersUpdated && shopOrdersUpdated.length > 0) {
       console.log(`[BLACKLIST] ✓ Updated ${shopOrdersUpdated.length} shop_orders back to pending for phone: ${phone}`)
+      
+      // Send SMS notification to customers about their orders being cleared
+      for (const order of shopOrdersUpdated) {
+        try {
+          const notificationSMS = `DATAGOD: Great news! Your ${order.network} ${order.volume_gb}GB order to ${order.customer_phone} has been cleared for fulfillment. Your data will be delivered shortly.`
+          await sendSMS({
+            phone: order.customer_phone,
+            message: notificationSMS,
+            type: 'order_cleared',
+            reference: order.id,
+          }).catch(err => console.error("[BLACKLIST] SMS error for order", order.id, ":", err))
+        } catch (smsError) {
+          console.warn("[BLACKLIST] Failed to send cleared notification for order", order.id, ":", smsError)
+        }
+      }
     }
 
     // Update orders (wallet): reset blacklisted orders back to pending if they haven't been processed
@@ -183,6 +199,21 @@ export async function DELETE(request: NextRequest) {
       console.error("[BLACKLIST] Error updating orders:", ordersError)
     } else if (ordersUpdated && ordersUpdated.length > 0) {
       console.log(`[BLACKLIST] ✓ Updated ${ordersUpdated.length} orders back to pending for phone: ${phone}`)
+      
+      // Send SMS notification to customers about their orders being cleared
+      for (const order of ordersUpdated) {
+        try {
+          const notificationSMS = `DATAGOD: Great news! Your order to ${order.phone_number} has been cleared for fulfillment. Your data will be delivered shortly.`
+          await sendSMS({
+            phone: order.phone_number,
+            message: notificationSMS,
+            type: 'order_cleared',
+            reference: order.id,
+          }).catch(err => console.error("[BLACKLIST] SMS error for order", order.id, ":", err))
+        } catch (smsError) {
+          console.warn("[BLACKLIST] Failed to send cleared notification for order", order.id, ":", smsError)
+        }
+      }
     }
 
     return NextResponse.json({
