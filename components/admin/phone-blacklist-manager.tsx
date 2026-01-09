@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AlertCircle, Trash2, Upload, Plus } from "lucide-react"
 import { toast } from "sonner"
+import { supabase } from "@/lib/supabase"
 
 interface BlacklistedNumber {
   id: string
@@ -23,11 +24,33 @@ export default function PhoneBlacklistManager() {
   const [newReason, setNewReason] = useState("")
   const [searching, setSearching] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [authToken, setAuthToken] = useState<string | null>(null)
+
+  // Get auth token on mount
+  useEffect(() => {
+    const getAuthToken = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        setAuthToken(session.access_token)
+      }
+    }
+    getAuthToken()
+  }, [])
+
+  const getHeaders = () => {
+    const headers: any = { "Content-Type": "application/json" }
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`
+    }
+    return headers
+  }
 
   const loadBlacklist = async (query = "") => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/admin/blacklist?search=${encodeURIComponent(query)}`)
+      const response = await fetch(`/api/admin/blacklist?search=${encodeURIComponent(query)}`, {
+        headers: getHeaders(),
+      })
       const data = await response.json()
       setBlacklist(data.data || [])
     } catch (error) {
@@ -47,7 +70,7 @@ export default function PhoneBlacklistManager() {
     try {
       const response = await fetch("/api/admin/blacklist", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders(),
         body: JSON.stringify({
           phone_number: newPhone.trim(),
           reason: newReason || null,
@@ -74,6 +97,7 @@ export default function PhoneBlacklistManager() {
     try {
       const response = await fetch(`/api/admin/blacklist?phone=${encodeURIComponent(phone)}`, {
         method: "DELETE",
+        headers: getHeaders(),
       })
 
       const data = await response.json()
@@ -94,7 +118,7 @@ export default function PhoneBlacklistManager() {
     try {
       const response = await fetch("/api/admin/blacklist/bulk", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders(),
         body: JSON.stringify({
           phones: phones.filter(p => p.trim()),
           reason: "Bulk import",
