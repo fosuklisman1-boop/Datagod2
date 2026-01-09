@@ -17,6 +17,7 @@ interface AllOrder {
   type: string
   phone_number: string
   customer_email?: string
+  shop_owner_email?: string
   store_name?: string
   network: string
   volume_gb: number
@@ -229,9 +230,10 @@ export default function OrderPaymentStatusPage() {
                     <tr>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Type</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Store</th>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Shop Owner Email</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Reference</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Email</th>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Customer Email</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Volume</th>
                       <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
@@ -251,6 +253,9 @@ export default function OrderPaymentStatusPage() {
                         </td>
                         <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
                           {order.type === "shop" ? (order.store_name || "-") : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.shop_owner_email || "-"}>
+                          {order.type === "shop" ? (order.shop_owner_email || "-") : "-"}
                         </td>
                         <td className="px-4 py-3 font-mono text-xs max-w-xs truncate" title={order.payment_reference}>
                           {order.payment_reference}

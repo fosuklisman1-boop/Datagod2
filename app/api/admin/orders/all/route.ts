@@ -62,7 +62,11 @@ export async function GET(request: NextRequest) {
         transaction_id,
         shop_id,
         user_shops:shop_id (
-          shop_name
+          shop_name,
+          user_id,
+          profiles:user_id (
+            email
+          )
         )
       `)
       .order("created_at", { ascending: false })
@@ -117,6 +121,7 @@ export async function GET(request: NextRequest) {
       type: "shop",
       phone_number: order.customer_phone || "-",
       customer_email: order.customer_email || "-",
+      shop_owner_email: order.user_shops?.profiles?.email || "-",
       store_name: order.user_shops?.shop_name || "-",
       network: normalizeNetwork(order.network),
       volume_gb: order.volume_gb,
