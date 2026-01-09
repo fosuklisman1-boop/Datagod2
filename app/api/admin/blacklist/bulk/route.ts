@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: true,
           message: "Bulk import completed (some numbers may already exist)",
-          imported: data?.length || 0,
+          imported: (data as any[])?.length || 0,
           total_requested: phones.length,
         })
       }
@@ -60,8 +60,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Successfully imported ${data?.length || 0} phone numbers`,
-      imported: data?.length || 0,
+      message: `Successfully imported ${(data as any[])?.length || 0} phone numbers`,
+      imported: (data as any[])?.length || 0,
       total_requested: phones.length,
     })
   } catch (error) {
