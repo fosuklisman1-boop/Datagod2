@@ -13,7 +13,7 @@ import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIc
 import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { PhoneBlacklistManager } from "@/components/admin/phone-blacklist-manager"
+import PhoneBlacklistManager from "@/components/admin/phone-blacklist-manager"
 
 export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
