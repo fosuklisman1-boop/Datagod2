@@ -20,10 +20,10 @@ export async function POST(request: NextRequest) {
     console.log("  Order ID:", orderId)
 
     // Validate input
-    if (!amount || !email) {
+    if (!userId || !amount || !email) {
       console.warn("[PAYMENT-INIT] Missing required fields")
       return NextResponse.json(
-        { error: "Missing required fields: amount, email" },
+        { error: "Missing required fields: userId, amount, email" },
         { status: 400 }
       )
     }
