@@ -336,6 +336,7 @@ export default function PhoneBlacklistManager() {
                 </div>
               )}
             </div>
+          )}
         </CardContent>
       </Card>
     </div>
