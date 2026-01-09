@@ -82,11 +82,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get current user
-    const { data: { user } } = await supabase.auth.admin.getUserById("")
-    const authHeader = request.headers.get("authorization")
-    const token = authHeader?.split(" ")[1]
-
     const { data, error } = await supabase
       .from("blacklisted_phone_numbers")
       .insert([
