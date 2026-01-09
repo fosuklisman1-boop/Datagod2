@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/admin/blacklist
- * Add single phone number to blacklist
+ * Add phone number(s) to blacklist - supports single or space-separated numbers
  */
 export async function POST(request: NextRequest) {
   try {
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { phone_number, reason } = body
+    let { phone_number, reason } = body
 
     if (!phone_number) {
       return NextResponse.json(
@@ -83,15 +83,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Support space-separated phone numbers
+    const phoneNumbers = phone_number
+      .split(/\s+/) // Split by whitespace
+      .filter((num: string) => num.trim().length > 0) // Remove empty strings
+      .map((num: string) => num.trim())
+
+    if (phoneNumbers.length === 0) {
+      return NextResponse.json(
+        { error: "No valid phone numbers provided" },
+        { status: 400 }
+      )
+    }
+
+    // Create array of objects for bulk insert
+    const recordsToInsert = phoneNumbers.map((num: string) => ({
+      phone_number: num,
+      reason: reason || null,
+      created_by: null, // Will be set by RLS if available
+    }))
+
     const { data, error } = await supabase
       .from("blacklisted_phone_numbers")
-      .insert([
-        {
-          phone_number,
-          reason: reason || null,
-          created_by: null, // Will be set by RLS if available
-        },
-      ])
+      .insert(recordsToInsert)
       .select()
 
     if (error) {
@@ -102,10 +116,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    console.log(`[BLACKLIST] ✓ Added ${phoneNumbers.length} phone number(s) to blacklist`)
+
     return NextResponse.json({
       success: true,
-      message: `Added ${phone_number} to blacklist`,
-      data: data?.[0],
+      message: `Added ${phoneNumbers.length} phone number(s) to blacklist`,
+      data: data || [],
+      addedCount: phoneNumbers.length,
     })
   } catch (error) {
     console.error("[BLACKLIST] Error:", error)
