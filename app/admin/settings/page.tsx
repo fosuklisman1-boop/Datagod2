@@ -13,6 +13,7 @@ import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIc
 import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { PhoneBlacklistManager } from "@/components/admin/phone-blacklist-manager"
 
 export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -893,6 +894,19 @@ export default function AdminSettingsPage() {
                 )}
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Phone Blacklist Management */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-red-600" />
+              Phone Number Blacklist
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PhoneBlacklistManager />
           </CardContent>
         </Card>
 
