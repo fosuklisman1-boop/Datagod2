@@ -3,6 +3,7 @@ import { verifyPayment } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
+import { isPhoneBlacklisted } from "@/lib/blacklist"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -161,6 +162,25 @@ export async function POST(request: NextRequest) {
               } catch (fulfillmentError) {
                 console.error(`[PAYMENT-VERIFY] Error triggering fulfillment for shop order ${shopOrderData.id}:`, fulfillmentError)
                 // Non-blocking: don't fail payment verification if fulfillment fails
+              }
+
+              // Check if phone is blacklisted and send notification SMS
+              try {
+                const isBlacklisted = await isPhoneBlacklisted(orderDetails.customer_phone)
+                if (isBlacklisted) {
+                  console.log(`[PAYMENT-VERIFY] ⚠️ Phone ${orderDetails.customer_phone} is blacklisted - sending blacklist notification`)
+                  const blacklistSMS = `DATAGOD: Your payment has been confirmed for ${orderDetails.network} ${orderDetails.volume_gb}GB to ${orderDetails.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
+                  
+                  await sendSMS({
+                    phone: orderDetails.customer_phone,
+                    message: blacklistSMS,
+                    type: 'order_blacklisted',
+                    reference: shopOrderData.id,
+                  }).catch(err => console.error("[PAYMENT-VERIFY] Blacklist notification SMS error:", err))
+                }
+              } catch (blacklistError) {
+                console.warn("[PAYMENT-VERIFY] Error checking blacklist after payment:", blacklistError)
+                // Continue - don't fail verification if blacklist check fails
               }
             } else {
               console.warn(`[PAYMENT-VERIFY] No customer data found for shop order ${shopOrderData.id}`)

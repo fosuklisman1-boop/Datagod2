@@ -5,6 +5,7 @@ import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
+import { isPhoneBlacklisted } from "@/lib/blacklist"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
   createMTNOrder,
@@ -353,6 +354,27 @@ export async function POST(request: NextRequest) {
               } else {
                 console.log(`[WEBHOOK] MTN auto-fulfillment disabled. Order ${paymentData.order_id} will be processed manually.`)
               }
+            }
+          }
+
+          // Check if phone is blacklisted and send notification SMS
+          if (shopOrderData?.customer_phone) {
+            try {
+              const isBlacklisted = await isPhoneBlacklisted(shopOrderData.customer_phone)
+              if (isBlacklisted) {
+                console.log(`[WEBHOOK] ⚠️ Phone ${shopOrderData.customer_phone} is blacklisted - sending blacklist notification`)
+                const blacklistSMS = `DATAGOD: Your payment has been confirmed for ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
+                
+                await sendSMS({
+                  phone: shopOrderData.customer_phone,
+                  message: blacklistSMS,
+                  type: 'order_blacklisted',
+                  reference: paymentData.order_id,
+                }).catch(err => console.error("[WEBHOOK] Blacklist notification SMS error:", err))
+              }
+            } catch (blacklistError) {
+              console.warn("[WEBHOOK] Error checking blacklist after payment:", blacklistError)
+              // Continue - don't fail webhook if blacklist check fails
             }
           }
 
