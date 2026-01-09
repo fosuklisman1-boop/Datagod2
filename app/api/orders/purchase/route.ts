@@ -415,6 +415,22 @@ export async function POST(request: NextRequest) {
       // Don't fail the purchase if SMS fails
     }
 
+    // Send blacklist notification SMS if order was blacklisted
+    if (orderStatus === "blacklisted") {
+      try {
+        const blacklistSMS = `DATAGOD: Your order for ${network} ${size}GB to ${phoneNumber} has been created. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
+        await sendSMS({
+          phone: phoneNumber,
+          message: blacklistSMS,
+          type: 'order_blacklisted',
+          reference: order[0].id,
+        }).catch(err => console.error("[SMS] Blacklist SMS error:", err))
+        console.log("[PURCHASE] ✓ Blacklist notification SMS sent to", phoneNumber)
+      } catch (smsError) {
+        console.warn("[PURCHASE] Failed to send blacklist notification SMS:", smsError)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: "Purchase successful",

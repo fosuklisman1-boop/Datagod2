@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -212,6 +213,22 @@ export async function POST(request: NextRequest) {
       parent_shop_id: data[0].parent_shop_id,
       parent_profit_amount: data[0].parent_profit_amount
     })
+
+    // Send blacklist notification SMS if order was blacklisted
+    if (orderStatus === "blacklisted") {
+      try {
+        const blacklistSMS = `DATAGOD: Your order for ${network} ${volume_gb}GB to ${customer_phone} has been created. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
+        await sendSMS({
+          phone: customer_phone,
+          message: blacklistSMS,
+          type: 'order_blacklisted',
+          reference: data[0].id,
+        }).catch(err => console.error("[SHOP-ORDER] Blacklist SMS error:", err))
+        console.log("[SHOP-ORDER] ✓ Blacklist notification SMS sent to", customer_phone)
+      } catch (smsError) {
+        console.warn("[SHOP-ORDER] Failed to send blacklist notification SMS:", smsError)
+      }
+    }
 
     return NextResponse.json({
       success: true,
