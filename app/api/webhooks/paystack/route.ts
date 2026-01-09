@@ -209,40 +209,45 @@ export async function POST(request: NextRequest) {
             
             // Send SMS to customer about payment confirmation
             if (shopOrderData?.customer_phone) {
-              try {
-                // Get shop name from shop_orders table
-                const { data: shopDetailsData, error: shopDetailsError } = await supabase
-                  .from("user_shops")
-                  .select("shop_name, user_id")
-                  .eq("id", paymentData.shop_id)
-                  .single()
-                
-                let shopName = shopDetailsData?.shop_name || "Shop"
-                let shopOwnerPhone = "Support"
-                
-                // If shop found, fetch owner's phone number from users table
-                if (shopDetailsData?.user_id) {
-                  const { data: ownerData, error: ownerError } = await supabase
-                    .from("users")
-                    .select("phone_number")
-                    .eq("id", shopDetailsData.user_id)
+              // Don't send payment confirmation SMS if order is blacklisted
+              if (shopOrderData?.queue === "blacklisted") {
+                console.log(`[WEBHOOK] ⚠️ Order ${paymentData.order_id} is blacklisted - skipping payment confirmation SMS`)
+              } else {
+                try {
+                  // Get shop name from shop_orders table
+                  const { data: shopDetailsData, error: shopDetailsError } = await supabase
+                    .from("user_shops")
+                    .select("shop_name, user_id")
+                    .eq("id", paymentData.shop_id)
                     .single()
                   
-                  if (ownerData?.phone_number) {
-                    shopOwnerPhone = ownerData.phone_number
+                  let shopName = shopDetailsData?.shop_name || "Shop"
+                  let shopOwnerPhone = "Support"
+                  
+                  // If shop found, fetch owner's phone number from users table
+                  if (shopDetailsData?.user_id) {
+                    const { data: ownerData, error: ownerError } = await supabase
+                      .from("users")
+                      .select("phone_number")
+                      .eq("id", shopDetailsData.user_id)
+                      .single()
+                    
+                    if (ownerData?.phone_number) {
+                      shopOwnerPhone = ownerData.phone_number
+                    }
                   }
+                  
+                  const smsMessage = `${shopName}: You have successfully placed an order of ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
+                  
+                  await sendSMS({
+                    phone: shopOrderData.customer_phone,
+                    message: smsMessage,
+                    type: 'order_payment_confirmed',
+                    reference: paymentData.order_id,
+                  }).catch(err => console.error("[WEBHOOK] SMS error:", err))
+                } catch (smsError) {
+                  console.warn("[WEBHOOK] SMS notification failed:", smsError)
                 }
-                
-                const smsMessage = `${shopName}: You have successfully placed an order of ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
-                
-                await sendSMS({
-                  phone: shopOrderData.customer_phone,
-                  message: smsMessage,
-                  type: 'order_payment_confirmed',
-                  reference: paymentData.order_id,
-                }).catch(err => console.error("[WEBHOOK] SMS error:", err))
-              } catch (smsError) {
-                console.warn("[WEBHOOK] SMS notification failed:", smsError)
               }
             }
 

@@ -213,19 +213,24 @@ export async function POST(request: NextRequest) {
           
           // Send SMS notification about successful purchase
           if (shopOrder.customer_phone) {
-            try {
-              const smsMessage = `You have successfully placed an order of ${shopOrder.network} ${shopOrder.volume_gb}GB to ${shopOrder.customer_phone}. If delayed over 2 hours, contact support.`
-              
-              await sendSMS({
-                phone: shopOrder.customer_phone,
-                message: smsMessage,
-                type: 'data_purchase_success',
-                reference: orderId,
-              }).catch(err => console.error("[WALLET-DEBIT] SMS error:", err))
-              
-              console.log("[WALLET-DEBIT] ✓ SMS notification sent")
-            } catch (smsError) {
-              console.warn("[WALLET-DEBIT] Failed to send purchase SMS:", smsError)
+            // Don't send purchase SMS if order is blacklisted
+            if (shopOrder.queue === "blacklisted") {
+              console.log(`[WALLET-DEBIT] ⚠️ Order ${orderId} is blacklisted - skipping purchase SMS`)
+            } else {
+              try {
+                const smsMessage = `You have successfully placed an order of ${shopOrder.network} ${shopOrder.volume_gb}GB to ${shopOrder.customer_phone}. If delayed over 2 hours, contact support.`
+                
+                await sendSMS({
+                  phone: shopOrder.customer_phone,
+                  message: smsMessage,
+                  type: 'data_purchase_success',
+                  reference: orderId,
+                }).catch(err => console.error("[WALLET-DEBIT] SMS error:", err))
+                
+                console.log("[WALLET-DEBIT] ✓ SMS notification sent")
+              } catch (smsError) {
+                console.warn("[WALLET-DEBIT] Failed to send purchase SMS:", smsError)
+              }
             }
           }
 
