@@ -7,10 +7,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, Loader2, Search, Edit } from "lucide-react"
+import { AlertCircle, Loader2, Search, Edit, Zap } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { Button } from "@/components/ui/button"
 
 interface AllOrder {
   id: string
@@ -46,12 +47,15 @@ export default function OrderPaymentStatusPage() {
   const [allOrders, setAllOrders] = useState<AllOrder[]>([])
   const [loadingAllOrders, setLoadingAllOrders] = useState(false)
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
+  const [fulfillingOrderId, setFulfillingOrderId] = useState<string | null>(null)
+  const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(false)
   
   const [searchQuery, setSearchQuery] = useState("")
   const [searchType, setSearchType] = useState<"all" | "reference" | "phone">("all")
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
+      loadAutoFulfillmentSetting()
       loadAllOrders()
     }
   }, [isAdmin, adminLoading])
@@ -61,6 +65,18 @@ export default function OrderPaymentStatusPage() {
       loadAllOrders()
     }
   }, [searchQuery, searchType, isAdmin])
+
+  const loadAutoFulfillmentSetting = async () => {
+    try {
+      const response = await fetch("/api/admin/settings/mtn-auto-fulfillment")
+      if (response.ok) {
+        const data = await response.json()
+        setAutoFulfillmentEnabled(data.setting?.value === "true" || data.setting?.value === true)
+      }
+    } catch (error) {
+      console.error("Error loading auto-fulfillment setting:", error)
+    }
+  }
 
   const loadAllOrders = async () => {
     try {
@@ -133,6 +149,52 @@ export default function OrderPaymentStatusPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update status")
     } finally {
       setUpdatingOrderId(null)
+    }
+  }
+
+  const handleManualFulfill = async (orderId: string) => {
+    if (!autoFulfillmentEnabled) {
+      toast.error("Auto-fulfillment is not enabled")
+      return
+    }
+
+    try {
+      setFulfillingOrderId(orderId)
+      
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          shop_order_id: orderId,
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to trigger fulfillment")
+      }
+
+      const result = await response.json()
+      toast.success("Fulfillment triggered successfully")
+      
+      // Update local state - change status to processing
+      setAllOrders(prev => prev.map(order => 
+        order.id === orderId ? { ...order, status: "processing" } : order
+      ))
+    } catch (error) {
+      console.error("Error triggering fulfillment:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to trigger fulfillment")
+    } finally {
+      setFulfillingOrderId(null)
     }
   }
 
@@ -306,19 +368,42 @@ export default function OrderPaymentStatusPage() {
                           <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <select
-                            className="px-2 py-1 text-xs border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                            onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
-                            disabled={updatingOrderId === order.id}
-                            defaultValue=""
-                            aria-label="Update order status"
-                          >
-                            <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
-                            <option value="pending">Pending</option>
-                            <option value="processing">Processing</option>
-                            <option value="completed">Completed</option>
-                            <option value="failed">Failed</option>
-                          </select>
+                          <div className="flex flex-col gap-2">
+                            <select
+                              className="px-2 py-1 text-xs border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                              onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
+                              disabled={updatingOrderId === order.id}
+                              defaultValue=""
+                              aria-label="Update order status"
+                            >
+                              <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
+                              <option value="pending">Pending</option>
+                              <option value="processing">Processing</option>
+                              <option value="completed">Completed</option>
+                              <option value="failed">Failed</option>
+                            </select>
+                            {autoFulfillmentEnabled && order.status === "pending" && order.type === "shop" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-7 gap-1"
+                                onClick={() => handleManualFulfill(order.id)}
+                                disabled={fulfillingOrderId === order.id}
+                              >
+                                {fulfillingOrderId === order.id ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    Fulfilling...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Zap className="w-3 h-3" />
+                                    Fulfill
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
