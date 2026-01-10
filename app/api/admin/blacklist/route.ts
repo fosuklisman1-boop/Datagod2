@@ -184,9 +184,15 @@ export async function DELETE(request: NextRequest) {
     } else if (shopOrdersUpdated && shopOrdersUpdated.length > 0) {
       console.log(`[BLACKLIST] ✓ Updated ${shopOrdersUpdated.length} shop_orders back to pending for phone: ${phone}`)
       
-      // Trigger fulfillment for updated orders
+      // Trigger fulfillment only for orders with completed payment
       for (const order of shopOrdersUpdated) {
         try {
+          // Only trigger fulfillment if payment was completed
+          if (order.payment_status !== "completed") {
+            console.log(`[BLACKLIST] ⏭️ Order ${order.id} skipped - payment not completed (status: ${order.payment_status})`)
+            continue
+          }
+
           // Trigger fulfillment endpoint
           const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
             ? `https://${process.env.VERCEL_URL}` 
@@ -245,9 +251,15 @@ export async function DELETE(request: NextRequest) {
     } else if (ordersUpdated && ordersUpdated.length > 0) {
       console.log(`[BLACKLIST] ✓ Updated ${ordersUpdated.length} orders back to pending for phone: ${phone}`)
       
-      // Trigger fulfillment for updated orders
+      // Trigger fulfillment only for orders with completed payment
       for (const order of ordersUpdated) {
         try {
+          // Only trigger fulfillment if payment was completed
+          if (order.payment_status !== "completed") {
+            console.log(`[BLACKLIST] ⏭️ Wallet order ${order.id} skipped - payment not completed (status: ${order.payment_status})`)
+            continue
+          }
+
           // Trigger fulfillment endpoint for wallet orders (data packages)
           const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
             ? `https://${process.env.VERCEL_URL}` 
