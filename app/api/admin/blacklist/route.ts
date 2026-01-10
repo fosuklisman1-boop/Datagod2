@@ -184,6 +184,34 @@ export async function DELETE(request: NextRequest) {
     } else if (shopOrdersUpdated && shopOrdersUpdated.length > 0) {
       console.log(`[BLACKLIST] ✓ Updated ${shopOrdersUpdated.length} shop_orders back to pending for phone: ${phone}`)
       
+      // Trigger fulfillment for updated orders
+      for (const order of shopOrdersUpdated) {
+        try {
+          // Trigger fulfillment endpoint
+          const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
+            ? `https://${process.env.VERCEL_URL}` 
+            : "http://localhost:3000"
+          
+          await fetch(`${baseUrl}/api/fulfillment/process-order`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              shop_order_id: order.id,
+              network: order.network,
+              phone_number: order.customer_phone,
+              volume_gb: order.volume_gb,
+              customer_name: order.customer_name || "Customer",
+            }),
+          }).catch(err => console.warn("[BLACKLIST] Fulfillment trigger failed for order", order.id, ":", err))
+          
+          console.log(`[BLACKLIST] ✓ Triggered fulfillment for shop order: ${order.id}`)
+        } catch (fulfillmentError) {
+          console.warn("[BLACKLIST] Failed to trigger fulfillment for order", order.id, ":", fulfillmentError)
+        }
+      }
+      
       // Send SMS notification to customers about their orders being cleared
       for (const order of shopOrdersUpdated) {
         try {
@@ -216,6 +244,33 @@ export async function DELETE(request: NextRequest) {
       console.error("[BLACKLIST] Error updating orders:", ordersError)
     } else if (ordersUpdated && ordersUpdated.length > 0) {
       console.log(`[BLACKLIST] ✓ Updated ${ordersUpdated.length} orders back to pending for phone: ${phone}`)
+      
+      // Trigger fulfillment for updated orders
+      for (const order of ordersUpdated) {
+        try {
+          // Trigger fulfillment endpoint for wallet orders (data packages)
+          const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
+            ? `https://${process.env.VERCEL_URL}` 
+            : "http://localhost:3000"
+          
+          await fetch(`${baseUrl}/api/fulfillment/process-order`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              order_id: order.id,
+              network: order.network,
+              phone_number: order.phone_number,
+              size: order.size,
+            }),
+          }).catch(err => console.warn("[BLACKLIST] Fulfillment trigger failed for wallet order", order.id, ":", err))
+          
+          console.log(`[BLACKLIST] ✓ Triggered fulfillment for wallet order: ${order.id}`)
+        } catch (fulfillmentError) {
+          console.warn("[BLACKLIST] Failed to trigger fulfillment for wallet order", order.id, ":", fulfillmentError)
+        }
+      }
       
       // Send SMS notification to customers about their orders being cleared
       for (const order of ordersUpdated) {
