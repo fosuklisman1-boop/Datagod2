@@ -55,6 +55,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check fulfillment logs to see if already attempted
+    const { data: existingLogs, error: logsError } = await supabase
+      .from("fulfillment_logs")
+      .select("id, status, external_order_id")
+      .eq("order_id", shop_order_id)
+      .eq("order_type", "shop")
+      .order("created_at", { ascending: false })
+      .limit(1)
+
+    if (existingLogs && existingLogs.length > 0) {
+      const lastLog = existingLogs[0]
+      if (lastLog.status === "pending" || lastLog.status === "completed") {
+        console.log(`[MANUAL-FULFILL] Order ${shop_order_id} already has fulfillment log with status: ${lastLog.status}`)
+        return NextResponse.json(
+          { error: `Order already has a ${lastLog.status} fulfillment (ID: ${lastLog.external_order_id})` },
+          { status: 400 }
+        )
+      }
+    }
+
     // Check if MTN order
     if (orderData.network?.toUpperCase() !== "MTN") {
       return NextResponse.json(
