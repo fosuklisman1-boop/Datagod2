@@ -400,7 +400,7 @@ export default function OrderPaymentStatusPage() {
                               <option value="completed">Completed</option>
                               <option value="failed">Failed</option>
                             </select>
-                            {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && (
+                            {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && order.type === "shop" && (
                               <Button
                                 size="sm"
                                 variant="outline"
