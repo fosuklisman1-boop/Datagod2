@@ -159,8 +159,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Deduct from wallet
-    const newBalance = wallet.balance - price
+    // Deduct from wallet (prevent negative balance)
+    const newBalance = Math.max(0, wallet.balance - price)
 
     const { error: updateWalletError } = await supabaseAdmin
       .from("wallets")
