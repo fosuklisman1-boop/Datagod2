@@ -9,17 +9,20 @@ const supabase = createClient(
 // GET settings
 export async function GET(request: NextRequest) {
   try {
+    console.log("[ADMIN-SETTINGS-GET] Fetching app settings...")
     const { data: settings, error } = await supabase
       .from("app_settings")
       .select("*")
       .single()
 
     if (error && error.code !== "PGRST116") {
+      console.error("[ADMIN-SETTINGS-GET] Query error:", error)
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
     // If no settings exist, create default row
     if (!settings) {
+      console.log("[ADMIN-SETTINGS-GET] No settings found, creating defaults...")
       const { data: newSettings, error: insertError } = await supabase
         .from("app_settings")
         .insert([{
@@ -39,11 +42,14 @@ export async function GET(request: NextRequest) {
         .single()
 
       if (insertError) {
-        console.error("Error creating app_settings:", insertError)
+        console.error("[ADMIN-SETTINGS-GET] Error creating app_settings:", insertError)
         // Return default if creation fails
         return NextResponse.json({
           id: null,
           join_community_link: "",
+          announcement_enabled: false,
+          announcement_title: "",
+          announcement_message: "",
           paystack_fee_percentage: 3.0,
           wallet_topup_fee_percentage: 0,
           withdrawal_fee_percentage: 0,
@@ -52,11 +58,18 @@ export async function GET(request: NextRequest) {
         })
       }
 
+      console.log("[ADMIN-SETTINGS-GET] Created new settings:", newSettings)
       return NextResponse.json(newSettings)
     }
 
+    console.log("[ADMIN-SETTINGS-GET] Returning settings:", {
+      announcement_enabled: settings.announcement_enabled,
+      announcement_title: settings.announcement_title,
+      announcement_message: settings.announcement_message,
+    })
     return NextResponse.json(settings)
   } catch (error) {
+    console.error("[ADMIN-SETTINGS-GET] Unexpected error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 500 }
