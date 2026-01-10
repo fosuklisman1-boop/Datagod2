@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     if (order_type === "bulk") {
       const response = await supabase
         .from(tableName)
-        .select("id, network, size, phone_number, customer_name, status, queue")
+        .select("id, network, size, phone_number, status, queue")
         .eq("id", shop_order_id.trim())
         .single()
       orderData = response.data
@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
         orderData.volume_gb = orderData.size
         orderData.order_status = orderData.status
         orderData.customer_phone = orderData.phone_number
+        orderData.customer_name = "Bulk Order"
       }
     } else {
       const response = await supabase
