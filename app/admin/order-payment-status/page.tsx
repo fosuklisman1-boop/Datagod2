@@ -71,10 +71,16 @@ export default function OrderPaymentStatusPage() {
       const response = await fetch("/api/admin/settings/mtn-auto-fulfillment")
       if (response.ok) {
         const data = await response.json()
-        setAutoFulfillmentEnabled(data.setting?.value === "true" || data.setting?.value === true)
+        console.log("[PAYMENT-STATUS] Auto-fulfillment setting response:", data)
+        // The endpoint returns 'enabled' field, not 'setting'
+        const isEnabled = data.enabled === true || data.enabled === "true"
+        console.log("[PAYMENT-STATUS] Setting autoFulfillmentEnabled to:", isEnabled)
+        setAutoFulfillmentEnabled(isEnabled)
+      } else {
+        console.error("[PAYMENT-STATUS] Failed to load auto-fulfillment setting:", response.status)
       }
     } catch (error) {
-      console.error("Error loading auto-fulfillment setting:", error)
+      console.error("[PAYMENT-STATUS] Error loading auto-fulfillment setting:", error)
     }
   }
 
@@ -389,6 +395,7 @@ export default function OrderPaymentStatusPage() {
                                 className="text-xs h-7 gap-1"
                                 onClick={() => handleManualFulfill(order.id)}
                                 disabled={fulfillingOrderId === order.id}
+                                title={`Auto-fulfillment enabled: ${autoFulfillmentEnabled}, Status: ${order.status}, Type: ${order.type}`}
                               >
                                 {fulfillingOrderId === order.id ? (
                                   <>
@@ -403,6 +410,7 @@ export default function OrderPaymentStatusPage() {
                                 )}
                               </Button>
                             )}
+                            {!autoFulfillmentEnabled && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
                           </div>
                         </td>
                       </tr>
