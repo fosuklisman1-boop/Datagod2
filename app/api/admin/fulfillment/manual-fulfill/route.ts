@@ -24,26 +24,30 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { shop_order_id, order_type = "shop" } = body
 
-    if (!shop_order_id) {
+    console.log(`[MANUAL-FULFILL] Received body:`, JSON.stringify(body, null, 2))
+    console.log(`[MANUAL-FULFILL] Extracted shop_order_id: "${shop_order_id}", order_type: "${order_type}"`)
+
+    if (!shop_order_id || typeof shop_order_id !== "string" || shop_order_id.trim().length === 0) {
+      console.error(`[MANUAL-FULFILL] Invalid shop_order_id: ${shop_order_id}`)
       return NextResponse.json(
-        { error: "shop_order_id is required" },
+        { error: "shop_order_id is required and must be a non-empty string" },
         { status: 400 }
       )
     }
 
-    console.log(`[MANUAL-FULFILL] Admin triggering fulfillment for (${order_type}):`, shop_order_id)
+    console.log(`[MANUAL-FULFILL] Admin triggering fulfillment for (${order_type}):`, shop_order_id.trim())
 
     // Determine which table to query based on order type
     const tableName = order_type === "bulk" ? "orders" : "shop_orders"
     const statusField = order_type === "bulk" ? "status" : "order_status"
 
-    console.log(`[MANUAL-FULFILL] Querying table: ${tableName}, searching for order ID: ${shop_order_id}`)
+    console.log(`[MANUAL-FULFILL] Querying table: ${tableName}, searching for order ID: "${shop_order_id.trim()}"`)
 
     // Fetch order details
     const { data: orderData, error: fetchError } = await supabase
       .from(tableName)
       .select("id, network, volume_gb, phone_number, customer_phone, customer_name, order_status, status, queue")
-      .eq("id", shop_order_id)
+      .eq("id", shop_order_id.trim())
       .single()
 
     console.log(`[MANUAL-FULFILL] Query result - Error: ${fetchError?.message || "none"}, Data found: ${!!orderData}`)
@@ -75,7 +79,7 @@ export async function POST(request: NextRequest) {
     const { data: existingLogs, error: logsError } = await supabase
       .from("fulfillment_logs")
       .select("id, status, external_order_id")
-      .eq("order_id", shop_order_id)
+      .eq("order_id", shop_order_id.trim())
       .eq("order_type", order_type)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -93,8 +97,8 @@ export async function POST(request: NextRequest) {
 
     // Check mtn_fulfillment_tracking to see if already tracked
     const trackingQuery = order_type === "bulk" 
-      ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("order_id", shop_order_id)
-      : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("shop_order_id", shop_order_id)
+      ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("order_id", shop_order_id.trim())
+      : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("shop_order_id", shop_order_id.trim())
     
     const { data: existingTracking, error: trackingError } = await trackingQuery
       .order("created_at", { ascending: false })
