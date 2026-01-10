@@ -415,51 +415,8 @@ export async function POST(request: NextRequest) {
       // Don't fail the purchase if SMS fails
     }
 
-    // Send blacklist notification SMS if order was blacklisted
-    if (orderStatus === "blacklisted") {
-      try {
-        const blacklistSMS = `DATAGOD: Your order for ${network} ${size}GB to ${phoneNumber} has been created. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
-        await sendSMS({
-          phone: phoneNumber,
-          message: blacklistSMS,
-          type: 'order_blacklisted',
-          reference: order[0].id,
-        }).catch(err => console.error("[SMS] Blacklist SMS error:", err))
-        console.log("[PURCHASE] ✓ Blacklist notification SMS sent to", phoneNumber)
-      } catch (smsError) {
-        console.warn("[PURCHASE] Failed to send blacklist notification SMS:", smsError)
-      }
-
-      // Send admin notification
-      try {
-        const { data: userShop } = await supabaseAdmin
-          .from("user_shops")
-          .select("user_id")
-          .eq("user_id", userId)
-          .single()
-
-        if (userShop?.user_id) {
-          const { data: shopOwner } = await supabaseAdmin
-            .from("users")
-            .select("phone_number")
-            .eq("id", userShop.user_id)
-            .single()
-
-          if (shopOwner?.phone_number) {
-            const adminSMS = `[ALERT] DATAGOD: Order ${order[0].id.substring(0, 8)} from blacklisted number ${phoneNumber} attempted to purchase. Order blocked.`
-            await sendSMS({
-              phone: shopOwner.phone_number,
-              message: adminSMS,
-              type: 'admin_alert',
-              reference: order[0].id,
-            }).catch(err => console.error("[SMS] Admin SMS error:", err))
-            console.log("[PURCHASE] ✓ Admin alert SMS sent to", shopOwner.phone_number)
-          }
-        }
-      } catch (adminError) {
-        console.warn("[PURCHASE] Failed to send admin alert SMS:", adminError)
-      }
-    }
+    // NOTE: Blacklist notification SMS and admin alerts are sent AFTER payment verification
+    // See: webhook and payment verify endpoints for SMS delivery
 
     return NextResponse.json({
       success: true,

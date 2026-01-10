@@ -214,53 +214,8 @@ export async function POST(request: NextRequest) {
       parent_profit_amount: data[0].parent_profit_amount
     })
 
-    // Send blacklist notification SMS if order was blacklisted
-    if (orderStatus === "blacklisted") {
-      try {
-        const blacklistSMS = `DATAGOD: Your order for ${network} ${volume_gb}GB to ${customer_phone} has been created. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
-        await sendSMS({
-          phone: customer_phone,
-          message: blacklistSMS,
-          type: 'order_blacklisted',
-          reference: data[0].id,
-        }).catch(err => console.error("[SHOP-ORDER] Blacklist SMS error:", err))
-        console.log("[SHOP-ORDER] ✓ Blacklist notification SMS sent to", customer_phone)
-      } catch (smsError) {
-        console.warn("[SHOP-ORDER] Failed to send blacklist notification SMS:", smsError)
-      }
-
-      // Send admin notification
-      try {
-        // First, get the shop owner user_id
-        const { data: shopData } = await supabase
-          .from("user_shops")
-          .select("user_id")
-          .eq("id", shop_id)
-          .single()
-
-        if (shopData?.user_id) {
-          // Then, get the shop owner's phone number
-          const { data: shopOwner } = await supabase
-            .from("users")
-            .select("phone_number")
-            .eq("id", shopData.user_id)
-            .single()
-
-          if (shopOwner?.phone_number) {
-            const adminSMS = `[ALERT] DATAGOD: Order ${data[0].id.substring(0, 8)} from blacklisted number ${customer_phone} attempted to place a ${network} order. Order blocked.`
-            await sendSMS({
-              phone: shopOwner.phone_number,
-              message: adminSMS,
-              type: 'admin_alert',
-              reference: data[0].id,
-            }).catch(err => console.error("[SHOP-ORDER] Admin SMS error:", err))
-            console.log("[SHOP-ORDER] ✓ Admin alert SMS sent to", shopOwner.phone_number)
-          }
-        }
-      } catch (adminError) {
-        console.warn("[SHOP-ORDER] Failed to send admin alert SMS:", adminError)
-      }
-    }
+    // NOTE: Blacklist notification SMS and admin alerts are sent AFTER payment verification
+    // See: webhook and payment verify endpoints for SMS delivery
 
     return NextResponse.json({
       success: true,
