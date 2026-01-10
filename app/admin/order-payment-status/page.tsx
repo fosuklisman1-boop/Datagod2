@@ -431,6 +431,9 @@ export default function OrderPaymentStatusPage() {
                                 )}
                               </Button>
                             )}
+                            {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
+                              <div className="text-xs text-gray-400">{order.network} (no auto-fulfill)</div>
+                            )}
                             {!autoFulfillmentEnabled && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
                           </div>
                         </td>
