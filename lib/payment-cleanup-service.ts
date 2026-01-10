@@ -120,6 +120,26 @@ export async function cleanupAbandonedPayments(
         // Payment was actually successful! Credit the wallet
         console.log(`[PAYMENT-CLEANUP] Payment ${payment.reference} was successful - crediting wallet`)
         
+        // Check if transaction already exists (prevent double credit)
+        const { data: existingTransaction } = await supabase
+          .from("transactions")
+          .select("id")
+          .eq("reference_id", payment.reference)
+          .eq("user_id", payment.user_id)
+          .eq("type", "credit")
+          .maybeSingle()
+
+        if (existingTransaction) {
+          console.log(`[PAYMENT-CLEANUP] ✓ Reference ${payment.reference} already credited. Skipping duplicate credit.`)
+          // Still mark payment as completed if not already
+          await supabase
+            .from("wallet_payments")
+            .update({ status: "completed", updated_at: new Date().toISOString() })
+            .eq("id", payment.id)
+          verified++
+          continue
+        }
+
         // Get current wallet balance
         const { data: wallet } = await supabase
           .from("wallets")
@@ -276,6 +296,26 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
       checked++
 
       if (paystackStatus.status === "success") {
+        // Check if transaction already exists (prevent double credit)
+        const { data: existingTransaction } = await supabase
+          .from("transactions")
+          .select("id")
+          .eq("reference_id", payment.reference)
+          .eq("user_id", userId)
+          .eq("type", "credit")
+          .maybeSingle()
+
+        if (existingTransaction) {
+          console.log(`[PAYMENT-VERIFY] ✓ Reference ${payment.reference} already credited. Skipping duplicate credit.`)
+          // Still mark payment as completed if not already
+          await supabase
+            .from("wallet_payments")
+            .update({ status: "completed", updated_at: new Date().toISOString() })
+            .eq("id", payment.id)
+          verified++
+          continue
+        }
+
         // Get current wallet
         const { data: wallet } = await supabase
           .from("wallets")
@@ -320,6 +360,7 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
           }])
 
         credited++
+        verified++
         console.log(`[PAYMENT-VERIFY] ✓ Payment ${payment.reference} verified and credited`)
       } else if (paystackStatus.status === "failed") {
         await supabase
