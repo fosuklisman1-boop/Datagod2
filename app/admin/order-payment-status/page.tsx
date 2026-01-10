@@ -68,7 +68,17 @@ export default function OrderPaymentStatusPage() {
 
   const loadAutoFulfillmentSetting = async () => {
     try {
-      const response = await fetch("/api/admin/settings/mtn-auto-fulfillment")
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.error("[PAYMENT-STATUS] No session token available")
+        return
+      }
+
+      const response = await fetch("/api/admin/settings/mtn-auto-fulfillment", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        }
+      })
       if (response.ok) {
         const data = await response.json()
         console.log("[PAYMENT-STATUS] Auto-fulfillment setting response:", data)
@@ -78,6 +88,8 @@ export default function OrderPaymentStatusPage() {
         setAutoFulfillmentEnabled(isEnabled)
       } else {
         console.error("[PAYMENT-STATUS] Failed to load auto-fulfillment setting:", response.status)
+        const errorData = await response.json().catch(() => ({}))
+        console.error("[PAYMENT-STATUS] Error response:", errorData)
       }
     } catch (error) {
       console.error("[PAYMENT-STATUS] Error loading auto-fulfillment setting:", error)
