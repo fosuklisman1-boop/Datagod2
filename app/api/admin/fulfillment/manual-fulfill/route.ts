@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       .from("fulfillment_logs")
       .select("id, status, external_order_id")
       .eq("order_id", shop_order_id)
-      .eq("order_type", "shop")
+      .eq("order_type", order_type)
       .order("created_at", { ascending: false })
       .limit(1)
 
