@@ -178,6 +178,7 @@ export default function OrderPaymentStatusPage() {
 
     try {
       setFulfillingOrderId(orderId)
+      console.log("[PAYMENT-STATUS] Triggering manual fulfillment:", { orderId, orderType })
       
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
@@ -185,24 +186,31 @@ export default function OrderPaymentStatusPage() {
         return
       }
 
+      const payload = {
+        shop_order_id: orderId,
+        order_type: orderType,
+      }
+      console.log("[PAYMENT-STATUS] Sending payload:", payload)
+
       const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          shop_order_id: orderId,
-          order_type: orderType,
-        })
+        body: JSON.stringify(payload)
       })
+
+      console.log("[PAYMENT-STATUS] Response status:", response.status)
 
       if (!response.ok) {
         const errorData = await response.json()
+        console.error("[PAYMENT-STATUS] Error response:", errorData)
         throw new Error(errorData.error || "Failed to trigger fulfillment")
       }
 
       const result = await response.json()
+      console.log("[PAYMENT-STATUS] Fulfillment successful:", result)
       toast.success("Fulfillment triggered successfully")
       
       // Update local state - change status to processing
@@ -210,7 +218,7 @@ export default function OrderPaymentStatusPage() {
         order.id === orderId ? { ...order, status: "processing" } : order
       ))
     } catch (error) {
-      console.error("Error triggering fulfillment:", error)
+      console.error("[PAYMENT-STATUS] Error triggering fulfillment:", error)
       toast.error(error instanceof Error ? error.message : "Failed to trigger fulfillment")
     } finally {
       setFulfillingOrderId(null)

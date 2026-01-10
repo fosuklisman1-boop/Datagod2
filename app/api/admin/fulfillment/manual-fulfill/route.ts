@@ -37,6 +37,8 @@ export async function POST(request: NextRequest) {
     const tableName = order_type === "bulk" ? "orders" : "shop_orders"
     const statusField = order_type === "bulk" ? "status" : "order_status"
 
+    console.log(`[MANUAL-FULFILL] Querying table: ${tableName}, searching for order ID: ${shop_order_id}`)
+
     // Fetch order details
     const { data: orderData, error: fetchError } = await supabase
       .from(tableName)
@@ -44,9 +46,15 @@ export async function POST(request: NextRequest) {
       .eq("id", shop_order_id)
       .single()
 
+    console.log(`[MANUAL-FULFILL] Query result - Error: ${fetchError?.message || "none"}, Data found: ${!!orderData}`)
+    if (orderData) {
+      console.log(`[MANUAL-FULFILL] Order details - Network: ${orderData.network}, Status: ${orderData.order_status || orderData.status}`)
+    }
+
     if (fetchError || !orderData) {
+      console.error(`[MANUAL-FULFILL] Failed to fetch order from ${tableName}:`, fetchError)
       return NextResponse.json(
-        { error: "Order not found" },
+        { error: `Order not found in ${tableName}` },
         { status: 404 }
       )
     }
