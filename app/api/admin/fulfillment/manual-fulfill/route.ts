@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
     // Use parseFloat to preserve decimal values, then round for API
     const volumeGb = parseFloat(orderData.volume_gb?.toString() || "0")
     const mtnRequest: MTNOrderRequest = {
-      recipient_phone: orderData.customer_phone,
+      recipient_phone: phone,
       network: "MTN",
       size_gb: volumeGb, // createMTNOrder will round to integer
     }
@@ -158,21 +158,22 @@ export async function POST(request: NextRequest) {
       console.error("[MANUAL-FULFILL] MTN API failed:", mtnResponse.message)
 
       // Update order status
+      const failureUpdateData = order_type === "bulk" 
+        ? { status: "failed", updated_at: new Date().toISOString() }
+        : { order_status: "failed", updated_at: new Date().toISOString() }
+
       await supabase
-        .from("shop_orders")
-        .update({
-          order_status: "failed",
-          updated_at: new Date().toISOString(),
-        })
+        .from(tableName)
+        .update(failureUpdateData)
         .eq("id", shop_order_id)
 
       // Send error SMS
       try {
         await sendSMS({
-          phone: orderData.customer_phone,
+          phone: phone,
           message: SMSTemplates.fulfillmentFailed(
             shop_order_id.substring(0, 8),
-            orderData.customer_phone,
+            phone,
             orderData.network || "MTN",
             orderData.volume_gb?.toString() || "0",
             mtnResponse.message || "Order could not be processed"
@@ -228,7 +229,7 @@ export async function POST(request: NextRequest) {
     try {
       const sizeGb = parseInt(orderData.volume_gb?.toString() || "0")
       await sendSMS({
-        phone: orderData.customer_phone,
+        phone: phone,
         message: SMSTemplates.orderPaymentConfirmed(
           shop_order_id.substring(0, 8),
           "MTN",
