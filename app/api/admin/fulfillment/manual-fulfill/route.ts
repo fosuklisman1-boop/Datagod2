@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     } else {
       const response = await supabase
         .from(tableName)
-        .select("id, network, volume_gb, phone_number, customer_phone, customer_name, order_status, queue")
+        .select("id, network, volume_gb, customer_phone, customer_name, order_status, queue")
         .eq("id", shop_order_id.trim())
         .single()
       orderData = response.data
