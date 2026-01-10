@@ -75,6 +75,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Check mtn_fulfillment_tracking to see if already tracked
+    const { data: existingTracking, error: trackingError } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id, mtn_order_id, status")
+      .eq("shop_order_id", shop_order_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+
+    if (existingTracking && existingTracking.length > 0) {
+      const lastTracking = existingTracking[0]
+      if (lastTracking.status === "pending" || lastTracking.status === "processing" || lastTracking.status === "completed") {
+        console.log(`[MANUAL-FULFILL] Order ${shop_order_id} already tracked in MTN with status: ${lastTracking.status}`)
+        return NextResponse.json(
+          { error: `Order already tracked with MTN (Order ID: ${lastTracking.mtn_order_id}, Status: ${lastTracking.status})` },
+          { status: 400 }
+        )
+      }
+    }
+
     // Check if MTN order
     if (orderData.network?.toUpperCase() !== "MTN") {
       return NextResponse.json(
