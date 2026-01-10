@@ -178,6 +178,17 @@ export default function OrderPaymentStatusPage() {
 
     try {
       setFulfillingOrderId(orderId)
+      
+      // Find the actual order object to inspect its data
+      const orderObject = allOrders.find(o => o.id === orderId)
+      console.log("[PAYMENT-STATUS] Order object to fulfill:", {
+        id: orderObject?.id,
+        type: orderObject?.type,
+        network: orderObject?.network,
+        status: orderObject?.status,
+        payment_status: orderObject?.payment_status,
+        fullObject: orderObject
+      })
       console.log("[PAYMENT-STATUS] Triggering manual fulfillment:", { orderId, orderType })
       
       const { data: { session } } = await supabase.auth.getSession()
@@ -190,7 +201,7 @@ export default function OrderPaymentStatusPage() {
         shop_order_id: orderId,
         order_type: orderType,
       }
-      console.log("[PAYMENT-STATUS] Sending payload:", payload)
+      console.log("[PAYMENT-STATUS] Sending payload:", JSON.stringify(payload, null, 2))
 
       const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
         method: "POST",
