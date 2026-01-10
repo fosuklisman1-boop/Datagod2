@@ -312,7 +312,6 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
             .from("wallet_payments")
             .update({ status: "completed", updated_at: new Date().toISOString() })
             .eq("id", payment.id)
-          verified++
           continue
         }
 
@@ -360,7 +359,6 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
           }])
 
         credited++
-        verified++
         console.log(`[PAYMENT-VERIFY] ✓ Payment ${payment.reference} verified and credited`)
       } else if (paystackStatus.status === "failed") {
         await supabase
