@@ -43,10 +43,14 @@ export async function POST(request: NextRequest) {
 
     console.log(`[MANUAL-FULFILL] Querying table: ${tableName}, searching for order ID: "${shop_order_id.trim()}"`)
 
-    // Fetch order details
+    // Fetch order details - select different columns based on table type
+    const selectColumns = order_type === "bulk"
+      ? "id, network, size as volume_gb, phone_number, customer_phone, customer_name, order_status, status, queue"
+      : "id, network, volume_gb, phone_number, customer_phone, customer_name, order_status, status, queue"
+
     const { data: orderData, error: fetchError } = await supabase
       .from(tableName)
-      .select("id, network, volume_gb, phone_number, customer_phone, customer_name, order_status, status, queue")
+      .select(selectColumns)
       .eq("id", shop_order_id.trim())
       .single()
 
