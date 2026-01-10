@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { shop_order_id } = body
+    const { shop_order_id, order_type = "shop" } = body
 
     if (!shop_order_id) {
       return NextResponse.json(
@@ -31,12 +31,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log("[MANUAL-FULFILL] Admin triggering fulfillment for:", shop_order_id)
+    console.log(`[MANUAL-FULFILL] Admin triggering fulfillment for (${order_type}):`, shop_order_id)
+
+    // Determine which table to query based on order type
+    const tableName = order_type === "bulk" ? "orders" : "shop_orders"
+    const statusField = order_type === "bulk" ? "status" : "order_status"
 
     // Fetch order details
     const { data: orderData, error: fetchError } = await supabase
-      .from("shop_orders")
-      .select("id, network, volume_gb, customer_phone, customer_name, order_status, queue")
+      .from(tableName)
+      .select("id, network, volume_gb, phone_number, customer_phone, customer_name, order_status, status, queue")
       .eq("id", shop_order_id)
       .single()
 
@@ -47,10 +51,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Get the appropriate status field
+    const currentStatus = order_type === "bulk" ? orderData.status : orderData.order_status
+    const phone = order_type === "bulk" ? orderData.phone_number : orderData.customer_phone
+
     // Check if already fulfilled
-    if (orderData.order_status === "completed" || orderData.order_status === "failed") {
+    if (currentStatus === "completed" || currentStatus === "failed") {
       return NextResponse.json(
-        { error: `Order already ${orderData.order_status}` },
+        { error: `Order already ${currentStatus}` },
         { status: 400 }
       )
     }
@@ -76,10 +84,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Check mtn_fulfillment_tracking to see if already tracked
-    const { data: existingTracking, error: trackingError } = await supabase
-      .from("mtn_fulfillment_tracking")
-      .select("id, mtn_order_id, status")
-      .eq("shop_order_id", shop_order_id)
+    const trackingQuery = order_type === "bulk" 
+      ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("order_id", shop_order_id)
+      : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("shop_order_id", shop_order_id)
+    
+    const { data: existingTracking, error: trackingError } = await trackingQuery
       .order("created_at", { ascending: false })
       .limit(1)
 
@@ -113,9 +122,9 @@ export async function POST(request: NextRequest) {
 
     // Secondary check: verify phone number against blacklist
     try {
-      const isBlacklisted = await isPhoneBlacklisted(orderData.customer_phone)
+      const isBlacklisted = await isPhoneBlacklisted(phone)
       if (isBlacklisted) {
-        console.log(`[MANUAL-FULFILL] ⚠️ Phone ${orderData.customer_phone} is blacklisted - rejecting fulfillment`)
+        console.log(`[MANUAL-FULFILL] ⚠️ Phone ${phone} is blacklisted - rejecting fulfillment`)
         return NextResponse.json(
           { error: "Phone number is blacklisted - fulfillment not allowed" },
           { status: 403 }
@@ -176,28 +185,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Save tracking
-    const trackingId = await saveMTNTracking(shop_order_id, mtnResponse.order_id, mtnRequest, mtnResponse, "shop")
+    // Save tracking (use "bulk" if bulk order, otherwise "shop")
+    const trackingId = await saveMTNTracking(shop_order_id, mtnResponse.order_id, mtnRequest, mtnResponse, order_type as "shop" | "bulk")
 
-    // Update shop_orders
+    // Update order in appropriate table
+    const updateData = order_type === "bulk" 
+      ? { status: "processing", external_order_id: mtnResponse.order_id, updated_at: new Date().toISOString() }
+      : { order_status: "processing", external_order_id: mtnResponse.order_id, updated_at: new Date().toISOString() }
+
     const { error: updateError } = await supabase
-      .from("shop_orders")
-      .update({
-        order_status: "pending",
-        external_order_id: mtnResponse.order_id,
-        updated_at: new Date().toISOString(),
-      })
+      .from(tableName)
+      .update(updateData)
       .eq("id", shop_order_id)
-
     if (updateError) {
-      console.error("[MANUAL-FULFILL] Failed to update shop_orders:", updateError)
+      console.error(`[MANUAL-FULFILL] Failed to update ${tableName}:`, updateError)
     }
 
     // Create fulfillment log
     try {
       await supabase.from("fulfillment_logs").insert({
         order_id: shop_order_id,
-        order_type: "shop",
+        order_type: order_type,
         status: "pending",
         external_api: "MTN",
         external_order_id: mtnResponse.order_id,
