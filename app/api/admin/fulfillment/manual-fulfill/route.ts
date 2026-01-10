@@ -43,16 +43,33 @@ export async function POST(request: NextRequest) {
 
     console.log(`[MANUAL-FULFILL] Querying table: ${tableName}, searching for order ID: "${shop_order_id.trim()}"`)
 
-    // Fetch order details - select different columns based on table type
-    const selectColumns = order_type === "bulk"
-      ? "id, network, size as volume_gb, phone_number, customer_phone, customer_name, order_status, status, queue"
-      : "id, network, volume_gb, phone_number, customer_phone, customer_name, order_status, status, queue"
+    // Fetch order details - different columns for bulk vs shop
+    let orderData: any
+    let fetchError: any
 
-    const { data: orderData, error: fetchError } = await supabase
-      .from(tableName)
-      .select(selectColumns)
-      .eq("id", shop_order_id.trim())
-      .single()
+    if (order_type === "bulk") {
+      const response = await supabase
+        .from(tableName)
+        .select("id, network, size, phone_number, customer_name, status, queue")
+        .eq("id", shop_order_id.trim())
+        .single()
+      orderData = response.data
+      fetchError = response.error
+      // Map bulk fields to common names
+      if (orderData) {
+        orderData.volume_gb = orderData.size
+        orderData.order_status = orderData.status
+        orderData.customer_phone = orderData.phone_number
+      }
+    } else {
+      const response = await supabase
+        .from(tableName)
+        .select("id, network, volume_gb, phone_number, customer_phone, customer_name, order_status, queue")
+        .eq("id", shop_order_id.trim())
+        .single()
+      orderData = response.data
+      fetchError = response.error
+    }
 
     console.log(`[MANUAL-FULFILL] Query result - Error: ${fetchError?.message || "none"}, Data found: ${!!orderData}`)
     if (orderData) {
