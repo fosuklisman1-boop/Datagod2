@@ -400,14 +400,14 @@ export default function OrderPaymentStatusPage() {
                               <option value="completed">Completed</option>
                               <option value="failed">Failed</option>
                             </select>
-                            {autoFulfillmentEnabled && order.status === "pending" && (order.type === "shop" || order.type === "bulk") && (
+                            {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="text-xs h-7 gap-1"
                                 onClick={() => handleManualFulfill(order.id)}
                                 disabled={fulfillingOrderId === order.id}
-                                title={`Auto-fulfillment enabled: ${autoFulfillmentEnabled}, Status: ${order.status}, Type: ${order.type}`}
+                                title={`Auto-fulfillment enabled: ${autoFulfillmentEnabled}, Status: ${order.status}, Payment: ${order.payment_status}, Type: ${order.type}`}
                               >
                                 {fulfillingOrderId === order.id ? (
                                   <>
