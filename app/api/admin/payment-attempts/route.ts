@@ -167,10 +167,26 @@ export async function GET(request: NextRequest) {
       .select("id", { count: "exact", head: true })
       .eq("payment_type", "shop_order")
 
-    // Get sum totals
-    const { data: amountData } = await supabase
-      .from("payment_attempts")
-      .select("amount, status")
+    // Get sum totals - paginate to avoid 1000 row limit
+    let allAmountData: any[] = []
+    let amountOffset = 0
+    const amountLimit = 1000
+    let hasMoreAmounts = true
+    
+    while (hasMoreAmounts) {
+      const { data: batchData } = await supabase
+        .from("payment_attempts")
+        .select("amount, status")
+        .range(amountOffset, amountOffset + amountLimit - 1)
+      
+      if (batchData && batchData.length > 0) {
+        allAmountData = allAmountData.concat(batchData)
+        amountOffset += amountLimit
+        hasMoreAmounts = batchData.length === amountLimit
+      } else {
+        hasMoreAmounts = false
+      }
+    }
 
     stats.pending = pendingCount || 0
     stats.completed = completedCount || 0
@@ -179,7 +195,7 @@ export async function GET(request: NextRequest) {
     stats.walletTopups = walletCount || 0
     stats.shopOrders = shopCount || 0
 
-    amountData?.forEach((a: { amount: number | null; status: string }) => {
+    allAmountData.forEach((a: { amount: number | null; status: string }) => {
       const amount = parseFloat(String(a.amount)) || 0
       stats.totalAmount += amount
       if (a.status === "completed") {
