@@ -656,7 +656,6 @@ export async function POST(request: NextRequest) {
                   if (!parentBalanceInsertError) {
                     console.log(`[WEBHOOK] ✓ Parent shop balance synced: ${shopOrderData.parent_shop_id} - Available: GHS ${parentAvailableBalance.toFixed(2)}`)
                   }
-                }
               } catch (parentSyncError) {
                 console.error("Error syncing parent shop balance:", parentSyncError)
               }
