@@ -4,6 +4,40 @@ import { NextRequest, NextResponse } from "next/server"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+// Helper to fetch all records with pagination
+async function fetchAllRecords(
+  client: any,
+  table: string,
+  columns: string,
+  filterColumn: string,
+  filterValue: string
+) {
+  let allRecords: any[] = []
+  let offset = 0
+  const batchSize = 1000
+  let hasMore = true
+
+  while (hasMore) {
+    const { data, error } = await client
+      .from(table)
+      .select(columns)
+      .eq(filterColumn, filterValue)
+      .range(offset, offset + batchSize - 1)
+
+    if (error) break
+
+    if (data && data.length > 0) {
+      allRecords = allRecords.concat(data)
+      offset += batchSize
+      hasMore = data.length === batchSize
+    } else {
+      hasMore = false
+    }
+  }
+
+  return allRecords
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -44,41 +78,21 @@ export async function GET(
       auth: { autoRefreshToken: false, persistSession: false },
     })
 
-    // Fetch all stats in parallel
-    const [
-      walletResult,
-      transactionsResult,
-      ordersResult,
-      shopOrdersResult,
-      shopResult,
-      shopBalanceResult,
-      withdrawalsResult
-    ] = await Promise.all([
-      // Wallet balance
+    // Fetch basic user data and shop info first
+    const [walletResult, shopResult] = await Promise.all([
       adminClient.from("wallets").select("balance").eq("user_id", userId).single(),
-      
-      // Transactions for top-ups and spending
-      adminClient.from("transactions").select("*").eq("user_id", userId),
-      
-      // Orders placed by user (wallet orders)
-      adminClient.from("orders").select("id, status, amount, created_at").eq("user_id", userId),
-      
-      // Shop orders placed by user
-      adminClient.from("shop_orders").select("id, status, total_amount, created_at").eq("user_id", userId),
-      
-      // User's shop
-      adminClient.from("user_shops").select("id, shop_name, shop_slug, created_at").eq("user_id", userId).single(),
-      
-      // Will be populated if shop exists
-      null,
-      
-      // Will be populated if shop exists
-      null
+      adminClient.from("user_shops").select("id, shop_name, shop_slug, created_at").eq("user_id", userId).single()
+    ])
+
+    // Fetch all paginated data in parallel
+    const [transactions, walletOrders, shopOrdersByUser] = await Promise.all([
+      fetchAllRecords(adminClient, "transactions", "*", "user_id", userId),
+      fetchAllRecords(adminClient, "orders", "id, status, amount, created_at", "user_id", userId),
+      fetchAllRecords(adminClient, "shop_orders", "id, status, total_amount, created_at", "user_id", userId)
     ])
 
     // Calculate wallet stats
     const walletBalance = walletResult.data?.balance || 0
-    const transactions = transactionsResult.data || []
     
     // Total top-ups: credit transactions from wallet_topup source
     const totalTopUps = transactions
@@ -90,9 +104,6 @@ export async function GET(
       .reduce((sum: number, t: any) => sum + Math.abs(t.amount || 0), 0)
 
     // Calculate order stats (combine wallet orders and shop orders by user)
-    const walletOrders = ordersResult.data || []
-    const shopOrdersByUser = shopOrdersResult.data || []
-    
     const totalOrders = walletOrders.length + shopOrdersByUser.length
     const completedOrders = walletOrders.filter((o: any) => o.status === "completed" || o.status === "delivered").length +
       shopOrdersByUser.filter((o: any) => o.status === "completed" || o.status === "delivered").length
@@ -107,21 +118,21 @@ export async function GET(
     if (shopResult.data?.id) {
       const shopId = shopResult.data.id
 
-      // Fetch shop-related data
-      const [shopBalanceData, shopOrdersData, shopProfitsData, withdrawalsData] = await Promise.all([
+      // Fetch shop-related data with pagination
+      const [shopBalanceResult, shopOrdersList, shopProfitsList, withdrawalsList] = await Promise.all([
         adminClient.from("shop_available_balance").select("*").eq("shop_id", shopId).single(),
-        adminClient.from("shop_orders").select("id, total_amount, profit_amount, status, order_status, payment_status, created_at").eq("shop_id", shopId),
-        adminClient.from("shop_profits").select("id, profit_amount, status, created_at").eq("shop_id", shopId),
-        adminClient.from("withdrawal_requests").select("*").eq("shop_id", shopId).order("created_at", { ascending: false }).range(0, 999)
+        fetchAllRecords(adminClient, "shop_orders", "id, total_amount, profit_amount, status, order_status, payment_status, created_at", "shop_id", shopId),
+        fetchAllRecords(adminClient, "shop_profits", "id, profit_amount, status, created_at", "shop_id", shopId),
+        fetchAllRecords(adminClient, "withdrawal_requests", "*", "shop_id", shopId)
       ])
 
-      const shopOrders = shopOrdersData.data || []
-      const shopProfits = shopProfitsData.data || []
+      const shopOrdersData = shopOrdersList || []
+      const shopProfitsData = shopProfitsList || []
       
       // Paid orders are those with payment_status = "completed" 
-      const paidShopOrders = shopOrders.filter((o: any) => o.payment_status === "completed")
+      const paidShopOrders = shopOrdersData.filter((o: any) => o.payment_status === "completed")
       // Delivered/completed orders for order fulfillment tracking
-      const completedShopOrders = shopOrders.filter((o: any) => 
+      const completedShopOrders = shopOrdersData.filter((o: any) => 
         o.order_status === "completed" || o.order_status === "delivered" || 
         o.status === "completed" || o.status === "delivered"
       )
@@ -130,9 +141,9 @@ export async function GET(
       const totalSales = paidShopOrders.reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0)
       
       // Calculate total profit from shop_profits table (more accurate)
-      const totalProfitFromProfits = shopProfits.reduce((sum: number, p: any) => sum + (p.profit_amount || 0), 0)
+      const totalProfitFromProfits = shopProfitsData.reduce((sum: number, p: any) => sum + (p.profit_amount || 0), 0)
 
-      const balanceRecord = shopBalanceData.data
+      const balanceRecord = shopBalanceResult.data
       // Use the pre-calculated values from shop_available_balance table
       const availableBalance = balanceRecord?.available_balance || 0
       const withdrawnAmount = balanceRecord?.withdrawn_profit || 0
@@ -148,7 +159,7 @@ export async function GET(
         shopName: shopResult.data.shop_name,
         shopSlug: shopResult.data.shop_slug,
         createdAt: shopResult.data.created_at,
-        totalOrders: shopOrders.length,
+        totalOrders: shopOrdersData.length,
         paidOrders: paidShopOrders.length,
         completedOrders: completedShopOrders.length,
         totalSales,
@@ -157,11 +168,15 @@ export async function GET(
         withdrawnAmount,
         pendingProfit,
         creditedProfit,
-        profitRecords: shopProfits.length
+        profitRecords: shopProfitsData.length
       }
 
-      // Withdrawal history
-      withdrawalHistory = (withdrawalsData.data || []).map((w: any) => ({
+      // Withdrawal history - sort by created_at descending
+      const sortedWithdrawals = withdrawalsList.sort((a: any, b: any) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+      
+      withdrawalHistory = sortedWithdrawals.map((w: any) => ({
         id: w.id,
         amount: w.amount,
         feeAmount: w.fee_amount || 0,

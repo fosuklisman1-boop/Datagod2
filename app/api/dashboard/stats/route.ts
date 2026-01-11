@@ -31,11 +31,33 @@ export async function GET(request: NextRequest) {
     const userId = user.id
     console.log("[DASHBOARD-STATS] Fetching stats for user:", userId)
 
-    // Get user's orders (from regular orders table, not shop_orders)
-    const { data: userOrders, error: ordersError } = await supabase
-      .from("orders")
-      .select("id, status")
-      .eq("user_id", userId)
+    // Get user's orders with pagination (from regular orders table, not shop_orders)
+    let userOrders: any[] = []
+    let offset = 0
+    const batchSize = 1000
+    let hasMore = true
+    let ordersError = null
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("orders")
+        .select("id, status")
+        .eq("user_id", userId)
+        .range(offset, offset + batchSize - 1)
+
+      if (error) {
+        ordersError = error
+        break
+      }
+
+      if (data && data.length > 0) {
+        userOrders = userOrders.concat(data)
+        offset += batchSize
+        hasMore = data.length === batchSize
+      } else {
+        hasMore = false
+      }
+    }
 
     if (ordersError) {
       console.warn(`[DASHBOARD-STATS] Could not fetch orders: ${ordersError.message}`)
@@ -53,7 +75,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const totalOrders = userOrders?.length || 0
+    const totalOrders = userOrders.length
 
     // Count by status
     let completed = 0
@@ -61,7 +83,7 @@ export async function GET(request: NextRequest) {
     let failed = 0
     let pending = 0
 
-    userOrders?.forEach((order: any) => {
+    userOrders.forEach((order: any) => {
       if (order.status === "completed") completed++
       else if (order.status === "processing") processing++
       else if (order.status === "failed") failed++

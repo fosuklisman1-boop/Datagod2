@@ -19,6 +19,64 @@ const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 /**
+ * Fetch all records with pagination (to avoid 1000 row Supabase limit)
+ */
+async function fetchAllProfits(shopId: string): Promise<any[]> {
+  let allProfits: any[] = []
+  let offset = 0
+  const batchSize = 1000
+  let hasMore = true
+
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from("shop_profits")
+      .select("profit_amount, status")
+      .eq("shop_id", shopId)
+      .range(offset, offset + batchSize - 1)
+
+    if (error) break
+
+    if (data && data.length > 0) {
+      allProfits = allProfits.concat(data)
+      offset += batchSize
+      hasMore = data.length === batchSize
+    } else {
+      hasMore = false
+    }
+  }
+
+  return allProfits
+}
+
+async function fetchAllWithdrawals(shopId: string): Promise<any[]> {
+  let allWithdrawals: any[] = []
+  let offset = 0
+  const batchSize = 1000
+  let hasMore = true
+
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from("withdrawal_requests")
+      .select("amount")
+      .eq("shop_id", shopId)
+      .eq("status", "approved")
+      .range(offset, offset + batchSize - 1)
+
+    if (error) break
+
+    if (data && data.length > 0) {
+      allWithdrawals = allWithdrawals.concat(data)
+      offset += batchSize
+      hasMore = data.length === batchSize
+    } else {
+      hasMore = false
+    }
+  }
+
+  return allWithdrawals
+}
+
+/**
  * Check if auto-fulfillment is enabled in admin settings
  */
 async function isAutoFulfillmentEnabled(): Promise<boolean> {
@@ -409,18 +467,15 @@ export async function POST(request: NextRequest) {
 
           // Create shop profit record for the sub-agent/shop owner
           if (shopOrderData?.profit_amount > 0) {
-            // Get current balance before adding this profit
-            const { data: existingProfits } = await supabase
-              .from("shop_profits")
-              .select("profit_amount, status")
-              .eq("shop_id", paymentData.shop_id)
+            // Get current balance before adding this profit (with pagination)
+            const existingProfits = await fetchAllProfits(paymentData.shop_id)
             
-            const balanceBefore = existingProfits?.reduce((sum: number, p: any) => {
+            const balanceBefore = existingProfits.reduce((sum: number, p: any) => {
               if (p.status === "pending" || p.status === "credited") {
                 return sum + (p.profit_amount || 0)
               }
               return sum
-            }, 0) || 0
+            }, 0)
             const balanceAfter = balanceBefore + shopOrderData.profit_amount
 
             const { error: profitError } = await supabase
@@ -444,85 +499,70 @@ export async function POST(request: NextRequest) {
               
               // Sync available balance after creating profit
               try {
-                // Get all profits to calculate available balance
-                const { data: profits, error: profitFetchError } = await supabase
-                  .from("shop_profits")
-                  .select("profit_amount, status")
-                  .eq("shop_id", paymentData.shop_id)
-                  .select("profit_amount, status")
-                  .eq("shop_id", paymentData.shop_id)
+                // Get all profits to calculate available balance (with pagination)
+                const profits = await fetchAllProfits(paymentData.shop_id)
 
-                if (!profitFetchError && profits) {
-                  // Calculate totals by status
-                  const breakdown = {
-                    totalProfit: 0,
-                    creditedProfit: 0,
-                    withdrawnProfit: 0,
+                // Calculate totals by status
+                const breakdown = {
+                  totalProfit: 0,
+                  creditedProfit: 0,
+                  withdrawnProfit: 0,
+                }
+
+                profits.forEach((p: any) => {
+                  const amount = p.profit_amount || 0
+                  breakdown.totalProfit += amount
+
+                  if (p.status === "credited") {
+                    breakdown.creditedProfit += amount
+                  } else if (p.status === "withdrawn") {
+                    breakdown.withdrawnProfit += amount
                   }
+                })
 
-                  profits.forEach((p: any) => {
-                    const amount = p.profit_amount || 0
-                    breakdown.totalProfit += amount
+                // Get approved withdrawals to subtract from available balance (with pagination)
+                const approvedWithdrawals = await fetchAllWithdrawals(paymentData.shop_id)
+                const totalApprovedWithdrawals = approvedWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
 
-                    if (p.status === "credited") {
-                      breakdown.creditedProfit += amount
-                    } else if (p.status === "withdrawn") {
-                      breakdown.withdrawnProfit += amount
+                // Available balance = credited profit - approved withdrawals
+                const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+                
+                console.log(`[WEBHOOK-BALANCE] Shop ${paymentData.shop_id}:`, {
+                  creditedProfit: breakdown.creditedProfit,
+                  totalApprovedWithdrawals,
+                  calculation: `${breakdown.creditedProfit} - ${totalApprovedWithdrawals}`,
+                  availableBalance,
+                })
+
+                // Delete existing record and insert fresh (more reliable than upsert)
+                const deleteResult = await supabase
+                  .from("shop_available_balance")
+                  .delete()
+                  .eq("shop_id", paymentData.shop_id)
+                
+                if (deleteResult.error) {
+                  console.warn(`[WEBHOOK] Warning deleting old balance:`, deleteResult.error)
+                }
+
+                const { data, error: insertError } = await supabase
+                  .from("shop_available_balance")
+                  .insert([
+                    {
+                      shop_id: paymentData.shop_id,
+                      available_balance: availableBalance,
+                      total_profit: breakdown.totalProfit,
+                      withdrawn_amount: breakdown.withdrawnProfit,
+                      credited_profit: breakdown.creditedProfit,
+                      withdrawn_profit: breakdown.withdrawnProfit,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
                     }
-                  })
+                  ])
 
-                  // Get approved withdrawals to subtract from available balance
-                  const { data: approvedWithdrawals, error: withdrawalError } = await supabase
-                    .from("withdrawal_requests")
-                    .select("amount")
-                    .eq("shop_id", paymentData.shop_id)
-                    .eq("status", "approved")
-
-                  let totalApprovedWithdrawals = 0
-                  if (!withdrawalError && approvedWithdrawals) {
-                    totalApprovedWithdrawals = approvedWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
-                  }
-
-                  // Available balance = credited profit - approved withdrawals
-                  const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
-                  
-                  console.log(`[WEBHOOK-BALANCE] Shop ${paymentData.shop_id}:`, {
-                    creditedProfit: breakdown.creditedProfit,
-                    totalApprovedWithdrawals,
-                    calculation: `${breakdown.creditedProfit} - ${totalApprovedWithdrawals}`,
-                    availableBalance,
-                  })
-
-                  // Delete existing record and insert fresh (more reliable than upsert)
-                  const deleteResult = await supabase
-                    .from("shop_available_balance")
-                    .delete()
-                    .eq("shop_id", paymentData.shop_id)
-                  
-                  if (deleteResult.error) {
-                    console.warn(`[WEBHOOK] Warning deleting old balance:`, deleteResult.error)
-                  }
-
-                  const { data, error: insertError } = await supabase
-                    .from("shop_available_balance")
-                    .insert([
-                      {
-                        shop_id: paymentData.shop_id,
-                        available_balance: availableBalance,
-                        total_profit: breakdown.totalProfit,
-                        withdrawn_amount: breakdown.withdrawnProfit,
-                        credited_profit: breakdown.creditedProfit,
-                        withdrawn_profit: breakdown.withdrawnProfit,
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString(),
-                      }
-                    ])
-
-                  if (insertError) {
-                    console.error(`[WEBHOOK] Error syncing balance for shop ${paymentData.shop_id}:`, insertError)
-                  } else {
-                    console.log(`[WEBHOOK] ✓ Available balance synced for shop: ${paymentData.shop_id} - Available: GHS ${availableBalance.toFixed(2)}`)
-                  }
+                if (insertError) {
+                  console.error(`[WEBHOOK] Error syncing balance for shop ${paymentData.shop_id}:`, insertError)
+                } else {
+                  console.log(`[WEBHOOK] ✓ Available balance synced for shop: ${paymentData.shop_id} - Available: GHS ${availableBalance.toFixed(2)}`)
                 }
               } catch (syncError) {
                 console.error("Error syncing available balance:", syncError)
@@ -535,18 +575,15 @@ export async function POST(request: NextRequest) {
           if (shopOrderData?.parent_shop_id && shopOrderData?.parent_profit_amount > 0) {
             console.log(`[WEBHOOK] Sub-agent sale detected. Crediting parent shop ${shopOrderData.parent_shop_id} with GHS ${shopOrderData.parent_profit_amount}`)
             
-            // Get current parent balance before adding this profit
-            const { data: existingParentProfits } = await supabase
-              .from("shop_profits")
-              .select("profit_amount, status")
-              .eq("shop_id", shopOrderData.parent_shop_id)
+            // Get current parent balance before adding this profit (with pagination)
+            const existingParentProfits = await fetchAllProfits(shopOrderData.parent_shop_id)
             
-            const parentBalanceBefore = existingParentProfits?.reduce((sum: number, p: any) => {
+            const parentBalanceBefore = existingParentProfits.reduce((sum: number, p: any) => {
               if (p.status === "pending" || p.status === "credited") {
                 return sum + (p.profit_amount || 0)
               }
               return sum
-            }, 0) || 0
+            }, 0)
             const parentBalanceAfter = parentBalanceBefore + shopOrderData.parent_profit_amount
 
             const { error: parentProfitError } = await supabase
@@ -570,43 +607,33 @@ export async function POST(request: NextRequest) {
               
               // Sync parent shop available balance
               try {
-                const { data: parentProfits, error: parentProfitFetchError } = await supabase
-                  .from("shop_profits")
-                  .select("profit_amount, status")
-                  .eq("shop_id", shopOrderData.parent_shop_id)
+                // Fetch parent profits with pagination
+                const parentProfits = await fetchAllProfits(shopOrderData.parent_shop_id)
 
-                if (!parentProfitFetchError && parentProfits) {
-                  const parentBreakdown = {
-                    totalProfit: 0,
-                    creditedProfit: 0,
-                    withdrawnProfit: 0,
+                const parentBreakdown = {
+                  totalProfit: 0,
+                  creditedProfit: 0,
+                  withdrawnProfit: 0,
+                }
+
+                parentProfits.forEach((p: any) => {
+                  const amount = p.profit_amount || 0
+                  parentBreakdown.totalProfit += amount
+                  if (p.status === "credited") {
+                    parentBreakdown.creditedProfit += amount
+                  } else if (p.status === "withdrawn") {
+                    parentBreakdown.withdrawnProfit += amount
                   }
+                })
 
-                  parentProfits.forEach((p: any) => {
-                    const amount = p.profit_amount || 0
-                    parentBreakdown.totalProfit += amount
-                    if (p.status === "credited") {
-                      parentBreakdown.creditedProfit += amount
-                    } else if (p.status === "withdrawn") {
-                      parentBreakdown.withdrawnProfit += amount
-                    }
-                  })
+                // Fetch parent withdrawals with pagination
+                const parentWithdrawals = await fetchAllWithdrawals(shopOrderData.parent_shop_id)
+                const totalParentWithdrawals = parentWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
 
-                  const { data: parentWithdrawals } = await supabase
-                    .from("withdrawal_requests")
-                    .select("amount")
-                    .eq("shop_id", shopOrderData.parent_shop_id)
-                    .eq("status", "approved")
+                const parentAvailableBalance = Math.max(0, parentBreakdown.creditedProfit - totalParentWithdrawals)
 
-                  let totalParentWithdrawals = 0
-                  if (parentWithdrawals) {
-                    totalParentWithdrawals = parentWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
-                  }
-
-                  const parentAvailableBalance = Math.max(0, parentBreakdown.creditedProfit - totalParentWithdrawals)
-
-                  // Delete and insert fresh balance
-                  await supabase
+                // Delete and insert fresh balance
+                await supabase
                     .from("shop_available_balance")
                     .delete()
                     .eq("shop_id", shopOrderData.parent_shop_id)
