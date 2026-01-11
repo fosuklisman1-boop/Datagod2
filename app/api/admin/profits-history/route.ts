@@ -150,10 +150,33 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Calculate stats (all time)
-    const { data: statsData } = await supabase
+    // Calculate stats using aggregate queries to avoid 1000 row limit
+    // Total profit (all statuses)
+    const { data: totalData } = await supabase
       .from("shop_profits")
-      .select("profit_amount, status")
+      .select("profit_amount")
+    
+    // We need to paginate through all records for accurate stats
+    // Use RPC function or calculate from multiple queries
+    let allProfits: any[] = []
+    let statsOffset = 0
+    const statsLimit = 1000
+    let hasMore = true
+    
+    while (hasMore) {
+      const { data: batchData } = await supabase
+        .from("shop_profits")
+        .select("profit_amount, status")
+        .range(statsOffset, statsOffset + statsLimit - 1)
+      
+      if (batchData && batchData.length > 0) {
+        allProfits = allProfits.concat(batchData)
+        statsOffset += statsLimit
+        hasMore = batchData.length === statsLimit
+      } else {
+        hasMore = false
+      }
+    }
 
     let totalProfit = 0
     let pendingProfit = 0
@@ -163,7 +186,7 @@ export async function GET(request: NextRequest) {
     let creditedCount = 0
     let withdrawnCount = 0
 
-    statsData?.forEach((p: any) => {
+    allProfits.forEach((p: any) => {
       const amount = p.profit_amount || 0
       totalProfit += amount
 
@@ -181,7 +204,7 @@ export async function GET(request: NextRequest) {
 
     const totalCount = search ? filteredProfits.length : (count || 0)
 
-    console.log("[ADMIN-PROFITS] Returning", flattenedProfits.length, "profits, total:", totalCount)
+    console.log("[ADMIN-PROFITS] Returning", flattenedProfits.length, "profits, total:", totalCount, "stats from", allProfits.length, "records")
 
     return NextResponse.json({
       profits: flattenedProfits,
@@ -193,7 +216,7 @@ export async function GET(request: NextRequest) {
         pendingCount,
         creditedCount,
         withdrawnCount,
-        totalRecords: statsData?.length || 0,
+        totalRecords: allProfits.length,
       },
       pagination: {
         page,
