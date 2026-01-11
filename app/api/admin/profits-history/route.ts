@@ -76,10 +76,74 @@ export async function GET(request: NextRequest) {
       query = query.lt("created_at", endDateObj.toISOString())
     }
 
-    // Apply pagination
-    query = query.range(offset, offset + limit - 1)
+    // If searching, we need to fetch all records first, then filter and paginate in memory
+    // Otherwise, apply pagination at the database level
+    let allProfitsForSearch: any[] = []
+    let profits: any[] = []
+    let error: any = null
+    let count: number | null = null
 
-    const { data: profits, error, count } = await query
+    if (search) {
+      // Fetch all records in batches for search (to search across all data)
+      let searchOffset = 0
+      const searchLimit = 1000
+      let hasMore = true
+      
+      while (hasMore) {
+        const { data: batchData, error: batchError } = await supabase
+          .from("shop_profits")
+          .select(`
+            id,
+            shop_id,
+            shop_order_id,
+            profit_amount,
+            profit_balance_before,
+            profit_balance_after,
+            status,
+            credited_at,
+            created_at,
+            user_shops (
+              id,
+              shop_name,
+              shop_slug,
+              user_id
+            ),
+            shop_orders (
+              id,
+              reference_code,
+              network,
+              volume_gb,
+              total_price,
+              customer_name,
+              customer_phone
+            )
+          `)
+          .order("created_at", { ascending: false })
+          .range(searchOffset, searchOffset + searchLimit - 1)
+        
+        if (batchError) {
+          error = batchError
+          break
+        }
+        
+        if (batchData && batchData.length > 0) {
+          allProfitsForSearch = allProfitsForSearch.concat(batchData)
+          searchOffset += searchLimit
+          hasMore = batchData.length === searchLimit
+        } else {
+          hasMore = false
+        }
+      }
+      
+      profits = allProfitsForSearch
+    } else {
+      // Apply pagination at database level when not searching
+      query = query.range(offset, offset + limit - 1)
+      const result = await query
+      profits = result.data || []
+      error = result.error
+      count = result.count
+    }
 
     if (error) {
       console.error("[ADMIN-PROFITS] Error fetching profits:", error)
@@ -120,6 +184,12 @@ export async function GET(request: NextRequest) {
                ownerName.includes(searchLower) ||
                orderRef.includes(searchLower)
       })
+    }
+
+    // Apply pagination to filtered results when searching
+    const totalFilteredCount = filteredProfits.length
+    if (search) {
+      filteredProfits = filteredProfits.slice(offset, offset + limit)
     }
 
     // Flatten data for frontend
@@ -202,7 +272,7 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    const totalCount = search ? filteredProfits.length : (count || 0)
+    const totalCount = search ? totalFilteredCount : (count || 0)
 
     console.log("[ADMIN-PROFITS] Returning", flattenedProfits.length, "profits, total:", totalCount, "stats from", allProfits.length, "records")
 
