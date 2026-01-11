@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
 
     console.log("[ADMIN-PROFITS] Fetching profits history with filters:", { page, limit, search, status, startDate, endDate, shopId })
 
-    // Build query for profit records with shop and user details
+    // Build query for profit records with shop and order details
+    // Note: user_shops.user_id references auth.users, so we fetch user details separately
     let query = supabase
       .from("shop_profits")
       .select(`
@@ -35,18 +36,11 @@ export async function GET(request: NextRequest) {
         status,
         credited_at,
         created_at,
-        user_shops!inner (
+        user_shops (
           id,
           shop_name,
           shop_slug,
-          user_id,
-          users!inner (
-            id,
-            email,
-            first_name,
-            last_name,
-            phone_number
-          )
+          user_id
         ),
         shop_orders (
           id,
@@ -93,14 +87,30 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Fetch user details separately (since user_shops.user_id references auth.users)
+    const userIds = [...new Set((profits || []).map((p: any) => p.user_shops?.user_id).filter(Boolean))]
+    
+    let usersMap: Record<string, any> = {}
+    if (userIds.length > 0) {
+      const { data: usersData } = await supabase
+        .from("users")
+        .select("id, email, first_name, last_name, phone_number")
+        .in("id", userIds)
+      
+      usersData?.forEach((u: any) => {
+        usersMap[u.id] = u
+      })
+    }
+
     // Filter by search if provided (post-query for complex joins)
     let filteredProfits = profits || []
     if (search) {
       const searchLower = search.toLowerCase()
       filteredProfits = filteredProfits.filter((p: any) => {
         const shopName = p.user_shops?.shop_name?.toLowerCase() || ""
-        const ownerEmail = p.user_shops?.users?.email?.toLowerCase() || ""
-        const ownerName = `${p.user_shops?.users?.first_name || ""} ${p.user_shops?.users?.last_name || ""}`.toLowerCase()
+        const user = usersMap[p.user_shops?.user_id] || {}
+        const ownerEmail = user.email?.toLowerCase() || ""
+        const ownerName = `${user.first_name || ""} ${user.last_name || ""}`.toLowerCase()
         const orderRef = p.shop_orders?.reference_code?.toLowerCase() || ""
         
         return shopName.includes(searchLower) || 
@@ -111,27 +121,30 @@ export async function GET(request: NextRequest) {
     }
 
     // Flatten data for frontend
-    const flattenedProfits = filteredProfits.map((p: any) => ({
-      id: p.id,
-      shop_id: p.shop_id,
-      shop_order_id: p.shop_order_id,
-      profit_amount: p.profit_amount ?? 0,
-      status: p.status,
-      credited_at: p.credited_at,
-      created_at: p.created_at,
-      shop_name: p.user_shops?.shop_name || "Unknown Shop",
-      shop_slug: p.user_shops?.shop_slug || "",
-      owner_email: p.user_shops?.users?.email || "Unknown",
-      owner_first_name: p.user_shops?.users?.first_name || null,
-      owner_last_name: p.user_shops?.users?.last_name || null,
-      owner_phone: p.user_shops?.users?.phone_number || null,
-      order_reference: p.shop_orders?.reference_code || null,
-      order_network: p.shop_orders?.network || null,
-      order_volume_gb: p.shop_orders?.volume_gb || null,
-      order_total_price: p.shop_orders?.total_price || null,
-      customer_name: p.shop_orders?.customer_name || null,
-      customer_phone: p.shop_orders?.customer_phone || null,
-    }))
+    const flattenedProfits = filteredProfits.map((p: any) => {
+      const user = usersMap[p.user_shops?.user_id] || {}
+      return {
+        id: p.id,
+        shop_id: p.shop_id,
+        shop_order_id: p.shop_order_id,
+        profit_amount: p.profit_amount ?? 0,
+        status: p.status,
+        credited_at: p.credited_at,
+        created_at: p.created_at,
+        shop_name: p.user_shops?.shop_name || "Unknown Shop",
+        shop_slug: p.user_shops?.shop_slug || "",
+        owner_email: user.email || "Unknown",
+        owner_first_name: user.first_name || null,
+        owner_last_name: user.last_name || null,
+        owner_phone: user.phone_number || null,
+        order_reference: p.shop_orders?.reference_code || null,
+        order_network: p.shop_orders?.network || null,
+        order_volume_gb: p.shop_orders?.volume_gb || null,
+        order_total_price: p.shop_orders?.total_price || null,
+        customer_name: p.shop_orders?.customer_name || null,
+        customer_phone: p.shop_orders?.customer_phone || null,
+      }
+    })
 
     // Calculate stats (all time)
     const { data: statsData } = await supabase
