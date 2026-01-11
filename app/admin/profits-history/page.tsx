@@ -36,6 +36,8 @@ interface ProfitRecord {
   shop_id: string
   shop_order_id: string
   profit_amount: number
+  profit_balance_before: number | null
+  profit_balance_after: number | null
   status: string
   credited_at: string | null
   created_at: string
@@ -159,7 +161,7 @@ export default function AdminProfitsHistoryPage() {
       if (!response.ok) throw new Error(data.error)
 
       // Create CSV
-      const headers = ["Date", "Shop Name", "Owner Email", "Owner Name", "Order Ref", "Network", "Size (GB)", "Profit Amount", "Status", "Credited At"]
+      const headers = ["Date", "Shop Name", "Owner Email", "Owner Name", "Order Ref", "Network", "Size (GB)", "Balance Before", "Profit Amount", "Balance After", "Status", "Credited At"]
       const rows = data.profits.map((p: ProfitRecord) => [
         new Date(p.created_at).toLocaleString(),
         p.shop_name,
@@ -168,7 +170,9 @@ export default function AdminProfitsHistoryPage() {
         p.order_reference || "N/A",
         p.order_network || "N/A",
         p.order_volume_gb || "N/A",
+        p.profit_balance_before ?? "N/A",
         p.profit_amount,
+        p.profit_balance_after ?? "N/A",
         p.status,
         p.credited_at ? new Date(p.credited_at).toLocaleString() : "N/A",
       ])
@@ -369,7 +373,7 @@ export default function AdminProfitsHistoryPage() {
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[1000px] w-full text-xs sm:text-sm">
+                  <Table className="min-w-[1200px] w-full text-xs sm:text-sm">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
@@ -378,7 +382,9 @@ export default function AdminProfitsHistoryPage() {
                         <TableHead>Order Ref</TableHead>
                         <TableHead>Network</TableHead>
                         <TableHead>Size</TableHead>
+                        <TableHead>Balance Before</TableHead>
                         <TableHead>Profit</TableHead>
+                        <TableHead>Balance After</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Credited At</TableHead>
                       </TableRow>
@@ -412,8 +418,20 @@ export default function AdminProfitsHistoryPage() {
                           <TableCell>
                             {profit.order_volume_gb ? `${profit.order_volume_gb} GB` : "-"}
                           </TableCell>
+                          <TableCell className="font-medium text-muted-foreground">
+                            {profit.profit_balance_before != null 
+                              ? formatCurrency(profit.profit_balance_before) 
+                              : "-"
+                            }
+                          </TableCell>
                           <TableCell className="font-medium text-green-600">
                             +{formatCurrency(profit.profit_amount)}
+                          </TableCell>
+                          <TableCell className="font-medium text-blue-600">
+                            {profit.profit_balance_after != null 
+                              ? formatCurrency(profit.profit_balance_after) 
+                              : "-"
+                            }
                           </TableCell>
                           <TableCell>{getStatusBadge(profit.status)}</TableCell>
                           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">

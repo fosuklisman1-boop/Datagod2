@@ -300,12 +300,19 @@ export const shopOrderService = {
 export const shopProfitService = {
   // Create profit record (called after order completion)
   async createProfitRecord(shopOrderId: string, shopId: string, profitAmount: number) {
+    // Get current balance before adding this profit
+    const currentBalance = await this.getShopBalance(shopId)
+    const balanceBefore = currentBalance
+    const balanceAfter = currentBalance + profitAmount
+
     const { data, error } = await supabase
       .from("shop_profits")
       .insert([{
         shop_id: shopId,
         shop_order_id: shopOrderId,
         profit_amount: profitAmount,
+        profit_balance_before: balanceBefore,
+        profit_balance_after: balanceAfter,
         status: "pending"
       }])
       .select()

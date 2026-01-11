@@ -409,6 +409,20 @@ export async function POST(request: NextRequest) {
 
           // Create shop profit record for the sub-agent/shop owner
           if (shopOrderData?.profit_amount > 0) {
+            // Get current balance before adding this profit
+            const { data: existingProfits } = await supabase
+              .from("shop_profits")
+              .select("profit_amount, status")
+              .eq("shop_id", paymentData.shop_id)
+            
+            const balanceBefore = existingProfits?.reduce((sum: number, p: any) => {
+              if (p.status === "pending" || p.status === "credited") {
+                return sum + (p.profit_amount || 0)
+              }
+              return sum
+            }, 0) || 0
+            const balanceAfter = balanceBefore + shopOrderData.profit_amount
+
             const { error: profitError } = await supabase
               .from("shop_profits")
               .insert([
@@ -416,6 +430,8 @@ export async function POST(request: NextRequest) {
                   shop_id: paymentData.shop_id,
                   shop_order_id: paymentData.order_id,
                   profit_amount: shopOrderData.profit_amount,
+                  profit_balance_before: balanceBefore,
+                  profit_balance_after: balanceAfter,
                   status: "credited",
                   created_at: new Date().toISOString(),
                 }
@@ -519,6 +535,20 @@ export async function POST(request: NextRequest) {
           if (shopOrderData?.parent_shop_id && shopOrderData?.parent_profit_amount > 0) {
             console.log(`[WEBHOOK] Sub-agent sale detected. Crediting parent shop ${shopOrderData.parent_shop_id} with GHS ${shopOrderData.parent_profit_amount}`)
             
+            // Get current parent balance before adding this profit
+            const { data: existingParentProfits } = await supabase
+              .from("shop_profits")
+              .select("profit_amount, status")
+              .eq("shop_id", shopOrderData.parent_shop_id)
+            
+            const parentBalanceBefore = existingParentProfits?.reduce((sum: number, p: any) => {
+              if (p.status === "pending" || p.status === "credited") {
+                return sum + (p.profit_amount || 0)
+              }
+              return sum
+            }, 0) || 0
+            const parentBalanceAfter = parentBalanceBefore + shopOrderData.parent_profit_amount
+
             const { error: parentProfitError } = await supabase
               .from("shop_profits")
               .insert([
@@ -526,6 +556,8 @@ export async function POST(request: NextRequest) {
                   shop_id: shopOrderData.parent_shop_id,
                   shop_order_id: paymentData.order_id,
                   profit_amount: shopOrderData.parent_profit_amount,
+                  profit_balance_before: parentBalanceBefore,
+                  profit_balance_after: parentBalanceAfter,
                   status: "credited",
                   created_at: new Date().toISOString(),
                 }
