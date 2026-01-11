@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loader2, MessageSquare, Settings, Search } from "lucide-react"
+import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loader2, MessageSquare, Settings, Search, Banknote } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { adminDashboardService } from "@/lib/admin-service"
 import { toast } from "sonner"
@@ -421,6 +421,35 @@ export default function AdminDashboardPage() {
                   </>
                 ) : (
                   "Go to Withdrawals"
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Profits History */}
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-lime-50/60 to-green-50/40 backdrop-blur-xl border border-lime-200/40 hover:border-lime-300/60">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-gradient-to-br from-lime-400/30 to-green-400/20 backdrop-blur p-2 rounded-lg border border-lime-300/60">
+                  <Banknote className="h-5 w-5 text-lime-600" />
+                </div>
+                <CardTitle>Profits History</CardTitle>
+              </div>
+              <CardDescription>Track all shop profits crediting</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => handleNavigate("/admin/profits-history")}
+                disabled={navigating !== null}
+                className="w-full bg-gradient-to-r from-lime-600 to-green-600 hover:from-lime-700 hover:to-green-700 text-white font-semibold"
+              >
+                {navigating === "/admin/profits-history" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "View Profits"
                 )}
               </Button>
             </CardContent>
