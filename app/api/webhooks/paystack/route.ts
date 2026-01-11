@@ -660,9 +660,9 @@ export async function POST(request: NextRequest) {
                 console.error("Error syncing parent shop balance:", parentSyncError)
               }
             }
+          } else if (shopOrderData?.parent_shop_id) {
+            console.log(`[WEBHOOK] ⚠️ Parent shop exists (${shopOrderData.parent_shop_id}) but parent_profit_amount is ${shopOrderData.parent_profit_amount} - skipping parent profit record`);
           }
-        } else if (shopOrderData?.parent_shop_id) {
-          console.log(`[WEBHOOK] ⚠️ Parent shop exists (${shopOrderData.parent_shop_id}) but parent_profit_amount is ${shopOrderData.parent_profit_amount} - skipping parent profit record`);
         }
       }
 
