@@ -65,10 +65,10 @@ export default function LoginForm() {
             .eq("user_id", user.id)
             .single()
           
-          // If user is a sub-agent (has parent_shop_id), redirect to buy-data page
+          // If user is a sub-agent (has parent_shop_id), redirect to buy-stock page
           if (userShop?.parent_shop_id) {
-            console.log("[LOGIN] Sub-agent detected, redirecting to buy-data")
-            window.location.href = "/dashboard/buy-data"
+            console.log("[LOGIN] Sub-agent detected, redirecting to buy-stock")
+            window.location.href = "/dashboard/buy-stock"
             return
           }
         }

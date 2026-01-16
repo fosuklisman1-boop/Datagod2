@@ -29,8 +29,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .single()
             
             if (userShop?.parent_shop_id) {
-              // Sub-agent - redirect to buy-data
-              router.push("/dashboard/buy-data")
+              // Sub-agent - redirect to buy-stock
+              router.push("/dashboard/buy-stock")
             } else {
               // Regular user/admin - redirect to dashboard
               router.push("/dashboard")
@@ -52,9 +52,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .single()
             
             if (userShop?.parent_shop_id) {
-              // Sub-agent trying to access main dashboard - redirect to buy-data
-              console.log("[AUTH] Sub-agent detected on main dashboard, redirecting to buy-data")
-              router.push("/dashboard/buy-data")
+              // Sub-agent trying to access main dashboard - redirect to buy-stock
+              console.log("[AUTH] Sub-agent detected on main dashboard, redirecting to buy-stock")
+              router.push("/dashboard/buy-stock")
             }
           } catch {
             // Continue if check fails
