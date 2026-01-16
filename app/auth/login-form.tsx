@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
+import { supabase } from "@/lib/supabase"
 
 export default function LoginForm() {
   const router = useRouter()
@@ -53,6 +54,28 @@ export default function LoginForm() {
       
       // Wait longer for session to be fully established
       await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Check if user is a sub-agent (has parent_shop_id)
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: userShop } = await supabase
+            .from("user_shops")
+            .select("id, parent_shop_id")
+            .eq("user_id", user.id)
+            .single()
+          
+          // If user is a sub-agent (has parent_shop_id), redirect to buy-data page
+          if (userShop?.parent_shop_id) {
+            console.log("[LOGIN] Sub-agent detected, redirecting to buy-data")
+            window.location.href = "/dashboard/buy-data"
+            return
+          }
+        }
+      } catch (shopError) {
+        console.warn("[LOGIN] Could not check shop status:", shopError)
+        // Continue with default redirect if check fails
+      }
       
       // Redirect to the specified URL (from query params) or dashboard
       window.location.href = redirectTo
