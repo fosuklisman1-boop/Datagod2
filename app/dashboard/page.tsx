@@ -52,6 +52,7 @@ export default function DashboardPage() {
   const [joinDate, setJoinDate] = useState("")
   const [walletBalance, setWalletBalance] = useState(0)
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [isSubAgent, setIsSubAgent] = useState<boolean | null>(null) // null = checking, true/false = checked
   const [stats, setStats] = useState<DashboardStats>({
     totalOrders: 0,
     completed: 0,
@@ -62,6 +63,37 @@ export default function DashboardPage() {
   })
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
   const [showPhoneRequired, setShowPhoneRequired] = useState(false)
+
+  // Check if user is a sub-agent and redirect immediately
+  useEffect(() => {
+    const checkSubAgent = async () => {
+      if (!user) return
+      
+      try {
+        const { data: userShop } = await supabase
+          .from("user_shops")
+          .select("id, parent_shop_id")
+          .eq("user_id", user.id)
+          .single()
+        
+        if (userShop?.parent_shop_id) {
+          // Sub-agent detected - redirect immediately
+          console.log("[DASHBOARD] Sub-agent detected, redirecting to buy-stock")
+          router.replace("/dashboard/buy-stock")
+          return
+        }
+        
+        setIsSubAgent(false)
+      } catch {
+        // No shop or error - not a sub-agent
+        setIsSubAgent(false)
+      }
+    }
+    
+    if (user && !authLoading) {
+      checkSubAgent()
+    }
+  }, [user, authLoading, router])
 
   // Auth protection - redirect to login if not authenticated
   useEffect(() => {
@@ -239,8 +271,8 @@ export default function DashboardPage() {
     return "🌙"
   }
 
-  // Show loading state while checking authentication
-  if (authLoading) {
+  // Show loading state while checking authentication or sub-agent status
+  if (authLoading || (user && isSubAgent === null)) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
