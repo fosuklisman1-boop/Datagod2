@@ -87,6 +87,16 @@ export async function DELETE(req: NextRequest) {
       console.warn(`[REMOVE-USER] Warning deleting AFA orders: ${afaError.message}`)
     }
 
+    // 6b. Delete shop_invites where this user was invited (before processing shops)
+    const { error: invitedAsUserError } = await supabaseAdmin
+      .from("shop_invites")
+      .delete()
+      .eq("invited_user_id", userId)
+    
+    if (invitedAsUserError) {
+      console.warn(`[REMOVE-USER] Warning deleting shop_invites (as invited user): ${invitedAsUserError.message}`)
+    }
+
     // 7. Delete user shops and related data
     const { data: shops } = await supabaseAdmin
       .from("user_shops")
@@ -95,6 +105,26 @@ export async function DELETE(req: NextRequest) {
 
     if (shops && shops.length > 0) {
       const shopIds = shops.map(s => s.id)
+      
+      // Delete shop_invites where this shop is the inviter
+      const { error: shopInvitesError } = await supabaseAdmin
+        .from("shop_invites")
+        .delete()
+        .in("inviter_shop_id", shopIds)
+      
+      if (shopInvitesError) {
+        console.warn(`[REMOVE-USER] Warning deleting shop_invites: ${shopInvitesError.message}`)
+      }
+
+      // Delete shop_invites where this user was the invited user
+      const { error: invitedByError } = await supabaseAdmin
+        .from("shop_invites")
+        .delete()
+        .eq("invited_user_id", userId)
+      
+      if (invitedByError) {
+        console.warn(`[REMOVE-USER] Warning deleting shop_invites (invited_user): ${invitedByError.message}`)
+      }
       
       // Delete sub_agent_shop_packages (sub-agent inventory)
       const { error: subAgentShopPackagesError } = await supabaseAdmin
