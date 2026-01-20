@@ -282,7 +282,7 @@ async function handleRetryFulfillment(
       )
     }
     
-    console.log(`[FULFILLMENT] Retrying with: phone=${order.phone_number}, size=${sizeGb}GB, network=${order.network}, isBigTime=${isBigTime}, email=${customerEmail || "NONE"}`)
+    console.log(`[FULFILLMENT] Retrying with: phone=${order.phone_number}, size=${sizeGb}GB, network=${order.network}, isBigTime=${isBigTime}`)
 
     const result = await atishareService.fulfillOrder({
       phoneNumber: order.phone_number,
@@ -292,7 +292,6 @@ async function handleRetryFulfillment(
                networkLower.includes("telecel") ? "TELECEL" : "AT",
       orderType,
       isBigTime,
-      customer_email: isBigTime ? customerEmail : undefined,
     })
 
     if (result.success) {

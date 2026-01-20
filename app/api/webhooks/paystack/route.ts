@@ -354,7 +354,6 @@ export async function POST(request: NextRequest) {
                 network: apiNetwork,
                 orderType: "shop",
                 isBigTime,
-                customer_email: isBigTime ? shopOrderData.customer_email : undefined,
               }).then(result => {
                 console.log(`[WEBHOOK] ✓ Fulfillment triggered for shop order ${paymentData.order_id}:`, result)
               }).catch(err => {
