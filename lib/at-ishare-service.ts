@@ -515,7 +515,7 @@ class ATiShareService {
       // Max 99 attempts: 3 initial + 96 scheduled (every 15 min for 24 hrs)
       const { data: dueLogs, error } = await this.supabase
         .from("fulfillment_logs")
-        .select("order_id, attempt_number, phone_number, network, order_type")
+        .select("order_id, attempt_number, phone_number, network, order_type, api_response")
         .eq("status", "processing")
         .lte("retry_after", now)
         .lt("attempt_number", 99) // Max 99 attempts (3 initial + 96 scheduled)
@@ -539,12 +539,18 @@ class ATiShareService {
           const apiNetwork = networkLower.includes("mtn") ? "MTN" : 
                              networkLower.includes("telecel") ? "TELECEL" : "AT"
 
-          // Verify status
+          // Get CodeCraft reference from api_response
+          const codecraftRef = log.api_response?.codecraft_reference || 
+                               log.api_response?.reference_id ||
+                               log.order_id
+
+          // Verify status using CodeCraft reference
           const result = await this.verifyAndUpdateStatus(
             log.order_id, 
             apiNetwork, 
             log.order_type || "wallet",
-            isBigTime
+            isBigTime,
+            codecraftRef  // Pass the CodeCraft reference for lookup
           )
 
           if (result.actualStatus === "completed" || result.actualStatus === "failed") {
