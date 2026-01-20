@@ -15,7 +15,7 @@
     },
     {
       "path": "/api/cron/sync-codecraft-status",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }
