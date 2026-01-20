@@ -97,22 +97,30 @@ export async function POST(request: NextRequest) {
         const networkLower = (order.network || "").toLowerCase()
         const isBigTime = networkLower.includes("bigtime") || networkLower.includes("big time")
         
+        // Look up the CodeCraft reference from fulfillment_logs
+        const { data: fulfillmentLog } = await supabase
+          .from("fulfillment_logs")
+          .select("api_response")
+          .eq("order_id", order.id)
+          .single()
+        
+        // Use CodeCraft reference if available, otherwise use our order ID
+        const codecraftRef = fulfillmentLog?.api_response?.codecraft_reference || 
+                             fulfillmentLog?.api_response?.reference_id ||
+                             order.id
+        
         // Determine correct endpoint
         const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
-        const url = `${codecraftApiUrl}/${endpoint}`
+        const url = `${codecraftApiUrl}/${endpoint}?reference_id=${encodeURIComponent(codecraftRef)}`
 
-        console.log(`[SYNC-ORDERS] Checking order ${order.id} (${order.orderType})...`)
+        console.log(`[SYNC-ORDERS] Checking order ${order.id} (CodeCraft ref: ${codecraftRef}, type: ${order.orderType})...`)
 
-        // Call CodeCraft API to verify order status with x-api-key header
+        // Call CodeCraft API to verify order status with GET and x-api-key header
         const response = await fetch(url, {
-          method: "POST",
+          method: "GET",
           headers: { 
-            "Content-Type": "application/json",
             "x-api-key": codecraftApiKey,
           },
-          body: JSON.stringify({
-            reference_id: order.id,
-          }),
         })
 
         const responseText = await response.text()

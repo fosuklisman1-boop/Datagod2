@@ -384,24 +384,18 @@ class ATiShareService {
       // Use external reference if available, otherwise use our orderId
       const lookupRef = externalReference || orderId
 
-      // New API format: GET request with reference_id as query parameter or POST with JSON body
-      // Using POST since GET with body isn't universally supported
-      const url = `${codecraftApiUrl}/${endpoint}`
-      const requestBody = {
-        reference_id: lookupRef,
-      }
+      // API docs say GET with reference_id in payload
+      // Try GET with query parameter first, then fall back to POST if needed
+      const url = `${codecraftApiUrl}/${endpoint}?reference_id=${encodeURIComponent(lookupRef)}`
 
       console.log(`[CODECRAFT] Calling ${url}`)
-      console.log(`[CODECRAFT] Request body:`, JSON.stringify(requestBody))
 
-      // API uses GET with payload - using POST for JSON body support, with x-api-key header
+      // Try GET request with query parameter and x-api-key header
       const response = await fetch(url, {
-        method: "POST",
+        method: "GET",
         headers: { 
-          "Content-Type": "application/json",
           "x-api-key": codecraftApiKey,
         },
-        body: JSON.stringify(requestBody),
       })
 
       console.log(`[CODECRAFT] HTTP Status: ${response.status}`)
@@ -636,16 +630,13 @@ class ATiShareService {
         endpoint = "response_big_time.php"
       }
 
-      // New API format: x-api-key header for authentication, reference_id in body
-      const response = await fetch(`${codecraftApiUrl}/${endpoint}`, {
-        method: "POST",
+      // API docs say GET with reference_id - using query parameter
+      const url = `${codecraftApiUrl}/${endpoint}?reference_id=${encodeURIComponent(orderId)}`
+      const response = await fetch(url, {
+        method: "GET",
         headers: {
-          "Content-Type": "application/json",
           "x-api-key": codecraftApiKey,
         },
-        body: JSON.stringify({
-          reference_id: orderId,
-        }),
       })
 
       const data = await response.json()
