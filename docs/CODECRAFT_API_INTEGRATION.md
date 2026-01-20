@@ -13,89 +13,127 @@ CODECRAFT_API_URL=https://api.codecraftnetwork.com/api
 CODECRAFT_API_KEY=your_api_key_here
 ```
 
+## Authentication
+All requests require an API key sent via headers:
+```
+x-api-key: YOUR_API_KEY
+```
+
 ## API Integration Details
 
-### Fulfillment Initiation
+### Create Order - Regular Packages
 **Endpoint**: `POST https://api.codecraftnetwork.com/api/initiate.php`
+
+**Headers**:
+```
+Content-Type: application/json
+x-api-key: YOUR_API_KEY
+```
 
 **Request Body**:
 ```json
 {
-  "agent_api": "your_api_key",
   "recipient_number": "0554226398",
-  "network": "MTN, TELECEL, or AT",
-  "gig": "1, 2, 5, 10, etc (in GB)",
-  "reference_id": "order-uuid"
+  "gig": "1",
+  "network": "MTN | AT | TELECEL"
 }
 ```
 
-**Response** (200 - Success):
+Note: Reference/Order ID is generated automatically by the API.
+
+**Response** (Success):
 ```json
 {
   "status": 200,
-  "message": "Successful"
+  "message": "Order recorded successfully",
+  "reference_id": "API0552321442c5ddfe6"
 }
 ```
 
-**Response Codes**:
-- `200` - Successful (order initiated)
-- `100` - Admin wallet balance too low
-- `101` - Service out of stock
-- `102` - Agent not found
-- `103` - Price not found
-- `555` - Network not found
-- `500` - Various server errors
+### Create Order - BigTime Packages
+**Endpoint**: `POST https://api.codecraftnetwork.com/api/special.php`
 
-### Status Verification
-
-#### Regular Networks (MTN, TELECEL, AT)
-**Endpoint**: `POST https://api.codecraftnetwork.com/api/response_regular.php`
-
-**Request**:
+**Request Body**:
 ```json
 {
-  "reference_id": "order-uuid",
-  "agent_api": "your_api_key"
+  "recipient_number": "0554226398",
+  "gig": "50",
+  "network": "MTN | AT"
 }
 ```
 
 **Response**:
 ```json
 {
-  "status": "success",
-  "code": 200,
-  "order_details": {
+  "status": 200,
+  "message": "Order recorded successfully",
+  "reference_id": "API0552321442c5ddfe6"
+}
+```
+
+### Status Codes
+| Code | Meaning |
+|------|---------|
+| 200  | Successful |
+| 100  | Admin wallet is low |
+| 101  | Account out of stock |
+| 102  | Agent not found |
+| 103  | Price not found |
+| 500  | Internal system error |
+| 555  | Network not found |
+
+### Check Order Status - Regular Orders
+**Endpoint**: `GET https://api.codecraftnetwork.com/api/response_regular.php`
+
+**Request Body**:
+```json
+{
+  "reference_id": "API0552321442c5ddfe6"
+}
+```
+
+**Response**:
+```json
+{
+  "status": 200,
+  "success": true,
+  "message": "Order found",
+  "data": {
     "beneficiary": "0554226398",
     "gig": "1",
     "network": "MTN",
-    "price": "10",
-    "order_time": "02:32:54 AM",
-    "order_date": "Tuesday, December 09, 2025",
-    "order_status": "Successful"
+    "order_date": "Sunday, January 18, 2026",
+    "order_time": "23:21:44 PM",
+    "price": 4.2,
+    "order_status": "Pending"
   }
 }
 ```
 
-#### BigTime Network
-**Endpoint**: `POST https://api.codecraftnetwork.com/api/response_big_time.php`
+### Check Order Status - BigTime Orders
+**Endpoint**: `GET https://api.codecraftnetwork.com/api/response_big_time.php`
 
-**Request**:
+**Request Body**:
 ```json
 {
-  "reference_id": "order-uuid",
-  "agent_api": "your_api_key"
+  "reference_id": "API0552321442c5ddfe6"
 }
 ```
 
 **Response**:
 ```json
 {
-  "status": "success",
-  "code": 200,
-  "order_details": {
+  "status": 200,
+  "success": true,
+  "message": "Order found",
+  "data": {
     "beneficiary": "0554226398",
-    "gig": "30",
-    "order_status": "Successful"
+    "gig": "50",
+    "network": "MTN",
+    "order_date": "Sunday, January 18, 2026",
+    "order_time": "23:21:44 PM",
+    "price": 40.0,
+    "order_status": "Pending"
   }
 }
 ```

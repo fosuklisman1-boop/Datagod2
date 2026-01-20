@@ -103,13 +103,15 @@ export async function POST(request: NextRequest) {
 
         console.log(`[SYNC-ORDERS] Checking order ${order.id} (${order.orderType})...`)
 
-        // Call CodeCraft API to verify order status
+        // Call CodeCraft API to verify order status with x-api-key header
         const response = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "x-api-key": codecraftApiKey,
+          },
           body: JSON.stringify({
             reference_id: order.id,
-            agent_api: codecraftApiKey,
           }),
         })
 
@@ -130,11 +132,11 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Check multiple possible status locations
+        // New API format: { status: 200, success: true, data: { order_status: "..." } }
+        // Check multiple possible status locations for backwards compatibility
         const orderStatus = (
-          data.order_details?.order_status || 
-          data.order_status || 
-          data.status || 
+          data.data?.order_status ||  // New format
+          data.order_details?.order_status ||  // Legacy format
           ""
         ).toLowerCase()
 
@@ -149,7 +151,7 @@ export async function POST(request: NextRequest) {
           completed++
         } else if (orderStatus.includes("failed") || orderStatus.includes("error") || orderStatus.includes("cancelled") || orderStatus.includes("canceled") || orderStatus.includes("rejected") || orderStatus.includes("refund")) {
           newStatus = "failed"
-          message = data.order_details?.order_status || data.message || "Delivery failed at CodeCraft"
+          message = data.data?.order_status || data.order_details?.order_status || data.message || "Delivery failed at CodeCraft"
           failed++
         } else {
           // Still processing or unknown status

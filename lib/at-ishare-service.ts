@@ -14,7 +14,6 @@ interface FulfillmentRequest {
   network?: string
   orderType?: "wallet" | "shop"  // wallet = orders table, shop = shop_orders table
   isBigTime?: boolean  // true for AT-BigTime orders (uses special.php endpoint)
-  customer_email?: string // For Big Time orders, mapped to client_email
 }
 
 interface FulfillmentResponse {
@@ -44,7 +43,7 @@ class ATiShareService {
    * For AT-BigTime orders, uses the special.php endpoint
    */
   async fulfillOrder(request: FulfillmentRequest): Promise<FulfillmentResponse> {
-    const { phoneNumber, sizeGb, orderId, network = "AT", orderType = "wallet", isBigTime = false, customer_email } = request
+    const { phoneNumber, sizeGb, orderId, network = "AT", orderType = "wallet", isBigTime = false } = request
 
     try {
       console.log(`[CODECRAFT-FULFILL] Starting fulfillment request`)
@@ -54,6 +53,7 @@ class ATiShareService {
       console.log(`[CODECRAFT-FULFILL] Size: ${sizeGb}GB`)
       console.log(`[CODECRAFT-FULFILL] Network: ${network}`)
       console.log(`[CODECRAFT-FULFILL] Is BigTime: ${isBigTime}`)
+      console.log(`[CODECRAFT-FULFILL] API URL: ${codecraftApiUrl}`)
 
       // Validate inputs - sizeGb must be greater than 0
       if (!phoneNumber || !orderId) {
@@ -134,43 +134,27 @@ class ATiShareService {
       }
 
       // Prepare Code Craft Network API request
-
-      // Build API request, add client_email for Big Time (required by special.php)
+      // New API format: only recipient_number, gig, network required
+      // reference_id is generated automatically by the API and returned in response
       const apiRequest: Record<string, any> = {
-        agent_api: codecraftApiKey,
         recipient_number: phoneNumber,
-        network: network,
         gig: sizeGb.toString(),
-        reference_id: orderId,
+        network: network,
       };
-      
-      // For BigTime orders, client_email is REQUIRED by the Code Craft API
-      if (isBigTime) {
-        if (!customer_email) {
-          const errorMsg = `BigTime order requires client_email but none was provided`;
-          console.error(`[CODECRAFT-FULFILL] ❌ ${errorMsg}`);
-          return {
-            success: false,
-            errorCode: "MISSING_EMAIL",
-            message: errorMsg,
-          };
-        }
-        apiRequest.client_email = customer_email;
-        console.log(`[CODECRAFT-FULFILL] BigTime order - client_email: ${customer_email}`);
-      }
 
       // Use different endpoint for BigTime orders
       const apiEndpoint = isBigTime ? `${codecraftApiUrl}/special.php` : `${codecraftApiUrl}/initiate.php`
 
       console.log(`[CODECRAFT-FULFILL] Calling Code Craft API...`)
       console.log(`[CODECRAFT-FULFILL] API URL: ${apiEndpoint}`)
-      console.log(`[CODECRAFT-FULFILL] Request payload: agent_api=***, recipient_number=${phoneNumber}, network=${network}, gig=${sizeGb}, reference_id=${orderId}${isBigTime ? `, client_email=${customer_email}` : ''}`)
+      console.log(`[CODECRAFT-FULFILL] Request payload: recipient_number=${phoneNumber}, gig=${sizeGb}, network=${network}`)
 
-      // Call Code Craft Network API
+      // Call Code Craft Network API with x-api-key header for authentication
       const response = await fetch(apiEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-api-key": codecraftApiKey,
         },
         body: JSON.stringify(apiRequest),
       })
@@ -207,21 +191,26 @@ class ATiShareService {
 
       console.log(`[CODECRAFT-FULFILL] Response Data:`, responseData)
 
-      // Check if Code Craft returned their own order/transaction ID
-      const codecraftOrderId = responseData.order_id || responseData.transaction_id || responseData.id || null
-      if (codecraftOrderId) {
-        console.log(`[CODECRAFT-FULFILL] Code Craft returned order ID: ${codecraftOrderId}`)
+      // New API format: status code is in JSON body, not HTTP status
+      // Success: { status: 200, message: "Order recorded successfully", reference_id: "API..." }
+      // Error codes: 100 (wallet low), 101 (out of stock), 102 (agent not found), 103 (price not found), 555 (network not found), 500 (internal error)
+      const apiStatusCode = responseData.status || httpStatus
+      const codecraftRefId = responseData.reference_id || responseData.order_id || responseData.transaction_id || responseData.id || null
+      
+      if (codecraftRefId) {
+        console.log(`[CODECRAFT-FULFILL] Code Craft returned reference_id: ${codecraftRefId}`)
       }
 
-      // Handle response based on HTTP status code
-      // HTTP 200 = Success (as per API documentation)
+      // Handle response based on API status code in response body
+      // status: 200 = Success (as per new API documentation)
       // Other codes = Failed
-      if (httpStatus === 200) {
+      if (apiStatusCode === 200) {
         console.log(`[CODECRAFT] Order request accepted: ${orderId}`)
-        console.log(`[CODECRAFT] API Message: ${responseData.message || "Sent Successfully"}`)
+        console.log(`[CODECRAFT] API Message: ${responseData.message || "Order recorded successfully"}`)
+        console.log(`[CODECRAFT] Code Craft Reference: ${codecraftRefId || "none"}`)
         
-        // Store Code Craft's reference if returned (for later verification)
-        const externalRef = codecraftOrderId || orderId
+        // Store Code Craft's reference_id for later verification
+        const externalRef = codecraftRefId || orderId
         
         // Log fulfillment attempt (initially as "processing")
         await this.logFulfillment(
@@ -244,8 +233,8 @@ class ATiShareService {
           await new Promise(resolve => setTimeout(resolve, pollIntervals[i]))
 
           // Verify the actual status from Code Craft
-          // Pass codecraftOrderId if they returned one
-          verifyResult = await this.verifyAndUpdateStatus(orderId, network, orderType, isBigTime, codecraftOrderId || undefined)
+          // Pass codecraftRefId if they returned one
+          verifyResult = await this.verifyAndUpdateStatus(orderId, network, orderType, isBigTime, codecraftRefId || undefined)
           
           console.log(`[CODECRAFT] Verification attempt ${i + 1}: ${verifyResult.actualStatus}`)
 
@@ -291,16 +280,26 @@ class ATiShareService {
 
           return {
             success: true,
-            reference: orderId,
+            reference: codecraftRefId || orderId,
             message: "Order submitted, awaiting confirmation from network (will be checked again in 30 min)",
           }
         }
       }
 
-      // HTTP status is not 200 - order failed
-      const errorMessage = responseData.message || `Order Failed: [${httpStatus}] Unknown error`
+      // API status code is not 200 - order failed
+      // Map status codes to meaningful error messages
+      const statusCodeMessages: Record<number, string> = {
+        100: "Admin wallet is low - contact support",
+        101: "Account out of stock - contact support",
+        102: "Agent not found - invalid API configuration",
+        103: "Price not found for this package",
+        500: "Internal system error at Code Craft",
+        555: "Network not found - invalid network specified",
+      }
+      
+      const errorMessage = statusCodeMessages[apiStatusCode] || responseData.message || `Order Failed: [${apiStatusCode}] Unknown error`
 
-      console.error(`[CODECRAFT] API Error: HTTP ${httpStatus}`, responseData)
+      console.error(`[CODECRAFT] API Error: Status ${apiStatusCode}`, responseData)
       console.error(`[CODECRAFT] Error Message: ${errorMessage}`)
 
       // Log failed fulfillment attempt
@@ -324,8 +323,8 @@ class ATiShareService {
 
       return {
         success: false,
-        statusCode: httpStatus,
-        errorCode: `CODE_${responseData.status || httpStatus}`,
+        statusCode: apiStatusCode,
+        errorCode: `CODE_${apiStatusCode}`,
         message: errorMessage,
       }
     } catch (error) {
@@ -381,22 +380,27 @@ class ATiShareService {
 
       // Determine correct endpoint
       const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
-      const url = `${codecraftApiUrl}/${endpoint}`
-
+      
       // Use external reference if available, otherwise use our orderId
       const lookupRef = externalReference || orderId
 
+      // New API format: GET request with reference_id as query parameter or POST with JSON body
+      // Using POST since GET with body isn't universally supported
+      const url = `${codecraftApiUrl}/${endpoint}`
       const requestBody = {
         reference_id: lookupRef,
-        agent_api: codecraftApiKey,
       }
 
       console.log(`[CODECRAFT] Calling ${url}`)
       console.log(`[CODECRAFT] Request body:`, JSON.stringify(requestBody))
 
+      // API uses GET with payload - using POST for JSON body support, with x-api-key header
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-api-key": codecraftApiKey,
+        },
         body: JSON.stringify(requestBody),
       })
 
@@ -434,11 +438,12 @@ class ATiShareService {
         }
       }
 
-      // Check multiple possible status locations
+      // New API response format: { status: 200, success: true, data: { order_status: "Pending", ... } }
+      // Check multiple possible status locations for backwards compatibility
       const orderStatus = (
-        data.order_details?.order_status || 
+        data.data?.order_status ||  // New format: data.data.order_status
+        data.order_details?.order_status ||  // Legacy format
         data.order_status || 
-        data.status || 
         ""
       ).toLowerCase()
 
@@ -455,7 +460,7 @@ class ATiShareService {
       // Only mark as failed if we get an EXPLICIT failure (not just "order not found")
       else if (orderStatus.includes("failed") || orderStatus.includes("cancelled") || orderStatus.includes("canceled") || orderStatus.includes("rejected") || orderStatus.includes("refund")) {
         actualStatus = "failed"
-        message = data.order_details?.order_status || data.message || "Delivery failed/cancelled"
+        message = data.data?.order_status || data.order_details?.order_status || data.message || "Delivery failed/cancelled"
       } 
       // Everything else stays as processing (including empty, pending, error, not found)
       else {
@@ -631,14 +636,15 @@ class ATiShareService {
         endpoint = "response_big_time.php"
       }
 
+      // New API format: x-api-key header for authentication, reference_id in body
       const response = await fetch(`${codecraftApiUrl}/${endpoint}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-api-key": codecraftApiKey,
         },
         body: JSON.stringify({
           reference_id: orderId,
-          agent_api: codecraftApiKey,
         }),
       })
 
@@ -646,14 +652,14 @@ class ATiShareService {
       
       console.log(`[CODECRAFT] Verification response:`, data)
 
-      // Check if order was successful
-      if (data.status === "success" && data.code === 200) {
-        const orderStatus = data.order_details?.order_status || "Unknown"
-        const isSuccessful = orderStatus.toLowerCase().includes("successful") || orderStatus.toLowerCase().includes("delivered")
+      // New API format: { status: 200, success: true, data: { order_status: "..." } }
+      if (data.status === 200 && data.success === true) {
+        const orderStatus = data.data?.order_status || "Unknown"
+        const isSuccessful = orderStatus.toLowerCase().includes("successful") || orderStatus.toLowerCase().includes("delivered") || orderStatus.toLowerCase().includes("completed")
         
         return {
           success: isSuccessful,
-          details: data.order_details,
+          details: data.data,
         }
       }
 
