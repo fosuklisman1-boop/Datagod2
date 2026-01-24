@@ -846,7 +846,7 @@ class ATiShareService {
       console.log(`[CODECRAFT-LOG] Table: ${tableName}`)
       
       // Build update object based on order type
-      let updateData: Record<string, any> = {
+      const updateData: Record<string, any> = {
         updated_at: new Date().toISOString(),
       }
       
