@@ -69,21 +69,26 @@ export const SMSTemplates = {
  * Accepts: +233XXXXXXXXX, 0XXXXXXXXX, 233XXXXXXXXX
  * Returns: +233XXXXXXXXX
  */
-function normalizePhoneNumber(phone: string): string {
-  // Remove spaces, dashes, parentheses
-  phone = phone.replace(/[\s\-\(\)]/g, '')
+export function normalizePhoneNumber(phone: string): string {
+  // Remove spaces, dashes, parentheses, and plus sign
+  phone = phone.replace(/[\s\-\(\)\+]/g, '')
 
-  // If starts with 0 (local Ghana format), replace with +233
+  // If starts with 233 (country code), it's already normalized (without +)
+  if (phone.startsWith('233') && phone.length >= 12) {
+    return '+' + phone
+  }
+
+  // If starts with 0 (local Ghana format), replace with 233
   if (phone.startsWith('0')) {
-    phone = '+233' + phone.substring(1)
+    phone = '233' + phone.substring(1)
   }
 
-  // If doesn't have country code, add it
-  if (!phone.startsWith('+')) {
-    phone = '+233' + phone
+  // If still doesn't start with 233 and is 9 digits, add 233
+  if (!phone.startsWith('233') && phone.length === 9) {
+    phone = '233' + phone
   }
 
-  return phone
+  return '+' + phone
 }
 
 /**
