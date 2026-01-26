@@ -109,6 +109,7 @@ export default function AdminUsersPage() {
   const [userStats, setUserStats] = useState<UserStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
   const [downloadRoleFilter, setDownloadRoleFilter] = useState<string>("all")
+  const [isUpdatingBalance, setIsUpdatingBalance] = useState(false)
 
   useEffect(() => {
     checkAdminAccess()
@@ -223,6 +224,7 @@ export default function AdminUsersPage() {
     }
 
     try {
+      setIsUpdatingBalance(true)
       if (!selectedUser.shop?.id) {
         toast.error("User has no shop")
         return
@@ -241,6 +243,8 @@ export default function AdminUsersPage() {
     } catch (error: any) {
       console.error("Error updating balance:", error)
       toast.error(error.message || "Failed to update balance")
+    } finally {
+      setIsUpdatingBalance(false)
     }
   }
 
@@ -908,9 +912,17 @@ export default function AdminUsersPage() {
                 </div>
                 <Button
                   onClick={handleUpdateBalance}
+                  disabled={isUpdatingBalance || !balanceAmount}
                   className={`w-full ${balanceAction === "credit" ? "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700" : "bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700"}`}
                 >
-                  {balanceAction === "credit" ? "Credit" : "Debit"} Amount
+                  {isUpdatingBalance ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>{balanceAction === "credit" ? "Credit" : "Debit"} Amount</>
+                  )}
                 </Button>
               </div>
             )}
