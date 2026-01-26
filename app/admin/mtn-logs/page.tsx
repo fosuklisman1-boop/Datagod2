@@ -18,7 +18,9 @@ import {
   ArrowLeft,
   Phone,
   Send,
-  ExternalLink
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
@@ -54,6 +56,8 @@ interface Summary {
   retrying: number
 }
 
+const ITEMS_PER_PAGE = 25
+
 export default function MTNFulfillmentLogsPage() {
   const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -65,13 +69,20 @@ export default function MTNFulfillmentLogsPage() {
   const [retrying, setRetrying] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+
+  // Reset to page 1 when tab changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [activeTab])
 
   useEffect(() => {
     if (adminLoading) return
     if (!isAdmin) return
 
     loadLogs()
-  }, [isAdmin, adminLoading, activeTab])
+  }, [isAdmin, adminLoading, activeTab, currentPage])
 
   const loadLogs = async () => {
     try {
@@ -83,7 +94,8 @@ export default function MTNFulfillmentLogsPage() {
       }
 
       const statusParam = activeTab !== "all" ? `&status=${activeTab}` : ""
-      const response = await fetch(`/api/admin/fulfillment/mtn-logs?limit=100${statusParam}&t=${Date.now()}`, {
+      const offset = (currentPage - 1) * ITEMS_PER_PAGE
+      const response = await fetch(`/api/admin/fulfillment/mtn-logs?limit=${ITEMS_PER_PAGE}&offset=${offset}${statusParam}&t=${Date.now()}`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           "Cache-Control": "no-cache",
@@ -94,6 +106,7 @@ export default function MTNFulfillmentLogsPage() {
         const data = await response.json()
         setLogs(data.logs || [])
         setSummary(data.summary || { total: 0, pending: 0, processing: 0, completed: 0, failed: 0, retrying: 0 })
+        setTotalCount(data.count || 0)
       } else {
         toast.error("Failed to load MTN logs")
       }
@@ -459,6 +472,70 @@ export default function MTNFulfillmentLogsPage() {
                         ))}
                       </TableBody>
                     </Table>
+                  </div>
+                )}
+
+                {/* Pagination Controls */}
+                {totalCount > ITEMS_PER_PAGE && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount} entries
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1 || loading}
+                      >
+                        <ChevronLeft className="w-4 h-4 mr-1" />
+                        Previous
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        {(() => {
+                          const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
+                          const pages: (number | string)[] = []
+                          
+                          if (totalPages <= 7) {
+                            for (let i = 1; i <= totalPages; i++) pages.push(i)
+                          } else {
+                            pages.push(1)
+                            if (currentPage > 3) pages.push("...")
+                            for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+                              pages.push(i)
+                            }
+                            if (currentPage < totalPages - 2) pages.push("...")
+                            pages.push(totalPages)
+                          }
+                          
+                          return pages.map((page, idx) => (
+                            page === "..." ? (
+                              <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">...</span>
+                            ) : (
+                              <Button
+                                key={page}
+                                variant={currentPage === page ? "default" : "outline"}
+                                size="sm"
+                                className="w-8 h-8 p-0"
+                                onClick={() => setCurrentPage(page as number)}
+                                disabled={loading}
+                              >
+                                {page}
+                              </Button>
+                            )
+                          ))
+                        })()}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(totalCount / ITEMS_PER_PAGE), p + 1))}
+                        disabled={currentPage >= Math.ceil(totalCount / ITEMS_PER_PAGE) || loading}
+                      >
+                        Next
+                        <ChevronRight className="w-4 h-4 ml-1" />
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>
