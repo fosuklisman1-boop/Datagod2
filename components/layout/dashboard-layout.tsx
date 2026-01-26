@@ -44,7 +44,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     const fetchAnnouncement = async () => {
       try {
         console.log("[ANNOUNCEMENT] Fetching announcement settings...")
-        const response = await fetch("/api/admin/settings")
+        const response = await fetch(`/api/admin/settings?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+          },
+        })
         const data = await response.json()
 
         console.log("[ANNOUNCEMENT] Settings response:", {
