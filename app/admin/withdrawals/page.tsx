@@ -222,23 +222,23 @@ export default function WithdrawalsPage() {
                 <CardContent className="pt-6">
                   <div className="space-y-4">
                     {/* Header */}
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
                           {getStatusIcon(withdrawal.status)}
-                          <h3 className="font-semibold text-lg">
+                          <h3 className="font-semibold text-lg truncate">
                             {withdrawal.user_shops?.shop_name || "Shop"}
                           </h3>
                           <Badge className={getStatusBadgeColor(withdrawal.status)}>
                             {withdrawal.status.toUpperCase()}
                           </Badge>
                         </div>
-                        <p className="text-xs text-gray-500">{withdrawal.reference_code}</p>
+                        <p className="text-xs text-gray-500 truncate">{withdrawal.reference_code}</p>
                         <p className="text-xs text-gray-400 mt-1">
                           📅 {new Date(withdrawal.created_at).toLocaleString()}
                         </p>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right shrink-0">
                         <p className="text-2xl font-bold text-gray-900">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
                         <p className="text-xs text-gray-600 capitalize">{withdrawal.withdrawal_method}</p>
                         {withdrawal.fee_amount && withdrawal.fee_amount > 0 && (
