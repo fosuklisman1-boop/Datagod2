@@ -203,6 +203,22 @@ export async function POST(request: NextRequest) {
         // Create profit records
         for (const order of ordersToFix) {
             try {
+                // Double-check if profit exists (prevents race conditions)
+                const { data: alreadyExists } = await supabase
+                    .from("shop_profits")
+                    .select("id")
+                    .eq("shop_order_id", order.id)
+                    .maybeSingle()
+
+                if (alreadyExists) {
+                    results.push({
+                        orderId: order.id,
+                        success: true,
+                        message: "Profit already exists (skipped)",
+                    })
+                    continue
+                }
+
                 // Get current balance for the shop
                 const { data: allProfits } = await supabase
                     .from("shop_profits")
@@ -231,12 +247,21 @@ export async function POST(request: NextRequest) {
                     })
 
                 if (profitError) {
-                    console.error(`[FIX-MISSING-PROFITS] Error creating profit for ${order.id}:`, profitError)
-                    results.push({
-                        orderId: order.id,
-                        success: false,
-                        error: profitError.message
-                    })
+                    // Check if it's a duplicate key error
+                    if (profitError.code === "23505") {
+                        results.push({
+                            orderId: order.id,
+                            success: true,
+                            message: "Profit already exists (constraint)",
+                        })
+                    } else {
+                        console.error(`[FIX-MISSING-PROFITS] Error creating profit for ${order.id}:`, profitError)
+                        results.push({
+                            orderId: order.id,
+                            success: false,
+                            error: profitError.message
+                        })
+                    }
                 } else {
                     console.log(`[FIX-MISSING-PROFITS] ✓ Created profit for order ${order.id}: GHS ${order.profit_amount}`)
                     results.push({
