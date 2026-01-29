@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
     console.log(`[SHOP-ORDER] ✓ Price verified: ${verifiedTotalPrice} GHS`)
 
     // Use verified prices instead of client-provided ones
-    const yfinalBasePrice = verifiedBasePrice
+    const finalBasePrice = verifiedBasePrice
     const finalProfitAmount = verifiedProfitMargin
     const finalTotalPrice = verifiedTotalPrice
 
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
     let parent_shop_id: string | null = null
     let parent_profit_amount: number | null = null
     let finalShopPackageId = shop_package_id
-    
+
     try {
       const { data: shopData, error: shopError } = await supabase
         .from("user_shops")
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
 
       if (!shopError && shopData?.parent_shop_id) {
         parent_shop_id = shopData.parent_shop_id
-        
+
         // For sub-agents, shop_package_id might be from sub_agent_shop_packages
         // We need to find the corresponding shop_packages entry or create one
         if (shop_package_id && package_id) {
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
             .eq("shop_id", shop_id)
             .eq("package_id", package_id)
             .single()
-          
+
           if (shopPkg) {
             // Use the existing shop_packages ID
             finalShopPackageId = shopPkg.id
@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
               .select("sub_agent_profit_margin")
               .eq("id", shop_package_id)
               .single()
-            
+
             const { data: newShopPkg, error: createError } = await supabase
               .from("shop_packages")
               .insert([{
@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
               }])
               .select("id")
               .single()
-            
+
             if (!createError && newShopPkg) {
               finalShopPackageId = newShopPkg.id
             } else {
@@ -203,21 +203,21 @@ export async function POST(request: NextRequest) {
             }
           }
         }
-        
+
         // Calculate parent's profit: the wholesale_margin from sub_agent_catalog
         // Parent profit = wholesale_margin (what parent charges above admin price)
         // NOT base_price - admin_price (that's the sub-agent's total margin)
         console.log(`[SHOP-ORDER] Looking up catalog for parent_shop_id=${parent_shop_id}, package_id=${package_id}`)
-        
+
         const { data: catalogEntry, error: catalogError } = await supabase
           .from("sub_agent_catalog")
           .select("wholesale_margin, parent_price")
           .eq("shop_id", parent_shop_id)
           .eq("package_id", package_id)
           .single()
-        
+
         console.log(`[SHOP-ORDER] Catalog lookup result:`, { catalogEntry, catalogError })
-        
+
         if (catalogEntry && catalogEntry.wholesale_margin !== null && catalogEntry.wholesale_margin !== undefined && catalogEntry.wholesale_margin > 0) {
           parent_profit_amount = catalogEntry.wholesale_margin
           console.log(`[SHOP-ORDER] Using wholesale_margin from catalog: ${parent_profit_amount}`)
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
             .select("price")
             .eq("id", package_id)
             .single()
-          
+
           const adminPrice = packageData?.price || 0
           parent_profit_amount = catalogEntry.parent_price - adminPrice
           if (parent_profit_amount < 0) parent_profit_amount = 0
@@ -240,17 +240,17 @@ export async function POST(request: NextRequest) {
             .select("price")
             .eq("id", package_id)
             .single()
-          
+
           const adminPrice = packageData?.price || 0
           // Calculate: parent profit = what sub-agent pays (base_price) - admin price - sub-agent profit
           // Actually, for storefront orders: sub-agent sells at base_price + profit_amount
           // So parent profit = base_price - admin_price (the wholesale markup)
           // Use verified base price, not client-provided
           parent_profit_amount = finalBasePrice - adminPrice
-          
+
           // Ensure it's not negative
           if (parent_profit_amount < 0) parent_profit_amount = 0
-          
+
           console.warn(`[SHOP-ORDER] No catalog entry found, using fallback calculation: finalBasePrice(${finalBasePrice}) - adminPrice(${adminPrice}) = ${parent_profit_amount}`)
         }
 
