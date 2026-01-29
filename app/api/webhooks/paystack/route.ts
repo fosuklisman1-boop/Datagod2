@@ -163,25 +163,86 @@ export async function POST(request: NextRequest) {
 
 
 
-      // CRITICAL SECURITY CHECK: For shop orders, verify against shop_orders.total_price
-      // Compare as integers in pesewas to avoid floating-point issues
+      // CRITICAL SECURITY CHECK: For shop orders, re-verify price using shop owner logic
       const paidAmountPesewas = Math.round(amount); // amount is already in pesewas
       let expectedAmountGHS = paymentData.amount;
+      let priceDebugInfo = {};
       if (paymentData.order_id) {
-        // Fetch the shop order and use its total_price for validation
+        // Fetch the shop order and all relevant fields
         const { data: shopOrder, error: shopOrderError } = await supabase
           .from("shop_orders")
-          .select("id, total_price")
+          .select("id, shop_id, shop_package_id, package_id, total_price")
           .eq("id", paymentData.order_id)
           .single();
-        if (shopOrder && typeof shopOrder.total_price === "number") {
-          expectedAmountGHS = shopOrder.total_price;
+        if (shopOrder) {
+          // Re-verify price using shop owner logic
+          let verifiedBasePrice = 0;
+          let verifiedProfitMargin = 0;
+          let verifiedTotalPrice = 0;
+          // Check if this is a sub-agent shop
+          const { data: shopData } = await supabase
+            .from("user_shops")
+            .select("parent_shop_id")
+            .eq("id", shopOrder.shop_id)
+            .single();
+          if (shopData?.parent_shop_id) {
+            // Sub-agent: verify from sub_agent_shop_packages or sub_agent_catalog
+            const { data: subAgentPkg } = await supabase
+              .from("sub_agent_shop_packages")
+              .select("parent_price, sub_agent_profit_margin, package_id")
+              .eq("id", shopOrder.shop_package_id)
+              .single();
+            if (subAgentPkg) {
+              verifiedBasePrice = subAgentPkg.parent_price;
+              verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0;
+              verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
+              priceDebugInfo = { source: "sub_agent_shop_packages", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
+            } else {
+              // Fallback to sub_agent_catalog
+              const { data: catalogEntry } = await supabase
+                .from("sub_agent_catalog")
+                .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(price)")
+                .eq("id", shopOrder.shop_package_id)
+                .single();
+              if (catalogEntry) {
+                const parentPrice = catalogEntry.parent_price || (catalogEntry.package as any)?.price || 0;
+                const margin = catalogEntry.sub_agent_profit_margin ?? catalogEntry.wholesale_margin ?? 0;
+                verifiedBasePrice = parentPrice;
+                verifiedProfitMargin = margin;
+                verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
+                priceDebugInfo = { source: "sub_agent_catalog", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
+              } else {
+                console.error("[WEBHOOK] ❌ Could not verify sub-agent package price");
+                verifiedTotalPrice = shopOrder.total_price || 0;
+                priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
+              }
+            }
+          } else {
+            // Regular shop: verify from shop_packages
+            const { data: shopPkg } = await supabase
+              .from("shop_packages")
+              .select("profit_margin, packages(price)")
+              .eq("id", shopOrder.shop_package_id)
+              .single();
+            if (shopPkg) {
+              verifiedBasePrice = (shopPkg.packages as any)?.price || 0;
+              verifiedProfitMargin = shopPkg.profit_margin || 0;
+              verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
+              priceDebugInfo = { source: "shop_packages", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
+            } else {
+              console.error("[WEBHOOK] ❌ Could not find shop package");
+              verifiedTotalPrice = shopOrder.total_price || 0;
+              priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
+            }
+          }
+          expectedAmountGHS = verifiedTotalPrice;
         }
       }
       const expectedAmountPesewas = Math.round(Number(expectedAmountGHS) * 100);
 
       if (paidAmountPesewas !== expectedAmountPesewas) {
         console.error(`[WEBHOOK] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmountPesewas/100}, Expected: ${expectedAmountPesewas/100}, Reference: ${reference}`);
+        console.error(`[WEBHOOK] Price debug info:`, priceDebugInfo);
         // Update payment as failed due to amount mismatch
         await supabase
           .from("wallet_payments")
@@ -209,7 +270,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      console.log(`[WEBHOOK] ✓ Payment amount verified: ${paidAmount} GHS`)
+      console.log(`[WEBHOOK] ✓ Payment amount verified: ${expectedAmountGHS} GHS`, priceDebugInfo);
 
       // Update payment status
       const { error: updateError } = await supabase
