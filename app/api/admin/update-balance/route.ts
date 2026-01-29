@@ -8,14 +8,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+export async function POST(request: NextRequest) {
+  // Server-side admin check
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) {
+    return errorResponse
+  }
 
   try {
-    // Server-side admin check
-    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
-    if (!isAdmin) {
-      return errorResponse
-    }
-
     const { shopId, amount, type } = await request.json()
 
     if (!shopId || amount === undefined || !type) {
