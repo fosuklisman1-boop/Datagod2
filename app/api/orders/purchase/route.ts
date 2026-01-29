@@ -4,6 +4,7 @@ import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { atishareService } from "@/lib/at-ishare-service"
+import { isPhoneBlacklisted } from "@/lib/blacklist"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
   createMTNOrder,
@@ -117,6 +118,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if phone is blacklisted
+    let phoneQueue = "default"
+    let orderStatus = "pending"
+    try {
+      const isBlacklisted = await isPhoneBlacklisted(phoneNumber)
+      if (isBlacklisted) {
+        phoneQueue = "blacklisted"
+        orderStatus = "blacklisted"
+        console.log(`[PURCHASE] Phone ${phoneNumber} is blacklisted - setting queue to 'blacklisted' and status to 'blacklisted'`)
+      }
+    } catch (blacklistError) {
+      console.warn("[PURCHASE] Error checking blacklist:", blacklistError)
+      // Continue with default queue if blacklist check fails
+    }
+
     // Create order
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
@@ -128,7 +144,8 @@ export async function POST(request: NextRequest) {
           size,
           price,
           phone_number: phoneNumber,
-          status: "pending",
+          status: orderStatus,
+          queue: phoneQueue,
           order_code: `ORD-${Date.now()}`,
           created_at: new Date().toISOString(),
         },
@@ -142,8 +159,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Deduct from wallet
-    const newBalance = wallet.balance - price
+    // Deduct from wallet (prevent negative balance)
+    const newBalance = Math.max(0, wallet.balance - price)
 
     const { error: updateWalletError } = await supabaseAdmin
       .from("wallets")
@@ -267,7 +284,6 @@ export async function POST(request: NextRequest) {
           network: apiNetwork,
           orderType: "wallet",  // Wallet orders use orders table
           isBigTime,
-          customer_email: isBigTime ? userEmail : undefined,
         }).then(result => {
           console.log(`[FULFILLMENT] Fulfillment response for order ${order[0].id}:`, result)
         }).catch(err => {
@@ -295,6 +311,24 @@ export async function POST(request: NextRequest) {
         // Non-blocking MTN fulfillment
         (async () => {
           try {
+            // Check if order is in blacklist queue
+            if (order[0].queue === "blacklisted") {
+              console.log(`[FULFILLMENT] ⚠️ Order ${order[0].id} is in blacklist queue - skipping MTN fulfillment`)
+              return
+            }
+
+            // Secondary check: verify phone number against blacklist
+            try {
+              const isBlacklisted = await isPhoneBlacklisted(phoneNumber)
+              if (isBlacklisted) {
+                console.log(`[FULFILLMENT] ⚠️ Phone ${phoneNumber} is blacklisted - skipping MTN fulfillment`)
+                return
+              }
+            } catch (blacklistError) {
+              console.warn("[FULFILLMENT] Error checking blacklist:", blacklistError)
+              // Continue if blacklist check fails
+            }
+
             const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
             const normalizedPhone = normalizePhoneNumber(phoneNumber)
             console.log(`[FULFILLMENT] Calling MTN API for order ${order[0].id}: ${normalizedPhone}, ${sizeGb}GB`)
@@ -379,6 +413,9 @@ export async function POST(request: NextRequest) {
       console.warn("[SMS] Failed to send purchase SMS:", smsError)
       // Don't fail the purchase if SMS fails
     }
+
+    // NOTE: Blacklist notification SMS and admin alerts are sent AFTER payment verification
+    // See: webhook and payment verify endpoints for SMS delivery
 
     return NextResponse.json({
       success: true,

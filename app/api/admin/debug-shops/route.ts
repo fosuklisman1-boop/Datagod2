@@ -13,33 +13,36 @@ export async function GET() {
       },
     })
 
-    // Get all shops
+    // Get all shops with pagination
     const { data: allShops, error: allError } = await supabase
       .from("user_shops")
       .select("*")
       .order("created_at", { ascending: false })
+      .range(0, 9999)
 
     if (allError) {
       return NextResponse.json({ error: allError.message }, { status: 500 })
     }
 
-    // Get pending shops - shops with is_active=false
+    // Get pending shops - shops with is_active=false with pagination
     const { data: pendingShops, error: pendingError } = await supabase
       .from("user_shops")
       .select("*")
       .eq("is_active", false)
       .order("created_at", { ascending: false })
+      .range(0, 9999)
 
     if (pendingError) {
       return NextResponse.json({ error: pendingError.message }, { status: 500 })
     }
 
-    // Get active shops
+    // Get active shops with pagination
     const { data: activeShops, error: activeError } = await supabase
       .from("user_shops")
       .select("*")
       .eq("is_active", true)
       .order("created_at", { ascending: false })
+      .range(0, 9999)
 
     if (activeError) {
       return NextResponse.json({ error: activeError.message }, { status: 500 })

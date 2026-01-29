@@ -1,0 +1,2 @@
+-- This migration was consolidated into 2026_01_09_add_order_id_to_mtn_fulfillment_tracking.sql
+-- Both order_id and order_type columns are now added together with proper indexes

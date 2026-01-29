@@ -63,18 +63,23 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get summary counts
-    const { data: statusCounts } = await supabase
-      .from("mtn_fulfillment_tracking")
-      .select("status")
+    // Get summary counts using efficient exact count queries
+    const [totalResult, pendingResult, processingResult, completedResult, failedResult, retryingResult] = await Promise.all([
+      supabase.from("mtn_fulfillment_tracking").select("id", { count: "exact", head: true }),
+      supabase.from("mtn_fulfillment_tracking").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("mtn_fulfillment_tracking").select("id", { count: "exact", head: true }).eq("status", "processing"),
+      supabase.from("mtn_fulfillment_tracking").select("id", { count: "exact", head: true }).eq("status", "completed"),
+      supabase.from("mtn_fulfillment_tracking").select("id", { count: "exact", head: true }).eq("status", "failed"),
+      supabase.from("mtn_fulfillment_tracking").select("id", { count: "exact", head: true }).eq("status", "retrying")
+    ])
 
     const summary = {
-      total: statusCounts?.length || 0,
-      pending: statusCounts?.filter(r => r.status === "pending").length || 0,
-      processing: statusCounts?.filter(r => r.status === "processing").length || 0,
-      completed: statusCounts?.filter(r => r.status === "completed").length || 0,
-      failed: statusCounts?.filter(r => r.status === "failed").length || 0,
-      retrying: statusCounts?.filter(r => r.status === "retrying").length || 0,
+      total: totalResult.count || 0,
+      pending: pendingResult.count || 0,
+      processing: processingResult.count || 0,
+      completed: completedResult.count || 0,
+      failed: failedResult.count || 0,
+      retrying: retryingResult.count || 0,
     }
 
     return NextResponse.json({

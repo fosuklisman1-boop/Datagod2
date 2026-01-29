@@ -7,6 +7,27 @@ import { Package, Zap, Users, ArrowRight, Lock } from "lucide-react"
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      {/* Organization + Website Schema */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "DATAGOD",
+            url: "https://www.datagod.store",
+            description: "Buy affordable data packages from multiple networks with instant delivery",
+            potentialAction: {
+              "@type": "SearchAction",
+              target: {
+                "@type": "EntryPoint",
+                urlTemplate: "https://www.datagod.store/shop?search={search_term_string}",
+              },
+              query_input: "required name=search_term_string",
+            },
+          }),
+        }}
+      />
       {/* Navigation */}
       <nav className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-6 py-4 border-b border-gray-200">
         <div className="flex items-center gap-3">

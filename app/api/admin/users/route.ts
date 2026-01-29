@@ -81,28 +81,60 @@ export async function GET(req: NextRequest) {
       .from("user_shops")
       .select("id, user_id, shop_name, created_at")
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (shopsError) {
       console.error("Error fetching shops:", shopsError)
       return NextResponse.json({ error: shopsError.message }, { status: 400 })
     }
 
-    // Get wallets info
-    const { data: wallets, error: walletsError } = await adminClient
-      .from("wallets")
-      .select("user_id, balance")
+    // Helper function to fetch all records in batches
+    async function fetchAllRecords(table: string, selectFields: string, additionalFilters?: (query: any) => any) {
+      let allRecords: any[] = []
+      let offset = 0
+      const batchSize = 1000
+      let hasMore = true
+      
+      while (hasMore) {
+        let query = adminClient
+          .from(table)
+          .select(selectFields)
+          .range(offset, offset + batchSize - 1)
+        
+        if (additionalFilters) {
+          query = additionalFilters(query)
+        }
+        
+        const { data, error } = await query
+        
+        if (error) throw error
+        
+        if (data && data.length > 0) {
+          allRecords = allRecords.concat(data)
+          offset += batchSize
+          hasMore = data.length === batchSize
+        } else {
+          hasMore = false
+        }
+      }
+      
+      return allRecords
+    }
 
-    if (walletsError) {
+    // Get wallets info - paginated
+    let wallets: any[] = []
+    try {
+      wallets = await fetchAllRecords("wallets", "user_id, balance")
+    } catch (walletsError: any) {
       console.error("Error fetching wallets:", walletsError)
       return NextResponse.json({ error: walletsError.message }, { status: 400 })
     }
 
-    // Get customer counts per shop
-    const { data: customerCounts, error: customerError } = await adminClient
-      .from("shop_customers")
-      .select("shop_id, id")
-
-    if (customerError) {
+    // Get customer counts per shop - paginated
+    let customerCounts: any[] = []
+    try {
+      customerCounts = await fetchAllRecords("shop_customers", "shop_id, id")
+    } catch (customerError: any) {
       console.error("Error fetching customer counts:", customerError)
       return NextResponse.json({ error: customerError.message }, { status: 400 })
     }
@@ -114,13 +146,37 @@ export async function GET(req: NextRequest) {
       customerCountMap.set(record.shop_id, count + 1)
     })
 
-    // Get sub-agent counts per parent shop
-    const { data: subAgentCounts, error: subAgentError } = await adminClient
-      .from("user_shops")
-      .select("parent_shop_id, id")
-      .not("parent_shop_id", "is", null)
-
-    if (subAgentError) {
+    // Get sub-agent counts per parent shop - paginated
+    let subAgentCounts: any[] = []
+    try {
+      // Fetch all user_shops and filter by parent_shop_id not null
+      let allShopsForSubAgents: any[] = []
+      let subOffset = 0
+      const subBatchSize = 1000
+      let hasMoreSubs = true
+      
+      while (hasMoreSubs) {
+        const { data: batchData, error: batchError } = await adminClient
+          .from("user_shops")
+          .select("parent_shop_id, id")
+          .not("parent_shop_id", "is", null)
+          .range(subOffset, subOffset + subBatchSize - 1)
+        
+        if (batchError) {
+          console.error("Error fetching sub-agent counts:", batchError)
+          break
+        }
+        
+        if (batchData && batchData.length > 0) {
+          allShopsForSubAgents = allShopsForSubAgents.concat(batchData)
+          subOffset += subBatchSize
+          hasMoreSubs = batchData.length === subBatchSize
+        } else {
+          hasMoreSubs = false
+        }
+      }
+      subAgentCounts = allShopsForSubAgents
+    } catch (subAgentError: any) {
       console.error("Error fetching sub-agent counts:", subAgentError)
       // Don't fail - just continue without sub-agent counts
     }
@@ -132,12 +188,11 @@ export async function GET(req: NextRequest) {
       subAgentCountMap.set(record.parent_shop_id, count + 1)
     })
 
-    // Get user profiles with phone numbers and roles
-    const { data: userProfiles, error: profilesError } = await adminClient
-      .from("users")
-      .select("id, phone_number, role")
-
-    if (profilesError) {
+    // Get user profiles with phone numbers and roles - paginated
+    let userProfiles: any[] = []
+    try {
+      userProfiles = await fetchAllRecords("users", "id, phone_number, role")
+    } catch (profilesError: any) {
       console.error("Error fetching user profiles:", profilesError)
       return NextResponse.json({ error: profilesError.message }, { status: 400 })
     }

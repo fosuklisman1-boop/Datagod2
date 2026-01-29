@@ -54,25 +54,31 @@ export default function AdminFulfillmentPage() {
   const loadFulfillments = async () => {
     try {
       setLoading(true)
-      let query = supabase
-        .from("fulfillment_logs")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(100)
-
-      if (filter !== "all") {
-        query = query.eq("status", filter)
-      }
-
-      const { data, error } = await query
-
-      if (error) {
-        console.error("Error loading fulfillments:", error)
-        toast.error("Failed to load fulfillments")
+      
+      // Get session to verify admin access
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
         return
       }
 
-      setFulfillments(data || [])
+      // Use backend API to bypass RLS and get all fulfillment logs
+      const statusParam = filter !== "all" ? `?status=${filter}` : ""
+      const response = await fetch(`/api/admin/fulfillment/logs${statusParam}`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error("Error loading fulfillments:", error)
+        toast.error(error.error || "Failed to load fulfillments")
+        return
+      }
+
+      const data = await response.json()
+      setFulfillments(data.logs || [])
     } catch (error) {
       console.error("Error:", error)
       toast.error("An error occurred")

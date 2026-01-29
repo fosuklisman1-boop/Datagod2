@@ -36,35 +36,58 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   // Load announcement settings on mount
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      console.log("[ANNOUNCEMENT] No user, skipping announcement fetch")
+      return
+    }
 
     const fetchAnnouncement = async () => {
       try {
-        const response = await fetch("/api/admin/settings")
+        console.log("[ANNOUNCEMENT] Fetching announcement settings...")
+        const response = await fetch(`/api/admin/settings?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+          },
+        })
         const data = await response.json()
 
+        console.log("[ANNOUNCEMENT] Settings response:", {
+          announcement_enabled: data.announcement_enabled,
+          announcement_title: data.announcement_title,
+          announcement_message: data.announcement_message,
+          fullData: data
+        })
+
         if (data.announcement_enabled && data.announcement_title && data.announcement_message) {
+          console.log("[ANNOUNCEMENT] Announcement is enabled and has content")
           // Create a unique key based on the announcement content
           // This ensures users see new announcements even if they've dismissed previous ones
           const announcementHash = btoa(unescape(encodeURIComponent(`${data.announcement_title}:${data.announcement_message}`))).substring(0, 16)
           const sessionKey = `announcement_seen_${user.id}_${announcementHash}`
           
+          console.log("[ANNOUNCEMENT] Session key:", sessionKey)
+          
           // Check if user has already seen THIS specific announcement in this session
           const hasSeenInSession = sessionStorage.getItem(sessionKey)
           
           if (hasSeenInSession) {
+            console.log("[ANNOUNCEMENT] User has already seen this announcement in this session")
             return
           }
 
+          console.log("[ANNOUNCEMENT] Showing announcement modal")
           setAnnouncementTitle(data.announcement_title)
           setAnnouncementMessage(data.announcement_message)
           setShowAnnouncement(true)
           
           // Store the session key for later use when closing
           sessionStorage.setItem("current_announcement_key", sessionKey)
+        } else {
+          console.log("[ANNOUNCEMENT] Announcement not enabled or missing content")
         }
       } catch (error) {
-        console.error("Error fetching announcement:", error)
+        console.error("[ANNOUNCEMENT] Error fetching announcement:", error)
       }
     }
 

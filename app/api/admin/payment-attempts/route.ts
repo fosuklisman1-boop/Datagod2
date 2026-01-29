@@ -123,19 +123,9 @@ export async function GET(request: NextRequest) {
       user_email: a.email || "Unknown",
     })) || []
 
-    // Calculate stats
-    const { data: allAttempts } = await supabase
-      .from("payment_attempts")
-      .select("status, amount, payment_type")
-
-    interface StatsRecord {
-      status: string
-      amount: number | string | null
-      payment_type: string
-    }
-
+    // Calculate stats - use RPC or multiple count queries to avoid 1000 row limit
     const stats = {
-      total: allAttempts?.length || 0,
+      total: count || 0,
       pending: 0,
       completed: 0,
       failed: 0,
@@ -146,20 +136,71 @@ export async function GET(request: NextRequest) {
       shopOrders: 0,
     }
 
-    ;(allAttempts as StatsRecord[] | null)?.forEach((a: StatsRecord) => {
+    // Get status counts without 1000 limit
+    const { count: pendingCount } = await supabase
+      .from("payment_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+
+    const { count: completedCount } = await supabase
+      .from("payment_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "completed")
+
+    const { count: failedCount } = await supabase
+      .from("payment_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "failed")
+
+    const { count: abandonedCount } = await supabase
+      .from("payment_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "abandoned")
+
+    const { count: walletCount } = await supabase
+      .from("payment_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("payment_type", "wallet_topup")
+
+    const { count: shopCount } = await supabase
+      .from("payment_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("payment_type", "shop_order")
+
+    // Get sum totals - paginate to avoid 1000 row limit
+    let allAmountData: any[] = []
+    let amountOffset = 0
+    const amountLimit = 1000
+    let hasMoreAmounts = true
+    
+    while (hasMoreAmounts) {
+      const { data: batchData } = await supabase
+        .from("payment_attempts")
+        .select("amount, status")
+        .range(amountOffset, amountOffset + amountLimit - 1)
+      
+      if (batchData && batchData.length > 0) {
+        allAmountData = allAmountData.concat(batchData)
+        amountOffset += amountLimit
+        hasMoreAmounts = batchData.length === amountLimit
+      } else {
+        hasMoreAmounts = false
+      }
+    }
+
+    stats.pending = pendingCount || 0
+    stats.completed = completedCount || 0
+    stats.failed = failedCount || 0
+    stats.abandoned = abandonedCount || 0
+    stats.walletTopups = walletCount || 0
+    stats.shopOrders = shopCount || 0
+
+    allAmountData.forEach((a: { amount: number | null; status: string }) => {
       const amount = parseFloat(String(a.amount)) || 0
       stats.totalAmount += amount
-      
-      if (a.status === "pending") stats.pending++
-      else if (a.status === "completed") {
-        stats.completed++
+      if (a.status === "completed") {
         stats.completedAmount += amount
       }
-      else if (a.status === "failed") stats.failed++
-      else if (a.status === "abandoned") stats.abandoned++
-
-      if (a.payment_type === "wallet_topup") stats.walletTopups++
-      else if (a.payment_type === "shop_order") stats.shopOrders++
     })
 
     return NextResponse.json({

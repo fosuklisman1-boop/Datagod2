@@ -97,20 +97,30 @@ export async function POST(request: NextRequest) {
         const networkLower = (order.network || "").toLowerCase()
         const isBigTime = networkLower.includes("bigtime") || networkLower.includes("big time")
         
+        // Look up the CodeCraft reference from fulfillment_logs
+        const { data: fulfillmentLog } = await supabase
+          .from("fulfillment_logs")
+          .select("api_response")
+          .eq("order_id", order.id)
+          .single()
+        
+        // Use CodeCraft reference if available, otherwise use our order ID
+        const codecraftRef = fulfillmentLog?.api_response?.codecraft_reference || 
+                             fulfillmentLog?.api_response?.reference_id ||
+                             order.id
+        
         // Determine correct endpoint
         const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
-        const url = `${codecraftApiUrl}/${endpoint}`
+        const url = `${codecraftApiUrl}/${endpoint}?reference_id=${encodeURIComponent(codecraftRef)}`
 
-        console.log(`[SYNC-ORDERS] Checking order ${order.id} (${order.orderType})...`)
+        console.log(`[SYNC-ORDERS] Checking order ${order.id} (CodeCraft ref: ${codecraftRef}, type: ${order.orderType})...`)
 
-        // Call CodeCraft API to verify order status
+        // Call CodeCraft API to verify order status with GET and x-api-key header
         const response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            reference_id: order.id,
-            agent_api: codecraftApiKey,
-          }),
+          method: "GET",
+          headers: { 
+            "x-api-key": codecraftApiKey,
+          },
         })
 
         const responseText = await response.text()
@@ -130,11 +140,11 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Check multiple possible status locations
+        // New API format: { status: 200, success: true, data: { order_status: "..." } }
+        // Check multiple possible status locations for backwards compatibility
         const orderStatus = (
-          data.order_details?.order_status || 
-          data.order_status || 
-          data.status || 
+          data.data?.order_status ||  // New format
+          data.order_details?.order_status ||  // Legacy format
           ""
         ).toLowerCase()
 
@@ -149,7 +159,7 @@ export async function POST(request: NextRequest) {
           completed++
         } else if (orderStatus.includes("failed") || orderStatus.includes("error") || orderStatus.includes("cancelled") || orderStatus.includes("canceled") || orderStatus.includes("rejected") || orderStatus.includes("refund")) {
           newStatus = "failed"
-          message = data.order_details?.order_status || data.message || "Delivery failed at CodeCraft"
+          message = data.data?.order_status || data.order_details?.order_status || data.message || "Delivery failed at CodeCraft"
           failed++
         } else {
           // Still processing or unknown status

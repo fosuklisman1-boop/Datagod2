@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       query = query.eq("status", status)
     }
 
-    const { data, error } = await query.order("created_at", { ascending: false })
+    const { data, error } = await query.order("created_at", { ascending: false }).range(0, 9999) // Paginate instead of unlimited
 
     if (error) {
       console.error("[WITHDRAWALS-API] Error:", error)

@@ -10,9 +10,7 @@ export async function GET() {
   try {
     console.log("Fetching pending shop orders (payment confirmed)...")
     
-    // Fetch shop orders where:
-    // 1. order_status is "pending" (not yet processed by admin)
-    // 2. payment_status is "completed" (payment has been verified)
+    // Fetch shop orders with pagination
     const { data, error } = await supabase
       .from("shop_orders")
       .select(`
@@ -34,6 +32,7 @@ export async function GET() {
       .eq("order_status", "pending")
       .eq("payment_status", "completed")
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (error) {
       console.error("Supabase error:", error)

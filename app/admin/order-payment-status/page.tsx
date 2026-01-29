@@ -7,15 +7,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, Loader2, Search, Edit } from "lucide-react"
+import { AlertCircle, Loader2, Search, Edit, Zap } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { Button } from "@/components/ui/button"
 
 interface AllOrder {
   id: string
   type: string
   phone_number: string
+  customer_email?: string
+  shop_owner_email?: string
+  store_name?: string
   network: string
   volume_gb: number
   price: number
@@ -43,12 +47,15 @@ export default function OrderPaymentStatusPage() {
   const [allOrders, setAllOrders] = useState<AllOrder[]>([])
   const [loadingAllOrders, setLoadingAllOrders] = useState(false)
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
+  const [fulfillingOrderId, setFulfillingOrderId] = useState<string | null>(null)
+  const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(false)
   
   const [searchQuery, setSearchQuery] = useState("")
   const [searchType, setSearchType] = useState<"all" | "reference" | "phone">("all")
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
+      loadAutoFulfillmentSetting()
       loadAllOrders()
     }
   }, [isAdmin, adminLoading])
@@ -58,6 +65,36 @@ export default function OrderPaymentStatusPage() {
       loadAllOrders()
     }
   }, [searchQuery, searchType, isAdmin])
+
+  const loadAutoFulfillmentSetting = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.error("[PAYMENT-STATUS] No session token available")
+        return
+      }
+
+      const response = await fetch("/api/admin/settings/mtn-auto-fulfillment", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        console.log("[PAYMENT-STATUS] Auto-fulfillment setting response:", data)
+        // The endpoint returns 'enabled' field, not 'setting'
+        const isEnabled = data.enabled === true || data.enabled === "true"
+        console.log("[PAYMENT-STATUS] Setting autoFulfillmentEnabled to:", isEnabled)
+        setAutoFulfillmentEnabled(isEnabled)
+      } else {
+        console.error("[PAYMENT-STATUS] Failed to load auto-fulfillment setting:", response.status)
+        const errorData = await response.json().catch(() => ({}))
+        console.error("[PAYMENT-STATUS] Error response:", errorData)
+      }
+    } catch (error) {
+      console.error("[PAYMENT-STATUS] Error loading auto-fulfillment setting:", error)
+    }
+  }
 
   const loadAllOrders = async () => {
     try {
@@ -130,6 +167,72 @@ export default function OrderPaymentStatusPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update status")
     } finally {
       setUpdatingOrderId(null)
+    }
+  }
+
+  const handleManualFulfill = async (orderId: string, orderType: string) => {
+    if (!autoFulfillmentEnabled) {
+      toast.error("Auto-fulfillment is not enabled")
+      return
+    }
+
+    try {
+      setFulfillingOrderId(orderId)
+      
+      // Find the actual order object to inspect its data
+      const orderObject = allOrders.find(o => o.id === orderId)
+      console.log("[PAYMENT-STATUS] Order object to fulfill:", {
+        id: orderObject?.id,
+        type: orderObject?.type,
+        network: orderObject?.network,
+        status: orderObject?.status,
+        payment_status: orderObject?.payment_status,
+        fullObject: orderObject
+      })
+      console.log("[PAYMENT-STATUS] Triggering manual fulfillment:", { orderId, orderType })
+      
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const payload = {
+        shop_order_id: orderId,
+        order_type: orderType,
+      }
+      console.log("[PAYMENT-STATUS] Sending payload:", JSON.stringify(payload, null, 2))
+
+      const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(payload)
+      })
+
+      console.log("[PAYMENT-STATUS] Response status:", response.status)
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error("[PAYMENT-STATUS] Error response:", errorData)
+        throw new Error(errorData.error || "Failed to trigger fulfillment")
+      }
+
+      const result = await response.json()
+      console.log("[PAYMENT-STATUS] Fulfillment successful:", result)
+      toast.success("Fulfillment triggered successfully")
+      
+      // Update local state - change status to processing
+      setAllOrders(prev => prev.map(order => 
+        order.id === orderId ? { ...order, status: "processing" } : order
+      ))
+    } catch (error) {
+      console.error("[PAYMENT-STATUS] Error triggering fulfillment:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to trigger fulfillment")
+    } finally {
+      setFulfillingOrderId(null)
     }
   }
 
@@ -226,8 +329,11 @@ export default function OrderPaymentStatusPage() {
                   <thead className="bg-gray-50 border-b">
                     <tr>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Type</th>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Store</th>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Shop Owner Email</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Reference</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Customer Email</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Volume</th>
                       <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
@@ -245,10 +351,19 @@ export default function OrderPaymentStatusPage() {
                             {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : "Wallet"}
                           </Badge>
                         </td>
+                        <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
+                          {order.type === "shop" ? (order.store_name || "-") : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.shop_owner_email || "-"}>
+                          {order.type === "shop" ? (order.shop_owner_email || "-") : "-"}
+                        </td>
                         <td className="px-4 py-3 font-mono text-xs max-w-xs truncate" title={order.payment_reference}>
                           {order.payment_reference}
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">{order.phone_number}</td>
+                        <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.customer_email || "-"}>
+                          {order.type === "shop" ? (order.customer_email || "-") : "-"}
+                        </td>
                         <td className="px-4 py-3">
                           <Badge className={`${getNetworkColor(order.network)} border`}>
                             {order.network}
@@ -291,19 +406,47 @@ export default function OrderPaymentStatusPage() {
                           <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <select
-                            className="px-2 py-1 text-xs border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                            onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
-                            disabled={updatingOrderId === order.id}
-                            defaultValue=""
-                            aria-label="Update order status"
-                          >
-                            <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
-                            <option value="pending">Pending</option>
-                            <option value="processing">Processing</option>
-                            <option value="completed">Completed</option>
-                            <option value="failed">Failed</option>
-                          </select>
+                          <div className="flex flex-col gap-2">
+                            <select
+                              className="px-2 py-1 text-xs border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                              onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
+                              disabled={updatingOrderId === order.id}
+                              defaultValue=""
+                              aria-label="Update order status"
+                            >
+                              <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
+                              <option value="pending">Pending</option>
+                              <option value="processing">Processing</option>
+                              <option value="completed">Completed</option>
+                              <option value="failed">Failed</option>
+                            </select>
+                            {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network === "MTN" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-7 gap-1"
+                                onClick={() => handleManualFulfill(order.id, order.type)}
+                                disabled={fulfillingOrderId === order.id}
+                                title={`Auto-fulfillment enabled: ${autoFulfillmentEnabled}, Status: ${order.status}, Payment: ${order.payment_status}, Type: ${order.type}, Network: ${order.network}`}
+                              >
+                                {fulfillingOrderId === order.id ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    Fulfilling...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Zap className="w-3 h-3" />
+                                    Fulfill
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                            {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
+                              <div className="text-xs text-gray-400">{order.network} (no auto-fulfill)</div>
+                            )}
+                            {!autoFulfillmentEnabled && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
+                          </div>
                         </td>
                       </tr>
                     ))}

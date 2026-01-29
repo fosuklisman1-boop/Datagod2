@@ -300,12 +300,19 @@ export const shopOrderService = {
 export const shopProfitService = {
   // Create profit record (called after order completion)
   async createProfitRecord(shopOrderId: string, shopId: string, profitAmount: number) {
+    // Get current balance before adding this profit
+    const currentBalance = await this.getShopBalance(shopId)
+    const balanceBefore = currentBalance
+    const balanceAfter = currentBalance + profitAmount
+
     const { data, error } = await supabase
       .from("shop_profits")
       .insert([{
         shop_id: shopId,
         shop_order_id: shopOrderId,
         profit_amount: profitAmount,
+        profit_balance_before: balanceBefore,
+        profit_balance_after: balanceAfter,
         status: "pending"
       }])
       .select()
@@ -314,18 +321,41 @@ export const shopProfitService = {
     return data[0]
   },
 
+  // Helper to fetch all records with pagination (avoids 1000 row limit)
+  async fetchAllProfits(shopId: string, selectFields: string = "profit_amount, status") {
+    let allRecords: any[] = []
+    let offset = 0
+    const batchSize = 1000
+    let hasMore = true
+    
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("shop_profits")
+        .select(selectFields)
+        .eq("shop_id", shopId)
+        .range(offset, offset + batchSize - 1)
+      
+      if (error) throw error
+      
+      if (data && data.length > 0) {
+        allRecords = allRecords.concat(data)
+        offset += batchSize
+        hasMore = data.length === batchSize
+      } else {
+        hasMore = false
+      }
+    }
+    
+    return allRecords
+  },
+
   // Get shop available balance
   async getShopBalance(shopId: string) {
-    // Get pending and credited profits from shop_profits table
-    const { data: profits, error: profitError } = await supabase
-      .from("shop_profits")
-      .select("profit_amount, status")
-      .eq("shop_id", shopId)
-
-    if (profitError) throw profitError
+    // Get pending and credited profits from shop_profits table (paginated)
+    const profits = await this.fetchAllProfits(shopId, "profit_amount, status")
     
     // Sum all pending profits (not yet withdrawn)
-    const availableBalance = profits?.reduce((sum, p) => {
+    const availableBalance = profits?.reduce((sum: number, p: any) => {
       if (p.status === "pending" || p.status === "credited") {
         return sum + (p.profit_amount || 0)
       }
@@ -337,16 +367,33 @@ export const shopProfitService = {
 
   // Get total profit (sum of all profit_amount from completed orders)
   async getTotalProfit(shopId: string) {
-    const { data, error } = await supabase
-      .from("shop_orders")
-      .select("profit_amount")
-      .eq("shop_id", shopId)
-      .eq("payment_status", "completed")
-
-    if (error) throw error
+    // Fetch all completed orders in batches
+    let allOrders: any[] = []
+    let offset = 0
+    const batchSize = 1000
+    let hasMore = true
+    
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("shop_orders")
+        .select("profit_amount")
+        .eq("shop_id", shopId)
+        .eq("payment_status", "completed")
+        .range(offset, offset + batchSize - 1)
+      
+      if (error) throw error
+      
+      if (data && data.length > 0) {
+        allOrders = allOrders.concat(data)
+        offset += batchSize
+        hasMore = data.length === batchSize
+      } else {
+        hasMore = false
+      }
+    }
     
     // Sum all profit amounts
-    const totalProfit = data?.reduce((sum, order) => sum + (order.profit_amount || 0), 0) || 0
+    const totalProfit = allOrders?.reduce((sum: number, order: any) => sum + (order.profit_amount || 0), 0) || 0
     return totalProfit
   },
 
@@ -375,13 +422,8 @@ export const shopProfitService = {
   // Sync available balance to shop_available_balance table
   async syncAvailableBalance(shopId: string) {
     try {
-      // Get current profits breakdown
-      const { data: profits, error: profitError } = await supabase
-        .from("shop_profits")
-        .select("profit_amount, status")
-        .eq("shop_id", shopId)
-
-      if (profitError) throw profitError
+      // Get current profits breakdown (paginated)
+      const profits = await this.fetchAllProfits(shopId, "profit_amount, status")
 
       // Calculate credited profit only
       const breakdown = {
@@ -511,12 +553,8 @@ export const withdrawalService = {
 
     // Check current available balance before creating withdrawal
     try {
-      const { data: profits, error: profitError } = await supabase
-        .from("shop_profits")
-        .select("profit_amount, status")
-        .eq("shop_id", shopId)
-
-      if (profitError) throw profitError
+      // Fetch all profits with pagination
+      const profits = await shopProfitService.fetchAllProfits(shopId, "profit_amount, status")
 
       // Calculate credited profit only
       const breakdown = {
@@ -530,17 +568,32 @@ export const withdrawalService = {
         }
       })
 
-      // Get approved withdrawals to calculate current available balance
-      const { data: approvedWithdrawals, error: withdrawalError } = await supabase
-        .from("withdrawal_requests")
-        .select("amount")
-        .eq("shop_id", shopId)
-        .eq("status", "approved")
-
-      let totalApprovedWithdrawals = 0
-      if (!withdrawalError && approvedWithdrawals) {
-        totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+      // Get approved withdrawals with pagination
+      let allWithdrawals: any[] = []
+      let wOffset = 0
+      const wBatchSize = 1000
+      let hasMoreW = true
+      
+      while (hasMoreW) {
+        const { data: wData, error: wError } = await supabase
+          .from("withdrawal_requests")
+          .select("amount")
+          .eq("shop_id", shopId)
+          .eq("status", "approved")
+          .range(wOffset, wOffset + wBatchSize - 1)
+        
+        if (wError) break
+        
+        if (wData && wData.length > 0) {
+          allWithdrawals = allWithdrawals.concat(wData)
+          wOffset += wBatchSize
+          hasMoreW = wData.length === wBatchSize
+        } else {
+          hasMoreW = false
+        }
       }
+
+      const totalApprovedWithdrawals = allWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
 
       // Current available balance = credited profit - approved withdrawals
       const currentAvailableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)

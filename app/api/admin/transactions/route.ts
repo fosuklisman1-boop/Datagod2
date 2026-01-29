@@ -108,17 +108,33 @@ export async function GET(request: NextRequest) {
       users: undefined, // Remove nested object
     })) || []
 
-    // Calculate stats
-    const { data: statsData } = await supabase
-      .from("transactions")
-      .select("type, amount, status")
+    // Calculate stats - paginate through all records to avoid 1000 row limit
+    let allTransactions: any[] = []
+    let statsOffset = 0
+    const statsLimit = 1000
+    let hasMore = true
+    
+    while (hasMore) {
+      const { data: batchData } = await supabase
+        .from("transactions")
+        .select("type, amount, status")
+        .range(statsOffset, statsOffset + statsLimit - 1)
+      
+      if (batchData && batchData.length > 0) {
+        allTransactions = allTransactions.concat(batchData)
+        statsOffset += statsLimit
+        hasMore = batchData.length === statsLimit
+      } else {
+        hasMore = false
+      }
+    }
 
     let totalCredits = 0
     let totalDebits = 0
     let pendingCount = 0
     let failedCount = 0
 
-    statsData?.forEach(t => {
+    allTransactions.forEach(t => {
       if (t.type === "credit" || t.type === "admin_credit" || t.type === "refund") {
         totalCredits += parseFloat(t.amount) || 0
       } else {
@@ -142,7 +158,7 @@ export async function GET(request: NextRequest) {
         netFlow: totalCredits - totalDebits,
         pendingCount,
         failedCount,
-        totalTransactions: statsData?.length || 0
+        totalTransactions: allTransactions.length
       }
     })
   } catch (error) {

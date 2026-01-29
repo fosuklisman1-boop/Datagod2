@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
+import { isPhoneBlacklisted } from "@/lib/blacklist"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -59,6 +60,18 @@ export async function POST(request: NextRequest) {
     const userId = user.id
     console.log(`[BULK-ORDERS] User ID: ${userId}`)
 
+    // Check which orders have blacklisted phones
+    const blacklistChecks = await Promise.all(
+      orders.map(async (order: BulkOrderData) => ({
+        phone_number: order.phone_number,
+        isBlacklisted: await isPhoneBlacklisted(order.phone_number)
+      }))
+    )
+    const blacklistedPhones = new Set(
+      blacklistChecks.filter(check => check.isBlacklisted).map(check => check.phone_number)
+    )
+    console.log(`[BULK-ORDERS] Found ${blacklistedPhones.size} blacklisted phone(s)`, Array.from(blacklistedPhones))
+
     // Insert all orders
     const ordersToInsert = orders.map((order: BulkOrderData) => ({
       user_id: userId,
@@ -67,6 +80,7 @@ export async function POST(request: NextRequest) {
       network: network,
       price: order.price,
       status: "pending", // Use 'status' instead of 'order_status'
+      queue: blacklistedPhones.has(order.phone_number) ? "blacklisted" : "default",
       created_at: new Date().toISOString(),
     }))
 

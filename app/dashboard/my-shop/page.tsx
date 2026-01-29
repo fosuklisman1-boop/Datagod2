@@ -967,7 +967,7 @@ export default function MyShopPage() {
                                 <div>
                                   <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
                                   <p className="text-sm text-gray-600">
-                                    {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {(pkg.parent_price !== undefined ? pkg.parent_price : pkg.price).toFixed(2)}
+                                    {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {(pkg.parent_price ?? pkg.price ?? 0).toFixed(2)}
                                   </p>
                                 </div>
                                 
@@ -978,13 +978,13 @@ export default function MyShopPage() {
                                       {isAdded && (
                                         <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
                                           <p className="text-blue-700">
-                                            <span className="font-semibold">Your Cost (Wholesale):</span> GHS {(pkg.parent_price !== undefined ? pkg.parent_price : pkg.price).toFixed(2)}
+                                            <span className="font-semibold">Your Cost (Wholesale):</span> GHS {(pkg.parent_price ?? pkg.price ?? 0).toFixed(2)}
                                           </p>
                                           <p className="text-blue-700">
-                                            <span className="font-semibold">Current Selling Price:</span> GHS {((pkg.parent_price !== undefined ? pkg.parent_price : pkg.price) + (isAdded.profit_margin || 0)).toFixed(2)}
+                                            <span className="font-semibold">Current Selling Price:</span> GHS {((pkg.parent_price ?? pkg.price ?? 0) + (isAdded.profit_margin || 0)).toFixed(2)}
                                           </p>
                                           <p className="text-blue-600">
-                                            Your Profit: GHS {isAdded.profit_margin.toFixed(2)}
+                                            Your Profit: GHS {(isAdded.profit_margin || 0).toFixed(2)}
                                           </p>
                                         </div>
                                       )}
@@ -1009,7 +1009,7 @@ export default function MyShopPage() {
                                 
                                 {selectedPackage === pkg.id && profitMargin && (
                                   (() => {
-                                    const basePrice = pkg.parent_price !== undefined ? pkg.parent_price : pkg.price
+                                    const basePrice = pkg.parent_price ?? pkg.price ?? 0
                                     const sellingPrice = parseFloat(profitMargin)
                                     const profit = sellingPrice - basePrice
                                     const isNegative = profit < 0
@@ -1034,7 +1034,7 @@ export default function MyShopPage() {
                                 
                                 {(() => {
                                   const isAdded = packages.some(p => p.package_id === pkg.id)
-                                  const basePrice = pkg.parent_price !== undefined ? pkg.parent_price : pkg.price
+                                  const basePrice = pkg.parent_price ?? pkg.price ?? 0
                                   const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
                                   const hasNegativeProfit = profit < 0
                                   return (

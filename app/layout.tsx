@@ -21,9 +21,18 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "DATAGOD - Affordable Data Packages & Services",
-  description: "Buy affordable data packages from multiple networks with instant delivery. Shop data bundles from MTN, Telecel, AT, and more with 24/7 support.",
-  keywords: ["data packages", "mobile data", "bundles", "MTN", "Telecel", "airtime", "Ghana"],
+  title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
+  description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Fast delivery, secure payment, 24/7 support.",
+  keywords: [
+    "data packages Ghana",
+    "mobile data",
+    "airtime",
+    "MTN data",
+    "Telecel bundles",
+    "buy data online",
+    "data bundles Ghana",
+    "instant data delivery",
+  ],
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -42,7 +51,7 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
     shortcut: "/favicon.ico",
   },
-  metadataBase: new URL("https://datagod.com"),
+  metadataBase: new URL("https://www.datagod.store"),
   robots: {
     index: true,
     follow: true,
@@ -61,22 +70,25 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: "https://www.datagod.store",
-    siteName: "DataGod",
-    title: "DATAGOD - Affordable Data Packages & Services",
-    description: "Buy affordable data packages from multiple networks with instant delivery",
+    siteName: "DATAGOD",
+    title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
+    description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Fast delivery, secure payment.",
     images: [
       {
         url: "https://www.datagod.store/og-image.png",
         width: 1200,
         height: 630,
-        alt: "DATAGOD - Data Packages",
+        alt: "DATAGOD - Affordable Data Packages & Airtime",
+        type: "image/png",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "DATAGOD - Affordable Data Packages & Services",
-    description: "Buy affordable data packages from multiple networks with instant delivery",
+    site: "@datagodstore",
+    creator: "@datagodstore",
+    title: "DATAGOD - Buy Data Packages & Airtime Online",
+    description: "Instant mobile data, airtime, and digital services for Ghana. Fast delivery, secure payment.",
     images: ["https://www.datagod.store/og-image.png"],
   },
 };
@@ -89,6 +101,30 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Organization Schema */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "DATAGOD",
+              url: "https://www.datagod.store",
+              logo: "https://www.datagod.store/favicon-v2.jpeg",
+              description: "Affordable data packages, airtime, and mobile services for multiple networks in Ghana",
+              sameAs: [
+                "https://web.facebook.com/datagod.store",
+                "https://twitter.com/datagodstore",
+                "https://www.instagram.com/datagodstore",
+              ],
+              contactPoint: {
+                "@type": "ContactPoint",
+                contactType: "Customer Service",
+                availableLanguage: ["en"],
+              },
+            }),
+          }}
+        />
         {/* Paystack Script */}
         <script src="https://js.paystack.co/v1/inline.js" async></script>
         {/* Service Worker Registration - inline for PWA detection */}

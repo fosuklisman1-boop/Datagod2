@@ -542,11 +542,28 @@ export const adminOrderService = {
 
   // Get order statistics
   async getOrderStats() {
-    const { data, error } = await supabase
-      .from("shop_orders")
-      .select("order_status")
+    // Fetch all orders with pagination to avoid 1000 row limit
+    let allOrders: any[] = []
+    let offset = 0
+    const batchSize = 1000
+    let hasMore = true
 
-    if (error) throw error
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("shop_orders")
+        .select("order_status")
+        .range(offset, offset + batchSize - 1)
+
+      if (error) throw error
+
+      if (data && data.length > 0) {
+        allOrders = allOrders.concat(data)
+        offset += batchSize
+        hasMore = data.length === batchSize
+      } else {
+        hasMore = false
+      }
+    }
 
     const stats = {
       pending: 0,
@@ -555,7 +572,7 @@ export const adminOrderService = {
       failed: 0,
     }
 
-    data?.forEach((order: any) => {
+    allOrders.forEach((order: any) => {
       if (order.order_status in stats) {
         stats[order.order_status as keyof typeof stats]++
       }

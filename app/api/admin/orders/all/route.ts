@@ -29,11 +29,12 @@ export async function GET(request: NextRequest) {
 
     console.log(`Fetching all orders with search: "${searchQuery}" (type: ${searchType})`)
 
-    // Fetch all bulk orders (any status)
+    // Fetch all bulk orders (any status) with pagination
     let bulkOrdersQuery = supabase
       .from("orders")
       .select("id, created_at, phone_number, price, status, size, network, transaction_code, order_code")
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     const { data: bulkOrders, error: bulkError } = await bulkOrdersQuery
 
@@ -44,31 +45,53 @@ export async function GET(request: NextRequest) {
 
     console.log(`Found ${bulkOrders?.length || 0} bulk orders`)
 
-    // Fetch all shop orders (any status)
+    // Fetch all shop orders (any status) with pagination
     const { data: shopOrdersData, error: shopError } = await supabase
       .from("shop_orders")
       .select(`
         id,
         created_at,
         customer_phone,
+        customer_email,
         total_price,
         order_status,
         volume_gb,
         network,
         reference_code,
         payment_status,
-        transaction_id
+        transaction_id,
+        shop_id,
+        user_shops!shop_id (
+          shop_name,
+          user_id
+        )
       `)
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (shopError) {
       console.error("Supabase error fetching shop orders:", shopError)
       throw new Error(`Failed to fetch shop orders: ${shopError.message}`)
     }
 
+    // Get shop owner emails from auth.users table
+    const userIds = [...new Set((shopOrdersData || []).map((o: any) => o.user_shops?.user_id).filter(Boolean))]
+    let userEmails: { [key: string]: string } = {}
+    
+    if (userIds.length > 0) {
+      const { data: authUsers } = await supabase.auth.admin.listUsers()
+      if (authUsers?.users) {
+        userEmails = Object.fromEntries(
+          authUsers.users
+            .filter(u => userIds.includes(u.id))
+            .map(u => [u.id, u.email || "-"])
+        )
+      }
+    }
+
     console.log(`Found ${shopOrdersData?.length || 0} shop orders`)
 
-    // Fetch wallet payments to get Paystack references
+    // Fetch wallet payments to get Paystack references with pagination
     const { data: walletPayments, error: walletPaymentsError } = await supabase
       .from("wallet_payments")
       .select(`
@@ -83,6 +106,7 @@ export async function GET(request: NextRequest) {
         order_id
       `)
       .order("created_at", { ascending: false })
+      .range(0, 9999) // Paginate instead of unlimited
 
     if (walletPaymentsError) {
       console.error("Supabase error fetching wallet payments:", walletPaymentsError)
@@ -108,6 +132,9 @@ export async function GET(request: NextRequest) {
       id: order.id,
       type: "shop",
       phone_number: order.customer_phone || "-",
+      customer_email: order.customer_email || "-",
+      shop_owner_email: userEmails[order.user_shops?.user_id] || "-",
+      store_name: order.user_shops?.shop_name || "-",
       network: normalizeNetwork(order.network),
       volume_gb: order.volume_gb,
       price: order.total_price,

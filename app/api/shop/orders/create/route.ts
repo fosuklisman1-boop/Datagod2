@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { isPhoneBlacklisted } from "@/lib/blacklist"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -38,9 +40,111 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // CRITICAL SECURITY: Server-side price validation
+    // Never trust client-provided prices - always verify against database
+    let verifiedBasePrice: number
+    let verifiedProfitMargin: number
+    let verifiedTotalPrice: number
+
+    // Check if this is a sub-agent shop
+    const { data: shopData, error: shopError } = await supabase
+      .from("user_shops")
+      .select("parent_shop_id")
+      .eq("id", shop_id)
+      .single()
+
+    if (shopError) {
+      console.error("[SHOP-ORDER] Error fetching shop:", shopError)
+      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+
+    if (shopData?.parent_shop_id) {
+      // Sub-agent: verify from sub_agent_shop_packages or sub_agent_catalog
+      const { data: subAgentPkg, error: subAgentPkgError } = await supabase
+        .from("sub_agent_shop_packages")
+        .select("parent_price, sub_agent_profit_margin, package_id")
+        .eq("id", shop_package_id)
+        .single()
+
+      if (!subAgentPkgError && subAgentPkg) {
+        verifiedBasePrice = subAgentPkg.parent_price
+        verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0
+        verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
+      } else {
+        // Fallback to sub_agent_catalog
+        const { data: catalogEntry } = await supabase
+          .from("sub_agent_catalog")
+          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(price)")
+          .eq("id", shop_package_id)
+          .single()
+
+        if (catalogEntry) {
+          const parentPrice = catalogEntry.parent_price || (catalogEntry.package as any)?.price || 0
+          const margin = catalogEntry.sub_agent_profit_margin ?? catalogEntry.wholesale_margin ?? 0
+          verifiedBasePrice = parentPrice
+          verifiedProfitMargin = margin
+          verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
+        } else {
+          console.error("[SHOP-ORDER] ❌ Could not verify sub-agent package price")
+          return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+        }
+      }
+    } else {
+      // Regular shop: verify from shop_packages
+      const { data: shopPkg, error: shopPkgError } = await supabase
+        .from("shop_packages")
+        .select("profit_margin, packages(price)")
+        .eq("id", shop_package_id)
+        .single()
+
+      if (shopPkgError || !shopPkg) {
+        console.error("[SHOP-ORDER] ❌ Could not find shop package:", shopPkgError)
+        return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+      }
+
+      verifiedBasePrice = (shopPkg.packages as any)?.price || 0
+      verifiedProfitMargin = shopPkg.profit_margin || 0
+      verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
+    }
+
+    // Validate client-provided prices match server-verified prices
+    const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
+    if (Math.abs(total_price - verifiedTotalPrice) > tolerance) {
+      console.error(`[SHOP-ORDER] ❌ PRICE MANIPULATION DETECTED!`)
+      console.error(`  Client total_price: ${total_price}`)
+      console.error(`  Verified total_price: ${verifiedTotalPrice}`)
+      console.error(`  Shop ID: ${shop_id}, Package ID: ${shop_package_id}`)
+      return NextResponse.json(
+        { error: "Invalid price - please refresh and try again" },
+        { status: 400 }
+      )
+    }
+
+    console.log(`[SHOP-ORDER] ✓ Price verified: ${verifiedTotalPrice} GHS`)
+
+    // Use verified prices instead of client-provided ones
+    const yfinalBasePrice = verifiedBasePrice
+    const finalProfitAmount = verifiedProfitMargin
+    const finalTotalPrice = verifiedTotalPrice
+
     // NOTE: Customer tracking is now done AFTER payment is confirmed
     // This prevents inflated customer revenue from abandoned orders
     // See: Paystack webhook and wallet/debit route for customer tracking
+
+    // Check if phone number is blacklisted
+    let phoneQueue = "default"
+    let orderStatus = "pending"
+    try {
+      const isBlacklisted = await isPhoneBlacklisted(customer_phone)
+      if (isBlacklisted) {
+        phoneQueue = "blacklisted"
+        orderStatus = "blacklisted"
+        console.log(`[SHOP-ORDER] Phone ${customer_phone} is blacklisted - setting queue to 'blacklisted' and order_status to 'blacklisted'`)
+      }
+    } catch (blacklistError) {
+      console.warn("[SHOP-ORDER] Error checking blacklist:", blacklistError)
+      // Continue with default queue if blacklist check fails
+    }
 
     // Check if this shop has a parent shop (sub-agent scenario)
     let parent_shop_id: string | null = null
@@ -141,12 +245,13 @@ export async function POST(request: NextRequest) {
           // Calculate: parent profit = what sub-agent pays (base_price) - admin price - sub-agent profit
           // Actually, for storefront orders: sub-agent sells at base_price + profit_amount
           // So parent profit = base_price - admin_price (the wholesale markup)
-          parent_profit_amount = parseFloat(base_price.toString()) - adminPrice
+          // Use verified base price, not client-provided
+          parent_profit_amount = finalBasePrice - adminPrice
           
           // Ensure it's not negative
           if (parent_profit_amount < 0) parent_profit_amount = 0
           
-          console.warn(`[SHOP-ORDER] No catalog entry found, using fallback calculation: base_price(${base_price}) - adminPrice(${adminPrice}) = ${parent_profit_amount}`)
+          console.warn(`[SHOP-ORDER] No catalog entry found, using fallback calculation: finalBasePrice(${finalBasePrice}) - adminPrice(${adminPrice}) = ${parent_profit_amount}`)
         }
 
         console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Parent profit: ${parent_profit_amount}`)
@@ -168,15 +273,16 @@ export async function POST(request: NextRequest) {
           package_id,
           network,
           volume_gb,
-          base_price: parseFloat(base_price.toString()),
-          profit_amount: parseFloat(profit_amount.toString()),
-          total_price: parseFloat(total_price.toString()),
-          order_status: "pending",
+          base_price: finalBasePrice,
+          profit_amount: finalProfitAmount,
+          total_price: finalTotalPrice,
+          order_status: orderStatus,
           payment_status: "pending",
           reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
           shop_customer_id: null, // Will be set when payment is confirmed
           parent_shop_id: parent_shop_id || null,
           parent_profit_amount: parent_profit_amount !== null ? parseFloat(parent_profit_amount.toString()) : 0,
+          queue: phoneQueue,
           created_at: new Date().toISOString(),
         },
       ])
@@ -195,6 +301,9 @@ export async function POST(request: NextRequest) {
       parent_shop_id: data[0].parent_shop_id,
       parent_profit_amount: data[0].parent_profit_amount
     })
+
+    // NOTE: Blacklist notification SMS and admin alerts are sent AFTER payment verification
+    // See: webhook and payment verify endpoints for SMS delivery
 
     return NextResponse.json({
       success: true,

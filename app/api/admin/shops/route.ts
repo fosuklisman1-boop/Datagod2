@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
         query = query.eq("is_active", true)
       }
 
-      const { data, error } = await query.order("created_at", { ascending: false })
+      const { data, error } = await query.order("created_at", { ascending: false }).range(0, 9999) // Paginate instead of unlimited
       console.log("[ADMIN-SHOPS] No auth - Query executed, error:", error?.message || null, "data count:", data?.length || 0)
 
       if (error) {

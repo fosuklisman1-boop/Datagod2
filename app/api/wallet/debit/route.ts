@@ -164,11 +164,44 @@ export async function POST(request: NextRequest) {
       console.log("[WALLET-DEBIT] Checking if order is a shop order...")
       const { data: shopOrder, error: shopOrderError } = await supabase
         .from("shop_orders")
-        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_email, customer_name, total_price")
+        .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_email, customer_name, total_price, queue")
         .eq("id", orderId)
         .maybeSingle()
 
       if (!shopOrderError && shopOrder) {
+        // CRITICAL SECURITY CHECK: Verify debit amount matches order total_price
+        const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
+        if (Math.abs(amount - shopOrder.total_price) > tolerance) {
+          console.error(`[WALLET-DEBIT] ❌ AMOUNT MISMATCH! Debit: ${amount}, Order Total: ${shopOrder.total_price}, Order ID: ${orderId}`)
+          
+          // Refund the incorrectly debited amount
+          await supabase
+            .from("wallets")
+            .update({
+              balance: currentBalance, // Restore original balance
+              total_spent: wallet.total_spent || 0, // Restore original spent
+              updated_at: new Date().toISOString(),
+            })
+            .eq("user_id", user.id)
+          
+          // Mark order as failed
+          await supabase
+            .from("shop_orders")
+            .update({
+              payment_status: "failed",
+              order_status: "failed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", orderId)
+          
+          return NextResponse.json(
+            { error: "Payment amount mismatch - order cancelled" },
+            { status: 400 }
+          )
+        }
+        
+        console.log(`[WALLET-DEBIT] ✓ Amount verified: ${amount} GHS matches order total: ${shopOrder.total_price} GHS`)
+        
         console.log("[WALLET-DEBIT] Marking shop order payment as completed...")
         const { error: updateShopOrderError } = await supabase
           .from("shop_orders")
@@ -213,19 +246,24 @@ export async function POST(request: NextRequest) {
           
           // Send SMS notification about successful purchase
           if (shopOrder.customer_phone) {
-            try {
-              const smsMessage = `You have successfully placed an order of ${shopOrder.network} ${shopOrder.volume_gb}GB to ${shopOrder.customer_phone}. If delayed over 2 hours, contact support.`
-              
-              await sendSMS({
-                phone: shopOrder.customer_phone,
-                message: smsMessage,
-                type: 'data_purchase_success',
-                reference: orderId,
-              }).catch(err => console.error("[WALLET-DEBIT] SMS error:", err))
-              
-              console.log("[WALLET-DEBIT] ✓ SMS notification sent")
-            } catch (smsError) {
-              console.warn("[WALLET-DEBIT] Failed to send purchase SMS:", smsError)
+            // Don't send purchase SMS if order is blacklisted
+            if (shopOrder.queue === "blacklisted") {
+              console.log(`[WALLET-DEBIT] ⚠️ Order ${orderId} is blacklisted - skipping purchase SMS`)
+            } else {
+              try {
+                const smsMessage = `You have successfully placed an order of ${shopOrder.network} ${shopOrder.volume_gb}GB to ${shopOrder.customer_phone}. If delayed over 2 hours, contact support.`
+                
+                await sendSMS({
+                  phone: shopOrder.customer_phone,
+                  message: smsMessage,
+                  type: 'data_purchase_success',
+                  reference: orderId,
+                }).catch(err => console.error("[WALLET-DEBIT] SMS error:", err))
+                
+                console.log("[WALLET-DEBIT] ✓ SMS notification sent")
+              } catch (smsError) {
+                console.warn("[WALLET-DEBIT] Failed to send purchase SMS:", smsError)
+              }
             }
           }
 
@@ -280,6 +318,25 @@ export async function POST(request: NextRequest) {
               // Non-blocking MTN fulfillment via direct API call
               (async () => {
                 try {
+                  // Check if order is in blacklist queue
+                  if (shopOrder.queue === "blacklisted") {
+                    console.log(`[WALLET-DEBIT] ⚠️ Order ${orderId} is in blacklist queue - skipping MTN fulfillment`)
+                    return
+                  }
+
+                  // Secondary check: verify phone number against blacklist
+                  try {
+                    const { isPhoneBlacklisted } = await import("@/lib/blacklist")
+                    const isBlacklisted = await isPhoneBlacklisted(shopOrder.customer_phone)
+                    if (isBlacklisted) {
+                      console.log(`[WALLET-DEBIT] ⚠️ Phone ${shopOrder.customer_phone} is blacklisted - skipping MTN fulfillment`)
+                      return
+                    }
+                  } catch (blacklistError) {
+                    console.warn("[WALLET-DEBIT] Error checking blacklist:", blacklistError)
+                    // Continue if blacklist check fails
+                  }
+
                   console.log(`[WALLET-DEBIT] Calling MTN API for order ${orderId}: ${normalizedPhone}, ${sizeGb}GB`)
                   const mtnRequest = {
                     recipient_phone: normalizedPhone,

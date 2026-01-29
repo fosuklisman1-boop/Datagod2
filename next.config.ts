@@ -18,10 +18,38 @@ const nextConfig: NextConfig = {
   // Redirects
   redirects: async () => {
     return [
+      // Removed favicon redirect - Google prefers direct access to /favicon.ico
+      // Marketing and common routes
       {
-        source: "/favicon.ico",
-        destination: "/favicon_custom.ico",
-        permanent: true,
+        source: "/community",
+        destination: "/join",
+        permanent: false,
+      },
+      {
+        source: "/register",
+        destination: "/auth/signup",
+        permanent: false,
+      },
+      {
+        source: "/login",
+        destination: "/auth/login",
+        permanent: false,
+      },
+      // Dashboard shortcuts
+      {
+        source: "/packages",
+        destination: "/dashboard/data-packages",
+        permanent: false,
+      },
+      {
+        source: "/orders",
+        destination: "/dashboard/my-orders",
+        permanent: false,
+      },
+      {
+        source: "/wallet",
+        destination: "/dashboard/wallet",
+        permanent: false,
       },
     ];
   },
