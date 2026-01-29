@@ -37,7 +37,7 @@ export default function OrderStatusPage() {
   const [shop, setShop] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
-  
+
   const [phoneNumber, setPhoneNumber] = useState("")
   const [orders, setOrders] = useState<ShopOrder[]>([])
   const [searched, setSearched] = useState(false)
@@ -51,7 +51,7 @@ export default function OrderStatusPage() {
     try {
       setLoading(true)
       const shopData = await shopService.getShopBySlug(shopSlug)
-      
+
       if (!shopData) {
         toast.error("Shop not found")
         setError("Shop not found")
@@ -72,7 +72,7 @@ export default function OrderStatusPage() {
   const validatePhoneNumber = (phone: string): boolean => {
     const cleaned = phone.replace(/\D/g, "")
     let normalized = cleaned
-    
+
     if (cleaned.length === 9) {
       normalized = "0" + cleaned
     }
@@ -87,7 +87,7 @@ export default function OrderStatusPage() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!phoneNumber.trim()) {
       toast.error("Please enter a phone number")
       return
@@ -122,7 +122,11 @@ export default function OrderStatusPage() {
       }
 
       const data = await response.json()
-      setOrders(data.orders || [])
+      // Sort by newest first (in case API doesn't return sorted)
+      const sortedOrders = (data.orders || []).sort((a: ShopOrder, b: ShopOrder) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+      setOrders(sortedOrders)
       setSearched(true)
 
       if (data.count === 0) {
