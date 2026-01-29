@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     // Get shop owner emails from auth.users table
     const userIds = [...new Set((shopOrdersData || []).map((o: any) => o.user_shops?.user_id).filter(Boolean))]
     let userEmails: { [key: string]: string } = {}
-    
+
     if (userIds.length > 0) {
       const { data: authUsers } = await supabase.auth.admin.listUsers()
       if (authUsers?.users) {
@@ -158,8 +158,9 @@ export async function GET(request: NextRequest) {
       created_at: payment.created_at,
     }))
 
-    // Combine all orders
+    // Combine all orders and sort by created_at (newest first)
     let allOrders = [...formattedBulkOrders, ...formattedShopOrders, ...formattedWalletPayments]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     // Apply search filter
     if (searchQuery) {
