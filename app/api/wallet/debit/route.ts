@@ -169,6 +169,39 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
 
       if (!shopOrderError && shopOrder) {
+        // CRITICAL SECURITY CHECK: Verify debit amount matches order total_price
+        const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
+        if (Math.abs(amount - shopOrder.total_price) > tolerance) {
+          console.error(`[WALLET-DEBIT] ❌ AMOUNT MISMATCH! Debit: ${amount}, Order Total: ${shopOrder.total_price}, Order ID: ${orderId}`)
+          
+          // Refund the incorrectly debited amount
+          await supabase
+            .from("wallets")
+            .update({
+              balance: currentBalance, // Restore original balance
+              total_spent: wallet.total_spent || 0, // Restore original spent
+              updated_at: new Date().toISOString(),
+            })
+            .eq("user_id", user.id)
+          
+          // Mark order as failed
+          await supabase
+            .from("shop_orders")
+            .update({
+              payment_status: "failed",
+              order_status: "failed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", orderId)
+          
+          return NextResponse.json(
+            { error: "Payment amount mismatch - order cancelled" },
+            { status: 400 }
+          )
+        }
+        
+        console.log(`[WALLET-DEBIT] ✓ Amount verified: ${amount} GHS matches order total: ${shopOrder.total_price} GHS`)
+        
         console.log("[WALLET-DEBIT] Marking shop order payment as completed...")
         const { error: updateShopOrderError } = await supabase
           .from("shop_orders")

@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
       // Find and update payment record (select only needed columns)
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")
-        .select("id, user_id, status, shop_id, order_id, fee, reference")
+        .select("id, user_id, status, shop_id, order_id, fee, reference, amount")
         .eq("reference", reference)
         .single()
 
@@ -160,6 +160,45 @@ export async function POST(request: NextRequest) {
           { status: 404 }
         )
       }
+
+      // CRITICAL SECURITY CHECK: Verify payment amount matches expected amount
+      const paidAmount = amount / 100 // Convert from kobo/pesewas to main currency
+      const expectedAmount = paymentData.amount
+      const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
+      
+      if (Math.abs(paidAmount - expectedAmount) > tolerance) {
+        console.error(`[WEBHOOK] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmount}, Expected: ${expectedAmount}, Reference: ${reference}`)
+        
+        // Update payment as failed due to amount mismatch
+        await supabase
+          .from("wallet_payments")
+          .update({
+            status: "failed",
+            amount_received: paidAmount,
+            failure_reason: `Amount mismatch: paid ${paidAmount}, expected ${expectedAmount}`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", paymentData.id)
+        
+        // If there's an order, mark it as failed too
+        if (paymentData.order_id) {
+          await supabase
+            .from("shop_orders")
+            .update({
+              payment_status: "failed",
+              order_status: "failed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", paymentData.order_id)
+        }
+        
+        return NextResponse.json(
+          { error: "Payment amount mismatch - possible fraud attempt" },
+          { status: 400 }
+        )
+      }
+
+      console.log(`[WEBHOOK] ✓ Payment amount verified: ${paidAmount} GHS`)
 
       // Update payment status
       const { error: updateError } = await supabase
