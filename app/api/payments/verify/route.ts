@@ -56,6 +56,52 @@ export async function POST(request: NextRequest) {
 
     console.log("[PAYMENT-VERIFY] ✓ Verified - Status:", verificationResult.status)
 
+    // CRITICAL SECURITY CHECK: Verify payment amount matches expected amount
+    // First, get the expected amount from the payment record
+    const { data: paymentAmountData } = await supabase
+      .from("wallet_payments")
+      .select("amount")
+      .eq("id", paymentData.id)
+      .single()
+
+    const expectedAmount = paymentAmountData?.amount || 0
+    const paidAmount = verificationResult.amount
+    const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
+
+    if (verificationResult.status === "success" && Math.abs(paidAmount - expectedAmount) > tolerance) {
+      console.error(`[PAYMENT-VERIFY] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmount}, Expected: ${expectedAmount}, Reference: ${reference}`)
+      
+      // Update payment as failed due to amount mismatch
+      await supabase
+        .from("wallet_payments")
+        .update({
+          status: "failed",
+          amount_received: paidAmount,
+          failure_reason: `Amount mismatch: paid ${paidAmount}, expected ${expectedAmount}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", paymentData.id)
+      
+      // If there's an order, mark it as failed too
+      if (paymentData.order_id) {
+        await supabase
+          .from("shop_orders")
+          .update({
+            payment_status: "failed",
+            order_status: "failed",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", paymentData.order_id)
+      }
+      
+      return NextResponse.json(
+        { error: "Payment amount mismatch - payment rejected", success: false },
+        { status: 400 }
+      )
+    }
+
+    console.log(`[PAYMENT-VERIFY] ✓ Payment amount verified: ${paidAmount} GHS`)
+
     // Update payment status
     const paymentStatus = verificationResult.status === "success" ? "completed" : verificationResult.status
     const { error: updateError } = await supabase
