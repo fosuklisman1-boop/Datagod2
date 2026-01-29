@@ -7,11 +7,11 @@ export const dynamic = "force-dynamic"
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  
+
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Missing Supabase environment variables")
   }
-  
+
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
               ? Number(item.sub_agent_profit_margin)
               : 0;
             const sellingPrice = parentPrice + subAgentMargin;
-            
+
             return {
               id: item.id,
               package_id: item.package.id,
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
               ? Number(item.sub_agent_profit_margin)
               : (item.wholesale_margin || 0);
             const sellingPrice = parentPrice + subAgentMargin;
-            
+
             return {
               id: item.id,
               package_id: item.package.id,
@@ -201,9 +201,18 @@ export async function GET(request: NextRequest) {
         }))
     }
 
-    return NextResponse.json({ 
+    // Get global ordering status
+    const { data: globalSettings } = await supabase
+      .from("app_settings")
+      .select("ordering_enabled")
+      .single()
+
+    const orderingEnabled = globalSettings?.ordering_enabled ?? true
+
+    return NextResponse.json({
       packages,
-      is_sub_agent: !!shop.parent_shop_id
+      is_sub_agent: !!shop.parent_shop_id,
+      ordering_enabled: orderingEnabled
     })
 
   } catch (error) {

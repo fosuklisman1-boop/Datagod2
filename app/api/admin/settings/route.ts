@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         .from("app_settings")
         .insert([{
           join_community_link: "",
+          ordering_enabled: true,
           announcement_enabled: false,
           announcement_title: "",
           announcement_message: "",
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           id: null,
           join_community_link: "",
+          ordering_enabled: true,
           announcement_enabled: false,
           announcement_title: "",
           announcement_message: "",
@@ -115,10 +117,11 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { 
-      join_community_link, 
-      announcement_enabled, 
-      announcement_title, 
+    const {
+      join_community_link,
+      ordering_enabled,
+      announcement_enabled,
+      announcement_title,
       announcement_message,
       paystack_fee_percentage,
       wallet_topup_fee_percentage,
@@ -165,7 +168,7 @@ export async function PUT(request: NextRequest) {
       { name: 'price_adjustment_at_ishare', value: price_adjustment_at_ishare },
       { name: 'price_adjustment_at_bigtime', value: price_adjustment_at_bigtime }
     ]
-    
+
     for (const adj of priceAdjustments) {
       if (adj.value !== undefined && (adj.value < -100 || adj.value > 100)) {
         return NextResponse.json(
@@ -199,6 +202,7 @@ export async function PUT(request: NextRequest) {
         .from("app_settings")
         .update({
           join_community_link,
+          ordering_enabled: ordering_enabled ?? true,
           announcement_enabled: announcement_enabled ?? false,
           announcement_title: announcement_title ?? "",
           announcement_message: announcement_message ?? "",
@@ -227,6 +231,7 @@ export async function PUT(request: NextRequest) {
         .insert([
           {
             join_community_link,
+            ordering_enabled: ordering_enabled ?? true,
             announcement_enabled: announcement_enabled ?? false,
             announcement_title: announcement_title ?? "",
             announcement_message: announcement_message ?? "",

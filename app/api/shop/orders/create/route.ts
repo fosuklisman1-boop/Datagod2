@@ -9,6 +9,20 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
+    // Check Global Ordering Status
+    const { data: settings } = await supabase
+      .from("app_settings")
+      .select("ordering_enabled")
+      .single()
+
+    if (settings && settings.ordering_enabled === false) {
+      console.warn("[SHOP-ORDER] ⛔ Order blocked: Global ordering is disabled")
+      return NextResponse.json(
+        { error: "Order placement is currently disabled by the administrator. Please try again later." },
+        { status: 503 }
+      )
+    }
+
     const body = await request.json()
     const {
       shop_id,

@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign } from "lucide-react"
+import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign, Power } from "lucide-react"
 import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -26,27 +26,30 @@ export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
-  
+
+  // App Control settings
+  const [orderingEnabled, setOrderingEnabled] = useState(true)
+
   // Announcement settings
   const [announcementEnabled, setAnnouncementEnabled] = useState(false)
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementMessage, setAnnouncementMessage] = useState("")
-  
+
   // Fee settings
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
   const [walletTopupFeePercentage, setWalletTopupFeePercentage] = useState(0)
   const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
-  
+
   // Price adjustment settings (per network)
   const [priceAdjustmentMtn, setPriceAdjustmentMtn] = useState(0)
   const [priceAdjustmentTelecel, setPriceAdjustmentTelecel] = useState(0)
   const [priceAdjustmentAtIshare, setPriceAdjustmentAtIshare] = useState(0)
   const [priceAdjustmentAtBigtime, setPriceAdjustmentAtBigtime] = useState(0)
-  
+
   // Christmas theme settings
   const [christmasThemeEnabled, setChristmasThemeEnabled] = useState(false)
   const [savingChristmasTheme, setSavingChristmasTheme] = useState(false)
-  
+
   const [domainUrls] = useState([
     { name: "Main App", url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000" },
     { name: "Admin Dashboard", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin` },
@@ -79,6 +82,11 @@ export default function AdminSettingsPage() {
             "Hi, I need help resetting my password."
           )
           setPreviewWhatsappUrl(url)
+        }
+
+        // Load ordering settings
+        if (data.ordering_enabled !== undefined) {
+          setOrderingEnabled(data.ordering_enabled)
         }
 
         // Load announcement settings
@@ -156,7 +164,7 @@ export default function AdminSettingsPage() {
     setSavingChristmasTheme(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         toast.error("Authentication required")
         setSavingChristmasTheme(false)
@@ -212,7 +220,7 @@ export default function AdminSettingsPage() {
     try {
       // Get session directly from Supabase
       const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         toast.error("Authentication required. Please log in again.")
         setSaving(false)
@@ -227,6 +235,7 @@ export default function AdminSettingsPage() {
         },
         body: JSON.stringify({
           join_community_link: joinCommunityLink,
+          ordering_enabled: orderingEnabled,
           announcement_enabled: announcementEnabled,
           announcement_title: announcementTitle,
           announcement_message: announcementMessage,
@@ -281,6 +290,35 @@ export default function AdminSettingsPage() {
             Configure application-wide settings and community links
           </p>
         </div>
+
+        {/* Global Ordering Control - Emergency Switch */}
+        <Card className="mb-6 border-red-200 bg-red-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-700">
+              <Power className="w-5 h-5" />
+              Global Ordering Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900">
+                  {orderingEnabled ? "Ordering is ENABLED" : "Ordering is DISABLED"}
+                </p>
+                <p className="text-sm text-gray-600 mt-1">
+                  {orderingEnabled
+                    ? "Users can place orders normally."
+                    : "ALL NEW ORDER PLACEMENT IS BLOCKED. Existing orders will continue to process."}
+                </p>
+              </div>
+              <Switch
+                checked={orderingEnabled}
+                onCheckedChange={setOrderingEnabled}
+                className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-red-600"
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
@@ -587,7 +625,7 @@ export default function AdminSettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-gray-600">
-              Adjust package prices by percentage for each network. Positive values increase prices (markup), 
+              Adjust package prices by percentage for each network. Positive values increase prices (markup),
               negative values decrease prices (discount). Applied at display time without changing base prices.
             </p>
 
