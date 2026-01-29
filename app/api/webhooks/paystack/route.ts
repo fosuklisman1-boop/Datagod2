@@ -163,34 +163,21 @@ export async function POST(request: NextRequest) {
 
 
 
-      // CRITICAL SECURITY CHECK: For shop orders, verify price
-      // Trust the total_price already validated and stored in shop_orders during order creation
-      // Order creation endpoint already does comprehensive server-side price validation
-      const paidAmountPesewas = Math.round(amount); // amount is already in pesewas
-      let expectedAmountGHS = paymentData.amount;
-      let priceDebugInfo = {};
-
-      if (paymentData.order_id) {
-        // Fetch the shop order's total_price (already validated during order creation)
-        const { data: shopOrder, error: shopOrderError } = await supabase
-          .from("shop_orders")
-          .select("id, shop_id, total_price")
-          .eq("id", paymentData.order_id)
-          .single();
-
-        if (shopOrder) {
-          // Use the pre-validated total_price from the order
-          // This was already server-side validated during order creation
-          expectedAmountGHS = shopOrder.total_price;
-          priceDebugInfo = {
-            source: "shop_orders_total_price",
-            total_price: shopOrder.total_price,
-            note: "Pre-validated during order creation"
-          };
-        }
-      }
-
+      // CRITICAL SECURITY CHECK: Verify payment amount matches what was recorded
+      // wallet_payments.amount already contains the correct total (including Paystack fee)
+      // This was set during payment initialization when we calculated: totalAmount = amount + paystackFee
+      const paidAmountPesewas = Math.round(amount); // amount from Paystack is in pesewas
+      const expectedAmountGHS = paymentData.amount; // This is total_price + fee (stored during init)
       const expectedAmountPesewas = Math.round(Number(expectedAmountGHS) * 100);
+
+      const priceDebugInfo = {
+        source: "wallet_payments_amount",
+        wallet_payment_amount: expectedAmountGHS,
+        paid_amount_pesewas: paidAmountPesewas,
+        expected_amount_pesewas: expectedAmountPesewas,
+        note: "Using pre-recorded amount from payment initialization (includes Paystack fee)"
+      };
+
 
       if (paidAmountPesewas !== expectedAmountPesewas) {
         console.error(`[WEBHOOK] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}, Reference: ${reference}`);
