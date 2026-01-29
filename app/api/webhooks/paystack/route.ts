@@ -86,12 +86,12 @@ async function isAutoFulfillmentEnabled(): Promise<boolean> {
       .select("value")
       .eq("key", "auto_fulfillment_enabled")
       .single()
-    
+
     if (error || !data) {
       // Default to enabled if setting doesn't exist
       return true
     }
-    
+
     return data.value?.enabled ?? true
   } catch (error) {
     console.warn("[WEBHOOK] Error checking auto-fulfillment setting:", error)
@@ -163,85 +163,37 @@ export async function POST(request: NextRequest) {
 
 
 
-      // CRITICAL SECURITY CHECK: For shop orders, re-verify price using shop owner logic
+      // CRITICAL SECURITY CHECK: For shop orders, verify price
+      // Trust the total_price already validated and stored in shop_orders during order creation
+      // Order creation endpoint already does comprehensive server-side price validation
       const paidAmountPesewas = Math.round(amount); // amount is already in pesewas
       let expectedAmountGHS = paymentData.amount;
       let priceDebugInfo = {};
+
       if (paymentData.order_id) {
-        // Fetch the shop order and all relevant fields
+        // Fetch the shop order's total_price (already validated during order creation)
         const { data: shopOrder, error: shopOrderError } = await supabase
           .from("shop_orders")
-          .select("id, shop_id, shop_package_id, package_id, total_price")
+          .select("id, shop_id, total_price")
           .eq("id", paymentData.order_id)
           .single();
+
         if (shopOrder) {
-          // Re-verify price using shop owner logic
-          let verifiedBasePrice = 0;
-          let verifiedProfitMargin = 0;
-          let verifiedTotalPrice = 0;
-          // Check if this is a sub-agent shop
-          const { data: shopData } = await supabase
-            .from("user_shops")
-            .select("parent_shop_id")
-            .eq("id", shopOrder.shop_id)
-            .single();
-          if (shopData?.parent_shop_id) {
-            // Sub-agent: verify from sub_agent_shop_packages or sub_agent_catalog
-            const { data: subAgentPkg } = await supabase
-              .from("sub_agent_shop_packages")
-              .select("parent_price, sub_agent_profit_margin, package_id")
-              .eq("id", shopOrder.shop_package_id)
-              .single();
-            if (subAgentPkg) {
-              verifiedBasePrice = subAgentPkg.parent_price;
-              verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0;
-              verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
-              priceDebugInfo = { source: "sub_agent_shop_packages", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
-            } else {
-              // Fallback to sub_agent_catalog
-              const { data: catalogEntry } = await supabase
-                .from("sub_agent_catalog")
-                .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(price)")
-                .eq("id", shopOrder.shop_package_id)
-                .single();
-              if (catalogEntry) {
-                const parentPrice = catalogEntry.parent_price || (catalogEntry.package as any)?.price || 0;
-                const margin = catalogEntry.sub_agent_profit_margin ?? catalogEntry.wholesale_margin ?? 0;
-                verifiedBasePrice = parentPrice;
-                verifiedProfitMargin = margin;
-                verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
-                priceDebugInfo = { source: "sub_agent_catalog", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
-              } else {
-                console.error("[WEBHOOK] ❌ Could not verify sub-agent package price");
-                verifiedTotalPrice = shopOrder.total_price || 0;
-                priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
-              }
-            }
-          } else {
-            // Regular shop: verify from shop_packages
-            const { data: shopPkg } = await supabase
-              .from("shop_packages")
-              .select("profit_margin, packages(price)")
-              .eq("id", shopOrder.shop_package_id)
-              .single();
-            if (shopPkg) {
-              verifiedBasePrice = (shopPkg.packages as any)?.price || 0;
-              verifiedProfitMargin = shopPkg.profit_margin || 0;
-              verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
-              priceDebugInfo = { source: "shop_packages", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
-            } else {
-              console.error("[WEBHOOK] ❌ Could not find shop package");
-              verifiedTotalPrice = shopOrder.total_price || 0;
-              priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
-            }
-          }
-          expectedAmountGHS = verifiedTotalPrice;
+          // Use the pre-validated total_price from the order
+          // This was already server-side validated during order creation
+          expectedAmountGHS = shopOrder.total_price;
+          priceDebugInfo = {
+            source: "shop_orders_total_price",
+            total_price: shopOrder.total_price,
+            note: "Pre-validated during order creation"
+          };
         }
       }
+
       const expectedAmountPesewas = Math.round(Number(expectedAmountGHS) * 100);
 
       if (paidAmountPesewas !== expectedAmountPesewas) {
-        console.error(`[WEBHOOK] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmountPesewas/100}, Expected: ${expectedAmountPesewas/100}, Reference: ${reference}`);
+        console.error(`[WEBHOOK] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}, Reference: ${reference}`);
         console.error(`[WEBHOOK] Price debug info:`, priceDebugInfo);
         // Update payment as failed due to amount mismatch
         await supabase
@@ -249,7 +201,7 @@ export async function POST(request: NextRequest) {
           .update({
             status: "failed",
             amount_received: paidAmountPesewas / 100,
-            failure_reason: `Amount mismatch: paid ${paidAmountPesewas/100}, expected ${expectedAmountPesewas/100}`,
+            failure_reason: `Amount mismatch: paid ${paidAmountPesewas / 100}, expected ${expectedAmountPesewas / 100}`,
             updated_at: new Date().toISOString(),
           })
           .eq("id", paymentData.id);
@@ -307,7 +259,7 @@ export async function POST(request: NextRequest) {
       // IMPORTANT: Check if payment was already processed to prevent double crediting
       // If status was already "completed" before this webhook, skip crediting
       const wasAlreadyCompleted = paymentData.status === "completed"
-      
+
       if (wasAlreadyCompleted) {
         console.log(`[WEBHOOK] ⚠️ Payment already processed (status was: ${paymentData.status}). Skipping duplicate credit.`)
         return NextResponse.json({ received: true, skipped: "already_processed" })
@@ -316,7 +268,7 @@ export async function POST(request: NextRequest) {
       // If this is a shop order payment, update shop_orders payment status and create profit record
       if (paymentData.order_id && paymentData.shop_id) {
         console.log(`[WEBHOOK] Updating shop order payment status for order: ${paymentData.order_id}`)
-        
+
         // Get shop order details to create profit record and track customer
         const { data: shopOrderData, error: orderFetchError } = await supabase
           .from("shop_orders")
@@ -348,7 +300,7 @@ export async function POST(request: NextRequest) {
             console.error("Error updating shop order payment status:", shopOrderError)
           } else {
             console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} payment status updated to completed`)
-            
+
             // Track customer NOW that payment is confirmed
             // This prevents inflated customer revenue from abandoned orders
             try {
@@ -361,21 +313,21 @@ export async function POST(request: NextRequest) {
                 slug: "storefront",
                 orderId: paymentData.order_id,
               })
-              
+
               // Update shop_orders with the customer ID
               if (trackingResult?.customerId) {
                 await supabase
                   .from("shop_orders")
                   .update({ shop_customer_id: trackingResult.customerId })
                   .eq("id", paymentData.order_id)
-                
+
                 console.log(`[WEBHOOK] ✓ Customer tracked: ${trackingResult.customerId}, Repeat: ${trackingResult.isRepeatCustomer}`)
               }
             } catch (trackingError) {
               console.error("[WEBHOOK] Customer tracking error (non-blocking):", trackingError)
               // Continue without tracking if it fails
             }
-            
+
             // Send SMS to customer about payment confirmation
             if (shopOrderData?.customer_phone) {
               // Don't send payment confirmation SMS if order is blacklisted
@@ -389,10 +341,10 @@ export async function POST(request: NextRequest) {
                     .select("shop_name, user_id")
                     .eq("id", paymentData.shop_id)
                     .single()
-                  
+
                   let shopName = shopDetailsData?.shop_name || "Shop"
                   let shopOwnerPhone = "Support"
-                  
+
                   // If shop found, fetch owner's phone number from users table
                   if (shopDetailsData?.user_id) {
                     const { data: ownerData, error: ownerError } = await supabase
@@ -400,14 +352,14 @@ export async function POST(request: NextRequest) {
                       .select("phone_number")
                       .eq("id", shopDetailsData.user_id)
                       .single()
-                    
+
                     if (ownerData?.phone_number) {
                       shopOwnerPhone = ownerData.phone_number
                     }
                   }
-                  
+
                   const smsMessage = `${shopName}: You have successfully placed an order of ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
-                  
+
                   await sendSMS({
                     phone: shopOrderData.customer_phone,
                     message: smsMessage,
@@ -425,51 +377,51 @@ export async function POST(request: NextRequest) {
             const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
             const networkLower = (shopOrderData?.network || "").toLowerCase()
             const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === networkLower)
-            
+
             // Check if auto-fulfillment is enabled
             const autoFulfillEnabled = await isAutoFulfillmentEnabled()
             const shouldFulfill = isAutoFulfillable && autoFulfillEnabled
-            
+
             console.log(`[WEBHOOK] Shop order network: "${shopOrderData?.network}" | Auto-fulfillable: ${isAutoFulfillable} | Auto-fulfill enabled: ${autoFulfillEnabled} | Should fulfill: ${shouldFulfill}`)
-            
+
             if (shouldFulfill && shopOrderData?.customer_phone) {
               // Check if order is in blacklist queue
               if (shopOrderData?.queue === "blacklisted") {
                 console.log(`[WEBHOOK] ⚠️ Order ${paymentData.order_id} is in blacklist queue - skipping Code Craft fulfillment`)
               } else {
                 console.log(`[WEBHOOK] Triggering Code Craft fulfillment for shop order ${paymentData.order_id}`)
-              console.log(`[WEBHOOK] Raw volume_gb value:`, shopOrderData.volume_gb, `(type: ${typeof shopOrderData.volume_gb})`)
-              
-              // Parse size - handle different formats
-              let sizeGb = 0
-              if (typeof shopOrderData.volume_gb === "number") {
-                sizeGb = shopOrderData.volume_gb
-              } else if (shopOrderData.volume_gb) {
-                const digits = shopOrderData.volume_gb.toString().replace(/[^0-9]/g, "")
-                sizeGb = parseInt(digits) || 0
-              }
-              
-              if (sizeGb === 0) {
-                console.error(`[WEBHOOK] ❌ Could not determine size for shop order ${paymentData.order_id}, skipping fulfillment`)
-              }
-              
-              // Determine the network and endpoint for Code Craft API
-              const isBigTime = networkLower.includes("bigtime")
-              const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-              
-              // Non-blocking fulfillment trigger
-              atishareService.fulfillOrder({
-                phoneNumber: shopOrderData.customer_phone,
-                sizeGb,
-                orderId: paymentData.order_id,
-                network: apiNetwork,
-                orderType: "shop",
-                isBigTime,
-              }).then(result => {
-                console.log(`[WEBHOOK] ✓ Fulfillment triggered for shop order ${paymentData.order_id}:`, result)
-              }).catch(err => {
-                console.error(`[WEBHOOK] ❌ Error triggering fulfillment for shop order ${paymentData.order_id}:`, err)
-              })
+                console.log(`[WEBHOOK] Raw volume_gb value:`, shopOrderData.volume_gb, `(type: ${typeof shopOrderData.volume_gb})`)
+
+                // Parse size - handle different formats
+                let sizeGb = 0
+                if (typeof shopOrderData.volume_gb === "number") {
+                  sizeGb = shopOrderData.volume_gb
+                } else if (shopOrderData.volume_gb) {
+                  const digits = shopOrderData.volume_gb.toString().replace(/[^0-9]/g, "")
+                  sizeGb = parseInt(digits) || 0
+                }
+
+                if (sizeGb === 0) {
+                  console.error(`[WEBHOOK] ❌ Could not determine size for shop order ${paymentData.order_id}, skipping fulfillment`)
+                }
+
+                // Determine the network and endpoint for Code Craft API
+                const isBigTime = networkLower.includes("bigtime")
+                const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
+
+                // Non-blocking fulfillment trigger
+                atishareService.fulfillOrder({
+                  phoneNumber: shopOrderData.customer_phone,
+                  sizeGb,
+                  orderId: paymentData.order_id,
+                  network: apiNetwork,
+                  orderType: "shop",
+                  isBigTime,
+                }).then(result => {
+                  console.log(`[WEBHOOK] ✓ Fulfillment triggered for shop order ${paymentData.order_id}:`, result)
+                }).catch(err => {
+                  console.error(`[WEBHOOK] ❌ Error triggering fulfillment for shop order ${paymentData.order_id}:`, err)
+                })
               }
             } else if (isAutoFulfillable && !autoFulfillEnabled) {
               console.log(`[WEBHOOK] ℹ Auto-fulfillment disabled. Shop order ${paymentData.order_id} will go to admin queue.`)
@@ -483,11 +435,11 @@ export async function POST(request: NextRequest) {
               console.log(`[WEBHOOK] MTN order detected. Processing MTN fulfillment for shop order ${paymentData.order_id}`)
               const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
               const normalizedPhone = normalizePhoneNumber(shopOrderData.customer_phone)
-              
+
               // Check if MTN auto-fulfillment is enabled
               const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
               console.log(`[WEBHOOK] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
-              
+
               if (mtnAutoEnabled) {
                 // Non-blocking MTN fulfillment via direct API call
                 (async () => {
@@ -518,9 +470,9 @@ export async function POST(request: NextRequest) {
                       size_gb: sizeGb,
                     }
                     const mtnResult = await createMTNOrder(mtnRequest)
-                    
+
                     console.log(`[WEBHOOK] ✓ MTN API response for shop order ${paymentData.order_id}:`, mtnResult)
-                    
+
                     // Save tracking record
                     if (mtnResult.order_id) {
                       await saveMTNTracking(
@@ -531,7 +483,7 @@ export async function POST(request: NextRequest) {
                         "shop"  // Storefront order via Paystack
                       )
                     }
-                    
+
                     // Update shop order status
                     if (mtnResult.success) {
                       await supabase
@@ -561,7 +513,7 @@ export async function POST(request: NextRequest) {
               if (isBlacklisted) {
                 console.log(`[WEBHOOK] ⚠️ Phone ${shopOrderData.customer_phone} is blacklisted - sending blacklist notification`)
                 const blacklistSMS = `DATAGOD: Your payment has been confirmed for ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
-                
+
                 await sendSMS({
                   phone: shopOrderData.customer_phone,
                   message: blacklistSMS,
@@ -579,7 +531,7 @@ export async function POST(request: NextRequest) {
           if (shopOrderData?.profit_amount > 0) {
             // Get current balance before adding this profit (with pagination)
             const existingProfits = await fetchAllProfits(paymentData.shop_id)
-            
+
             const balanceBefore = existingProfits.reduce((sum: number, p: any) => {
               if (p.status === "pending" || p.status === "credited") {
                 return sum + (p.profit_amount || 0)
@@ -606,7 +558,7 @@ export async function POST(request: NextRequest) {
               console.error("Error creating shop profit record:", profitError)
             } else {
               console.log(`[WEBHOOK] ✓ Shop profit record created: GHS ${shopOrderData.profit_amount.toFixed(2)}`)
-              
+
               // Sync available balance after creating profit
               try {
                 // Get all profits to calculate available balance (with pagination)
@@ -636,7 +588,7 @@ export async function POST(request: NextRequest) {
 
                 // Available balance = credited profit - approved withdrawals
                 const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
-                
+
                 console.log(`[WEBHOOK-BALANCE] Shop ${paymentData.shop_id}:`, {
                   creditedProfit: breakdown.creditedProfit,
                   totalApprovedWithdrawals,
@@ -649,7 +601,7 @@ export async function POST(request: NextRequest) {
                   .from("shop_available_balance")
                   .delete()
                   .eq("shop_id", paymentData.shop_id)
-                
+
                 if (deleteResult.error) {
                   console.warn(`[WEBHOOK] Warning deleting old balance:`, deleteResult.error)
                 }
@@ -684,10 +636,10 @@ export async function POST(request: NextRequest) {
           // Create parent shop profit record if this is a sub-agent sale
           if (shopOrderData?.parent_shop_id && shopOrderData?.parent_profit_amount > 0) {
             console.log(`[WEBHOOK] Sub-agent sale detected. Crediting parent shop ${shopOrderData.parent_shop_id} with GHS ${shopOrderData.parent_profit_amount}`)
-            
+
             // Get current parent balance before adding this profit (with pagination)
             const existingParentProfits = await fetchAllProfits(shopOrderData.parent_shop_id)
-            
+
             const parentBalanceBefore = existingParentProfits.reduce((sum: number, p: any) => {
               if (p.status === "pending" || p.status === "credited") {
                 return sum + (p.profit_amount || 0)
@@ -714,7 +666,7 @@ export async function POST(request: NextRequest) {
               console.error("Error creating parent shop profit record:", parentProfitError)
             } else {
               console.log(`[WEBHOOK] ✓ Parent shop profit record created: GHS ${shopOrderData.parent_profit_amount.toFixed(2)}`)
-              
+
               // Sync parent shop available balance
               try {
                 // Fetch parent profits with pagination
@@ -744,28 +696,28 @@ export async function POST(request: NextRequest) {
 
                 // Delete and insert fresh balance
                 await supabase
-                    .from("shop_available_balance")
-                    .delete()
-                    .eq("shop_id", shopOrderData.parent_shop_id)
+                  .from("shop_available_balance")
+                  .delete()
+                  .eq("shop_id", shopOrderData.parent_shop_id)
 
-                  const { error: parentBalanceInsertError } = await supabase
-                    .from("shop_available_balance")
-                    .insert([
-                      {
-                        shop_id: shopOrderData.parent_shop_id,
-                        available_balance: parentAvailableBalance,
-                        total_profit: parentBreakdown.totalProfit,
-                        withdrawn_amount: parentBreakdown.withdrawnProfit,
-                        credited_profit: parentBreakdown.creditedProfit,
-                        withdrawn_profit: parentBreakdown.withdrawnProfit,
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString(),
-                      }
-                    ])
+                const { error: parentBalanceInsertError } = await supabase
+                  .from("shop_available_balance")
+                  .insert([
+                    {
+                      shop_id: shopOrderData.parent_shop_id,
+                      available_balance: parentAvailableBalance,
+                      total_profit: parentBreakdown.totalProfit,
+                      withdrawn_amount: parentBreakdown.withdrawnProfit,
+                      credited_profit: parentBreakdown.creditedProfit,
+                      withdrawn_profit: parentBreakdown.withdrawnProfit,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }
+                  ])
 
-                  if (!parentBalanceInsertError) {
-                    console.log(`[WEBHOOK] ✓ Parent shop balance synced: ${shopOrderData.parent_shop_id} - Available: GHS ${parentAvailableBalance.toFixed(2)}`)
-                  }
+                if (!parentBalanceInsertError) {
+                  console.log(`[WEBHOOK] ✓ Parent shop balance synced: ${shopOrderData.parent_shop_id} - Available: GHS ${parentAvailableBalance.toFixed(2)}`)
+                }
               } catch (parentSyncError) {
                 console.error("Error syncing parent shop balance:", parentSyncError)
               }
@@ -784,11 +736,11 @@ export async function POST(request: NextRequest) {
         hasOrderId: !!paymentData.order_id,
         hasShopId: !!paymentData.shop_id,
       })
-      
+
       if (!isShopOrderPayment) {
         console.log("[WEBHOOK] This is a WALLET payment - will credit wallet and send SMS")
         const amountInGHS = amount / 100
-        
+
         // Calculate the actual credit amount (excluding the 3% fee)
         // Fee is stored in the payment record
         const feeAmount = paymentData.fee || 0
@@ -813,7 +765,7 @@ export async function POST(request: NextRequest) {
 
         const currentBalance = walletData?.balance || 0
         const currentTotalCredited = walletData?.total_credited || 0
-        
+
         // Check if this reference was already used to credit the wallet (idempotency check)
         const { data: existingTransaction } = await supabase
           .from("transactions")
@@ -878,7 +830,7 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[WEBHOOK] ✓ Wallet credited for user ${paymentData.user_id}: GHS ${creditAmount.toFixed(2)} (after GHS ${feeAmount.toFixed(2)} fee)`)
-        
+
         // Send notification to user about wallet top-up
         try {
           const notificationData = notificationTemplates.balanceUpdated(newBalance)
@@ -913,18 +865,18 @@ export async function POST(request: NextRequest) {
             .select("phone_number, first_name")
             .eq("id", paymentData.user_id)
             .single()
-          
+
           if (!userError && userData?.phone_number) {
             const firstName = userData.first_name || 'User'
             const smsMessage = `Hi ${firstName}, your wallet has been topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
-            
+
             await sendSMS({
               phone: userData.phone_number,
               message: smsMessage,
               type: 'wallet_topup_success',
               reference: paymentData.id,
             }).catch(err => console.error("[WEBHOOK] SMS error:", err))
-            
+
             console.log(`[SMS] Wallet top-up SMS sent to user ${paymentData.user_id}`)
           } else if (userError) {
             console.warn("[SMS] Failed to fetch user phone number:", userError)
@@ -1052,14 +1004,14 @@ export async function POST(request: NextRequest) {
           if (userData?.phone_number) {
             const firstName = userData.first_name || "Customer"
             const smsMessage = `Hi ${firstName}, your wallet top-up of GHS ${amountInGHS.toFixed(2)} failed. ${gateway_response || "Please try again."}`
-            
+
             await sendSMS({
               phone: userData.phone_number,
               message: smsMessage,
               type: 'wallet_topup_failed',
               reference: paymentData.id,
             }).catch(err => console.error("[WEBHOOK] Failed payment SMS error:", err))
-            
+
             console.log(`[SMS] Failed payment SMS sent to user ${paymentData.user_id}`)
           }
         } catch (smsError) {
