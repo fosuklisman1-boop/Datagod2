@@ -163,20 +163,105 @@ export async function POST(request: NextRequest) {
 
 
 
-      // CRITICAL SECURITY CHECK: Verify payment amount matches what was recorded
-      // wallet_payments.amount already contains the correct total (including Paystack fee)
-      // This was set during payment initialization when we calculated: totalAmount = amount + paystackFee
+      // CRITICAL SECURITY CHECK: For shop orders, re-verify price using shop owner logic
+      // This adds an extra layer of security beyond trusting wallet_payments table
       const paidAmountPesewas = Math.round(amount); // amount from Paystack is in pesewas
-      const expectedAmountGHS = paymentData.amount; // This is total_price + fee (stored during init)
-      const expectedAmountPesewas = Math.round(Number(expectedAmountGHS) * 100);
+      let expectedAmountGHS = Number(paymentData.amount);
+      const feeAmount = Number(paymentData.fee || 0);
 
-      const priceDebugInfo = {
+      let priceDebugInfo: any = {
         source: "wallet_payments_amount",
-        wallet_payment_amount: expectedAmountGHS,
-        paid_amount_pesewas: paidAmountPesewas,
-        expected_amount_pesewas: expectedAmountPesewas,
-        note: "Using pre-recorded amount from payment initialization (includes Paystack fee)"
+        db_total_amount_ghs: expectedAmountGHS,
+        fee_amount: feeAmount
       };
+
+      if (paymentData.order_id) {
+        // Fetch the shop order and all relevant fields
+        const { data: shopOrder } = await supabase
+          .from("shop_orders")
+          .select("id, shop_id, shop_package_id, package_id, total_price")
+          .eq("id", paymentData.order_id)
+          .single();
+
+        if (shopOrder) {
+          // Re-verify price using shop owner logic
+          let verifiedBasePrice = 0;
+          let verifiedProfitMargin = 0;
+          let verifiedTotalPrice = 0;
+
+          // Check if this is a sub-agent shop
+          const { data: shopData } = await supabase
+            .from("user_shops")
+            .select("parent_shop_id")
+            .eq("id", shopOrder.shop_id)
+            .single();
+
+          if (shopData?.parent_shop_id) {
+            // Sub-agent: verify from sub_agent_shop_packages or sub_agent_catalog
+            const { data: subAgentPkg } = await supabase
+              .from("sub_agent_shop_packages")
+              .select("parent_price, sub_agent_profit_margin")
+              .eq("id", shopOrder.shop_package_id)
+              .single();
+
+            if (subAgentPkg) {
+              verifiedBasePrice = subAgentPkg.parent_price;
+              verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0;
+              verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
+              priceDebugInfo = { source: "sub_agent_shop_packages", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
+            } else {
+              // Fallback to sub_agent_catalog
+              const { data: catalogEntry } = await supabase
+                .from("sub_agent_catalog")
+                .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(price)")
+                .eq("id", shopOrder.shop_package_id)
+                .single();
+
+              if (catalogEntry) {
+                const parentPrice = catalogEntry.parent_price || (catalogEntry.package as any)?.price || 0;
+                const margin = catalogEntry.sub_agent_profit_margin ?? catalogEntry.wholesale_margin ?? 0;
+                verifiedBasePrice = parentPrice;
+                verifiedProfitMargin = margin;
+                verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
+                priceDebugInfo = { source: "sub_agent_catalog", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
+              } else {
+                // Fallback to order total price if catalog lookup fails
+                verifiedTotalPrice = shopOrder.total_price || 0;
+                priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
+              }
+            }
+          } else {
+            // Regular shop: verify from shop_packages
+            const { data: shopPkg } = await supabase
+              .from("shop_packages")
+              .select("profit_margin, packages(price)")
+              .eq("id", shopOrder.shop_package_id)
+              .single();
+
+            if (shopPkg) {
+              verifiedBasePrice = (shopPkg.packages as any)?.price || 0;
+              verifiedProfitMargin = shopPkg.profit_margin || 0;
+              verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
+              priceDebugInfo = { source: "shop_packages", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
+            } else {
+              verifiedTotalPrice = shopOrder.total_price || 0;
+              priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
+            }
+          }
+
+          // IMPORTANT: Add the fee to the verified order price
+          expectedAmountGHS = verifiedTotalPrice + feeAmount;
+          priceDebugInfo.calculated_total_with_fee = expectedAmountGHS;
+        }
+      }
+
+      // Robust conversion to pesewas (handles floating point issues like 10.82 * 100 = 1081.999...)
+      const expectedAmountPesewas = Math.round((expectedAmountGHS + Number.EPSILON) * 100);
+
+      priceDebugInfo.expected_pesewas = expectedAmountPesewas;
+      priceDebugInfo.paid_pesewas = paidAmountPesewas;
+      priceDebugInfo.difference = paidAmountPesewas - expectedAmountPesewas;
+
 
 
       if (paidAmountPesewas !== expectedAmountPesewas) {
