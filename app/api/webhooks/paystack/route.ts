@@ -161,14 +161,26 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // CRITICAL SECURITY CHECK: Verify payment amount matches expected amount
+
+      // CRITICAL SECURITY CHECK: For shop orders, verify against shop_orders.total_price
       const paidAmount = amount / 100 // Convert from kobo/pesewas to main currency
-      const expectedAmount = paymentData.amount
-      const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
-      
+      let expectedAmount = paymentData.amount
+      let tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
+
+      if (paymentData.order_id) {
+        // Fetch the shop order and use its total_price for validation
+        const { data: shopOrder, error: shopOrderError } = await supabase
+          .from("shop_orders")
+          .select("id, total_price")
+          .eq("id", paymentData.order_id)
+          .single()
+        if (shopOrder && typeof shopOrder.total_price === "number") {
+          expectedAmount = shopOrder.total_price
+        }
+      }
+
       if (Math.abs(paidAmount - expectedAmount) > tolerance) {
         console.error(`[WEBHOOK] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmount}, Expected: ${expectedAmount}, Reference: ${reference}`)
-        
         // Update payment as failed due to amount mismatch
         await supabase
           .from("wallet_payments")
@@ -179,7 +191,6 @@ export async function POST(request: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", paymentData.id)
-        
         // If there's an order, mark it as failed too
         if (paymentData.order_id) {
           await supabase
@@ -191,7 +202,6 @@ export async function POST(request: NextRequest) {
             })
             .eq("id", paymentData.order_id)
         }
-        
         return NextResponse.json(
           { error: "Payment amount mismatch - possible fraud attempt" },
           { status: 400 }
