@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, notifyPaymentMismatch } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
@@ -182,6 +182,14 @@ export async function POST(request: NextRequest) {
       if (paidAmountPesewas !== expectedAmountPesewas) {
         console.error(`[WEBHOOK] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}, Reference: ${reference}`);
         console.error(`[WEBHOOK] Price debug info:`, priceDebugInfo);
+
+        // Alert admins via SMS (non-blocking)
+        notifyPaymentMismatch(
+          reference,
+          paidAmountPesewas / 100,
+          expectedAmountPesewas / 100
+        ).catch(err => console.error("[WEBHOOK] Failed to notify admins:", err))
+
         // Update payment as failed due to amount mismatch
         await supabase
           .from("wallet_payments")

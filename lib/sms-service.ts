@@ -56,6 +56,14 @@ export const SMSTemplates = {
   fulfillmentFailed: (orderId: string, phone: string, network: string, sizeGb: string, reason: string) =>
     `[ADMIN] Fulfillment FAILED! Order: ${orderId.substring(0, 8)} | ${phone} | ${network} ${sizeGb}GB | Reason: ${reason.substring(0, 50)}`,
 
+  // Price manipulation alert
+  priceManipulationDetected: (phone: string, clientPrice: string, actualPrice: string, network: string, volume: string) =>
+    `[FRAUD ALERT] Price manipulation detected! Phone: ${phone} | Sent: GHS${clientPrice} | Actual: GHS${actualPrice} | ${network} ${volume}GB`,
+
+  // Payment mismatch alert  
+  paymentMismatchDetected: (reference: string, paidAmount: string, expectedAmount: string) =>
+    `[FRAUD ALERT] Payment mismatch! Ref: ${reference} | Paid: GHS${paidAmount} | Expected: GHS${expectedAmount}`,
+
   // Admin credit/debit notifications to user
   adminCredited: (amount: string, balance: string) =>
     `DATAGOD: ✓ Your wallet has been credited GHS ${amount} by admin. New balance: GHS ${balance}`,
@@ -91,7 +99,7 @@ function normalizePhoneNumber(phone: string): string {
  */
 export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   console.log('[SMS] sendSMS called with:', { phone: payload.phone, type: payload.type })
-  
+
   if (process.env.SMS_ENABLED !== 'true') {
     console.log('[SMS] SMS disabled (SMS_ENABLED !== true), skipping:', payload.message.substring(0, 50))
     return { success: true, skipped: true }
@@ -115,7 +123,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
 
     const vasKey = process.env.MOOLRE_API_KEY || ''
     const senderId = process.env.MOOLRE_SENDER_ID || 'CLINGSHUB2'
-    
+
     // Build query parameters
     const queryParams = new URLSearchParams({
       type: '1',
@@ -123,7 +131,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
       recipient: normalizedPhone,
       message: payload.message,
     })
-    
+
     if (payload.reference) {
       queryParams.append('ref', payload.reference)
     }
@@ -177,7 +185,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     }
   } catch (error) {
     console.error('[SMS] Error sending SMS:', error)
-    
+
     // Extract error details
     let errorMessage = 'Failed to send SMS'
     if (axios.isAxiosError(error)) {
@@ -243,7 +251,7 @@ export async function sendSMSWithRetry(
  */
 async function getAdminPhoneNumbers(): Promise<string[]> {
   const phones: string[] = []
-  
+
   // Primary: Query the public.users table for admins with phone numbers
   try {
     const { data: adminUsers, error: usersError } = await supabase
@@ -251,7 +259,7 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
       .select('id, phone_number, role')
       .eq('role', 'admin')
       .not('phone_number', 'is', null)
-    
+
     if (!usersError && adminUsers && adminUsers.length > 0) {
       for (const user of adminUsers) {
         if (user.phone_number) {
@@ -260,7 +268,7 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
         }
       }
     }
-    
+
     if (phones.length > 0) {
       console.log(`[SMS] Found ${phones.length} admin phone number(s) from public.users table`)
       return phones
@@ -268,7 +276,7 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
   } catch (e) {
     console.warn('[SMS] Could not fetch admin phones from users table:', e)
   }
-  
+
   // Fallback: try from admin_settings table
   try {
     const { data, error } = await supabase
@@ -276,7 +284,7 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
       .select('value')
       .eq('key', 'admin_notification_phones')
       .single()
-    
+
     if (!error && data?.value?.phones && Array.isArray(data.value.phones)) {
       const settingsPhones = data.value.phones as string[]
       if (settingsPhones.length > 0) {
@@ -287,7 +295,7 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
   } catch (e) {
     console.warn('[SMS] Could not fetch admin phones from admin_settings:', e)
   }
-  
+
   // Final fallback: environment variable (comma-separated)
   const envPhones = process.env.ADMIN_NOTIFICATION_PHONES
   if (envPhones) {
@@ -297,7 +305,7 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
       return envPhonesList
     }
   }
-  
+
   return []
 }
 
@@ -307,16 +315,16 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
  */
 export async function notifyAdmins(message: string, type: string, reference?: string): Promise<void> {
   const adminPhones = await getAdminPhoneNumbers()
-  
+
   if (adminPhones.length === 0) {
     console.warn('[SMS] No admin phone numbers configured for notifications')
     return
   }
-  
+
   console.log(`[SMS] Notifying ${adminPhones.length} admin(s): ${type}`)
-  
+
   // Send to all admins in parallel (non-blocking)
-  const sendPromises = adminPhones.map(phone => 
+  const sendPromises = adminPhones.map(phone =>
     sendSMS({
       phone,
       message,
@@ -326,7 +334,7 @@ export async function notifyAdmins(message: string, type: string, reference?: st
       console.error(`[SMS] Failed to notify admin ${phone}:`, err)
     })
   )
-  
+
   await Promise.allSettled(sendPromises)
 }
 
@@ -347,6 +355,44 @@ export async function notifyFulfillmentFailure(
     sizeGb.toString(),
     reason
   )
-  
+
   await notifyAdmins(message, 'fulfillment_failure', orderId)
+}
+
+/**
+ * Notify admins of a price manipulation attempt during order creation
+ */
+export async function notifyPriceManipulation(
+  customerPhone: string,
+  clientPrice: number,
+  actualPrice: number,
+  network: string,
+  volumeGb: number
+): Promise<void> {
+  const message = SMSTemplates.priceManipulationDetected(
+    customerPhone,
+    clientPrice.toFixed(2),
+    actualPrice.toFixed(2),
+    network,
+    volumeGb.toString()
+  )
+
+  await notifyAdmins(message, 'price_manipulation', customerPhone)
+}
+
+/**
+ * Notify admins of a payment amount mismatch (potential fraud)
+ */
+export async function notifyPaymentMismatch(
+  reference: string,
+  paidAmount: number,
+  expectedAmount: number
+): Promise<void> {
+  const message = SMSTemplates.paymentMismatchDetected(
+    reference,
+    paidAmount.toFixed(2),
+    expectedAmount.toFixed(2)
+  )
+
+  await notifyAdmins(message, 'payment_mismatch', reference)
 }

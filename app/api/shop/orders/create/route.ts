@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -114,6 +114,16 @@ export async function POST(request: NextRequest) {
       console.error(`  Client total_price: ${total_price}`)
       console.error(`  Verified total_price: ${verifiedTotalPrice}`)
       console.error(`  Shop ID: ${shop_id}, Package ID: ${shop_package_id}`)
+
+      // Alert admins via SMS (non-blocking)
+      notifyPriceManipulation(
+        customer_phone,
+        total_price,
+        verifiedTotalPrice,
+        network,
+        volume_gb
+      ).catch(err => console.error("[SHOP-ORDER] Failed to notify admins:", err))
+
       return NextResponse.json(
         { error: "Invalid price - please refresh and try again" },
         { status: 400 }
