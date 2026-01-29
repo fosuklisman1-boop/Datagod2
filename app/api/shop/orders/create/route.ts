@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
     console.log(`[SHOP-ORDER] ✓ Price verified: ${verifiedTotalPrice} GHS`)
 
     // Use verified prices instead of client-provided ones
-    const finalBasePrice = verifiedBasePrice
+    const yfinalBasePrice = verifiedBasePrice
     const finalProfitAmount = verifiedProfitMargin
     const finalTotalPrice = verifiedTotalPrice
 
