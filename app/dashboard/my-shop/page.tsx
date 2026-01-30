@@ -66,7 +66,7 @@ export default function MyShopPage() {
       if (!user?.id) return
       const userShop = await shopService.getShop(user.id)
       setShop(userShop)
-      
+
       if (userShop) {
         // Get auth token for API calls
         const { data: { session } } = await supabase.auth.getSession()
@@ -112,7 +112,7 @@ export default function MyShopPage() {
             setPackages([])
           }
         }
-        
+
         setFormData({
           shop_name: userShop.shop_name || "",
           description: userShop.description || "",
@@ -141,35 +141,35 @@ export default function MyShopPage() {
         console.log("Shop Name:", userShop.shop_name)
         console.log("Parent Shop ID:", userShop.parent_shop_id)
         console.log("Is Sub-agent:", !!userShop.parent_shop_id)
-        
+
         if (userShop.parent_shop_id) {
           // Sub-agent: get parent shop's packages via API (bypasses RLS)
           console.log("=== LOADING PARENT PACKAGES VIA API ===")
           try {
             const { data: { session } } = await supabase.auth.getSession()
             const token = session?.access_token
-            
+
             if (!token) {
               console.error("No access token available")
               setAllPackages([])
               return
             }
-            
+
             const response = await fetch("/api/shop/parent-packages", {
               headers: {
                 "Authorization": `Bearer ${token}`
               }
             })
-            
+
             if (!response.ok) {
               console.error("Parent packages API error:", response.status, response.statusText)
               setAllPackages([])
               return
             }
-            
+
             const data = await response.json()
             console.log("Parent packages API response:", data)
-            
+
             if (data.packages && data.packages.length > 0) {
               setAllPackages(data.packages)
               console.log("Set allPackages to parent's packages:", data.packages.length)
@@ -267,7 +267,7 @@ export default function MyShopPage() {
 
     try {
       setSavingWhatsapp(true)
-      
+
       // Get auth token from session
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
@@ -317,12 +317,12 @@ export default function MyShopPage() {
       // For sub-agents: calculate profit from PARENT PRICE (not admin price)
       // This is the sub-agent's own profit margin
       const parentPrice = pkg?.parent_price !== undefined ? pkg?.parent_price : (pkg?.price || 0)
-      
+
       const sellingPrice = parseFloat(profitMargin || "0")
       let subAgentProfit: number
       // Always use parentPrice (which is correct for both sub-agents and regular shops)
       subAgentProfit = sellingPrice - parentPrice
-      
+
       if (subAgentProfit < 0) {
         toast.error("Selling price must be higher than base price")
         return
@@ -336,12 +336,15 @@ export default function MyShopPage() {
         toast.error("Not authenticated")
         return
       }
-      
+
       // Check if sub-agent
       if (shop.parent_shop_id) {
         // Sub-agent: use sub_agent_catalog API
-        const existingPkg = packages.find(p => p.package_id === selectedPackage)
-        
+        const pkg = getPackageDetails(selectedPackage)
+        const realPackageId = pkg?.package_id || selectedPackage // Sub-agents need the package_id, not the catalog id
+
+        const existingPkg = packages.find(p => p.package_id === realPackageId)
+
         if (existingPkg) {
           // Update existing catalog item
           const response = await fetch("/api/shop/sub-agent-catalog", {
@@ -369,7 +372,7 @@ export default function MyShopPage() {
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
-              package_id: selectedPackage,
+              package_id: realPackageId,
               sub_agent_profit_margin: subAgentProfit,
               parent_price: parentPrice
             })
@@ -402,7 +405,7 @@ export default function MyShopPage() {
       } else {
         // Regular shop owner: use shop_packages
         const existingPkg = packages.find(p => p.package_id === selectedPackage)
-        
+
         if (existingPkg) {
           await shopPackageService.updatePackageProfitMargin(
             existingPkg.id,
@@ -417,11 +420,11 @@ export default function MyShopPage() {
           )
           toast.success("Package added to shop!")
         }
-        
+
         const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
         setPackages(updatedPkgs)
       }
-      
+
       // Clear only the form, stay on the adding page
       setSelectedPackage("")
       setProfitMargin("")
@@ -521,7 +524,7 @@ export default function MyShopPage() {
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">My Shop</h1>
             <p className="text-gray-500 mt-1">Create your store and start reselling data packages</p>
           </div>
-          
+
           {dbError && (
             <Alert className="border-red-300 bg-red-50">
               <AlertCircle className="h-4 w-4 text-red-600" />
@@ -533,7 +536,7 @@ export default function MyShopPage() {
               </AlertDescription>
             </Alert>
           )}
-          
+
           <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -553,7 +556,7 @@ export default function MyShopPage() {
                   className="mt-1"
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="shop-description">Description</Label>
                 <Textarea
@@ -612,11 +615,11 @@ export default function MyShopPage() {
                       .toLowerCase()
                       .replace(/[^a-z0-9]+/g, "-")
                       .replace(/^-+|-+$/g, "")
-                    
+
                     // Add random suffix to prevent collisions when multiple users use the same name
                     const randomSuffix = Math.random().toString(36).substring(2, 9)
                     const shopSlug = `${baseSlug}-${randomSuffix}`
-                    
+
                     const newShop = await shopService.createShop(user.id, {
                       shop_name: formData.shop_name,
                       shop_slug: shopSlug,
@@ -881,439 +884,439 @@ export default function MyShopPage() {
           <CardContent className="space-y-4">
             {/* Tabs */}
             <Tabs defaultValue="products" className="space-y-4">
-          <TabsList className="bg-white/40 backdrop-blur border border-white/20">
-            <TabsTrigger value="products" className="data-[state=active]:bg-white/60">
-              <Package className="w-4 h-4 mr-2" />
-              Products
-            </TabsTrigger>
-            <TabsTrigger value="orders" className="data-[state=active]:bg-white/60">
-              Store Overview
-            </TabsTrigger>
-          </TabsList>
+              <TabsList className="bg-white/40 backdrop-blur border border-white/20">
+                <TabsTrigger value="products" className="data-[state=active]:bg-white/60">
+                  <Package className="w-4 h-4 mr-2" />
+                  Products
+                </TabsTrigger>
+                <TabsTrigger value="orders" className="data-[state=active]:bg-white/60">
+                  Store Overview
+                </TabsTrigger>
+              </TabsList>
 
-          {/* Products Tab */}
-          <TabsContent value="products">
-            <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <CardTitle>Shop Products</CardTitle>
-                  <CardDescription>Manage products available in your store</CardDescription>
-                </div>
-                {!addingPackage && (
-                  <Button
-                    onClick={() => setAddingPackage(true)}
-                    className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Product
-                  </Button>
-                )}
-              </CardHeader>
+              {/* Products Tab */}
+              <TabsContent value="products">
+                <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+                  <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <CardTitle>Shop Products</CardTitle>
+                      <CardDescription>Manage products available in your store</CardDescription>
+                    </div>
+                    {!addingPackage && (
+                      <Button
+                        onClick={() => setAddingPackage(true)}
+                        className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Product
+                      </Button>
+                    )}
+                  </CardHeader>
 
-              <CardContent className="space-y-4">
-                {/* Add Packages Grid */}
-                {addingPackage && (
-                  <div className="mb-6">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold">Available Packages</h3>
-                      <Button
-                        onClick={() => {
-                          setAddingPackage(false)
-                          setSelectedPackage("")
-                          setProfitMargin("")
-                          setSelectedNetwork("All")
-                        }}
-                        variant="outline"
-                        size="sm"
-                      >
-                        Done
-                      </Button>
-                    </div>
-                    
-                    {/* Network Filter */}
-                    <div className="mb-4 flex gap-2 flex-wrap">
-                      <Button
-                        onClick={() => setSelectedNetwork("All")}
-                        variant={selectedNetwork === "All" ? "default" : "outline"}
-                        size="sm"
-                        className={selectedNetwork === "All" ? "bg-blue-600" : ""}
-                      >
-                        All Networks
-                      </Button>
-                      {[...new Set(allPackages.map(p => p.network))].sort().map(network => (
-                        <Button
-                          key={network}
-                          onClick={() => setSelectedNetwork(network)}
-                          variant={selectedNetwork === network ? "default" : "outline"}
-                          size="sm"
-                          className={selectedNetwork === network ? "bg-blue-600" : ""}
-                        >
-                          {network}
-                        </Button>
-                      ))}
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {(() => {
-                        const filteredPackages = selectedNetwork === "All" 
-                          ? allPackages 
-                          : allPackages.filter(p => p.network === selectedNetwork)
-                        
-                        return filteredPackages
-                          .sort((a, b) => parseFloat(a.size) - parseFloat(b.size))
-                          .map((pkg) => (
-                            <Card key={pkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
+                  <CardContent className="space-y-4">
+                    {/* Add Packages Grid */}
+                    {addingPackage && (
+                      <div className="mb-6">
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-lg font-semibold">Available Packages</h3>
+                          <Button
+                            onClick={() => {
+                              setAddingPackage(false)
+                              setSelectedPackage("")
+                              setProfitMargin("")
+                              setSelectedNetwork("All")
+                            }}
+                            variant="outline"
+                            size="sm"
+                          >
+                            Done
+                          </Button>
+                        </div>
+
+                        {/* Network Filter */}
+                        <div className="mb-4 flex gap-2 flex-wrap">
+                          <Button
+                            onClick={() => setSelectedNetwork("All")}
+                            variant={selectedNetwork === "All" ? "default" : "outline"}
+                            size="sm"
+                            className={selectedNetwork === "All" ? "bg-blue-600" : ""}
+                          >
+                            All Networks
+                          </Button>
+                          {[...new Set(allPackages.map(p => p.network))].sort().map(network => (
+                            <Button
+                              key={network}
+                              onClick={() => setSelectedNetwork(network)}
+                              variant={selectedNetwork === network ? "default" : "outline"}
+                              size="sm"
+                              className={selectedNetwork === network ? "bg-blue-600" : ""}
+                            >
+                              {network}
+                            </Button>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {(() => {
+                            const filteredPackages = selectedNetwork === "All"
+                              ? allPackages
+                              : allPackages.filter(p => p.network === selectedNetwork)
+
+                            return filteredPackages
+                              .sort((a, b) => parseFloat(a.size) - parseFloat(b.size))
+                              .map((pkg) => (
+                                <Card key={pkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
+                                  <CardContent className="p-4 space-y-3">
+                                    <div>
+                                      <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
+                                      <p className="text-sm text-gray-600">
+                                        {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {(pkg.parent_price ?? pkg.price ?? 0).toFixed(2)}
+                                      </p>
+                                    </div>
+
+                                    {(() => {
+                                      const isAdded = packages.find(p => p.package_id === (pkg.package_id || pkg.id))
+                                      return (
+                                        <>
+                                          {isAdded && (
+                                            <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
+                                              <p className="text-blue-700">
+                                                <span className="font-semibold">Your Cost (Wholesale):</span> GHS {(pkg.parent_price ?? pkg.price ?? 0).toFixed(2)}
+                                              </p>
+                                              <p className="text-blue-700">
+                                                <span className="font-semibold">Current Selling Price:</span> GHS {((pkg.parent_price ?? pkg.price ?? 0) + (isAdded.profit_margin || 0)).toFixed(2)}
+                                              </p>
+                                              <p className="text-blue-600">
+                                                Your Profit: GHS {(isAdded.profit_margin || 0).toFixed(2)}
+                                              </p>
+                                            </div>
+                                          )}
+                                        </>
+                                      )
+                                    })()}
+
+                                    <div>
+                                      <Label className="text-xs">Your Selling Price (GHS)</Label>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="Enter price"
+                                        value={selectedPackage === pkg.id ? profitMargin : ""}
+                                        onChange={(e) => {
+                                          setSelectedPackage(pkg.id)
+                                          setProfitMargin(e.target.value)
+                                        }}
+                                        className="mt-1 text-sm"
+                                      />
+                                    </div>
+
+                                    {selectedPackage === pkg.id && profitMargin && (
+                                      (() => {
+                                        const basePrice = pkg.parent_price ?? pkg.price ?? 0
+                                        const sellingPrice = parseFloat(profitMargin)
+                                        const profit = sellingPrice - basePrice
+                                        const isNegative = profit < 0
+                                        return (
+                                          <div className={`p-2 rounded-md text-xs space-y-1 ${isNegative
+                                            ? "bg-red-50 border border-red-200"
+                                            : "bg-emerald-50"
+                                            }`}>
+                                            <p className={isNegative ? "text-red-700" : "text-emerald-700"}>
+                                              <span className="font-semibold">Your Profit:</span> GHS {profit.toFixed(2)}
+                                            </p>
+                                            {isNegative && (
+                                              <p className="text-red-600 text-xs">
+                                                ⚠️ Selling price must be higher than base price
+                                              </p>
+                                            )}
+                                          </div>
+                                        )
+                                      })()
+                                    )}
+
+                                    {(() => {
+                                      const isAdded = packages.some(p => p.package_id === (pkg.package_id || pkg.id))
+                                      const basePrice = pkg.parent_price ?? pkg.price ?? 0
+                                      const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
+                                      const hasNegativeProfit = profit < 0
+                                      return (
+                                        <Button
+                                          onClick={() => {
+                                            if (selectedPackage === pkg.id && profitMargin) {
+                                              handleAddPackage()
+                                            }
+                                          }}
+                                          disabled={selectedPackage !== pkg.id || !profitMargin || hasNegativeProfit}
+                                          size="sm"
+                                          className={`w-full ${isAdded
+                                            ? "bg-blue-600 hover:bg-blue-700"
+                                            : "bg-emerald-600 hover:bg-emerald-700"
+                                            } disabled:opacity-50`}
+                                        >
+                                          {isAdded ? "✓ Edit" : "Add to Shop"}
+                                        </Button>
+                                      )
+                                    })()}
+                                  </CardContent>
+                                </Card>
+                              ))
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Products List */}
+                    {packages.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Package className="w-12 h-12 mx-auto text-gray-400 mb-2" />
+                        <p className="text-gray-600">No products yet. Add your first product!</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {packages.map((shopPkg) => {
+                          const pkg = shopPkg.packages
+                          // Get the current parent price from available packages (source of truth)
+                          const availablePkg = allPackages.find(p => p.id === pkg?.id)
+                          const currentParentPrice = availablePkg?.parent_price !== undefined ? availablePkg.parent_price : (shopPkg.parent_price !== undefined ? shopPkg.parent_price : (pkg?.price || 0))
+                          const displayBasePrice = currentParentPrice
+                          const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
+                          const profit = shopPkg.profit_margin || 0
+                          return (
+                            <Card key={shopPkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
                               <CardContent className="p-4 space-y-3">
                                 <div>
-                                  <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
+                                  <p className="font-semibold text-emerald-900">{pkg?.network} - {pkg?.size}GB</p>
                                   <p className="text-sm text-gray-600">
-                                    {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {(pkg.parent_price ?? pkg.price ?? 0).toFixed(2)}
+                                    {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
                                   </p>
                                 </div>
-                                
-                                {(() => {
-                                  const isAdded = packages.find(p => p.package_id === pkg.id)
-                                  return (
-                                    <>
-                                      {isAdded && (
-                                        <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
-                                          <p className="text-blue-700">
-                                            <span className="font-semibold">Your Cost (Wholesale):</span> GHS {(pkg.parent_price ?? pkg.price ?? 0).toFixed(2)}
-                                          </p>
-                                          <p className="text-blue-700">
-                                            <span className="font-semibold">Current Selling Price:</span> GHS {((pkg.parent_price ?? pkg.price ?? 0) + (isAdded.profit_margin || 0)).toFixed(2)}
-                                          </p>
-                                          <p className="text-blue-600">
-                                            Your Profit: GHS {(isAdded.profit_margin || 0).toFixed(2)}
-                                          </p>
-                                        </div>
-                                      )}
-                                    </>
-                                  )
-                                })()}
-                                
-                                <div>
-                                  <Label className="text-xs">Your Selling Price (GHS)</Label>
-                                  <Input
-                                    type="number"
-                                    step="0.01"
-                                    placeholder="Enter price"
-                                    value={selectedPackage === pkg.id ? profitMargin : ""}
-                                    onChange={(e) => {
-                                      setSelectedPackage(pkg.id)
-                                      setProfitMargin(e.target.value)
-                                    }}
-                                    className="mt-1 text-sm"
-                                  />
+
+                                <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
+                                  <p className="text-blue-700">
+                                    <span className="font-semibold">Your Cost (Wholesale):</span> GHS {displayBasePrice.toFixed(2)}
+                                  </p>
+                                  <p className="text-blue-700">
+                                    <span className="font-semibold">Current Selling Price:</span> GHS {sellingPrice.toFixed(2)}
+                                  </p>
+                                  <p className="text-blue-600">
+                                    Your Profit: GHS {profit.toFixed(2)}
+                                  </p>
                                 </div>
-                                
-                                {selectedPackage === pkg.id && profitMargin && (
-                                  (() => {
-                                    const basePrice = pkg.parent_price ?? pkg.price ?? 0
-                                    const sellingPrice = parseFloat(profitMargin)
-                                    const profit = sellingPrice - basePrice
-                                    const isNegative = profit < 0
-                                    return (
-                                      <div className={`p-2 rounded-md text-xs space-y-1 ${
-                                        isNegative
-                                          ? "bg-red-50 border border-red-200"
-                                          : "bg-emerald-50"
-                                      }`}>
-                                        <p className={isNegative ? "text-red-700" : "text-emerald-700"}>
-                                          <span className="font-semibold">Your Profit:</span> GHS {profit.toFixed(2)}
-                                        </p>
-                                        {isNegative && (
-                                          <p className="text-red-600 text-xs">
-                                            ⚠️ Selling price must be higher than base price
-                                          </p>
-                                        )}
-                                      </div>
-                                    )
-                                  })()
-                                )}
-                                
-                                {(() => {
-                                  const isAdded = packages.some(p => p.package_id === pkg.id)
-                                  const basePrice = pkg.parent_price ?? pkg.price ?? 0
-                                  const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
-                                  const hasNegativeProfit = profit < 0
-                                  return (
-                                    <Button
-                                      onClick={() => {
-                                        if (selectedPackage === pkg.id && profitMargin) {
-                                          handleAddPackage()
-                                        }
-                                      }}
-                                      disabled={selectedPackage !== pkg.id || !profitMargin || hasNegativeProfit}
-                                      size="sm"
-                                      className={`w-full ${
-                                        isAdded
-                                          ? "bg-blue-600 hover:bg-blue-700"
-                                          : "bg-emerald-600 hover:bg-emerald-700"
-                                      } disabled:opacity-50`}
-                                    >
-                                      {isAdded ? "✓ Edit" : "Add to Shop"}
-                                    </Button>
-                                  )
-                                })()}
+
+                                <div className="flex items-center gap-2 pt-2">
+                                  {shopPkg.is_available ? (
+                                    <Badge className="bg-green-100 text-green-700">Available</Badge>
+                                  ) : (
+                                    <Badge className="bg-gray-100 text-gray-700">Unavailable</Badge>
+                                  )}
+                                  {availablePkg && !availablePkg.active && (
+                                    <Badge className="bg-red-100 text-red-700 text-xs">Parent Disabled</Badge>
+                                  )}
+                                </div>
+
+                                <div className="flex gap-2 pt-2">
+                                  <Button
+                                    onClick={() => {
+                                      setEditingShopPackage(shopPkg)
+                                      // Find matching package in allPackages to get the correct ID (catalog ID for sub-agents)
+                                      const availablePkg = allPackages.find(p => (p.package_id || p.id) === shopPkg.package_id)
+                                      setSelectedPackage(availablePkg ? availablePkg.id : shopPkg.package_id)
+                                      setProfitMargin(sellingPrice.toFixed(2))
+                                      setPackageAvailable(shopPkg.is_available)
+                                      setAddingPackage(true)
+                                    }}
+                                    size="sm"
+                                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                                  >
+                                    ✎ Edit
+                                  </Button>
+                                  <Button
+                                    onClick={() => handleToggleAvailability(shopPkg.id, shopPkg.is_available)}
+                                    disabled={togglingPackageId === shopPkg.id}
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex-1"
+                                  >
+                                    {togglingPackageId === shopPkg.id ? (
+                                      <span className="animate-spin">⏳</span>
+                                    ) : (
+                                      shopPkg.is_available ? "Hide" : "Show"
+                                    )}
+                                  </Button>
+                                </div>
                               </CardContent>
                             </Card>
-                          ))
-                      })()}
-                    </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Orders Tab */}
+              <TabsContent value="orders">
+                <div className="space-y-6">
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
+                    <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-3xl font-bold text-blue-600">{orderStats.total}</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-gray-600">Completed</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-3xl font-bold text-green-600">{orderStats.completed}</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="bg-gradient-to-br from-yellow-50/60 to-orange-50/40">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-gray-600">Pending</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-3xl font-bold text-orange-600">{orderStats.pending}</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="bg-gradient-to-br from-red-50/60 to-pink-50/40">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-gray-600">Failed</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-3xl font-bold text-red-600">{orderStats.failed}</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="bg-gradient-to-br from-purple-50/60 to-violet-50/40">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-gray-600">Total Revenue</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-3xl font-bold text-purple-600">GHS {orderStats.totalRevenue.toFixed(2)}</p>
+                      </CardContent>
+                    </Card>
                   </div>
-                )}
 
-                {/* Products List */}
-                {packages.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Package className="w-12 h-12 mx-auto text-gray-400 mb-2" />
-                    <p className="text-gray-600">No products yet. Add your first product!</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {packages.map((shopPkg) => {
-                      const pkg = shopPkg.packages
-                      // Get the current parent price from available packages (source of truth)
-                      const availablePkg = allPackages.find(p => p.id === pkg?.id)
-                      const currentParentPrice = availablePkg?.parent_price !== undefined ? availablePkg.parent_price : (shopPkg.parent_price !== undefined ? shopPkg.parent_price : (pkg?.price || 0))
-                      const displayBasePrice = currentParentPrice
-                      const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
-                      const profit = shopPkg.profit_margin || 0
-                      return (
-                        <Card key={shopPkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
-                          <CardContent className="p-4 space-y-3">
-                            <div>
-                              <p className="font-semibold text-emerald-900">{pkg?.network} - {pkg?.size}GB</p>
-                              <p className="text-sm text-gray-600">
-                                {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
-                              </p>
-                            </div>
-                            
-                            <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
-                              <p className="text-blue-700">
-                                <span className="font-semibold">Your Cost (Wholesale):</span> GHS {displayBasePrice.toFixed(2)}
-                              </p>
-                              <p className="text-blue-700">
-                                <span className="font-semibold">Current Selling Price:</span> GHS {sellingPrice.toFixed(2)}
-                              </p>
-                              <p className="text-blue-600">
-                                Your Profit: GHS {profit.toFixed(2)}
-                              </p>
-                            </div>
-                            
-                            <div className="flex items-center gap-2 pt-2">
-                              {shopPkg.is_available ? (
-                                <Badge className="bg-green-100 text-green-700">Available</Badge>
-                              ) : (
-                                <Badge className="bg-gray-100 text-gray-700">Unavailable</Badge>
-                              )}
-                              {availablePkg && !availablePkg.active && (
-                                <Badge className="bg-red-100 text-red-700 text-xs">Parent Disabled</Badge>
-                              )}
-                            </div>
-                            
-                            <div className="flex gap-2 pt-2">
-                              <Button 
-                                onClick={() => {
-                                  setEditingShopPackage(shopPkg)
-                                  setSelectedPackage(shopPkg.package_id)
-                                  setProfitMargin(sellingPrice.toFixed(2))
-                                  setPackageAvailable(shopPkg.is_available)
-                                  setAddingPackage(true)
-                                }}
-                                size="sm"
-                                className="flex-1 bg-blue-600 hover:bg-blue-700"
-                              >
-                                ✎ Edit
-                              </Button>
-                              <Button
-                                onClick={() => handleToggleAvailability(shopPkg.id, shopPkg.is_available)}
-                                disabled={togglingPackageId === shopPkg.id}
-                                variant="outline"
-                                size="sm"
-                                className="flex-1"
-                              >
-                                {togglingPackageId === shopPkg.id ? (
-                                  <span className="animate-spin">⏳</span>
-                                ) : (
-                                  shopPkg.is_available ? "Hide" : "Show"
-                                )}
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Orders Tab */}
-          <TabsContent value="orders">
-            <div className="space-y-6">
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
-                <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold text-blue-600">{orderStats.total}</p>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Completed</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold text-green-600">{orderStats.completed}</p>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-yellow-50/60 to-orange-50/40">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Pending</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold text-orange-600">{orderStats.pending}</p>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-red-50/60 to-pink-50/40">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Failed</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold text-red-600">{orderStats.failed}</p>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-purple-50/60 to-violet-50/40">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Total Revenue</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold text-purple-600">GHS {orderStats.totalRevenue.toFixed(2)}</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Orders Table */}
-              <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
-                <CardHeader>
-                  <CardTitle>Recent Orders</CardTitle>
-                  <CardDescription>
-                    {shopOrders.length === 0 
-                      ? "No orders yet. Your first customer purchase will appear here."
-                      : `Showing ${shopOrders.length} order${shopOrders.length !== 1 ? 's' : ''}`}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {shopOrders.length > 0 && (
-                    <div className="flex gap-2">
-                      <Search className="w-5 h-5 text-gray-400 mt-2.5" />
-                      <Input
-                        type="text"
-                        placeholder="Search orders by customer phone number..."
-                        value={searchPhoneNumber}
-                        onChange={(e) => setSearchPhoneNumber(e.target.value)}
-                        className="bg-white/50 border-cyan-200/40"
-                      />
-                    </div>
-                  )}
-                  {shopOrders.length === 0 ? (
-                    <Alert className="border-blue-300 bg-blue-50">
-                      <AlertCircle className="h-4 w-4 text-blue-600" />
-                      <AlertDescription className="text-blue-700">
-                        Order analytics and management will show here once your first customer makes a purchase.
-                      </AlertDescription>
-                    </Alert>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="border-b border-cyan-200/40">
-                          <tr>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Order ID</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Network</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Volume</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
-                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Profit</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-cyan-100/40">
-                          {shopOrders
-                            .filter((order) =>
-                              order.customer_phone &&
-                              order.customer_phone.toLowerCase().includes(searchPhoneNumber.toLowerCase())
-                            )
-                            .map((order: any) => (
-                            <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">
-                              <td className="py-3 px-4 font-mono text-xs text-gray-600">{order.reference_code}</td>
-                              <td className="py-3 px-4">
-                                <div>
-                                  <p className="font-medium text-gray-900">{order.customer_name || "N/A"}</p>
-                                  <p className="text-xs text-gray-500">{order.customer_phone}</p>
-                                </div>
-                              </td>
-                              <td className="py-3 px-4">
-                                <Badge variant="outline">{order.network}</Badge>
-                              </td>
-                              <td className="py-3 px-4 text-gray-900">{order.volume_gb} GB</td>
-                              <td className="py-3 px-4">
-                                <Badge className={
-                                  order.order_status === "completed" ? "bg-green-600" :
-                                  order.order_status === "pending" ? "bg-orange-600" :
-                                  "bg-red-600"
-                                }>
-                                  {order.order_status}
-                                </Badge>
-                              </td>
-                              <td className="py-3 px-4 text-right font-semibold text-purple-600">
-                                GHS {(order.profit_amount || 0).toFixed(2)}
-                              </td>
-                              <td className="py-3 px-4 text-xs text-gray-500">
-                                <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                                <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
-                              </td>
-                              <td className="py-3 px-4">
-                                <Button
-                                  onClick={() => {
-                                    setSelectedComplaintOrder({
-                                      id: order.id,
-                                      networkName: order.network || "Unknown",
-                                      packageName: `${order.volume_gb || 0}GB`,
-                                      phoneNumber: order.customer_phone || "N/A",
-                                      totalPrice: parseFloat(order.total_price?.toString() || "0") || 0,
-                                      createdAt: order.created_at || new Date().toISOString(),
-                                    })
-                                    setShowComplaintModal(true)
-                                  }}
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-orange-600 border-orange-600 hover:bg-orange-50"
-                                >
-                                  <MessageCircle className="w-4 h-4 mr-1" />
-                                  Complain
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        </Tabs>
+                  {/* Orders Table */}
+                  <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+                    <CardHeader>
+                      <CardTitle>Recent Orders</CardTitle>
+                      <CardDescription>
+                        {shopOrders.length === 0
+                          ? "No orders yet. Your first customer purchase will appear here."
+                          : `Showing ${shopOrders.length} order${shopOrders.length !== 1 ? 's' : ''}`}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {shopOrders.length > 0 && (
+                        <div className="flex gap-2">
+                          <Search className="w-5 h-5 text-gray-400 mt-2.5" />
+                          <Input
+                            type="text"
+                            placeholder="Search orders by customer phone number..."
+                            value={searchPhoneNumber}
+                            onChange={(e) => setSearchPhoneNumber(e.target.value)}
+                            className="bg-white/50 border-cyan-200/40"
+                          />
+                        </div>
+                      )}
+                      {shopOrders.length === 0 ? (
+                        <Alert className="border-blue-300 bg-blue-50">
+                          <AlertCircle className="h-4 w-4 text-blue-600" />
+                          <AlertDescription className="text-blue-700">
+                            Order analytics and management will show here once your first customer makes a purchase.
+                          </AlertDescription>
+                        </Alert>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="border-b border-cyan-200/40">
+                              <tr>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Order ID</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Network</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Volume</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-700">Profit</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-cyan-100/40">
+                              {shopOrders
+                                .filter((order) =>
+                                  order.customer_phone &&
+                                  order.customer_phone.toLowerCase().includes(searchPhoneNumber.toLowerCase())
+                                )
+                                .map((order: any) => (
+                                  <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">
+                                    <td className="py-3 px-4 font-mono text-xs text-gray-600">{order.reference_code}</td>
+                                    <td className="py-3 px-4">
+                                      <div>
+                                        <p className="font-medium text-gray-900">{order.customer_name || "N/A"}</p>
+                                        <p className="text-xs text-gray-500">{order.customer_phone}</p>
+                                      </div>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <Badge variant="outline">{order.network}</Badge>
+                                    </td>
+                                    <td className="py-3 px-4 text-gray-900">{order.volume_gb} GB</td>
+                                    <td className="py-3 px-4">
+                                      <Badge className={
+                                        order.order_status === "completed" ? "bg-green-600" :
+                                          order.order_status === "pending" ? "bg-orange-600" :
+                                            "bg-red-600"
+                                      }>
+                                        {order.order_status}
+                                      </Badge>
+                                    </td>
+                                    <td className="py-3 px-4 text-right font-semibold text-purple-600">
+                                      GHS {(order.profit_amount || 0).toFixed(2)}
+                                    </td>
+                                    <td className="py-3 px-4 text-xs text-gray-500">
+                                      <div>{new Date(order.created_at).toLocaleDateString()}</div>
+                                      <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <Button
+                                        onClick={() => {
+                                          setSelectedComplaintOrder({
+                                            id: order.id,
+                                            networkName: order.network || "Unknown",
+                                            packageName: `${order.volume_gb || 0}GB`,
+                                            phoneNumber: order.customer_phone || "N/A",
+                                            totalPrice: parseFloat(order.total_price?.toString() || "0") || 0,
+                                            createdAt: order.created_at || new Date().toISOString(),
+                                          })
+                                          setShowComplaintModal(true)
+                                        }}
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                                      >
+                                        <MessageCircle className="w-4 h-4 mr-1" />
+                                        Complain
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       </div>
