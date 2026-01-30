@@ -32,56 +32,39 @@ export async function GET(request: NextRequest) {
         }
 
         // Get all parent shops (shops that have sub-agents)
+        // First, get all unique parent_shop_ids from sub-agents
+        const { data: subAgentShops, error: subAgentError } = await supabase
+            .from("user_shops")
+            .select("parent_shop_id")
+            .not("parent_shop_id", "is", null)
+
+        if (subAgentError) {
+            console.error("[ADMIN-SUBAGENT-PROFITS] Error fetching sub-agents:", subAgentError)
+            throw subAgentError
+        }
+
+        const parentShopIds = [...new Set((subAgentShops || []).map(s => s.parent_shop_id).filter(Boolean))]
+
+        if (parentShopIds.length === 0) {
+            return NextResponse.json({ parentShops: [] })
+        }
+
+        // Now fetch the parent shops
         const { data: parentShops, error: parentShopsError } = await supabase
             .from("user_shops")
             .select(`
-        id,
-        shop_name,
-        shop_slug,
-        user_id,
-        is_active,
-        created_at
-      `)
-            .in("id",
-                supabase
-                    .from("user_shops")
-                    .select("parent_shop_id")
-                    .not("parent_shop_id", "is", null)
-            )
+                id,
+                shop_name,
+                shop_slug,
+                user_id,
+                is_active,
+                created_at
+            `)
+            .in("id", parentShopIds)
 
         if (parentShopsError) {
             console.error("[ADMIN-SUBAGENT-PROFITS] Error fetching parent shops:", parentShopsError)
-            // Fallback: get shops that have sub-agents directly
-            const { data: subAgentShops } = await supabase
-                .from("user_shops")
-                .select("parent_shop_id")
-                .not("parent_shop_id", "is", null)
-
-            const parentShopIds = [...new Set(subAgentShops?.map(s => s.parent_shop_id) || [])]
-
-            if (parentShopIds.length === 0) {
-                return NextResponse.json({ parentShops: [] })
-            }
-
-            const { data: fallbackParentShops, error: fallbackError } = await supabase
-                .from("user_shops")
-                .select(`
-          id,
-          shop_name,
-          shop_slug,
-          user_id,
-          is_active,
-          created_at
-        `)
-                .in("id", parentShopIds)
-
-            if (fallbackError) {
-                throw fallbackError
-            }
-
-            // Continue with fallbackParentShops
-            const result = await enrichParentShops(fallbackParentShops || [])
-            return NextResponse.json({ parentShops: result })
+            throw parentShopsError
         }
 
         const result = await enrichParentShops(parentShops || [])
