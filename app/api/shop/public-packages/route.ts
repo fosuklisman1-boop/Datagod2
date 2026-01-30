@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -202,17 +203,29 @@ export async function GET(request: NextRequest) {
     }
 
     // Get global ordering status
-    const { data: globalSettings } = await supabase
+    const { data: globalSettings, error: settingsError } = await supabase
       .from("app_settings")
       .select("ordering_enabled")
       .single()
 
+    console.log("[PUBLIC-API] Global Settings query result:", {
+      data: globalSettings,
+      error: settingsError
+    })
+
     const orderingEnabled = globalSettings?.ordering_enabled ?? true
+    console.log("[PUBLIC-API] Resolved ordering_enabled:", orderingEnabled)
 
     return NextResponse.json({
       packages,
       is_sub_agent: !!shop.parent_shop_id,
       ordering_enabled: orderingEnabled
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      }
     })
 
   } catch (error) {

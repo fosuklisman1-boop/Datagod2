@@ -71,7 +71,7 @@ export default function ShopStorefront() {
       // Get available packages using the public-packages API
       // This handles both regular shops and sub-agents
       try {
-        const response = await fetch(`/api/shop/public-packages?slug=${shopSlug}`)
+        const response = await fetch(`/api/shop/public-packages?slug=${shopSlug}`, { cache: "no-store" })
         const data = await response.json()
 
         if (data.ordering_enabled !== undefined) {
