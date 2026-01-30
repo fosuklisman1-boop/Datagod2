@@ -117,6 +117,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
+    console.log("[SETTINGS-API] Received update body:", JSON.stringify(body, null, 2))
+
     const {
       join_community_link,
       ordering_enabled,
@@ -131,6 +133,8 @@ export async function PUT(request: NextRequest) {
       price_adjustment_at_ishare,
       price_adjustment_at_bigtime
     } = body
+
+    console.log("[SETTINGS-API] ordering_enabled value:", ordering_enabled)
 
     if (!join_community_link) {
       return NextResponse.json(
@@ -198,6 +202,7 @@ export async function PUT(request: NextRequest) {
 
     if (existingSettings) {
       // Update existing
+      console.log("[SETTINGS-API] Updating existing settings:", existingSettings.id)
       const { data, error } = await supabase
         .from("app_settings")
         .update({
@@ -220,12 +225,15 @@ export async function PUT(request: NextRequest) {
         .single()
 
       if (error) {
+        console.error("[SETTINGS-API] Update error:", error)
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
 
+      console.log("[SETTINGS-API] Update success:", data)
       result = data
     } else {
       // Create new
+      console.log("[SETTINGS-API] Creating new settings row")
       const { data, error } = await supabase
         .from("app_settings")
         .insert([
@@ -250,6 +258,7 @@ export async function PUT(request: NextRequest) {
         .single()
 
       if (error) {
+        console.error("[SETTINGS-API] Insert error:", error)
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
 
