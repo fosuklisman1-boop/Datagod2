@@ -84,7 +84,6 @@ export async function POST(request: NextRequest) {
     const token = authHeader.substring(7)
 
     // Verify user and get user ID
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
     const {
       data: { user },
       error: authError,
