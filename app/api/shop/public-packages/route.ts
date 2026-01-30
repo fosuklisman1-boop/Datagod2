@@ -203,17 +203,19 @@ export async function GET(request: NextRequest) {
     }
 
     // Get global ordering status
-    const { data: globalSettings, error: settingsError } = await supabase
+    // Use select("*") to match the working debug endpoint and avoid any column selection issues
+    const { data: settingsResult, error: settingsError } = await supabase
       .from("app_settings")
-      .select("ordering_enabled")
-      .single()
+      .select("*")
 
     console.log("[PUBLIC-API] Global Settings query result:", {
-      data: globalSettings,
+      data: settingsResult,
       error: settingsError
     })
 
-    const orderingEnabled = globalSettings?.ordering_enabled ?? true
+    // Handle both array and single object returns just in case
+    const settings = Array.isArray(settingsResult) ? settingsResult[0] : settingsResult
+    const orderingEnabled = settings?.ordering_enabled ?? true
     console.log("[PUBLIC-API] Resolved ordering_enabled:", orderingEnabled)
 
     return NextResponse.json({
