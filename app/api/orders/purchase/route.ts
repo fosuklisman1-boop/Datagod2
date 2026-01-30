@@ -26,12 +26,12 @@ async function isAutoFulfillmentEnabled(): Promise<boolean> {
       .select("value")
       .eq("key", "auto_fulfillment_enabled")
       .single()
-    
+
     if (error || !data) {
       // Default to enabled if setting doesn't exist
       return true
     }
-    
+
     return data.value?.enabled ?? true
   } catch (error) {
     console.warn("[PURCHASE] Error checking auto-fulfillment setting:", error)
@@ -42,6 +42,25 @@ async function isAutoFulfillmentEnabled(): Promise<boolean> {
 
 export async function POST(request: NextRequest) {
   try {
+    // Check Global Ordering Status
+    const { data: settingsResult, error: settingsError } = await supabaseAdmin
+      .from("app_settings")
+      .select("*")
+
+    if (settingsError) {
+      console.error("[PURCHASE] Error checking global settings:", settingsError)
+    }
+
+    const settings = Array.isArray(settingsResult) ? settingsResult[0] : settingsResult
+
+    if (settings && settings.ordering_enabled === false) {
+      console.warn("[PURCHASE] ⛔ Order blocked: Global ordering is disabled")
+      return NextResponse.json(
+        { error: "Order placement is currently disabled by the administrator. Please try again later." },
+        { status: 503 }
+      )
+    }
+
     const { packageId, network, size, price, phoneNumber } = await request.json()
 
     console.log("[PURCHASE] ========== NEW ORDER REQUEST ==========")
@@ -231,18 +250,18 @@ export async function POST(request: NextRequest) {
     const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
     const normalizedNetwork = network?.trim() || ""
     const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
-    
+
     // Check if auto-fulfillment is enabled
     const autoFulfillEnabled = await isAutoFulfillmentEnabled()
     const shouldFulfill = isAutoFulfillable && autoFulfillEnabled
-    
+
     console.log(`[FULFILLMENT] Network received: "${network}" | Auto-fulfillable: ${isAutoFulfillable} | Auto-fulfill enabled: ${autoFulfillEnabled} | Should fulfill: ${shouldFulfill} | Order: ${order[0].id}`)
-    
+
     if (shouldFulfill) {
       try {
         console.log(`[FULFILLMENT] Starting fulfillment trigger for ${network} order ${order[0].id} to ${phoneNumber}`)
         console.log(`[FULFILLMENT] Raw size value:`, size, `(type: ${typeof size})`)
-        
+
         // Parse size - handle different formats: "100GB", "100", 100, etc.
         let sizeGb = 0
         if (typeof size === "number") {
@@ -252,7 +271,7 @@ export async function POST(request: NextRequest) {
           const digits = size.replace(/[^0-9]/g, "")
           sizeGb = parseInt(digits) || 0
         }
-        
+
         // If size is still 0, try to fetch from package
         if (sizeGb === 0 && packageId) {
           console.log(`[FULFILLMENT] ⚠️ Size is 0, attempting to fetch from package ${packageId}`)
@@ -267,14 +286,14 @@ export async function POST(request: NextRequest) {
             console.log(`[FULFILLMENT] ✓ Got size from package: ${sizeGb}GB`)
           }
         }
-        
+
         console.log(`[FULFILLMENT] Order details - Network: ${network}, Size: ${sizeGb}GB, Phone: ${phoneNumber}, OrderID: ${order[0].id}`)
-        
+
         // Determine API network and endpoint based on order network
         const networkLower = normalizedNetwork.toLowerCase()
         const isBigTime = networkLower.includes("bigtime")
         const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-        
+
         // Non-blocking fulfillment trigger
         console.log(`[FULFILLMENT] Calling atishareService.fulfillOrder with network: ${apiNetwork}, isBigTime: ${isBigTime}`)
         atishareService.fulfillOrder({
@@ -306,7 +325,7 @@ export async function POST(request: NextRequest) {
       console.log(`[FULFILLMENT] MTN order detected. Checking MTN auto-fulfillment setting...`)
       const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
       console.log(`[FULFILLMENT] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
-      
+
       if (mtnAutoEnabled) {
         // Non-blocking MTN fulfillment
         (async () => {
@@ -332,16 +351,16 @@ export async function POST(request: NextRequest) {
             const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
             const normalizedPhone = normalizePhoneNumber(phoneNumber)
             console.log(`[FULFILLMENT] Calling MTN API for order ${order[0].id}: ${normalizedPhone}, ${sizeGb}GB`)
-            
+
             const mtnRequest = {
               recipient_phone: normalizedPhone,
               network: "MTN" as const,
               size_gb: sizeGb,
             }
             const mtnResult = await createMTNOrder(mtnRequest)
-            
+
             console.log(`[FULFILLMENT] ✓ MTN API response for order ${order[0].id}:`, mtnResult)
-            
+
             // Save tracking record (bulk order type since this is from orders table)
             if (mtnResult.order_id) {
               await saveMTNTracking(
@@ -352,7 +371,7 @@ export async function POST(request: NextRequest) {
                 "bulk"  // This is a bulk order from the data packages page
               )
             }
-            
+
             // Update order status
             if (mtnResult.success) {
               await supabaseAdmin
@@ -402,7 +421,7 @@ export async function POST(request: NextRequest) {
     // Send SMS about successful purchase
     try {
       const smsMessage = `You have successfully placed an order of ${network} ${size}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
-      
+
       await sendSMS({
         phone: phoneNumber,
         message: smsMessage,

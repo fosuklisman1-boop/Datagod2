@@ -33,19 +33,33 @@ export default function ShopStorefront() {
     customer_phone: "",
   })
   const [submitting, setSubmitting] = useState(false)
+  const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
 
   const { settings: shopSettings } = useShopSettings(shop?.id)
 
   useEffect(() => {
     loadShopData()
     loadNetworkLogos()
+    loadGlobalSettings()
   }, [shopSlug])
+
+  const loadGlobalSettings = async () => {
+    try {
+      const response = await fetch("/api/shop/public-packages?slug=" + shopSlug, { cache: "no-store" })
+      const data = await response.json()
+      if (data.ordering_enabled !== undefined) {
+        setGlobalOrderingEnabled(data.ordering_enabled)
+      }
+    } catch (error) {
+      console.error("Error loading global settings:", error)
+    }
+  }
 
   const loadShopData = async () => {
     try {
       setLoading(true)
       const shopData = await shopService.getShopBySlug(shopSlug)
-      
+
       if (!shopData) {
         toast.error("Shop not found")
         return
@@ -89,7 +103,7 @@ export default function ShopStorefront() {
     if (networkLogos[network]) {
       return networkLogos[network]
     }
-    
+
     const normalized = network.charAt(0).toUpperCase() + network.slice(1).toLowerCase()
     if (networkLogos[normalized]) {
       return networkLogos[normalized]
@@ -100,7 +114,7 @@ export default function ShopStorefront() {
 
   const validatePhoneNumber = (phone: string): boolean => {
     const cleaned = phone.replace(/\D/g, "")
-    
+
     let normalized = cleaned
     if (cleaned.length === 9) {
       normalized = "0" + cleaned
@@ -135,7 +149,7 @@ export default function ShopStorefront() {
       const basePrice = pkg.price
       const profitAmount = selectedPackage.profit_margin
       const totalPrice = basePrice + profitAmount
-      
+
       const volumeGb = parseInt(pkg.size.toString().replace(/[^0-9]/g, "")) || 0
 
       const order = await shopOrderService.createShopOrder({
@@ -154,7 +168,7 @@ export default function ShopStorefront() {
 
       toast.info("Redirecting to payment...")
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       const paymentResponse = await fetch("/api/payments/initialize", {
         method: "POST",
         headers: {
@@ -176,7 +190,7 @@ export default function ShopStorefront() {
       }
 
       const paymentData = await paymentResponse.json()
-      
+
       if (paymentData.authorizationUrl) {
         sessionStorage.setItem('lastPaymentReference', paymentData.reference || "")
         window.location.href = paymentData.authorizationUrl
@@ -231,6 +245,15 @@ export default function ShopStorefront() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {!globalOrderingEnabled && (
+        <div className="max-w-7xl mx-auto px-4 pt-4">
+          <Alert className="border-red-500 bg-red-50 shadow-md">
+            <AlertDescription className="text-red-800 font-bold text-center">
+              Global ordering is currently disabled for maintenance. You cannot place orders at this time.
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
       {/* Banner */}
       {shop.banner_url && (
         <div className="h-40 relative overflow-hidden">
@@ -284,11 +307,10 @@ export default function ShopStorefront() {
                       <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${
-                          activeTab === tab.id
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${activeTab === tab.id
                             ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600"
                             : "text-gray-700 hover:bg-gray-100"
-                        }`}
+                          }`}
                       >
                         {tab.icon}
                         {tab.label}
@@ -354,21 +376,20 @@ export default function ShopStorefront() {
                             <Card
                               key={network}
                               onClick={() => setSelectedNetwork(network as string)}
-                              className={`cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden ${
-                                selectedNetwork === network
+                              className={`cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden ${selectedNetwork === network
                                   ? "ring-2 ring-violet-600"
                                   : "hover:shadow-lg"
-                              }`}
+                                }`}
                             >
                               <div className="flex flex-col h-full relative">
                                 <div className="h-40 w-full flex items-center justify-center bg-gray-100 relative overflow-hidden">
-                                  <img 
-                                    src={getNetworkLogo(network as string)} 
+                                  <img
+                                    src={getNetworkLogo(network as string)}
                                     alt={network}
                                     className="h-32 w-32 object-contain"
                                   />
                                 </div>
-                                
+
                                 <div className="flex-1 p-4 bg-white flex flex-col justify-between">
                                   <div>
                                     <h3 className="text-lg font-bold text-gray-900 uppercase">{network}</h3>
@@ -416,7 +437,7 @@ export default function ShopStorefront() {
 
                                       <Button
                                         onClick={() => handleBuyNow(shopPkg)}
-                                        disabled={!shopPkg.is_available}
+                                        disabled={!shopPkg.is_available || !globalOrderingEnabled}
                                         className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-50"
                                       >
                                         <ShoppingCart className="w-4 h-4 mr-2" />
@@ -447,7 +468,7 @@ export default function ShopStorefront() {
                       <h3 className="font-semibold text-gray-900 mb-2">Store Name</h3>
                       <p className="text-gray-700">{shop.shop_name || shop.name}</p>
                     </div>
-                    
+
                     <div>
                       <h3 className="font-semibold text-gray-900 mb-2">Description</h3>
                       <p className="text-gray-700 whitespace-pre-wrap">{shop.description || "No description available"}</p>
@@ -656,7 +677,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
   const validatePhoneNumber = (phone: string): boolean => {
     const cleaned = phone.replace(/\D/g, "")
     let normalized = cleaned
-    
+
     if (cleaned.length === 9) {
       normalized = "0" + cleaned
     }
@@ -671,7 +692,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!phoneNumber.trim()) {
       toast.error("Please enter a phone number")
       return

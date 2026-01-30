@@ -8,9 +8,9 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  Wallet, 
-  Loader2, 
+import {
+  Wallet,
+  Loader2,
   AlertCircle,
   ShoppingCart,
   Grid3x3,
@@ -38,10 +38,11 @@ export default function BuyStockPage() {
   const [userRole, setUserRole] = useState<string | null>(null)
   const [shopId, setShopId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
-  
+
   // Phone modal state
   const [phoneModalOpen, setPhoneModalOpen] = useState(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<WholesalePackage | null>(null)
+  const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
 
   useEffect(() => {
     loadData()
@@ -51,7 +52,7 @@ export default function BuyStockPage() {
     try {
       setLoading(true)
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.user) {
         toast.error("Please log in")
         return
@@ -102,13 +103,13 @@ export default function BuyStockPage() {
       const response = await fetch("/api/shop/parent-packages", {
         headers: { "Authorization": `Bearer ${token}` }
       })
-      
+
       if (!response.ok) {
         console.error("API Error:", response.status, response.statusText)
         toast.error(`Failed to fetch packages: ${response.statusText}`)
         return
       }
-      
+
       const data = await response.json()
       console.log("[BUY-STOCK] Fetched data:", data)
 
@@ -124,6 +125,13 @@ export default function BuyStockPage() {
         console.log("[BUY-STOCK] No packages available")
         toast.info("No packages available. Your parent shop needs to add packages to their catalog.")
       }
+
+      // Fetch global ordering status
+      const settingsResponse = await fetch("/api/shop/public-packages?slug=default", { cache: "no-store" })
+      const settingsData = await settingsResponse.json()
+      if (settingsData.ordering_enabled !== undefined) {
+        setGlobalOrderingEnabled(settingsData.ordering_enabled)
+      }
     } catch (error) {
       console.error("Error loading data:", error)
       toast.error("Failed to load data")
@@ -134,8 +142,8 @@ export default function BuyStockPage() {
 
   const networks = [...new Set(packages.map(p => p.network))]
 
-  const filteredPackages = selectedNetwork === "all" 
-    ? packages 
+  const filteredPackages = selectedNetwork === "all"
+    ? packages
     : packages.filter(p => p.network === selectedNetwork)
 
   const handleBuyClick = (pkg: WholesalePackage) => {
@@ -158,7 +166,7 @@ export default function BuyStockPage() {
       setPhoneModalOpen(false)
 
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         toast.error("Please log in")
         return
@@ -229,7 +237,7 @@ export default function BuyStockPage() {
       setWalletBalance(debitData.newBalance || 0)
 
       toast.success(`Successfully purchased ${pkg.network} ${pkg.size}!`)
-      
+
       // Reset state
       setSelectedPackageForPurchase(null)
     } catch (error) {
@@ -266,6 +274,13 @@ export default function BuyStockPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {!globalOrderingEnabled && (
+          <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
+            <AlertDescription className="text-red-800 font-bold text-center">
+              The system is currently in maintenance mode. Data package purchases are temporarily disabled.
+            </AlertDescription>
+          </Alert>
+        )}
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -274,7 +289,7 @@ export default function BuyStockPage() {
             </h1>
             <p className="text-gray-500 mt-1">Purchase data packages at wholesale prices</p>
           </div>
-          
+
           {/* Wallet Balance */}
           <Card className="w-fit">
             <CardContent className="p-4 flex items-center gap-3">
@@ -303,7 +318,7 @@ export default function BuyStockPage() {
               </SelectContent>
             </Select>
           </div>
-          
+
           {/* View Toggle */}
           <div className="flex items-center gap-1 ml-auto">
             <Button
@@ -333,7 +348,7 @@ export default function BuyStockPage() {
             </CardContent>
           </Card>
         ) : viewMode === "grid" ? (
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {filteredPackages.map((pkg) => (
               <Card key={pkg.id} className="relative hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-2">
@@ -349,10 +364,10 @@ export default function BuyStockPage() {
                     <span className="font-bold text-lg text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
                   </div>
 
-                  <Button 
+                  <Button
                     className="w-full"
                     onClick={() => handleBuyClick(pkg)}
-                    disabled={purchasing === pkg.id || walletBalance < pkg.parent_price}
+                    disabled={purchasing === pkg.id || walletBalance < pkg.parent_price || !globalOrderingEnabled}
                   >
                     {purchasing === pkg.id ? (
                       <>
@@ -384,10 +399,10 @@ export default function BuyStockPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <span className="font-bold text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
-                    <Button 
+                    <Button
                       size="sm"
                       onClick={() => handleBuyClick(pkg)}
-                      disabled={purchasing === pkg.id || walletBalance < pkg.parent_price}
+                      disabled={purchasing === pkg.id || walletBalance < pkg.parent_price || !globalOrderingEnabled}
                     >
                       {purchasing === pkg.id ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -410,7 +425,7 @@ export default function BuyStockPage() {
         open={phoneModalOpen}
         onOpenChange={setPhoneModalOpen}
         onSubmit={handlePhoneNumberSubmit}
-        packageName={selectedPackageForPurchase 
+        packageName={selectedPackageForPurchase
           ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size} (GHS ${(selectedPackageForPurchase.parent_price || 0).toFixed(2)})`
           : "Data Package"
         }

@@ -38,6 +38,7 @@ export default function DataPackagesPage() {
   const [wallet, setWallet] = useState<{ balance: number } | null>(null)
   const [phoneModalOpen, setPhoneModalOpen] = useState(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
+  const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
 
   // Auth protection
   useEffect(() => {
@@ -57,7 +58,22 @@ export default function DataPackagesPage() {
   useEffect(() => {
     loadNetworkLogos()
     loadPackages()
+    loadGlobalSettings()
   }, [])
+
+  const loadGlobalSettings = async () => {
+    try {
+      // Fetch via API to bypass RLS and use our hardened query logic
+      const response = await fetch("/api/shop/public-packages?slug=default", { cache: "no-store" })
+      const data = await response.json()
+
+      if (data.ordering_enabled !== undefined) {
+        setGlobalOrderingEnabled(data.ordering_enabled)
+      }
+    } catch (error) {
+      console.error("Error loading global settings:", error)
+    }
+  }
 
   const loadWallet = async () => {
     if (!user?.id) return
@@ -152,7 +168,7 @@ export default function DataPackagesPage() {
     if (networkLogos[network]) {
       return networkLogos[network]
     }
-    
+
     // Try normalized version (capitalize first letter)
     const normalized = network.charAt(0).toUpperCase() + network.slice(1).toLowerCase()
     if (networkLogos[normalized]) {
@@ -167,13 +183,13 @@ export default function DataPackagesPage() {
   const extractSizeValue = (size: string): number => {
     // Remove any whitespace and convert to uppercase for consistency
     const normalized = size.trim().toUpperCase()
-    
+
     // Extract the numeric part (handles any number of digits)
     const match = normalized.match(/^(\d+)(?:\D|$)/)
     if (!match) return 0
 
     const value = parseInt(match[1], 10)
-    
+
     // Return raw numeric value
     return value
   }
@@ -268,16 +284,16 @@ export default function DataPackagesPage() {
   }).sort((a, b) => {
     // Network priority order when "All" is selected
     const networkOrder = ["MTN", "Telecel", "AT-iShare", "AT-BigTime"]
-    
+
     // Get network indices (use 999 for unknown networks to sort them last)
     const aNetworkIndex = networkOrder.indexOf(a.network) >= 0 ? networkOrder.indexOf(a.network) : 999
     const bNetworkIndex = networkOrder.indexOf(b.network) >= 0 ? networkOrder.indexOf(b.network) : 999
-    
+
     // If networks are different, sort by network priority
     if (aNetworkIndex !== bNetworkIndex) {
       return aNetworkIndex - bNetworkIndex
     }
-    
+
     // If same network, sort by data size (ascending) - convert to MB for proper numeric comparison
     const aSizeInMB = extractSizeValue(a.size)
     const bSizeInMB = extractSizeValue(b.size)
@@ -287,6 +303,13 @@ export default function DataPackagesPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 px-2 sm:px-4 md:px-8 w-full max-w-full">
+        {!globalOrderingEnabled && (
+          <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
+            <AlertDescription className="text-red-800 font-bold text-center">
+              The system is currently in maintenance mode. Data package purchases are temporarily disabled.
+            </AlertDescription>
+          </Alert>
+        )}
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
@@ -369,14 +392,14 @@ export default function DataPackagesPage() {
                 {/* Logo Section */}
                 <div className="h-16 sm:h-20 md:h-32 w-full bg-gray-100 flex items-center justify-center overflow-hidden">
                   {getNetworkLogo(pkg.network) && (
-                    <img 
-                      src={getNetworkLogo(pkg.network)} 
+                    <img
+                      src={getNetworkLogo(pkg.network)}
                       alt={pkg.network}
                       className="h-12 sm:h-16 md:h-24 w-12 sm:w-16 md:w-24 object-contain"
                     />
                   )}
                 </div>
-                
+
                 <CardHeader>
                   <div className="flex justify-between items-start gap-2">
                     <div>
@@ -404,9 +427,9 @@ export default function DataPackagesPage() {
                       Instant delivery
                     </div>
                   </div>
-                  <Button 
+                  <Button
                     onClick={() => handlePurchase(pkg)}
-                    disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price}
+                    disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                     className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 hover:from-cyan-700 hover:via-blue-700 hover:to-violet-700 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
                   >
                     {purchasing === pkg.id ? (
@@ -444,8 +467,8 @@ export default function DataPackagesPage() {
                       <tr key={pkg.id} className="hover:bg-cyan-100/30 hover:backdrop-blur transition-colors duration-200 cursor-pointer">
                         <td className="px-2 sm:px-6 py-2 sm:py-4">
                           {getNetworkLogo(pkg.network) && (
-                            <img 
-                              src={getNetworkLogo(pkg.network)} 
+                            <img
+                              src={getNetworkLogo(pkg.network)}
                               alt={pkg.network}
                               className="h-6 w-6 sm:h-8 sm:w-8 object-contain"
                             />
@@ -456,10 +479,10 @@ export default function DataPackagesPage() {
                         <td className="px-2 sm:px-6 py-2 sm:py-4 font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent whitespace-nowrap">GHS {(pkg.price || 0).toFixed(2)}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4 text-gray-600 whitespace-nowrap">{pkg.description || "-"}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4">
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             onClick={() => handlePurchase(pkg)}
-                            disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price}
+                            disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                             className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
                           >
                             {purchasing === pkg.id ? (
