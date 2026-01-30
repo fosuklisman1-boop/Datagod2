@@ -10,10 +10,16 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 export async function POST(request: NextRequest) {
   try {
     // Check Global Ordering Status
-    const { data: settings } = await supabase
+    const { data: settings, error: settingsError } = await supabase
       .from("app_settings")
       .select("ordering_enabled")
       .single()
+
+    if (settingsError) {
+      console.error("[SHOP-ORDER] Error checking global settings:", settingsError)
+      // If we can't read settings, we generally proceed, but log it.
+      // If column is missing, this will show up in logs.
+    }
 
     if (settings && settings.ordering_enabled === false) {
       console.warn("[SHOP-ORDER] ⛔ Order blocked: Global ordering is disabled")
