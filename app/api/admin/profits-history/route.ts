@@ -9,7 +9,7 @@ const supabase = createClient(
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    
+
     // Pagination
     const page = parseInt(searchParams.get("page") || "1")
     const limit = parseInt(searchParams.get("limit") || "50")
@@ -42,7 +42,8 @@ export async function GET(request: NextRequest) {
           id,
           shop_name,
           shop_slug,
-          user_id
+          user_id,
+          parent_shop_id
         ),
         shop_orders (
           id,
@@ -51,7 +52,11 @@ export async function GET(request: NextRequest) {
           volume_gb,
           total_price,
           customer_name,
-          customer_phone
+          customer_phone,
+          shop_id,
+          parent_shop_id,
+          parent_profit_amount,
+          profit_amount
         )
       `, { count: "exact" })
       .order("created_at", { ascending: false })
@@ -88,7 +93,7 @@ export async function GET(request: NextRequest) {
       let searchOffset = 0
       const searchLimit = 1000
       let hasMore = true
-      
+
       while (hasMore) {
         const { data: batchData, error: batchError } = await supabase
           .from("shop_profits")
@@ -106,7 +111,8 @@ export async function GET(request: NextRequest) {
               id,
               shop_name,
               shop_slug,
-              user_id
+              user_id,
+              parent_shop_id
             ),
             shop_orders (
               id,
@@ -115,17 +121,21 @@ export async function GET(request: NextRequest) {
               volume_gb,
               total_price,
               customer_name,
-              customer_phone
+              customer_phone,
+              shop_id,
+              parent_shop_id,
+              parent_profit_amount,
+              profit_amount
             )
           `)
           .order("created_at", { ascending: false })
           .range(searchOffset, searchOffset + searchLimit - 1)
-        
+
         if (batchError) {
           error = batchError
           break
         }
-        
+
         if (batchData && batchData.length > 0) {
           allProfitsForSearch = allProfitsForSearch.concat(batchData)
           searchOffset += searchLimit
@@ -134,7 +144,7 @@ export async function GET(request: NextRequest) {
           hasMore = false
         }
       }
-      
+
       profits = allProfitsForSearch
     } else {
       // Apply pagination at database level when not searching
@@ -155,14 +165,14 @@ export async function GET(request: NextRequest) {
 
     // Fetch user details separately (since user_shops.user_id references auth.users)
     const userIds = [...new Set((profits || []).map((p: any) => p.user_shops?.user_id).filter(Boolean))]
-    
+
     let usersMap: Record<string, any> = {}
     if (userIds.length > 0) {
       const { data: usersData } = await supabase
         .from("users")
         .select("id, email, first_name, last_name, phone_number")
         .in("id", userIds)
-      
+
       usersData?.forEach((u: any) => {
         usersMap[u.id] = u
       })
@@ -178,11 +188,11 @@ export async function GET(request: NextRequest) {
         const ownerEmail = user.email?.toLowerCase() || ""
         const ownerName = `${user.first_name || ""} ${user.last_name || ""}`.toLowerCase()
         const orderRef = p.shop_orders?.reference_code?.toLowerCase() || ""
-        
-        return shopName.includes(searchLower) || 
-               ownerEmail.includes(searchLower) || 
-               ownerName.includes(searchLower) ||
-               orderRef.includes(searchLower)
+
+        return shopName.includes(searchLower) ||
+          ownerEmail.includes(searchLower) ||
+          ownerName.includes(searchLower) ||
+          orderRef.includes(searchLower)
       })
     }
 
@@ -195,6 +205,18 @@ export async function GET(request: NextRequest) {
     // Flatten data for frontend
     const flattenedProfits = filteredProfits.map((p: any) => {
       const user = usersMap[p.user_shops?.user_id] || {}
+
+      // Determine if this is a parent profit or sub-agent profit
+      // If the shop_id of the profit record equals the order's parent_shop_id, it's a parent profit
+      const orderShopId = p.shop_orders?.shop_id
+      const orderParentShopId = p.shop_orders?.parent_shop_id
+      const isParentProfit = orderParentShopId && p.shop_id === orderParentShopId
+
+      // Get the sub-agent's profit (from the order) - this is the profit_amount on the order
+      const subAgentProfit = p.shop_orders?.profit_amount || 0
+      // Get the parent's profit (from the order) - this is the parent_profit_amount on the order  
+      const parentProfit = p.shop_orders?.parent_profit_amount || 0
+
       return {
         id: p.id,
         shop_id: p.shop_id,
@@ -217,6 +239,11 @@ export async function GET(request: NextRequest) {
         order_total_price: p.shop_orders?.total_price || null,
         customer_name: p.shop_orders?.customer_name || null,
         customer_phone: p.shop_orders?.customer_phone || null,
+        // New fields for sub-agent/parent profit visibility
+        is_parent_profit: isParentProfit,
+        is_subagent_order: !!orderParentShopId,
+        sub_agent_profit: subAgentProfit,
+        parent_profit: parentProfit,
       }
     })
 
@@ -225,20 +252,20 @@ export async function GET(request: NextRequest) {
     const { data: totalData } = await supabase
       .from("shop_profits")
       .select("profit_amount")
-    
+
     // We need to paginate through all records for accurate stats
     // Use RPC function or calculate from multiple queries
     let allProfits: any[] = []
     let statsOffset = 0
     const statsLimit = 1000
     let hasMore = true
-    
+
     while (hasMore) {
       const { data: batchData } = await supabase
         .from("shop_profits")
         .select("profit_amount, status")
         .range(statsOffset, statsOffset + statsLimit - 1)
-      
+
       if (batchData && batchData.length > 0) {
         allProfits = allProfits.concat(batchData)
         statsOffset += statsLimit

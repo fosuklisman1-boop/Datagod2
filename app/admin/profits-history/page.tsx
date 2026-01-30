@@ -53,6 +53,11 @@ interface ProfitRecord {
   order_total_price: number | null
   customer_name: string | null
   customer_phone: string | null
+  // New fields for sub-agent/parent profit
+  is_parent_profit: boolean
+  is_subagent_order: boolean
+  sub_agent_profit: number
+  parent_profit: number
 }
 
 interface Stats {
@@ -178,7 +183,7 @@ export default function AdminProfitsHistoryPage() {
       ])
 
       const csv = [headers, ...rows].map((row: (string | number)[]) => row.map((cell: string | number) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n")
-      
+
       const blob = new Blob([csv], { type: "text/csv" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -377,11 +382,14 @@ export default function AdminProfitsHistoryPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
+                        <TableHead>Type</TableHead>
                         <TableHead>Shop</TableHead>
                         <TableHead>Owner</TableHead>
                         <TableHead>Order Ref</TableHead>
                         <TableHead>Network</TableHead>
                         <TableHead>Size</TableHead>
+                        <TableHead>Sub-Agent Profit</TableHead>
+                        <TableHead>Parent Profit</TableHead>
                         <TableHead>Balance Before</TableHead>
                         <TableHead>Profit</TableHead>
                         <TableHead>Balance After</TableHead>
@@ -391,9 +399,20 @@ export default function AdminProfitsHistoryPage() {
                     </TableHeader>
                     <TableBody>
                       {profits.map((profit) => (
-                        <TableRow key={profit.id}>
+                        <TableRow key={profit.id} className={profit.is_parent_profit ? "bg-purple-50/50" : ""}>
                           <TableCell className="whitespace-nowrap">
                             {new Date(profit.created_at).toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            {profit.is_subagent_order ? (
+                              profit.is_parent_profit ? (
+                                <Badge className="bg-purple-500 hover:bg-purple-600">Parent</Badge>
+                              ) : (
+                                <Badge className="bg-blue-500 hover:bg-blue-600">Sub-Agent</Badge>
+                              )
+                            ) : (
+                              <Badge variant="secondary">Direct</Badge>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
@@ -418,9 +437,15 @@ export default function AdminProfitsHistoryPage() {
                           <TableCell>
                             {profit.order_volume_gb ? `${profit.order_volume_gb} GB` : "-"}
                           </TableCell>
+                          <TableCell className="text-blue-600">
+                            {profit.is_subagent_order ? formatCurrency(profit.sub_agent_profit) : "-"}
+                          </TableCell>
+                          <TableCell className="text-purple-600">
+                            {profit.is_subagent_order ? formatCurrency(profit.parent_profit) : "-"}
+                          </TableCell>
                           <TableCell className="font-medium text-muted-foreground">
-                            {profit.profit_balance_before != null 
-                              ? formatCurrency(profit.profit_balance_before) 
+                            {profit.profit_balance_before != null
+                              ? formatCurrency(profit.profit_balance_before)
                               : "-"
                             }
                           </TableCell>
@@ -428,14 +453,14 @@ export default function AdminProfitsHistoryPage() {
                             +{formatCurrency(profit.profit_amount)}
                           </TableCell>
                           <TableCell className="font-medium text-blue-600">
-                            {profit.profit_balance_after != null 
-                              ? formatCurrency(profit.profit_balance_after) 
+                            {profit.profit_balance_after != null
+                              ? formatCurrency(profit.profit_balance_after)
                               : "-"
                             }
                           </TableCell>
                           <TableCell>{getStatusBadge(profit.status)}</TableCell>
                           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                            {profit.credited_at 
+                            {profit.credited_at
                               ? new Date(profit.credited_at).toLocaleString()
                               : "-"
                             }
