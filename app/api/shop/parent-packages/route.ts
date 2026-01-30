@@ -33,9 +33,9 @@ export async function GET(request: NextRequest) {
 
     // If no parent shop, return empty (not a sub-agent)
     if (!shop.parent_shop_id) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         is_sub_agent: false,
-        packages: [] 
+        packages: []
       })
     }
 
@@ -71,9 +71,12 @@ export async function GET(request: NextRequest) {
         const adminPrice = item.package.price
         const parentMargin = item.wholesale_margin
         const parentSellingPrice = adminPrice + parentMargin
-        
+
         return {
-          id: item.package.id,
+          // IMPORTANT: id must be sub_agent_catalog.id for order creation validation
+          id: item.id,
+          // Also include package_id for reference
+          package_id: item.package.id,
           network: item.package.network,
           size: item.package.size,
           // parent_price: what the parent sells to sub-agent (admin price + parent's margin)
