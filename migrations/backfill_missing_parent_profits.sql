@@ -87,7 +87,17 @@ WHERE
   AND sp_parent.id IS NULL;
 
 -- Step 4: Update shop_available_balance for affected parent shops
--- This recalculates the available balance based on all credited profits minus withdrawals
+-- First delete existing records for parent shops, then insert fresh ones
+
+-- Delete existing balance records for parent shops
+DELETE FROM shop_available_balance
+WHERE shop_id IN (
+  SELECT DISTINCT parent_shop_id 
+  FROM shop_orders 
+  WHERE parent_shop_id IS NOT NULL
+);
+
+-- Insert fresh balance records
 WITH parent_balances AS (
   SELECT 
     sp.shop_id,
@@ -129,20 +139,14 @@ SELECT
   NOW() as created_at,
   NOW() as updated_at
 FROM parent_balances pb
-LEFT JOIN withdrawal_totals wt ON wt.shop_id = pb.shop_id
-ON CONFLICT (shop_id) DO UPDATE SET
-  available_balance = EXCLUDED.available_balance,
-  total_profit = EXCLUDED.total_profit,
-  credited_profit = EXCLUDED.credited_profit,
-  withdrawn_amount = EXCLUDED.withdrawn_amount,
-  withdrawn_profit = EXCLUDED.withdrawn_profit,
-  updated_at = NOW();
+LEFT JOIN withdrawal_totals wt ON wt.shop_id = pb.shop_id;
+
 
 -- Step 5: Verify - Show parent shops with their updated balances
 SELECT 
   us.id as shop_id,
-  us.name as shop_name,
-  us.slug,
+  us.shop_name,
+  us.shop_slug,
   sab.available_balance,
   sab.total_profit,
   sab.credited_profit,
@@ -155,3 +159,4 @@ WHERE us.id IN (
   SELECT DISTINCT parent_shop_id FROM user_shops WHERE parent_shop_id IS NOT NULL
 )
 ORDER BY sab.available_balance DESC;
+
