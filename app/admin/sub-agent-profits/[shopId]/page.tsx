@@ -46,6 +46,7 @@ interface ProfitHistoryItem {
     volume_gb: number
     order_total: number
     profit_amount: number
+    sub_agent_profit_amount?: number
     profit_status: string
     created_at: string
 }
