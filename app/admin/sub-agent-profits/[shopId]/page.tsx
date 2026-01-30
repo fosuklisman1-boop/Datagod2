@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
-import { AdminLayout } from "@/components/layout/admin-layout"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -140,17 +140,17 @@ export default function SubAgentProfitDetailPage() {
 
     if (authLoading || loading) {
         return (
-            <AdminLayout>
+            <DashboardLayout>
                 <div className="flex items-center justify-center min-h-[400px]">
                     <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
                 </div>
-            </AdminLayout>
+            </DashboardLayout>
         )
     }
 
     if (!parentShop) {
         return (
-            <AdminLayout>
+            <DashboardLayout>
                 <div className="text-center py-12">
                     <p className="text-gray-500">Shop not found</p>
                     <Button
@@ -160,12 +160,12 @@ export default function SubAgentProfitDetailPage() {
                         Back to List
                     </Button>
                 </div>
-            </AdminLayout>
+            </DashboardLayout>
         )
     }
 
     return (
-        <AdminLayout>
+        <DashboardLayout>
             <div className="space-y-6">
                 {/* Back Button */}
                 <Button
@@ -298,8 +298,8 @@ export default function SubAgentProfitDetailPage() {
                                             selectedSubAgent === sa.id ? null : sa.id
                                         )}
                                         className={`p-4 rounded-lg border cursor-pointer transition-all ${selectedSubAgent === sa.id
-                                                ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
-                                                : "border-gray-200 hover:border-violet-300 hover:bg-gray-50"
+                                            ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
+                                            : "border-gray-200 hover:border-violet-300 hover:bg-gray-50"
                                             }`}
                                     >
                                         <div className="flex items-start justify-between mb-3">
@@ -449,6 +449,6 @@ export default function SubAgentProfitDetailPage() {
                     </CardContent>
                 </Card>
             </div>
-        </AdminLayout>
+        </DashboardLayout>
     )
 }

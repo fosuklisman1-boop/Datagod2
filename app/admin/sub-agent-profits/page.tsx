@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
-import { AdminLayout } from "@/components/layout/admin-layout"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -119,16 +119,16 @@ export default function SubAgentProfitsPage() {
 
     if (authLoading || loading) {
         return (
-            <AdminLayout>
+            <DashboardLayout>
                 <div className="flex items-center justify-center min-h-[400px]">
                     <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
                 </div>
-            </AdminLayout>
+            </DashboardLayout>
         )
     }
 
     return (
-        <AdminLayout>
+        <DashboardLayout>
             <div className="space-y-6">
                 {/* Header */}
                 <div>
@@ -340,6 +340,6 @@ export default function SubAgentProfitsPage() {
                     </div>
                 )}
             </div>
-        </AdminLayout>
+        </DashboardLayout>
     )
 }
