@@ -471,8 +471,8 @@ export default function ShopStorefront() {
                       setSidebarOpen(false)
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === tab.id
-                        ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600 shadow-sm"
-                        : "text-gray-700 hover:bg-gray-50 border-l-4 border-l-transparent"
+                      ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600 shadow-sm"
+                      : "text-gray-700 hover:bg-gray-50 border-l-4 border-l-transparent"
                       }`}
                   >
                     {tab.icon}
@@ -514,302 +514,300 @@ export default function ShopStorefront() {
           </div>
         </div>
 
-      </div>
+        {/* Global Maintenance Alert */}
+        {!globalOrderingEnabled && (
+          <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
+            <AlertCircle className="h-4 w-4 text-red-600" />
+            <AlertDescription className="text-red-700 font-bold flex items-center gap-2">
+              <span className="animate-pulse">●</span>
+              Order placement is currently paused for maintenance. Please check back later.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {/* Global Maintenance Alert */}
-      {!globalOrderingEnabled && (
-        <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
-          <AlertCircle className="h-4 w-4 text-red-600" />
-          <AlertDescription className="text-red-700 font-bold flex items-center gap-2">
-            <span className="animate-pulse">●</span>
-            Order placement is currently paused for maintenance. Please check back later.
-          </AlertDescription>
-        </Alert>
-      )}
+        {/* Main Content Layout */}
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Main Content */}
+          <div className="flex-1 min-w-0">
+            {/* Products Tab */}
+            {activeTab === "products" && (
+              <div className="space-y-8">
+                {/* Network Selection Section */}
+                <div>
+                  <h2 className="text-2xl font-bold mb-6">Select a Network</h2>
 
-      {/* Main Content Layout */}
-      <div className="flex flex-col lg:flex-row gap-6">
-        {/* Main Content */}
-        <div className="flex-1 min-w-0">
-          {/* Products Tab */}
-          {activeTab === "products" && (
-            <div className="space-y-8">
-              {/* Network Selection Section */}
-              <div>
-                <h2 className="text-2xl font-bold mb-6">Select a Network</h2>
+                  {packages.length === 0 ? (
+                    <Card className="bg-white border-2 border-dashed border-gray-300">
+                      <CardContent className="pt-12 pb-12 text-center">
+                        <Store className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                        <p className="text-gray-600">No packages available at the moment</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
+                        {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
+                          const networkPackages = packages.filter(p => p.packages.network === network)
+                          const availableCount = networkPackages.filter(p => p.is_available).length
 
-                {packages.length === 0 ? (
-                  <Card className="bg-white border-2 border-dashed border-gray-300">
-                    <CardContent className="pt-12 pb-12 text-center">
-                      <Store className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                      <p className="text-gray-600">No packages available at the moment</p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
-                      {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
-                        const networkPackages = packages.filter(p => p.packages.network === network)
-                        const availableCount = networkPackages.filter(p => p.is_available).length
-
-                        return (
-                          <Card
-                            key={network}
-                            onClick={() => setSelectedNetwork(network as string)}
-                            className={`cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden ${selectedNetwork === network
+                          return (
+                            <Card
+                              key={network}
+                              onClick={() => setSelectedNetwork(network as string)}
+                              className={`cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden ${selectedNetwork === network
                                 ? "ring-2 ring-violet-600"
                                 : "hover:shadow-lg"
-                              }`}
-                          >
-                            <div className="flex flex-col h-full relative">
-                              <div className="h-20 w-full flex items-center justify-center bg-gray-100 relative overflow-hidden">
-                                <img
-                                  src={getNetworkLogo(network as string)}
-                                  alt={network}
-                                  className="h-16 w-16 object-contain"
-                                />
-                              </div>
+                                }`}
+                            >
+                              <div className="flex flex-col h-full relative">
+                                <div className="h-20 w-full flex items-center justify-center bg-gray-100 relative overflow-hidden">
+                                  <img
+                                    src={getNetworkLogo(network as string)}
+                                    alt={network}
+                                    className="h-16 w-16 object-contain"
+                                  />
+                                </div>
 
-                              <div className="flex-1 p-2 bg-white flex flex-col justify-between">
-                                <div>
-                                  <h3 className="text-sm font-bold text-gray-900 uppercase">{network}</h3>
-                                  <p className="text-xs text-gray-600 mt-1">{availableCount} plans</p>
+                                <div className="flex-1 p-2 bg-white flex flex-col justify-between">
+                                  <div>
+                                    <h3 className="text-sm font-bold text-gray-900 uppercase">{network}</h3>
+                                    <p className="text-xs text-gray-600 mt-1">{availableCount} plans</p>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </Card>
-                        )
-                      })}
-                    </div>
+                            </Card>
+                          )
+                        })}
+                      </div>
 
-                    {selectedNetwork && (
-                      <div ref={packagesRef} className="py-8 border-t border-gray-200">
-                        <h2 className="text-2xl font-bold mb-6">{selectedNetwork} Packages</h2>
+                      {selectedNetwork && (
+                        <div ref={packagesRef} className="py-8 border-t border-gray-200">
+                          <h2 className="text-2xl font-bold mb-6">{selectedNetwork} Packages</h2>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                          {packages
-                            .filter(p => p.packages.network === selectedNetwork)
-                            .sort((a, b) => {
-                              // Extract volume as number from size string (e.g., "1GB" -> 1)
-                              const sizeA = parseInt(a.packages.size.toString().replace(/[^0-9]/g, "")) || 0
-                              const sizeB = parseInt(b.packages.size.toString().replace(/[^0-9]/g, "")) || 0
-                              return sizeA - sizeB
-                            })
-                            .map((shopPkg) => {
-                              const pkg = shopPkg.packages
-                              // Use selling_price from API if available (for sub-agents), otherwise calculate
-                              const totalPrice = shopPkg.selling_price !== undefined ? shopPkg.selling_price : (pkg.price + shopPkg.profit_margin)
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {packages
+                              .filter(p => p.packages.network === selectedNetwork)
+                              .sort((a, b) => {
+                                // Extract volume as number from size string (e.g., "1GB" -> 1)
+                                const sizeA = parseInt(a.packages.size.toString().replace(/[^0-9]/g, "")) || 0
+                                const sizeB = parseInt(b.packages.size.toString().replace(/[^0-9]/g, "")) || 0
+                                return sizeA - sizeB
+                              })
+                              .map((shopPkg) => {
+                                const pkg = shopPkg.packages
+                                // Use selling_price from API if available (for sub-agents), otherwise calculate
+                                const totalPrice = shopPkg.selling_price !== undefined ? shopPkg.selling_price : (pkg.price + shopPkg.profit_margin)
 
-                              return (
-                                <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
-                                  <CardHeader>
-                                    <div className="flex items-start justify-between">
-                                      <div className="flex-1">
-                                        <CardTitle className="text-lg">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
-                                        <CardDescription className="text-sm">{pkg.description}</CardDescription>
+                                return (
+                                  <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+                                    <CardHeader>
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                          <CardTitle className="text-lg">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
+                                          <CardDescription className="text-sm">{pkg.description}</CardDescription>
+                                        </div>
+                                        <Badge className="bg-gradient-to-r from-violet-600 to-purple-600">
+                                          {shopPkg.is_available ? "Available" : "Unavailable"}
+                                        </Badge>
                                       </div>
-                                      <Badge className="bg-gradient-to-r from-violet-600 to-purple-600">
-                                        {shopPkg.is_available ? "Available" : "Unavailable"}
-                                      </Badge>
-                                    </div>
-                                  </CardHeader>
-                                  <CardContent className="space-y-4">
-                                    <div className="flex justify-between items-end pt-4 border-t border-white/20">
-                                      <span className="font-semibold text-gray-700">Price:</span>
-                                      <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
-                                        GHS {totalPrice.toFixed(2)}
-                                      </span>
-                                    </div>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                      <div className="flex justify-between items-end pt-4 border-t border-white/20">
+                                        <span className="font-semibold text-gray-700">Price:</span>
+                                        <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+                                          GHS {totalPrice.toFixed(2)}
+                                        </span>
+                                      </div>
 
-                                    <Button
-                                      onClick={() => handleBuyNow(shopPkg)}
-                                      disabled={!shopPkg.is_available || !globalOrderingEnabled}
-                                      className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                      <ShoppingCart className="w-4 h-4 mr-2" />
-                                      {globalOrderingEnabled ? "Buy Now" : "Paused"}
-                                    </Button>
-                                  </CardContent>
-                                </Card>
-                              )
-                            })}
+                                      <Button
+                                        onClick={() => handleBuyNow(shopPkg)}
+                                        disabled={!shopPkg.is_available || !globalOrderingEnabled}
+                                        className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        <ShoppingCart className="w-4 h-4 mr-2" />
+                                        {globalOrderingEnabled ? "Buy Now" : "Paused"}
+                                      </Button>
+                                    </CardContent>
+                                  </Card>
+                                )
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* About Tab */}
+            {activeTab === "about" && (
+              <div className="space-y-6">
+                <Card className="border-0 shadow-md">
+                  <CardHeader className="pb-3">
+                    <CardTitle>Shop Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {shop.phone && (
+                      <div className="flex items-start gap-2">
+                        <MessageCircle className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-semibold text-gray-900">Phone</p>
+                          <span className="text-gray-700">{shop.phone}</span>
                         </div>
                       </div>
                     )}
-                  </>
-                )}
+                    {shop.location && (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-semibold text-gray-900">Location</p>
+                          <span className="text-gray-700">{shop.location}</span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-start gap-2 pt-2 border-t">
+                      <Clock className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold text-gray-900">Support</p>
+                        <p className="text-gray-700">24/7 Support Available</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* About Tab */}
-          {activeTab === "about" && (
-            <div className="space-y-6">
-              <Card className="border-0 shadow-md">
-                <CardHeader className="pb-3">
-                  <CardTitle>Shop Information</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {shop.phone && (
-                    <div className="flex items-start gap-2">
-                      <MessageCircle className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <p className="font-semibold text-gray-900">Phone</p>
-                        <span className="text-gray-700">{shop.phone}</span>
-                      </div>
-                    </div>
-                  )}
-                  {shop.location && (
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <p className="font-semibold text-gray-900">Location</p>
-                        <span className="text-gray-700">{shop.location}</span>
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex items-start gap-2 pt-2 border-t">
-                    <Clock className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="font-semibold text-gray-900">Support</p>
-                      <p className="text-gray-700">24/7 Support Available</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Track Order Tab */}
-          {activeTab === "track-order" && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Package className="w-5 h-5" />
-                    Track Your Order
-                  </CardTitle>
-                  <CardDescription>Enter your phone number to check order status</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <OrderStatusSearch shopId={shop?.id} shopName={shop?.shop_name} />
-                </CardContent>
-              </Card>
-            </div>
-          )}
+            {/* Track Order Tab */}
+            {activeTab === "track-order" && (
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Package className="w-5 h-5" />
+                      Track Your Order
+                    </CardTitle>
+                    <CardDescription>Enter your phone number to check order status</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <OrderStatusSearch shopId={shop?.id} shopName={shop?.shop_name} />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
       {
-    checkoutOpen && selectedPackage && (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-        <Card className="w-full max-w-md bg-white">
-          <CardHeader className="border-b border-gray-200">
-            <CardTitle>Checkout</CardTitle>
-            <CardDescription>
-              {selectedPackage.packages.network} - {selectedPackage.packages.size}GB
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-4">
-            <div>
-              <Label>Full Name *</Label>
-              <Input
-                value={orderData.customer_name}
-                onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
-                placeholder="John Doe"
-                className="mt-1"
-              />
-            </div>
+        checkoutOpen && selectedPackage && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <Card className="w-full max-w-md bg-white">
+              <CardHeader className="border-b border-gray-200">
+                <CardTitle>Checkout</CardTitle>
+                <CardDescription>
+                  {selectedPackage.packages.network} - {selectedPackage.packages.size}GB
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-4">
+                <div>
+                  <Label>Full Name *</Label>
+                  <Input
+                    value={orderData.customer_name}
+                    onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
+                    placeholder="John Doe"
+                    className="mt-1"
+                  />
+                </div>
 
-            <div>
-              <Label>Email Address *</Label>
-              <Input
-                type="email"
-                value={orderData.customer_email}
-                onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
-                placeholder="john@example.com"
-                className="mt-1"
-              />
-            </div>
+                <div>
+                  <Label>Email Address *</Label>
+                  <Input
+                    type="email"
+                    value={orderData.customer_email}
+                    onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
+                    placeholder="john@example.com"
+                    className="mt-1"
+                  />
+                </div>
 
-            <div>
-              <Label>Phone Number (MTN, Telecel, AT) *</Label>
-              <Input
-                value={orderData.customer_phone}
-                onChange={(e) => setOrderData({ ...orderData, customer_phone: e.target.value })}
-                placeholder="0201234567 or 0551234567"
-                className="mt-1"
-              />
-              <p className="text-xs text-gray-600 mt-1">
-                Format: 10 digits starting with 02 or 05 (e.g., 0201234567)
-              </p>
-            </div>
+                <div>
+                  <Label>Phone Number (MTN, Telecel, AT) *</Label>
+                  <Input
+                    value={orderData.customer_phone}
+                    onChange={(e) => setOrderData({ ...orderData, customer_phone: e.target.value })}
+                    placeholder="0201234567 or 0551234567"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">
+                    Format: 10 digits starting with 02 or 05 (e.g., 0201234567)
+                  </p>
+                </div>
 
-            {/* Order Summary */}
-            <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
-              <div className="flex justify-between items-end mb-3">
-                <span className="font-semibold text-gray-700">Total Amount:</span>
-                <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
-                  GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
-                </span>
-              </div>
-            </div>
+                {/* Order Summary */}
+                <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
+                  <div className="flex justify-between items-end mb-3">
+                    <span className="font-semibold text-gray-700">Total Amount:</span>
+                    <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+                      GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
 
-            <Alert className="border-blue-300 bg-blue-50">
-              <AlertCircle className="h-4 w-4 text-blue-600" />
-              <AlertDescription className="text-xs text-blue-700">
-                You will be redirected to Paystack to complete your payment.
-              </AlertDescription>
-            </Alert>
+                <Alert className="border-blue-300 bg-blue-50">
+                  <AlertCircle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-xs text-blue-700">
+                    You will be redirected to Paystack to complete your payment.
+                  </AlertDescription>
+                </Alert>
 
-            <div className="flex gap-2 pt-4">
-              <Button
-                onClick={handleSubmitOrder}
-                disabled={submitting}
-                className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    Place Order
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </>
-                )}
-              </Button>
-              <Button
-                onClick={() => {
-                  setCheckoutOpen(false)
-                  setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
-                }}
-                variant="outline"
-              >
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+                <div className="flex gap-2 pt-4">
+                  <Button
+                    onClick={handleSubmitOrder}
+                    disabled={submitting}
+                    className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        Place Order
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setCheckoutOpen(false)
+                      setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+                    }}
+                    variant="outline"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )
+      }
 
-  {/* Floating WhatsApp Icon */ }
-  {
-    shopSettings?.whatsapp_link && (
-      <a
-        href={shopSettings.whatsapp_link}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-6 right-6 p-4 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 z-50 flex items-center justify-center"
-        title="Contact on WhatsApp"
-      >
-        <MessageCircle className="w-6 h-6" />
-      </a>
-    )
-  }
+      {/* Floating WhatsApp Icon */}
+      {
+        shopSettings?.whatsapp_link && (
+          <a
+            href={shopSettings.whatsapp_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="fixed bottom-6 right-6 p-4 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 z-50 flex items-center justify-center"
+            title="Contact on WhatsApp"
+          >
+            <MessageCircle className="w-6 h-6" />
+          </a>
+        )
+      }
     </div >
   )
 }
