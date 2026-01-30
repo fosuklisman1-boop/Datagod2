@@ -197,6 +197,39 @@ export default function AdminSettingsPage() {
     }
   }
 
+  const handleOrderingToggle = async (checked: boolean) => {
+    setOrderingEnabled(checked)
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      // Immediate partial update
+      const response = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ ordering_enabled: checked }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update status")
+      }
+
+      toast.success(checked ? "Ordering Enabled" : "Ordering Paused")
+    } catch (error) {
+      console.error("Error updating ordering status:", error)
+      toast.error("Failed to update status")
+      setOrderingEnabled(!checked) // Revert on failure
+    }
+  }
+
   const handleSave = async () => {
     if (!joinCommunityLink.trim()) {
       toast.error("Please enter a join community link")
@@ -313,7 +346,7 @@ export default function AdminSettingsPage() {
               </div>
               <Switch
                 checked={orderingEnabled}
-                onCheckedChange={setOrderingEnabled}
+                onCheckedChange={handleOrderingToggle}
                 className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-red-600"
               />
             </div>

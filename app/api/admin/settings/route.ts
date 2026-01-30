@@ -119,31 +119,42 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     console.log("[SETTINGS-API] Received update body:", JSON.stringify(body, null, 2))
 
+    // Construct update object with only defined fields
+    const updates: any = {
+      updated_at: new Date().toISOString()
+    }
+
+    const fields = [
+      'join_community_link',
+      'ordering_enabled',
+      'announcement_enabled',
+      'announcement_title',
+      'announcement_message',
+      'paystack_fee_percentage',
+      'wallet_topup_fee_percentage',
+      'withdrawal_fee_percentage',
+      'price_adjustment_mtn',
+      'price_adjustment_telecel',
+      'price_adjustment_at_ishare',
+      'price_adjustment_at_bigtime'
+    ]
+
+    fields.forEach(field => {
+      if (body[field] !== undefined) {
+        updates[field] = body[field]
+      }
+    })
+
+    console.log("[SETTINGS-API] Constructed updates:", updates)
+
+    // Validate fee percentages if present
     const {
-      join_community_link,
-      ordering_enabled,
-      announcement_enabled,
-      announcement_title,
-      announcement_message,
       paystack_fee_percentage,
       wallet_topup_fee_percentage,
       withdrawal_fee_percentage,
-      price_adjustment_mtn,
-      price_adjustment_telecel,
-      price_adjustment_at_ishare,
-      price_adjustment_at_bigtime
-    } = body
+      join_community_link
+    } = updates
 
-    console.log("[SETTINGS-API] ordering_enabled value:", ordering_enabled)
-
-    if (!join_community_link) {
-      return NextResponse.json(
-        { error: "join_community_link is required" },
-        { status: 400 }
-      )
-    }
-
-    // Validate fee percentages
     if (paystack_fee_percentage !== undefined && (paystack_fee_percentage < 0 || paystack_fee_percentage > 100)) {
       return NextResponse.json(
         { error: "paystack_fee_percentage must be between 0 and 100" },
@@ -165,31 +176,16 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    // Validate price adjustments (-100 to +100)
-    const priceAdjustments = [
-      { name: 'price_adjustment_mtn', value: price_adjustment_mtn },
-      { name: 'price_adjustment_telecel', value: price_adjustment_telecel },
-      { name: 'price_adjustment_at_ishare', value: price_adjustment_at_ishare },
-      { name: 'price_adjustment_at_bigtime', value: price_adjustment_at_bigtime }
-    ]
-
-    for (const adj of priceAdjustments) {
-      if (adj.value !== undefined && (adj.value < -100 || adj.value > 100)) {
+    // Validate URL format if present
+    if (join_community_link) {
+      try {
+        new URL(join_community_link)
+      } catch {
         return NextResponse.json(
-          { error: `${adj.name} must be between -100 and 100` },
+          { error: "Invalid URL format" },
           { status: 400 }
         )
       }
-    }
-
-    // Validate URL format
-    try {
-      new URL(join_community_link)
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid URL format" },
-        { status: 400 }
-      )
     }
 
     // Get existing settings
@@ -205,21 +201,7 @@ export async function PUT(request: NextRequest) {
       console.log("[SETTINGS-API] Updating existing settings:", existingSettings.id)
       const { data, error } = await supabase
         .from("app_settings")
-        .update({
-          join_community_link,
-          ordering_enabled: ordering_enabled ?? true,
-          announcement_enabled: announcement_enabled ?? false,
-          announcement_title: announcement_title ?? "",
-          announcement_message: announcement_message ?? "",
-          paystack_fee_percentage: paystack_fee_percentage ?? 3.0,
-          wallet_topup_fee_percentage: wallet_topup_fee_percentage ?? 0,
-          withdrawal_fee_percentage: withdrawal_fee_percentage ?? 0,
-          price_adjustment_mtn: price_adjustment_mtn ?? 0,
-          price_adjustment_telecel: price_adjustment_telecel ?? 0,
-          price_adjustment_at_ishare: price_adjustment_at_ishare ?? 0,
-          price_adjustment_at_bigtime: price_adjustment_at_bigtime ?? 0,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updates)
         .eq("id", existingSettings.id)
         .select()
         .single()
@@ -232,28 +214,30 @@ export async function PUT(request: NextRequest) {
       console.log("[SETTINGS-API] Update success:", data)
       result = data
     } else {
-      // Create new
+      // Create new with defaults mixed with updates
       console.log("[SETTINGS-API] Creating new settings row")
+      const defaults = {
+        join_community_link: "",
+        ordering_enabled: true,
+        announcement_enabled: false,
+        announcement_title: "",
+        announcement_message: "",
+        paystack_fee_percentage: 3.0,
+        wallet_topup_fee_percentage: 0,
+        withdrawal_fee_percentage: 0,
+        price_adjustment_mtn: 0,
+        price_adjustment_telecel: 0,
+        price_adjustment_at_ishare: 0,
+        price_adjustment_at_bigtime: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      const newSettings = { ...defaults, ...updates }
+
       const { data, error } = await supabase
         .from("app_settings")
-        .insert([
-          {
-            join_community_link,
-            ordering_enabled: ordering_enabled ?? true,
-            announcement_enabled: announcement_enabled ?? false,
-            announcement_title: announcement_title ?? "",
-            announcement_message: announcement_message ?? "",
-            paystack_fee_percentage: paystack_fee_percentage ?? 3.0,
-            wallet_topup_fee_percentage: wallet_topup_fee_percentage ?? 0,
-            withdrawal_fee_percentage: withdrawal_fee_percentage ?? 0,
-            price_adjustment_mtn: price_adjustment_mtn ?? 0,
-            price_adjustment_telecel: price_adjustment_telecel ?? 0,
-            price_adjustment_at_ishare: price_adjustment_at_ishare ?? 0,
-            price_adjustment_at_bigtime: price_adjustment_at_bigtime ?? 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-        ])
+        .insert([newSettings])
         .select()
         .single()
 
