@@ -455,6 +455,36 @@ export default function AdminDashboardPage() {
             </CardContent>
           </Card>
 
+          {/* Sub-Agent Profits */}
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-fuchsia-50/60 to-purple-50/40 backdrop-blur-xl border border-fuchsia-200/40 hover:border-fuchsia-300/60">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-gradient-to-br from-fuchsia-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-fuchsia-300/60">
+                  <TrendingUp className="h-5 w-5 text-fuchsia-600" />
+                </div>
+                <CardTitle>Sub-Agent Profits</CardTitle>
+              </div>
+              <CardDescription>View parent shops and sub-agent profit contributions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => handleNavigate("/admin/sub-agent-profits")}
+                disabled={navigating !== null}
+                className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-700 hover:to-purple-700 text-white font-semibold"
+              >
+                {navigating === "/admin/sub-agent-profits" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "View Sub-Agent Profits"
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+
           {/* Complaints Management */}
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-red-50/60 to-pink-50/40 backdrop-blur-xl border border-red-200/40 hover:border-red-300/60">
             <CardHeader>

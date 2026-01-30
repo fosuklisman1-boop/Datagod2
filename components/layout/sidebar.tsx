@@ -99,7 +99,7 @@ export function Sidebar() {
           .select("role")
           .eq("id", user.id)
           .single()
-        
+
         if (userData?.role) {
           setUserRole(userData.role)
           console.log("[SIDEBAR] User role from users table:", userData.role)
@@ -136,10 +136,10 @@ export function Sidebar() {
     const handleStorageChange = () => {
       const userCount = localStorage.getItem('userPendingOrdersCount')
       const adminCount = localStorage.getItem('adminPendingOrdersCount')
-      
+
       setUserPendingOrderCount(userCount ? parseInt(userCount, 10) : 0)
       setAdminPendingOrderCount(adminCount ? parseInt(adminCount, 10) : 0)
-      
+
       console.log('[SIDEBAR] Updated counts - User:', userCount, 'Admin:', adminCount)
     }
 
@@ -267,56 +267,11 @@ export function Sidebar() {
             </div>
           ) : (
             menuItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
-            const Icon = item.icon
-            const isActive = pathname === item.href
-            const isLoading = loadingPath === item.href
-            const showBadge = item.label === "My Orders" && userPendingOrderCount > 0
-            
-            return (
-              <Link key={item.href} href={item.href} onClick={() => handleNavigation(item.href)}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                    isActive && "bg-blue-500",
-                    !isOpen && "justify-center",
-                    isLoading && "opacity-70"
-                  )}
-                  title={!isOpen ? item.label : undefined}
-                  disabled={isLoading}
-                  data-tour={item.label === "Wallet" ? "wallet-topup" : undefined}
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Icon className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <div className="flex items-center justify-between flex-1">
-                      <span>{item.label}</span>
-                      {showBadge && (
-                        <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs ml-2">
-                          {formatCount(userPendingOrderCount)}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                </Button>
-              </Link>
-            )
-          })
-          )}
-
-          {/* Shop Section */}
-          {!roleLoading && (
-          <div className="pt-4 mt-4 border-t border-blue-400">
-            {isOpen && (
-              <p className="text-xs font-semibold text-blue-100 px-3 mb-2">SHOP</p>
-            )}
-            {shopItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
               const Icon = item.icon
               const isActive = pathname === item.href
               const isLoading = loadingPath === item.href
+              const showBadge = item.label === "My Orders" && userPendingOrderCount > 0
+
               return (
                 <Link key={item.href} href={item.href} onClick={() => handleNavigation(item.href)}>
                   <Button
@@ -329,18 +284,63 @@ export function Sidebar() {
                     )}
                     title={!isOpen ? item.label : undefined}
                     disabled={isLoading}
+                    data-tour={item.label === "Wallet" ? "wallet-topup" : undefined}
                   >
                     {isLoading ? (
                       <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
                     ) : (
                       <Icon className="w-5 h-5 flex-shrink-0" />
                     )}
-                    {isOpen && item.label}
+                    {isOpen && (
+                      <div className="flex items-center justify-between flex-1">
+                        <span>{item.label}</span>
+                        {showBadge && (
+                          <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs ml-2">
+                            {formatCount(userPendingOrderCount)}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
                   </Button>
                 </Link>
               )
-            })}
-          </div>
+            })
+          )}
+
+          {/* Shop Section */}
+          {!roleLoading && (
+            <div className="pt-4 mt-4 border-t border-blue-400">
+              {isOpen && (
+                <p className="text-xs font-semibold text-blue-100 px-3 mb-2">SHOP</p>
+              )}
+              {shopItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
+                const Icon = item.icon
+                const isActive = pathname === item.href
+                const isLoading = loadingPath === item.href
+                return (
+                  <Link key={item.href} href={item.href} onClick={() => handleNavigation(item.href)}>
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start gap-3 text-white hover:bg-blue-500",
+                        isActive && "bg-blue-500",
+                        !isOpen && "justify-center",
+                        isLoading && "opacity-70"
+                      )}
+                      title={!isOpen ? item.label : undefined}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                      ) : (
+                        <Icon className="w-5 h-5 flex-shrink-0" />
+                      )}
+                      {isOpen && item.label}
+                    </Button>
+                  </Link>
+                )
+              })}
+            </div>
           )}
 
           {/* Admin Section */}
@@ -481,6 +481,7 @@ export function Sidebar() {
               </Link>
             </div>
           )}
+
         </nav>
 
         {/* Community & Logout */}
