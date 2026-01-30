@@ -22,6 +22,7 @@ import { PhoneNumberModal } from "@/components/phone-number-modal"
 
 interface WholesalePackage {
   id: string
+  package_id?: string
   network: string
   size: string
   parent_price: number
@@ -192,7 +193,7 @@ export default function BuyStockPage() {
           customer_phone: phoneNumber,
           customer_name: `${session.user?.user_metadata?.first_name || ""} ${session.user?.user_metadata?.last_name || ""}`.trim() || "Sub-Agent",
           shop_package_id: pkg.id,
-          package_id: pkg.id,
+          package_id: pkg.package_id || pkg.id, // Fallback to id if package_id missing
           network: pkg.network,
           volume_gb: pkg.size,
           base_price: pkg.parent_price,
