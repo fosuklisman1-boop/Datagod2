@@ -380,7 +380,8 @@ export default function SubAgentProfitDetailPage() {
                                             <th className="px-4 py-3 text-left font-semibold text-gray-900">Customer</th>
                                             <th className="px-4 py-3 text-left font-semibold text-gray-900">Network</th>
                                             <th className="px-4 py-3 text-right font-semibold text-gray-900">Order Total</th>
-                                            <th className="px-4 py-3 text-right font-semibold text-gray-900">Profit</th>
+                                            <th className="px-4 py-3 text-right font-semibold text-blue-600">Sub-Agent Profit</th>
+                                            <th className="px-4 py-3 text-right font-semibold text-green-600">Parent Profit</th>
                                             <th className="px-4 py-3 text-center font-semibold text-gray-900">Status</th>
                                         </tr>
                                     </thead>
@@ -420,8 +421,11 @@ export default function SubAgentProfitDetailPage() {
                                                 <td className="px-4 py-3 text-right font-medium">
                                                     GHS {item.order_total.toFixed(2)}
                                                 </td>
+                                                <td className="px-4 py-3 text-right font-medium text-blue-600">
+                                                    +GHS {(item.sub_agent_profit_amount || 0).toFixed(2)}
+                                                </td>
                                                 <td className="px-4 py-3 text-right font-bold text-green-600">
-                                                    +GHS {item.profit_amount.toFixed(2)}
+                                                    +GHS {(item.profit_amount || 0).toFixed(2)}
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
                                                     {item.profit_status === "credited" ? (

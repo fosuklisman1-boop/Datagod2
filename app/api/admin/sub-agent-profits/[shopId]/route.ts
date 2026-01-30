@@ -93,6 +93,7 @@ export async function GET(
         network,
         volume_gb,
         total_price,
+        profit_amount,
         parent_profit_amount,
         payment_status,
         order_status,
@@ -166,7 +167,8 @@ export async function GET(
                 network: order.network,
                 volume_gb: order.volume_gb,
                 order_total: order.total_price,
-                profit_amount: order.parent_profit_amount,
+                sub_agent_profit_amount: order.profit_amount || 0,  // Sub-agent's own profit
+                profit_amount: order.parent_profit_amount,  // Parent's profit
                 profit_record_id: profitRecord?.id || null,
                 profit_status: profitRecord?.status || "missing",
                 created_at: order.created_at
