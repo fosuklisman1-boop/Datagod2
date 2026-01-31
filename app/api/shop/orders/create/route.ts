@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     // Check if this is a sub-agent shop
     const { data: shopData, error: shopError } = await supabase
       .from("user_shops")
-      .select("parent_shop_id")
+      .select("parent_shop_id, user_id")
       .eq("id", shop_id)
       .single()
 
@@ -117,9 +117,19 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // Regular shop: verify from shop_packages
+
+      // Check if shop owner is a dealer
+      const { data: userData } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", shopData?.user_id)
+        .single()
+
+      const isDealer = userData?.role === 'dealer'
+
       const { data: shopPkg, error: shopPkgError } = await supabase
         .from("shop_packages")
-        .select("profit_margin, packages(price)")
+        .select("profit_margin, packages(price, dealer_price)")
         .eq("id", shop_package_id)
         .single()
 
@@ -128,7 +138,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid package" }, { status: 400 })
       }
 
-      verifiedBasePrice = (shopPkg.packages as any)?.price || 0
+      const pkgPrice = (shopPkg.packages as any)?.price || 0
+      const dealerPrice = (shopPkg.packages as any)?.dealer_price
+
+      // If dealer, use dealer_price as base cost
+      verifiedBasePrice = isDealer && dealerPrice && dealerPrice > 0 ? dealerPrice : pkgPrice
       verifiedProfitMargin = shopPkg.profit_margin || 0
       verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
     }

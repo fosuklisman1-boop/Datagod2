@@ -63,9 +63,22 @@ export function BulkOrdersForm() {
 
   const loadPackages = async () => {
     try {
+      // Get user role first
+      const { data: { session } } = await supabase.auth.getSession()
+      let userRole = "user"
+
+      if (session?.user) {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", session.user.id)
+          .single()
+        userRole = userData?.role || "user"
+      }
+
       const { data, error } = await supabase
         .from("packages")
-        .select("*")
+        .select("*, dealer_price")
         .eq("active", true)
         .order("network", { ascending: true })
         .order("size", { ascending: true })
@@ -75,12 +88,14 @@ export function BulkOrdersForm() {
       if (data) {
         // Apply price adjustments based on network settings
         const adjustedData = await applyPriceAdjustmentsToPackages(data)
-        
+
         // Transform data to match our format
         const transformedPackages = adjustedData.map((pkg: any) => ({
           network: pkg.network,
           size: parseFloat(pkg.size),
-          price: pkg.price,
+          price: userRole === "dealer" && pkg.dealer_price && pkg.dealer_price > 0
+            ? pkg.dealer_price
+            : pkg.price,
         }))
 
         setPackages(transformedPackages)
@@ -113,7 +128,7 @@ export function BulkOrdersForm() {
 
     // Get selected network from the networks list
     const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
-    
+
     if (!selectedNetworkLabel) {
       toast.error("Invalid network selected")
       return { total: 0, valid: 0, invalid: 0, orders: [] }
@@ -163,7 +178,7 @@ export function BulkOrdersForm() {
       const normalizedPhone = phoneResult.normalized
 
       const volumeNum = parseFloat(volume)
-      
+
       // Validate volume is a number
       if (isNaN(volumeNum) || volumeNum <= 0) {
         invalid++
@@ -180,7 +195,7 @@ export function BulkOrdersForm() {
 
       // Check if volume matches available packages for selected network
       const matchingPackage = availablePackages.find(pkg => pkg.size === volumeNum)
-      
+
       if (!matchingPackage) {
         invalid++
         orders.push({
@@ -260,11 +275,11 @@ export function BulkOrdersForm() {
     // Basic XLSX parsing - finds XML content and extracts cell values
     const view = new Uint8Array(data)
     const text = new TextDecoder().decode(view)
-    
+
     // Look for shared strings XML and worksheet XML
     const sharedStringsMatch = text.match(/<si>[\s\S]*?<\/si>/g) || []
     const strings: string[] = []
-    
+
     sharedStringsMatch.forEach(match => {
       const textMatch = match.match(/<t[^>]*>([^<]*)<\/t>/)
       if (textMatch) {
@@ -334,7 +349,7 @@ export function BulkOrdersForm() {
         // Handle XLSX
         const buffer = await file.arrayBuffer()
         const rows = parseXLSXBasic(buffer)
-        
+
         // Convert 2D array to lines with comma-separated values
         lines = rows
           .map(row => row.join(','))
@@ -364,7 +379,7 @@ export function BulkOrdersForm() {
       setTextInput(formattedText)
       setActiveTab("text")
       toast.success("File uploaded and converted to text format")
-      
+
       // Reset file input
       if (excelFileInput.current) {
         excelFileInput.current.value = ''
@@ -389,7 +404,7 @@ export function BulkOrdersForm() {
 
     try {
       console.log("Preparing order submission...")
-      
+
       // Get auth token and user
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token || !session.user?.id) {
@@ -397,7 +412,7 @@ export function BulkOrdersForm() {
       }
 
       console.log("Fetching wallet balance for user:", session.user.id)
-      
+
       // Check wallet balance
       const { data: walletData, error: walletError } = await supabase
         .from("wallets")
@@ -413,12 +428,12 @@ export function BulkOrdersForm() {
       const availableBalance = wallet?.balance || 0
 
       console.log("Wallet balance found:", availableBalance)
-      
+
       // Calculate total cost
       const totalCost = validOrders.reduce((sum, order) => sum + order.price, 0)
 
       console.log("Total cost:", totalCost)
-      
+
       // Check if balance is sufficient
       if (availableBalance < totalCost) {
         toast.error(
@@ -428,7 +443,7 @@ export function BulkOrdersForm() {
       }
 
       console.log("Balance sufficient. Showing summary...")
-      
+
       // Set wallet balance and show summary
       setWalletBalance(availableBalance)
       setShowSummary(true)
@@ -481,16 +496,16 @@ export function BulkOrdersForm() {
       }
 
       toast.success(`Successfully created ${data.count} orders!`)
-      
+
       // Close summary dialog
       setShowSummary(false)
-      
+
       // Reset form
       setValidationResults(null)
       setTextInput("")
       setSelectedNetwork("")
       setWalletBalance(null)
-      
+
       console.log("Orders created:", data.orders)
     } catch (error) {
       console.error("Error submitting orders:", error)
@@ -571,9 +586,9 @@ export function BulkOrdersForm() {
             <div className="border-2 border-dashed border-violet-300 rounded-lg p-6 text-center hover:border-violet-500 transition-colors cursor-pointer">
               <p className="text-gray-600 mb-2">Click to upload Excel file or drag and drop</p>
               <p className="text-xs text-gray-500">CSV or XLSX files only</p>
-              <Input 
-                type="file" 
-                accept=".csv,.xlsx" 
+              <Input
+                type="file"
+                accept=".csv,.xlsx"
                 className="mt-4"
                 ref={excelFileInput}
                 onChange={handleExcelFileUpload}
@@ -661,29 +676,25 @@ export function BulkOrdersForm() {
                     >
                       <td className="px-4 py-2">{order.id}</td>
                       <td
-                        className={`px-4 py-2 ${
-                          order.status === "invalid" ? "text-red-600" : ""
-                        }`}
+                        className={`px-4 py-2 ${order.status === "invalid" ? "text-red-600" : ""
+                          }`}
                       >
                         {order.phone}
                       </td>
-                      <td className={`px-4 py-2 ${
-                          order.status === "invalid" ? "text-red-600" : ""
+                      <td className={`px-4 py-2 ${order.status === "invalid" ? "text-red-600" : ""
                         }`}>
                         {order.volume > 0 ? `${order.volume} GB` : "N/A"}
                       </td>
-                      <td className={`px-4 py-2 ${
-                          order.status === "invalid" ? "text-red-600" : ""
+                      <td className={`px-4 py-2 ${order.status === "invalid" ? "text-red-600" : ""
                         }`}>
                         {order.price > 0 ? `GHS ${order.price.toFixed(2)}` : "N/A"}
                       </td>
                       <td className="px-4 py-2">
                         <span
-                          className={`px-2 py-1 rounded text-xs font-semibold ${
-                            order.status === "valid"
+                          className={`px-2 py-1 rounded text-xs font-semibold ${order.status === "valid"
                               ? "bg-gradient-to-r from-emerald-100/80 to-teal-100/80 text-emerald-700 border border-emerald-200/60"
                               : "bg-gradient-to-r from-rose-100/80 to-pink-100/80 text-rose-700 border border-rose-200/60"
-                          }`}
+                            }`}
                         >
                           {order.status === "valid" ? "✓ Valid" : "✕ Invalid"}
                         </span>
@@ -721,7 +732,7 @@ export function BulkOrdersForm() {
                   </p>
                 </div>
                 {validationResults.invalid === 0 && (
-                  <Button 
+                  <Button
                     onClick={handleSubmitOrders}
                     disabled={isSubmitting}
                     className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 px-6 shadow-lg hover:shadow-xl transition-all text-white font-semibold"
@@ -743,7 +754,7 @@ export function BulkOrdersForm() {
                 Please review your order details before confirming submission
               </DialogDescription>
             </DialogHeader>
-            
+
             {validationResults && (
               <div className="space-y-4 py-4">
                 <div className="bg-blue-50 p-4 rounded-lg space-y-2">
