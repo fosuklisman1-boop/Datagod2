@@ -65,12 +65,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           // This ensures users see new announcements even if they've dismissed previous ones
           const announcementHash = btoa(unescape(encodeURIComponent(`${data.announcement_title}:${data.announcement_message}`))).substring(0, 16)
           const sessionKey = `announcement_seen_${user.id}_${announcementHash}`
-          
+
           console.log("[ANNOUNCEMENT] Session key:", sessionKey)
-          
+
           // Check if user has already seen THIS specific announcement in this session
           const hasSeenInSession = sessionStorage.getItem(sessionKey)
-          
+
           if (hasSeenInSession) {
             console.log("[ANNOUNCEMENT] User has already seen this announcement in this session")
             return
@@ -80,7 +80,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           setAnnouncementTitle(data.announcement_title)
           setAnnouncementMessage(data.announcement_message)
           setShowAnnouncement(true)
-          
+
           // Store the session key for later use when closing
           sessionStorage.setItem("current_announcement_key", sessionKey)
         } else {
@@ -114,7 +114,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <Header />
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto md:overflow-y-auto md:overflow-x-hidden pt-20 md:pt-20 p-2 sm:p-3 md:p-4 lg:p-6">
+        <main className="flex-1 overflow-auto md:overflow-y-auto md:overflow-x-hidden pt-20 md:pt-24 lg:pt-28 p-2 sm:p-3 md:p-4 lg:p-6">
           <div className="w-full max-w-7xl mx-auto">
             {children}
           </div>
