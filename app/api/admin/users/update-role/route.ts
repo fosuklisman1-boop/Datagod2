@@ -27,15 +27,16 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json()
-        const { userId, newRole } = body
+        const { userId, role, newRole } = body
+        const targetRole = newRole || role  // Support both 'role' and 'newRole'
 
-        if (!userId || !newRole) {
-            return NextResponse.json({ error: "Missing userId or newRole" }, { status: 400 })
+        if (!userId || !targetRole) {
+            return NextResponse.json({ error: "Missing userId or role" }, { status: 400 })
         }
 
         // Validate role
         const validRoles = ["user", "admin", "sub_agent", "dealer"]
-        if (!validRoles.includes(newRole)) {
+        if (!validRoles.includes(targetRole)) {
             return NextResponse.json({ error: `Invalid role. Must be one of: ${validRoles.join(", ")}` }, { status: 400 })
         }
 
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
             .single()
 
         // If upgrading to 'dealer', check if user is a sub-agent (has parent_shop_id)
-        if (newRole === "dealer" && targetShop?.parent_shop_id) {
+        if (targetRole === "dealer" && targetShop?.parent_shop_id) {
             return NextResponse.json(
                 { error: "Sub-agents cannot be upgraded to Dealers. They must be independent users (not linked to a parent shop)." },
                 { status: 400 }
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
         // Update the user's role in the users table
         const { error: updateError } = await supabase
             .from("users")
-            .update({ role: newRole })
+            .update({ role: targetRole })
             .eq("id", userId)
 
         if (updateError) {
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
         }
 
         // If upgrading to dealer, adjust profit margins to maintain selling prices
-        if (newRole === "dealer" && targetShop) {
+        if (targetRole === "dealer" && targetShop) {
             console.log(`[UPDATE-ROLE] Upgrading user ${userId} to dealer. Adjusting margins...`)
 
             // Get all shop_packages for this shop
@@ -112,7 +113,7 @@ export async function POST(request: NextRequest) {
 
         // Also update user_metadata in auth (for session data)
         const { error: metaError } = await supabase.auth.admin.updateUserById(userId, {
-            user_metadata: { role: newRole }
+            user_metadata: { role: targetRole }
         })
 
         if (metaError) {
@@ -120,13 +121,13 @@ export async function POST(request: NextRequest) {
             // Non-blocking - the users table is the source of truth
         }
 
-        console.log(`[UPDATE-ROLE] User ${userId} role updated to: ${newRole}`)
+        console.log(`[UPDATE-ROLE] User ${userId} role updated to: ${targetRole}`)
 
         return NextResponse.json({
             success: true,
-            message: `User role updated to '${newRole}'`,
+            message: `User role updated to '${targetRole}'`,
             userId,
-            newRole
+            newRole: targetRole
         })
 
     } catch (error) {

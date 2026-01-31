@@ -157,7 +157,7 @@ export const adminUserService = {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ userId, role }),
+        body: JSON.stringify({ userId, newRole: role }),
       })
 
       const data = await response.json()
