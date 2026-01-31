@@ -326,7 +326,10 @@ export default function MyShopPage() {
       const pkg = getPackageDetails(selectedPackage)
       // For sub-agents: calculate profit from PARENT PRICE (not admin price)
       // This is the sub-agent's own profit margin
-      const parentPrice = pkg?.parent_price !== undefined ? pkg?.parent_price : (pkg?.price || 0)
+      const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
+      const dealerPrice = pkg?.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
+      const basePrice = pkg?.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg?.price) ?? 0
+      const parentPrice = basePrice
 
       const sellingPrice = parseFloat(profitMargin || "0")
       let subAgentProfit: number
