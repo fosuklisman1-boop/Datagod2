@@ -138,9 +138,20 @@ export default function DataPackagesPage() {
 
   const loadPackages = async () => {
     try {
+      // First, get user role
+      let userRole = "user"
+      if (user) {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", user.id)
+          .single()
+        userRole = userData?.role || "user"
+      }
+
       const { data, error } = await supabase
         .from("packages")
-        .select("*")
+        .select("*, dealer_price")
         .eq("is_available", true)
         .order("network, size")
 
@@ -149,8 +160,17 @@ export default function DataPackagesPage() {
         return
       }
 
+      // For dealers, use dealer_price instead of price
+      let processedPackages = data || []
+      if (userRole === "dealer") {
+        processedPackages = processedPackages.map((pkg: any) => ({
+          ...pkg,
+          price: pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price
+        }))
+      }
+
       // Apply price adjustments based on network settings
-      const adjustedPackages = await applyPriceAdjustmentsToPackages(data || [])
+      const adjustedPackages = await applyPriceAdjustmentsToPackages(processedPackages)
       setPackages(adjustedPackages)
 
       // Extract unique networks

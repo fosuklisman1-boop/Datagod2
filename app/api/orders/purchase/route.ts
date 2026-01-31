@@ -124,12 +124,42 @@ export async function POST(request: NextRequest) {
 
     const wallet = walletData as { balance: number; total_spent: number }
 
+    // Get user role and validate price server-side
+    const { data: userData } = await supabaseAdmin
+      .from("users")
+      .select("role")
+      .eq("id", userId)
+      .single()
+
+    const userRole = userData?.role || "user"
+
+    // Get the package to validate price
+    const { data: packageData, error: packageError } = await supabaseAdmin
+      .from("packages")
+      .select("price, dealer_price")
+      .eq("id", packageId)
+      .single()
+
+    if (packageError || !packageData) {
+      return NextResponse.json({ error: "Package not found" }, { status: 404 })
+    }
+
+    // Determine correct price based on role
+    let validatedPrice = packageData.price
+    if (userRole === "dealer" && packageData.dealer_price && packageData.dealer_price > 0) {
+      validatedPrice = packageData.dealer_price
+    }
+
+    console.log(`[PURCHASE] User role: ${userRole}, Validated price: ${validatedPrice}, Client price: ${price}`)
+
+    // Use validated price (ignore client-sent price for security)
+
     // Check if wallet has enough balance
-    if (wallet.balance < price) {
+    if (wallet.balance < validatedPrice) {
       return NextResponse.json(
         {
           error: "Insufficient balance",
-          required: price,
+          required: validatedPrice,
           available: wallet.balance,
         },
         { status: 402 }
@@ -160,7 +190,7 @@ export async function POST(request: NextRequest) {
           package_id: packageId,
           network,
           size,
-          price,
+          price: validatedPrice,
           phone_number: phoneNumber,
           status: orderStatus,
           queue: phoneQueue,
@@ -178,13 +208,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Deduct from wallet (prevent negative balance)
-    const newBalance = Math.max(0, wallet.balance - price)
+    const newBalance = Math.max(0, wallet.balance - validatedPrice)
 
     const { error: updateWalletError } = await supabaseAdmin
       .from("wallets")
       .update({
         balance: newBalance,
-        total_spent: (wallet.total_spent || 0) + price,
+        total_spent: (wallet.total_spent || 0) + validatedPrice,
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId)

@@ -49,21 +49,21 @@ const formatCount = (num: number): string => {
 }
 
 const menuItems = [
-  { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin"] },
-  { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin"] },
-  { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin"] },
-  { href: "/dashboard/afa-orders", label: "AFA Orders", icon: Star, roles: ["user", "admin"] },
-  { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent"] },
-  { href: "/dashboard/transactions", label: "Transactions", icon: History, roles: ["user", "admin"] },
-  { href: "/dashboard/profile", label: "Profile", icon: User, roles: ["user", "admin", "sub_agent"] },
-  { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle, roles: ["user", "admin"] },
+  { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/afa-orders", label: "AFA Orders", icon: Star, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/transactions", label: "Transactions", icon: History, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/profile", label: "Profile", icon: User, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle, roles: ["user", "admin", "dealer"] },
 ]
 
 const shopItems = [
-  { href: "/dashboard/my-shop", label: "My Shop", icon: Store, roles: ["user", "admin", "sub_agent"] },
-  { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp, roles: ["user", "admin", "sub_agent"] },
-  { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin"] },
-  { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, roles: ["user", "admin"] },
+  { href: "/dashboard/my-shop", label: "My Shop", icon: Store, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/buy-stock", label: "Buy Data", icon: ShoppingBag, roles: ["sub_agent"] },
 ]
 
