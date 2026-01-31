@@ -1078,7 +1078,8 @@ export default function MyShopPage() {
                                       })()}
                                     </CardContent>
                                   </Card>
-                                })
+                                )
+                              })
                           })()}
                         </div>
                       </div>
