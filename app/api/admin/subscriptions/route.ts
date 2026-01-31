@@ -51,7 +51,7 @@ async function fetchAllSubscriptions(adminId: string) {
 
     if (error) {
         console.error("[ADMIN-SUBSCRIPTIONS] DB Error:", error)
-        return NextResponse.json({ error: "Failed to fetch subscriptions" }, { status: 500 })
+        return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     return NextResponse.json({ subscriptions })
