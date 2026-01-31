@@ -129,7 +129,16 @@ export async function POST(request: NextRequest) {
 
           const margin = catalogEntry.wholesale_margin ?? 0
           verifiedBasePrice = adminPrice + margin
-          verifiedProfitMargin = 0 // Sub-agent profit on "Buy Stock" is 0 (it's a restocking purchase)
+          // Sub-agent profit on "Buy Stock" is 0, but for customer orders via sub-agent shop, 
+          // we must respect the sub-agent's configured margin if present in catalog
+          // Check if this is a stock purchase (restocking)
+          const isStockPurchase = body.is_stock_purchase === true
+
+          if (isStockPurchase) {
+            verifiedProfitMargin = 0
+          } else {
+            verifiedProfitMargin = catalogEntry.sub_agent_profit_margin || 0
+          }
           verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
         } else {
           console.error("[SHOP-ORDER] ❌ Could not verify sub-agent package price")

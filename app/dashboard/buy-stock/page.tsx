@@ -233,6 +233,7 @@ export default function BuyStockPage() {
           base_price: pkg.parent_price,
           profit_amount: 0,
           total_price: pkg.parent_price,
+          is_stock_purchase: true,
         }),
       })
 
