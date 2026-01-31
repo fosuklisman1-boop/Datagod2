@@ -53,6 +53,7 @@ export default function MyShopPage() {
   const [searchPhoneNumber, setSearchPhoneNumber] = useState("")
   const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
   const [showComplaintModal, setShowComplaintModal] = useState(false)
+  const [userRole, setUserRole] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -64,6 +65,15 @@ export default function MyShopPage() {
       setLoading(true)
       setDbError(null)
       if (!user?.id) return
+
+      // Fetch user role
+      const { data: roleData } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", user.id)
+        .single()
+      setUserRole(roleData?.role || null)
+
       const userShop = await shopService.getShop(user.id)
       setShop(userShop)
 
@@ -1012,7 +1022,7 @@ export default function MyShopPage() {
 
                                     {selectedPackage === pkg.id && profitMargin && (
                                       (() => {
-                                        const isDealer = user?.user_metadata?.role === 'dealer'
+                                        const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
                                         const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
                                         const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
                                         const sellingPrice = parseFloat(profitMargin)
@@ -1038,7 +1048,7 @@ export default function MyShopPage() {
 
                                     {(() => {
                                       const isAdded = packages.some(p => p.package_id === (pkg.package_id || pkg.id))
-                                      const isDealer = user?.user_metadata?.role === 'dealer'
+                                      const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
                                       const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
                                       const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
                                       const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
@@ -1081,7 +1091,7 @@ export default function MyShopPage() {
                           const pkg = shopPkg.packages
                           // Get the current parent price from available packages (source of truth)
                           const availablePkg = allPackages.find(p => p.id === pkg?.id)
-                          const isDealer = user?.user_metadata?.role === 'dealer'
+                          const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
                           const dealerPrice = pkg?.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
 
                           // For dealers, prioritize dealer_price over stored parent_price
