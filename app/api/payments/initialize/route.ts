@@ -20,21 +20,63 @@ export async function POST(request: NextRequest) {
     console.log("  Order ID:", orderId)
 
     // Validate input
-    if (!amount || !email) {
+    if (!email) {
       console.warn("[PAYMENT-INIT] Missing required fields")
       return NextResponse.json(
-        { error: "Missing required fields: amount, email" },
+        { error: "Missing required fields: email" },
         { status: 400 }
       )
     }
 
-    if (typeof amount !== "number" || amount <= 0) {
-      console.warn("[PAYMENT-INIT] Invalid amount:", amount)
-      return NextResponse.json(
-        { error: "Amount must be a positive number" },
-        { status: 400 }
-      )
+    let finalAmount = amount
+
+    // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
+    if (orderId) {
+      console.log(`[PAYMENT-INIT] Shop Order detected (${orderId}). Verifying price from database...`)
+
+      const { data: orderData, error: orderError } = await supabase
+        .from("shop_orders")
+        .select("total_price")
+        .eq("id", orderId)
+        .single()
+
+      if (orderError || !orderData) {
+        console.error("[PAYMENT-INIT] ❌ Could not find order:", orderError)
+        return NextResponse.json(
+          { error: "Invalid order ID" },
+          { status: 400 }
+        )
+      }
+
+      // Override client amount with server-verified amount
+      // Ensure we treat it as a number
+      const verifiedAmount = Number(orderData.total_price)
+
+      if (isNaN(verifiedAmount) || verifiedAmount <= 0) {
+        console.error("[PAYMENT-INIT] ❌ Invalid order price in DB:", orderData.total_price)
+        return NextResponse.json(
+          { error: "Invalid order configuration" },
+          { status: 500 }
+        )
+      }
+
+      console.log(`[PAYMENT-INIT] ✓ Price verified. Client sent: ${amount}, DB has: ${verifiedAmount}. Enforcing DB value.`)
+      finalAmount = verifiedAmount
+    } else {
+      // For Wallet Top-up (no orderId), we require amount
+      if (!amount || typeof amount !== "number" || amount <= 0) {
+        console.warn("[PAYMENT-INIT] Invalid amount for top-up:", amount)
+        return NextResponse.json(
+          { error: "Amount must be a positive number" },
+          { status: 400 }
+        )
+      }
     }
+
+    // Use finalAmount for all subsequent calculations
+    const processingAmount = finalAmount
+    const amountToUse = processingAmount; // Alias to minimize diff changes below if 'amount' var is reused elsewhere, but we should replace 'amount' usages with 'finalAmount'
+
 
     // Generate unique reference
     const reference = `WALLET-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
@@ -46,11 +88,12 @@ export async function POST(request: NextRequest) {
       .single()
 
     const paystackFeePercentage = (settings?.paystack_fee_percentage || 3.0) / 100
-    const paystackFee = Math.round(amount * paystackFeePercentage * 100) / 100
-    const totalAmount = amount + paystackFee
+    // Use finalAmount (verified) for calculation
+    const paystackFee = Math.round(finalAmount * paystackFeePercentage * 100) / 100
+    const totalAmount = finalAmount + paystackFee
 
     console.log("[PAYMENT-INIT] Fee Calculation:")
-    console.log("  Original Amount:", amount)
+    console.log("  Original Amount:", finalAmount)
     console.log(`  Paystack Fee (${paystackFeePercentage * 100}%):`, paystackFee)
     console.log("  Total Amount:", totalAmount)
 
@@ -90,7 +133,7 @@ export async function POST(request: NextRequest) {
       ? `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/order-confirmation/${orderId}?reference=${reference}`
       : `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?reference=${reference}`
     console.log("[PAYMENT-INIT] Redirect URL:", redirectUrl)
-    
+
     const paymentResult = await initializePayment({
       email,
       amount: totalAmount,
@@ -100,7 +143,7 @@ export async function POST(request: NextRequest) {
         userId,
         shopId: shopId || null,
         type: "wallet_topup",
-        originalAmount: amount,
+        originalAmount: finalAmount,
         paystackFee: paystackFee,
       },
       channels: ["card", "mobile_money", "bank_transfer"],
@@ -114,7 +157,7 @@ export async function POST(request: NextRequest) {
       .insert([{
         user_id: userId,
         reference,
-        amount: amount,
+        amount: finalAmount,
         fee: paystackFee,
         email,
         status: "pending",
