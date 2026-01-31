@@ -9,18 +9,14 @@ export async function GET(request: NextRequest) {
     try {
         const authHeader = request.headers.get("Authorization")
         if (!authHeader?.startsWith("Bearer ")) {
-            // Check for session cookie/auth
-            const { data: { user }, error: authError } = await supabase.auth.getUser()
-            if (authError || !user) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-            }
-            return fetchAllSubscriptions(user.id)
+            return NextResponse.json({ error: "No authorization token" }, { status: 401 })
         }
 
         const token = authHeader.slice(7)
         const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 
         if (authError || !user) {
+            console.error("[ADMIN-SUBSCRIPTIONS] Auth Error:", authError)
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 

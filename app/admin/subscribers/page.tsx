@@ -16,8 +16,10 @@ import {
     CheckCircle2,
     ArrowUpDown,
     ExternalLink,
-    Crown
+    Crown,
+    Loader2
 } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { format } from "date-fns"
 
@@ -44,16 +46,54 @@ interface Subscription {
 export default function AdminSubscribersPage() {
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
     const [loading, setLoading] = useState(true)
+    const [isAdmin, setIsAdmin] = useState(false)
+    const [adminLoading, setAdminLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
     const [statusFilter, setStatusFilter] = useState<string>("all")
 
     useEffect(() => {
-        fetchSubscriptions()
+        checkAdminAccess()
     }, [])
+
+    const checkAdminAccess = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) {
+                window.location.href = "/login"
+                return
+            }
+
+            const { data: profile } = await supabase
+                .from("users")
+                .select("role")
+                .eq("id", user.id)
+                .single()
+
+            if (profile?.role !== "admin") {
+                toast.error("Unauthorized access")
+                window.location.href = "/dashboard"
+                return
+            }
+
+            setIsAdmin(true)
+            await fetchSubscriptions()
+        } catch (error) {
+            console.error("Error checking admin access:", error)
+            window.location.href = "/dashboard"
+        } finally {
+            setAdminLoading(false)
+        }
+    }
 
     const fetchSubscriptions = async () => {
         try {
-            const response = await fetch("/api/admin/subscriptions")
+            const { data: { session } } = await supabase.auth.getSession()
+            const headers: HeadersInit = {}
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`
+            }
+
+            const response = await fetch("/api/admin/subscriptions", { headers })
             const data = await response.json()
             if (data.subscriptions) {
                 setSubscriptions(data.subscriptions)
@@ -91,6 +131,18 @@ export default function AdminSubscribersPage() {
         expired: subscriptions.filter(s => s.status === "expired" || s.status === "cancelled").length,
         totalRevenue: subscriptions.reduce((sum, s) => sum + (Number(s.amount_paid) || 0), 0)
     }
+
+    if (adminLoading) {
+        return (
+            <DashboardLayout>
+                <div className="flex items-center justify-center min-h-[60vh]">
+                    <Loader2 className="w-8 h-8 animate-spin text-amber-600" />
+                </div>
+            </DashboardLayout>
+        )
+    }
+
+    if (!isAdmin) return null
 
     return (
         <DashboardLayout>

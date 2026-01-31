@@ -63,7 +63,13 @@ export default function AdminSubscriptionsPage() {
 
     const loadPlans = async () => {
         try {
-            const response = await fetch("/api/admin/subscription-plans")
+            const { data: { session } } = await supabase.auth.getSession()
+            const headers: HeadersInit = {}
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`
+            }
+
+            const response = await fetch("/api/admin/subscription-plans", { headers })
             const data = await response.json()
             if (data.plans) {
                 setPlans(data.plans)
@@ -85,9 +91,15 @@ export default function AdminSubscriptionsPage() {
 
         setIsSubmitting(true)
         try {
+            const { data: { session } } = await supabase.auth.getSession()
+            const headers: HeadersInit = { "Content-Type": "application/json" }
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`
+            }
+
             const response = await fetch("/api/admin/subscription-plans", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify({
                     ...formData,
                     id: editingId
@@ -123,8 +135,15 @@ export default function AdminSubscriptionsPage() {
         if (!confirm("Are you sure you want to delete this plan?")) return
 
         try {
+            const { data: { session } } = await supabase.auth.getSession()
+            const headers: HeadersInit = {}
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`
+            }
+
             const response = await fetch(`/api/admin/subscription-plans?id=${id}`, {
-                method: "DELETE"
+                method: "DELETE",
+                headers
             })
 
             if (!response.ok) throw new Error("Failed to delete plan")
