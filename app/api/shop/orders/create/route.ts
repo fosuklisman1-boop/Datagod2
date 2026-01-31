@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
               .select("role")
               .eq("id", parentShop.user_id)
               .single()
-            isParentDealer = parentUser?.role === 'dealer'
+            isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin'
           }
 
           const pkg = (catalogEntry.package as any)
@@ -146,7 +146,8 @@ export async function POST(request: NextRequest) {
         .eq("id", shopData?.user_id)
         .single()
 
-      const isDealer = userData?.role === 'dealer'
+      const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
+
 
       const { data: shopPkg, error: shopPkgError } = await supabase
         .from("shop_packages")
@@ -294,7 +295,7 @@ export async function POST(request: NextRequest) {
             .select("role")
             .eq("id", parentShop.user_id)
             .single()
-          isParentDealer = parentUser?.role === 'dealer'
+          isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin'
         }
 
         const { data: catalogEntry, error: catalogError } = await supabase

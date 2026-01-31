@@ -176,6 +176,11 @@ export async function POST(request: NextRequest) {
       };
 
       if (paymentData.order_id) {
+        // Re-verify price using shop owner logic
+        let verifiedBasePrice = 0;
+        let verifiedProfitMargin = 0;
+        let verifiedTotalPrice = 0;
+
         // Fetch the shop order and all relevant fields
         const { data: shopOrder } = await supabase
           .from("shop_orders")
@@ -184,10 +189,6 @@ export async function POST(request: NextRequest) {
           .single();
 
         if (shopOrder) {
-          // Re-verify price using shop owner logic
-          let verifiedBasePrice = 0;
-          let verifiedProfitMargin = 0;
-          let verifiedTotalPrice = 0;
 
           // Check if this is a sub-agent shop
           const { data: shopData } = await supabase
@@ -232,7 +233,7 @@ export async function POST(request: NextRequest) {
                     .select("role")
                     .eq("id", parentShop.user_id)
                     .single()
-                  isParentDealer = parentUser?.role === 'dealer'
+                  isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin'
                 }
 
                 const pkg = (catalogEntry.package as any)
@@ -260,7 +261,7 @@ export async function POST(request: NextRequest) {
               .select("role")
               .eq("id", shopData?.user_id)
               .single()
-            const isDealer = userData?.role === 'dealer'
+            const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
 
             const { data: shopPkg } = await supabase
               .from("shop_packages")
@@ -281,11 +282,11 @@ export async function POST(request: NextRequest) {
               priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
             }
           }
-
-          // IMPORTANT: Add the fee to the verified order price
-          expectedAmountGHS = verifiedTotalPrice + feeAmount;
-          priceDebugInfo.calculated_total_with_fee = expectedAmountGHS;
         }
+
+        // IMPORTANT: Add the fee to the verified order price
+        expectedAmountGHS = verifiedTotalPrice + feeAmount;
+        priceDebugInfo.calculated_total_with_fee = expectedAmountGHS;
       }
 
       // Robust conversion to pesewas (handles floating point issues like 10.82 * 100 = 1081.999...)

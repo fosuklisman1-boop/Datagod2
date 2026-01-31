@@ -101,8 +101,9 @@ export default function BuyStockPage() {
         return
       }
 
-      // If user is a dealer, fetch dealer packages from admin
-      if (userData?.role === "dealer") {
+      // For dealers/admins, get all admin packages
+      const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
+      if (isDealer) {
         const dealerResponse = await fetch("/api/shop/dealer-packages", {
           headers: { "Authorization": `Bearer ${token}` }
         })
@@ -118,15 +119,16 @@ export default function BuyStockPage() {
 
         if (dealerData.packages && dealerData.packages.length > 0) {
           // Transform to match WholesalePackage format
-          const transformedPackages = dealerData.packages.map((pkg: { id: string, network: string, size: string, dealer_price: number, description?: string }) => ({
-            id: pkg.id,
-            package_id: pkg.id,
-            network: pkg.network,
-            size: pkg.size,
-            parent_price: pkg.dealer_price, // Dealer buys at dealer_price
-            description: pkg.description
+          setPackages((dealerData.packages || []).map((pkg: any) => {
+            return {
+              id: pkg.id,
+              package_id: pkg.id,
+              network: pkg.network,
+              size: pkg.size,
+              parent_price: (isDealer && pkg.dealer_price && pkg.dealer_price > 0) ? pkg.dealer_price : pkg.price,
+              description: pkg.description
+            }
           }))
-          setPackages(transformedPackages)
         } else {
           toast.info("No dealer packages available.")
         }

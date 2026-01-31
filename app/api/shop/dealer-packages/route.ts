@@ -31,8 +31,8 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "User not found" }, { status: 404 })
         }
 
-        if (userData.role !== "dealer") {
-            return NextResponse.json({ error: "Access denied. Dealer role required." }, { status: 403 })
+        if (userData.role !== "dealer" && userData.role !== "admin") {
+            return NextResponse.json({ error: "Access denied. Dealer/Admin role required." }, { status: 403 })
         }
 
         // Fetch active packages with dealer pricing

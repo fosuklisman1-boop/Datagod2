@@ -27,7 +27,8 @@ export async function GET(request: NextRequest, { params }: Params) {
           id,
           shop_name,
           shop_slug,
-          is_active
+          is_active,
+          user_id
         )
       `)
       .eq("invite_code", code.toUpperCase())
@@ -63,11 +64,23 @@ export async function GET(request: NextRequest, { params }: Params) {
           id,
           network,
           size,
-          price
+          price,
+          dealer_price
         )
       `)
       .eq("shop_id", invite.inviter_shop.id)
       .eq("is_active", true)
+
+    // Fetch parent's role to determine correct wholesale cost
+    let isParentDealer = false;
+    if (invite.inviter_shop?.user_id) {
+      const { data: parentUser } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", invite.inviter_shop.user_id)
+        .single();
+      isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
+    }
 
     return NextResponse.json({
       success: true,
@@ -80,11 +93,18 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Show the wholesale prices (admin price + parent's wholesale margin = what sub-agent pays)
       wholesale_packages: (catalogItems || [])
         .filter((item: any) => item.package?.price != null)
-        .map((item: any) => ({
-          network: item.package.network,
-          size: item.package.size,
-          wholesale_price: item.package.price + (item.wholesale_margin || 0)
-        }))
+        .map((item: any) => {
+          const pkg = (item.package as any)
+          const adminPrice = (isParentDealer && pkg.dealer_price && pkg.dealer_price > 0)
+            ? pkg.dealer_price
+            : pkg.price;
+
+          return {
+            network: pkg.network,
+            size: pkg.size,
+            wholesale_price: adminPrice + (item.wholesale_margin || 0)
+          }
+        })
     })
   } catch (error) {
     console.error("Error fetching invite:", error)

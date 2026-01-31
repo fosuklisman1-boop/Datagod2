@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       .select("role")
       .eq("id", shop.user_id)
       .single()
-    const isDealer = userData?.role === 'dealer'
+    const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
 
     let packages: any[] = []
 
@@ -61,18 +61,33 @@ export async function GET(request: NextRequest) {
       // Get parent shop owner's role
       const { data: parentShop } = await supabase
         .from("user_shops")
-        .select("user_id")
+        .select("id, user_id")
         .eq("id", shop.parent_shop_id)
         .single();
 
       let isParentDealer = false;
+      let parentMargins: Record<string, number> = {};
       if (parentShop) {
         const { data: parentUser } = await supabase
           .from("users")
           .select("role")
           .eq("id", parentShop.user_id)
           .single();
-        isParentDealer = parentUser?.role === 'dealer';
+        isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
+
+        // Get parent's margins from their sub_agent_catalog
+        const { data: parentCatalog } = await supabase
+          .from("sub_agent_catalog")
+          .select("package_id, wholesale_margin")
+          .eq("shop_id", parentShop.id)
+          .eq("is_active", true);
+
+        if (parentCatalog) {
+          parentMargins = parentCatalog.reduce((acc: any, item: any) => {
+            acc[item.package_id] = item.wholesale_margin || 0;
+            return acc;
+          }, {});
+        }
       }
 
       // Sub-agent: get packages from sub_agent_shop_packages table (their own inventory)
@@ -117,7 +132,9 @@ export async function GET(request: NextRequest) {
               ? pkgDealerPrice
               : pkgPrice;
 
-            const parentPrice = adminPrice;
+            const parentMargin = parentMargins[item.package_id] || 0;
+            const parentPrice = adminPrice + parentMargin;
+
             const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
               ? Number(item.sub_agent_profit_margin)
               : 0;
@@ -179,7 +196,9 @@ export async function GET(request: NextRequest) {
               ? pkgDealerPrice
               : pkgPrice;
 
-            const parentPrice = adminPrice;
+            const parentMargin = parentMargins[item.package_id] || 0;
+            const parentPrice = adminPrice + parentMargin;
+
             const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
               ? Number(item.sub_agent_profit_margin)
               : (item.wholesale_margin || 0);

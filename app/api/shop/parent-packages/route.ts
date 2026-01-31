@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
           .eq("id", parentShop.user_id)
           .single();
 
-        isParentDealer = parentUser?.role === 'dealer';
+        isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
       }
     }
 

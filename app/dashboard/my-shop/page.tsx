@@ -72,7 +72,8 @@ export default function MyShopPage() {
         .select("role")
         .eq("id", user.id)
         .single()
-      setUserRole(roleData?.role || null)
+      const role = roleData?.role || null
+      setUserRole(role)
 
       const userShop = await shopService.getShop(user.id)
       setShop(userShop)
@@ -326,7 +327,7 @@ export default function MyShopPage() {
       const pkg = getPackageDetails(selectedPackage)
       // For sub-agents: calculate profit from PARENT PRICE (not admin price)
       // This is the sub-agent's own profit margin
-      const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
+      const isDealer = userRole === 'dealer' || userRole === 'admin' || user?.user_metadata?.role === 'dealer' || user?.user_metadata?.role === 'admin'
       const dealerPrice = pkg?.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
       const basePrice = pkg?.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg?.price) ?? 0
       const parentPrice = basePrice

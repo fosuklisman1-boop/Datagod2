@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
           return acc
         }, {})
       } else {
-        // If parent doesn't have items in their catalog, check their shop_packages as fallback
+        // Fallback to shop_packages
         const { data: parentShopPkgs } = await supabase
           .from("shop_packages")
           .select("package_id, profit_margin")
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
           .eq("id", parentShop.user_id)
           .single();
 
-        isParentDealer = parentUser?.role === 'dealer';
+        isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
       }
     } else {
       // If not a sub-agent, check this user's own role (they are the parent)
@@ -161,7 +161,7 @@ export async function GET(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .single();
-      isParentDealer = userData?.role === 'dealer';
+      isParentDealer = userData?.role === 'dealer' || userData?.role === 'admin';
     }
 
     const isDealer = isParentDealer; // Rename for logic compatibility
