@@ -29,16 +29,35 @@ export default function UpgradePage() {
     const [currentRole, setCurrentRole] = useState<string | null>(null)
     const [userEmail, setUserEmail] = useState<string | null>(null)
     const [userId, setUserId] = useState<string | null>(null)
+    const [currentSubscription, setCurrentSubscription] = useState<any>(null)
+    const [daysLeft, setDaysLeft] = useState<number | null>(null)
 
     useEffect(() => {
         fetchUserData()
         fetchPlans()
+        fetchCurrentSubscription()
 
         const reference = searchParams.get("reference")
         if (reference) {
             verifyUpgrade(reference)
         }
     }, [])
+
+    const fetchCurrentSubscription = async () => {
+        try {
+            const response = await fetch("/api/subscriptions/current")
+            const data = await response.json()
+            if (data.subscription) {
+                setCurrentSubscription(data.subscription)
+                const end = new Date(data.subscription.end_date)
+                const now = new Date()
+                const diff = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+                setDaysLeft(diff > 0 ? diff : 0)
+            }
+        } catch (error) {
+            console.error("Error fetching subscription:", error)
+        }
+    }
 
     const fetchUserData = async () => {
         try {
@@ -86,7 +105,10 @@ export default function UpgradePage() {
                 toast.success("Welcome to the Dealer Club!", { id: "verify-upgrade" })
                 router.refresh()
                 // Wait a bit then refresh status
-                setTimeout(fetchUserData, 2000)
+                setTimeout(() => {
+                    fetchUserData()
+                    fetchCurrentSubscription()
+                }, 2000)
             } else {
                 toast.error("Payment verification failed", { id: "verify-upgrade" })
             }
@@ -148,20 +170,33 @@ export default function UpgradePage() {
                     </p>
                 </div>
 
-                {currentRole === 'dealer' && (
-                    <div className="mb-12 p-6 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl flex items-center justify-between">
+                {(currentRole === 'dealer' || currentRole === 'admin') && (
+                    <div className="mb-12 p-6 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
                         <div className="flex items-center gap-4">
-                            <div className="p-3 bg-amber-500 rounded-full text-white">
+                            <div className="p-3 bg-amber-500 rounded-full text-white shadow-lg ring-4 ring-amber-100">
                                 <Crown className="w-8 h-8" />
                             </div>
                             <div>
-                                <h3 className="text-xl font-bold text-amber-900">You are a Dealer!</h3>
-                                <p className="text-amber-800/70">Enjoy your exclusive benefits and wholesale pricing.</p>
+                                <h3 className="text-xl font-bold text-amber-900">Active Dealer Access</h3>
+                                <p className="text-amber-800/70">
+                                    {daysLeft !== null ? (
+                                        <>Your subscription expires in <span className="font-bold text-amber-600">{daysLeft} days</span>.</>
+                                    ) : (
+                                        "Enjoy your exclusive benefits and wholesale pricing."
+                                    )}
+                                </p>
                             </div>
                         </div>
-                        <Button variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100" onClick={() => router.push('/dashboard')}>
-                            Go to Dashboard
-                        </Button>
+                        <div className="flex gap-3">
+                            {daysLeft !== null && daysLeft <= 7 && (
+                                <Badge className="bg-red-100 text-red-700 border-red-200 py-2 px-4 whitespace-nowrap">
+                                    EXPIRES SOON
+                                </Badge>
+                            )}
+                            <Button variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100" onClick={() => router.push('/dashboard')}>
+                                Go to Dashboard
+                            </Button>
+                        </div>
                     </div>
                 )}
 
@@ -233,12 +268,12 @@ export default function UpgradePage() {
                                                 : "bg-gray-900 hover:bg-black text-white"
                                         )}
                                         onClick={() => handleUpgrade(plan)}
-                                        disabled={processingId === plan.id || currentRole === 'dealer'}
+                                        disabled={processingId === plan.id}
                                     >
                                         {processingId === plan.id ? (
                                             <Loader2 className="w-5 h-5 animate-spin" />
-                                        ) : currentRole === 'dealer' ? (
-                                            "Already Active"
+                                        ) : (currentRole === 'dealer' || currentRole === 'admin') ? (
+                                            "Renew / Extend"
                                         ) : (
                                             "Upgrade Now"
                                         )}

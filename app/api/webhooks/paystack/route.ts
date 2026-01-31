@@ -882,8 +882,27 @@ export async function POST(request: NextRequest) {
               } else {
                 console.log(`[WEBHOOK] ✓ User ${upgradeUserId} promoted to DEALER`)
 
-                // 2. Create user subscription record
-                const endDate = new Date()
+                // 2. Handle subscription record (Rollover logic)
+                // Check if user already has an active subscription to roll over
+                const { data: currentSub } = await supabase
+                  .from("user_subscriptions")
+                  .select("end_date")
+                  .eq("user_id", upgradeUserId)
+                  .eq("status", "active")
+                  .order("end_date", { ascending: false })
+                  .limit(1)
+                  .maybeSingle()
+
+                let startDate = new Date()
+                let endDate = new Date()
+
+                if (currentSub && new Date(currentSub.end_date) > new Date()) {
+                  // Rollover: start from previous end_date
+                  startDate = new Date(currentSub.end_date)
+                  endDate = new Date(currentSub.end_date)
+                  console.log(`[WEBHOOK] Rolling over subscription. Old end_date: ${currentSub.end_date}`)
+                }
+
                 endDate.setDate(endDate.getDate() + plan.duration_days)
 
                 const { error: subError } = await supabase
@@ -892,7 +911,7 @@ export async function POST(request: NextRequest) {
                     {
                       user_id: upgradeUserId,
                       plan_id: planId,
-                      start_date: new Date().toISOString(),
+                      start_date: startDate.toISOString(),
                       end_date: endDate.toISOString(),
                       status: "active",
                       payment_reference: reference,
