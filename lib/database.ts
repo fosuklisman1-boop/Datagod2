@@ -40,7 +40,7 @@ export const packageService = {
   async getPackages() {
     const { data, error } = await supabase
       .from("packages")
-      .select("*")
+      .select("*, dealer_price")
       .order("created_at", { ascending: false })
 
     if (error) throw error
@@ -249,7 +249,7 @@ export const complaintService = {
 
   async updateComplaint(complaintId: string, updates: any) {
     console.log(`[Database] Updating complaint ${complaintId} with:`, updates)
-    
+
     const { data, error } = await supabase
       .from("complaints")
       .update(updates)
@@ -260,7 +260,7 @@ export const complaintService = {
       console.error(`[Database] Error updating complaint:`, error)
       throw error
     }
-    
+
     console.log(`[Database] Update successful, returned:`, data)
     return data[0]
   },

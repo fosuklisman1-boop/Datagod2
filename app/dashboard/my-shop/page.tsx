@@ -1012,7 +1012,9 @@ export default function MyShopPage() {
 
                                     {selectedPackage === pkg.id && profitMargin && (
                                       (() => {
-                                        const basePrice = pkg.parent_price ?? pkg.price ?? 0
+                                        const isDealer = user?.user_metadata?.role === 'dealer'
+                                        const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
+                                        const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
                                         const sellingPrice = parseFloat(profitMargin)
                                         const profit = sellingPrice - basePrice
                                         const isNegative = profit < 0
@@ -1036,7 +1038,9 @@ export default function MyShopPage() {
 
                                     {(() => {
                                       const isAdded = packages.some(p => p.package_id === (pkg.package_id || pkg.id))
-                                      const basePrice = pkg.parent_price ?? pkg.price ?? 0
+                                      const isDealer = user?.user_metadata?.role === 'dealer'
+                                      const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
+                                      const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
                                       const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
                                       const hasNegativeProfit = profit < 0
                                       return (
@@ -1077,7 +1081,14 @@ export default function MyShopPage() {
                           const pkg = shopPkg.packages
                           // Get the current parent price from available packages (source of truth)
                           const availablePkg = allPackages.find(p => p.id === pkg?.id)
-                          const currentParentPrice = availablePkg?.parent_price !== undefined ? availablePkg.parent_price : (shopPkg.parent_price !== undefined ? shopPkg.parent_price : (pkg?.price || 0))
+                          const isDealer = user?.user_metadata?.role === 'dealer'
+                          const dealerPrice = pkg?.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
+
+                          const currentParentPrice = availablePkg?.parent_price !== undefined
+                            ? availablePkg.parent_price
+                            : (shopPkg.parent_price !== undefined
+                              ? shopPkg.parent_price
+                              : (isDealer && dealerPrice ? dealerPrice : (pkg?.price || 0)))
                           const displayBasePrice = currentParentPrice
                           const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
                           const profit = shopPkg.profit_margin || 0

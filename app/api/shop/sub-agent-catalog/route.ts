@@ -7,11 +7,11 @@ export const dynamic = "force-dynamic"
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  
+
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Missing Supabase environment variables")
   }
-  
+
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     // If this is a sub-agent, they should use sub_agent_shop_packages table
     // If this is a parent, they use sub_agent_catalog table
     const tableName = shop.parent_shop_id ? "sub_agent_shop_packages" : "sub_agent_catalog"
-    
+
     console.log("=== SUB-AGENT-CATALOG GET ===")
     console.log("Shop ID:", shop.id)
     console.log("Parent Shop ID:", shop.parent_shop_id)
@@ -61,8 +61,8 @@ export async function GET(request: NextRequest) {
     // sub_agent_shop_packages has: parent_price, sub_agent_profit_margin
     // sub_agent_catalog has: wholesale_margin
     const selectFields = tableName === "sub_agent_shop_packages"
-      ? `id, package_id, parent_price, sub_agent_profit_margin, is_active, created_at, package:packages (id, network, size, price, description, active)`
-      : `id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, description, active)`
+      ? `id, package_id, parent_price, sub_agent_profit_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, active)`
+      : `id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, active)`
 
     // Get catalog items with package details
     let { data: catalog, error: catalogError } = await supabase
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
       .select(selectFields)
       .eq("shop_id", shop.id)
       .order("created_at", { ascending: false }) as { data: any; error: any }
-    
+
     console.log("First query error:", catalogError?.message)
     console.log("First query result count:", catalog?.length || 0)
 
@@ -79,13 +79,13 @@ export async function GET(request: NextRequest) {
       console.log("Falling back to sub_agent_catalog for sub-agent")
       const { data: fallbackCatalog, error: fallbackError } = await supabase
         .from("sub_agent_catalog")
-        .select(`id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, description, active)`)
+        .select(`id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, active)`)
         .eq("shop_id", shop.id)
         .order("created_at", { ascending: false }) as { data: any; error: any }
-      
+
       console.log("Fallback error:", fallbackError?.message)
       console.log("Fallback result count:", fallbackCatalog?.length || 0)
-      
+
       if (!fallbackError && fallbackCatalog) {
         catalog = fallbackCatalog
         catalogError = null
@@ -142,14 +142,14 @@ export async function GET(request: NextRequest) {
       const parentPrice = item.parent_price !== undefined && item.parent_price !== null
         ? Number(item.parent_price)
         : (item.package?.price || 0);
-      
+
       // Use sub_agent_profit_margin if available, fallback to wholesale_margin for backwards compatibility
       const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
         ? Number(item.sub_agent_profit_margin)
         : (item.wholesale_margin || 0);
-      
+
       const sellingPrice = parentPrice + subAgentMargin;
-      
+
       return {
         ...item,
         // Ensure these fields are present
@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { package_id, wholesale_margin, parent_price, sub_agent_profit_margin } = body
-    
+
     // Support both old (wholesale_margin) and new (sub_agent_profit_margin) field names
     const profitMargin = sub_agent_profit_margin !== undefined ? sub_agent_profit_margin : wholesale_margin
 
@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
       if (parent_price !== undefined) {
         updateData.parent_price = parent_price
       }
-      
+
       const { data: updated, error: updateError } = await supabase
         .from(tableName)
         .update(updateData)
@@ -266,7 +266,7 @@ export async function POST(request: NextRequest) {
     if (parent_price !== undefined) {
       insertData.parent_price = parent_price
     }
-    
+
     const { data: newItem, error: insertError } = await supabase
       .from(tableName)
       .insert(insertData)
@@ -331,7 +331,7 @@ export async function PUT(request: NextRequest) {
     const updateData: any = {
       updated_at: new Date().toISOString()
     }
-    
+
     if (tableName === "sub_agent_shop_packages") {
       // For sub-agent's own packages
       if (sub_agent_profit_margin !== undefined) {
@@ -346,7 +346,7 @@ export async function PUT(request: NextRequest) {
         updateData.wholesale_margin = wholesale_margin
       }
     }
-    
+
     if (is_active !== undefined) {
       updateData.is_active = is_active
     }
@@ -448,7 +448,7 @@ export async function DELETE(request: NextRequest) {
         .from("sub_agent_catalog")
         .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq("package_id", catalogItem.package_id)
-        .in("shop_id", 
+        .in("shop_id",
           (await supabase
             .from("user_shops")
             .select("id")

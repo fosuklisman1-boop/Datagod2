@@ -33,6 +33,7 @@ interface CatalogItem {
     network: string
     size: string
     price: number
+    dealer_price?: number
     description?: string
   }
 }
@@ -70,7 +71,7 @@ export default function SubAgentCatalogPage() {
         .select("id")
         .eq("parent_shop_id", userShop.id)
         .limit(1)
-      
+
       setHasSubAgents((subAgents?.length || 0) > 0)
 
       // Get catalog
@@ -159,7 +160,7 @@ export default function SubAgentCatalogPage() {
               Manage packages available for your sub-agents to sell
             </p>
           </div>
-          
+
           <Link href="/dashboard/sub-agent-catalog/add">
             <Button className="bg-violet-600 hover:bg-violet-700">
               <Plus className="h-4 w-4 mr-2" />
@@ -207,7 +208,7 @@ export default function SubAgentCatalogPage() {
                 <div>
                   <p className="text-sm text-gray-500">Avg Margin</p>
                   <p className="text-2xl font-bold">
-                    GHS {catalog.length > 0 
+                    GHS {catalog.length > 0
                       ? (catalog.reduce((sum, c) => sum + (c.wholesale_margin || 0), 0) / catalog.length).toFixed(2)
                       : "0.00"
                     }
@@ -268,7 +269,7 @@ export default function SubAgentCatalogPage() {
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">{item.package.network}</TableCell>
                         <TableCell>{item.package.size}</TableCell>
-                        <TableCell className="text-right">GHS {(item.package?.price || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">GHS {(item.package?.dealer_price && item.package.dealer_price > 0 ? item.package.dealer_price : (item.package?.price || 0)).toFixed(2)}</TableCell>
                         <TableCell className="text-right text-green-600">
                           +GHS {(item.wholesale_margin || 0).toFixed(2)}
                         </TableCell>

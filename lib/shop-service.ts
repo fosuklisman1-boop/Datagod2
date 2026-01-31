@@ -23,11 +23,11 @@ export const shopService = {
       }
       throw error
     }
-    
+
     if (!data || data.length === 0) {
       throw new Error("Failed to create shop: no data returned")
     }
-    
+
     return data[0]
   },
 
@@ -99,6 +99,7 @@ export const shopPackageService = {
           network,
           size,
           price,
+          dealer_price,
           description
         )
       `)
@@ -142,13 +143,13 @@ export const shopPackageService = {
       .order("created_at", { ascending: false })
 
     if (error) throw error
-    
+
     // Filter out packages that are disabled by admin (packages.is_available = false)
     const availableData = data?.filter(item => item.packages?.is_available !== false) || []
-    
+
     // Apply price adjustments to the base package prices
     const priceAdjustments = await getPriceAdjustments()
-    
+
     const adjustedData = availableData.map(item => {
       if (item.packages) {
         const adjustmentPercentage = getAdjustmentForNetwork(item.packages.network, priceAdjustments)
@@ -163,7 +164,7 @@ export const shopPackageService = {
       }
       return item
     })
-    
+
     return adjustedData
   },
 
@@ -327,16 +328,16 @@ export const shopProfitService = {
     let offset = 0
     const batchSize = 1000
     let hasMore = true
-    
+
     while (hasMore) {
       const { data, error } = await supabase
         .from("shop_profits")
         .select(selectFields)
         .eq("shop_id", shopId)
         .range(offset, offset + batchSize - 1)
-      
+
       if (error) throw error
-      
+
       if (data && data.length > 0) {
         allRecords = allRecords.concat(data)
         offset += batchSize
@@ -345,7 +346,7 @@ export const shopProfitService = {
         hasMore = false
       }
     }
-    
+
     return allRecords
   },
 
@@ -353,7 +354,7 @@ export const shopProfitService = {
   async getShopBalance(shopId: string) {
     // Get pending and credited profits from shop_profits table (paginated)
     const profits = await this.fetchAllProfits(shopId, "profit_amount, status")
-    
+
     // Sum all pending profits (not yet withdrawn)
     const availableBalance = profits?.reduce((sum: number, p: any) => {
       if (p.status === "pending" || p.status === "credited") {
@@ -361,7 +362,7 @@ export const shopProfitService = {
       }
       return sum
     }, 0) || 0
-    
+
     return Math.max(0, availableBalance)
   },
 
@@ -372,7 +373,7 @@ export const shopProfitService = {
     let offset = 0
     const batchSize = 1000
     let hasMore = true
-    
+
     while (hasMore) {
       const { data, error } = await supabase
         .from("shop_orders")
@@ -380,9 +381,9 @@ export const shopProfitService = {
         .eq("shop_id", shopId)
         .eq("payment_status", "completed")
         .range(offset, offset + batchSize - 1)
-      
+
       if (error) throw error
-      
+
       if (data && data.length > 0) {
         allOrders = allOrders.concat(data)
         offset += batchSize
@@ -391,7 +392,7 @@ export const shopProfitService = {
         hasMore = false
       }
     }
-    
+
     // Sum all profit amounts
     const totalProfit = allOrders?.reduce((sum: number, order: any) => sum + (order.profit_amount || 0), 0) || 0
     return totalProfit
@@ -573,7 +574,7 @@ export const withdrawalService = {
       let wOffset = 0
       const wBatchSize = 1000
       let hasMoreW = true
-      
+
       while (hasMoreW) {
         const { data: wData, error: wError } = await supabase
           .from("withdrawal_requests")
@@ -581,9 +582,9 @@ export const withdrawalService = {
           .eq("shop_id", shopId)
           .eq("status", "approved")
           .range(wOffset, wOffset + wBatchSize - 1)
-        
+
         if (wError) break
-        
+
         if (wData && wData.length > 0) {
           allWithdrawals = allWithdrawals.concat(wData)
           wOffset += wBatchSize
@@ -649,7 +650,7 @@ export const withdrawalService = {
       .select()
 
     if (error) throw error
-    
+
     // Sync available balance after creating withdrawal request
     // This reduces available balance by the withdrawal amount
     try {
@@ -659,7 +660,7 @@ export const withdrawalService = {
       console.warn(`[WITHDRAWAL-CREATE] Warning syncing balance:`, syncError)
       // Don't throw - withdrawal was created successfully
     }
-    
+
     return data[0]
   },
 
@@ -706,11 +707,11 @@ export const withdrawalService = {
       .select()
 
     if (error) throw error
-    
+
     // If withdrawal is completed, mark profits as withdrawn
     if (status === "completed" && data[0]) {
       const withdrawal = data[0]
-      
+
       // Get pending profits for this shop and mark them as withdrawn
       // Order by created_at to mark oldest profits first
       const { data: profits, error: profitFetchError } = await supabase
@@ -726,7 +727,7 @@ export const withdrawalService = {
 
         for (const profit of profits) {
           if (remainingAmount <= 0) break
-          
+
           if (profit.profit_amount <= remainingAmount) {
             profitsToUpdate.push(profit.id)
             remainingAmount -= profit.profit_amount
@@ -740,7 +741,7 @@ export const withdrawalService = {
           const updatePayload: any = {
             status: "withdrawn"
           }
-          
+
           // Only update withdrawn_at if the column exists
           try {
             await supabase
@@ -758,13 +759,13 @@ export const withdrawalService = {
               .update(updatePayload)
               .in("id", profitsToUpdate)
           }
-          
+
           // Sync available balance after marking profits as withdrawn
           await shopProfitService.syncAvailableBalance(withdrawal.shop_id)
         }
       }
     }
-    
+
     return data[0]
   },
 
@@ -862,11 +863,11 @@ export const networkLogoService = {
   async getLogosAsObject() {
     const logos = await this.getAllNetworkLogos()
     const logosObj: Record<string, string> = {}
-    
+
     logos.forEach(logo => {
       logosObj[logo.network_name] = logo.logo_url
     })
-    
+
     return logosObj
   },
 
@@ -874,7 +875,7 @@ export const networkLogoService = {
   async uploadNetworkLogo(networkName: string, file: File) {
     try {
       const fileName = `${networkName.toLowerCase()}-${Date.now()}.${file.name.split('.').pop()}`
-      
+
       const { error: uploadError } = await supabase.storage
         .from("network-logos")
         .upload(fileName, file, {
