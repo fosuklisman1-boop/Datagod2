@@ -1,6 +1,6 @@
 "use client"
 
-import { ShoppingCart, User, LogOut, Headphones, Mail, Phone, MessageCircle } from "lucide-react"
+import { ShoppingCart, User, LogOut, Headphones, Mail, Phone, MessageCircle, Crown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { NotificationCenter } from "@/components/notification-center"
@@ -12,13 +12,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/hooks/use-auth"
+import { useUserRole } from "@/hooks/use-user-role"
 import { useSupportConfig } from "@/hooks/use-support-config"
 import { supportConfig } from "@/lib/support-config"
 import { toast } from "sonner"
 import { useState, useEffect } from "react"
+import { cn } from "@/lib/utils"
 
 export function Header() {
   const { user, logout } = useAuth()
+  const { isDealer } = useUserRole()
   const { config: dynamicConfig } = useSupportConfig()
   const [isMobile, setIsMobile] = useState(false)
   // Use dynamic config if available, otherwise fall back to static config
@@ -94,10 +97,20 @@ export function Header() {
         {/* User Profile Dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10">
-              <div className="w-7 h-7 md:w-8 md:h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
+            <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10 relative">
+              <div className={cn(
+                "w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center transition-all duration-300",
+                isDealer
+                  ? "bg-gradient-to-br from-amber-400 to-amber-600 shadow-[0_0_10px_rgba(251,191,36,0.3)]"
+                  : "bg-gradient-to-br from-blue-600 to-purple-600"
+              )}>
                 <User className="w-3 h-3 md:w-4 md:h-4 text-white" />
               </div>
+              {isDealer && (
+                <div className="absolute -top-1 -right-1 rotate-12">
+                  <Crown className="w-3 h-3 md:w-4 md:h-4 text-amber-500 fill-amber-300 drop-shadow-sm" />
+                </div>
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48 sm:w-56">
@@ -114,8 +127,8 @@ export function Header() {
               <span>API Keys</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem 
-              onClick={handleLogout} 
+            <DropdownMenuItem
+              onClick={handleLogout}
               className="text-red-600 text-xs sm:text-sm cursor-pointer"
             >
               <LogOut className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />

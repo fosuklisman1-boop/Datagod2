@@ -11,7 +11,7 @@ export function useUserRole() {
     const fetchRole = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
-        
+
         if (!session?.user) {
           setRole(null)
           setLoading(false)
@@ -49,10 +49,11 @@ export function useUserRole() {
     return () => subscription.unsubscribe()
   }, [])
 
-  return { 
-    role, 
-    loading, 
+  return {
+    role,
+    loading,
     isSubAgent: role === "sub_agent",
+    isDealer: role === "dealer",
     isAdmin: role === "admin",
     isUser: role === "user"
   }

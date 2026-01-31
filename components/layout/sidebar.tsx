@@ -32,6 +32,7 @@ import {
   Users,
   ShoppingBag,
   Zap,
+  Crown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -217,21 +218,35 @@ export function Sidebar() {
       {/* Sidebar */}
       <div
         className={cn(
-          "bg-gradient-to-b from-blue-600 to-blue-700 text-white h-screen flex flex-col fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out",
+          "h-screen flex flex-col fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out",
+          userRole === 'dealer'
+            ? "bg-gradient-to-b from-[#FFD700] via-[#FFC107] to-[#FFA000] text-black"
+            : "bg-gradient-to-b from-blue-600 to-blue-700 text-white",
           isOpen ? "w-64" : "w-20",
           isMobile && !isOpen && "-translate-x-full"
         )}
       >
         {/* Logo Section */}
-        <div className="p-6 border-b border-blue-500">
+        <div className={cn(
+          "p-6 border-b",
+          userRole === 'dealer' ? "border-amber-600/20" : "border-blue-500"
+        )}>
           <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="bg-white p-2 rounded-lg flex-shrink-0">
+            <div className="bg-white p-2 rounded-lg flex-shrink-0 relative">
               <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6 rounded-lg object-cover" />
+              {userRole === 'dealer' && (
+                <div className="absolute -top-3 -right-3 rotate-12">
+                  <Crown className="w-5 h-5 text-amber-600 fill-amber-500 drop-shadow-md" />
+                </div>
+              )}
             </div>
             {isOpen && (
               <div>
                 <h1 className="text-xl font-bold">DATAGOD</h1>
-                <p className="text-xs text-blue-100">{user?.email || "User"}</p>
+                <p className={cn(
+                  "text-xs",
+                  userRole === 'dealer' ? "text-amber-900" : "text-blue-100"
+                )}>{user?.email || "User"}</p>
               </div>
             )}
           </Link>
@@ -244,7 +259,10 @@ export function Sidebar() {
               onClick={() => setIsOpen(!isOpen)}
               variant="ghost"
               size="icon"
-              className="text-white hover:bg-blue-500 w-full flex justify-center"
+              className={cn(
+                "w-full flex justify-center",
+                userRole === 'dealer' ? "text-black hover:bg-amber-400/50" : "text-white hover:bg-blue-500"
+              )}
               title={isOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
               {isOpen ? (
@@ -277,8 +295,10 @@ export function Sidebar() {
                   <Button
                     variant="ghost"
                     className={cn(
-                      "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                      isActive && "bg-blue-500",
+                      "w-full justify-start gap-3 transition-all duration-200",
+                      userRole === 'dealer'
+                        ? (isActive ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                        : (isActive ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
                       !isOpen && "justify-center",
                       isLoading && "opacity-70"
                     )}
@@ -309,9 +329,15 @@ export function Sidebar() {
 
           {/* Shop Section */}
           {!roleLoading && (
-            <div className="pt-4 mt-4 border-t border-blue-400">
+            <div className={cn(
+              "pt-4 mt-4 border-t",
+              userRole === 'dealer' ? "border-amber-600/20" : "border-blue-400"
+            )}>
               {isOpen && (
-                <p className="text-xs font-semibold text-blue-100 px-3 mb-2">SHOP</p>
+                <p className={cn(
+                  "text-xs font-semibold px-3 mb-2",
+                  userRole === 'dealer' ? "text-amber-900/70" : "text-blue-100"
+                )}>SHOP</p>
               )}
               {shopItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
                 const Icon = item.icon
@@ -322,8 +348,10 @@ export function Sidebar() {
                     <Button
                       variant="ghost"
                       className={cn(
-                        "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                        isActive && "bg-blue-500",
+                        "w-full justify-start gap-3 transition-all duration-200",
+                        userRole === 'dealer'
+                          ? (isActive ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                          : (isActive ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
                         !isOpen && "justify-center",
                         isLoading && "opacity-70"
                       )}
@@ -345,16 +373,24 @@ export function Sidebar() {
 
           {/* Admin Section */}
           {isAdmin && (
-            <div className="pt-4 mt-4 border-t border-blue-400">
+            <div className={cn(
+              "pt-4 mt-4 border-t",
+              userRole === 'dealer' ? "border-amber-600/20" : "border-blue-400"
+            )}>
               {isOpen && (
-                <p className="text-xs font-semibold text-blue-100 px-3 mb-2">ADMIN</p>
+                <p className={cn(
+                  "text-xs font-semibold px-3 mb-2",
+                  userRole === 'dealer' ? "text-amber-900/70" : "text-blue-100"
+                )}>ADMIN</p>
               )}
               <Link href="/admin" onClick={() => handleNavigation("/admin")}>
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                    pathname === "/admin" && "bg-blue-500",
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin" && "opacity-70"
                   )}
@@ -373,8 +409,10 @@ export function Sidebar() {
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                    pathname === "/admin/settings" && "bg-blue-500",
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/settings" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/settings" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/settings" && "opacity-70"
                   )}
@@ -394,8 +432,10 @@ export function Sidebar() {
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                    pathname === "/admin/settings/mtn" && "bg-blue-500",
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/settings/mtn" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/settings/mtn" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/settings/mtn" && "opacity-70"
                   )}
@@ -414,8 +454,10 @@ export function Sidebar() {
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                    pathname === "/admin/orders" && "bg-blue-500",
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/orders" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/orders" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/orders" && "opacity-70"
                   )}
@@ -443,8 +485,10 @@ export function Sidebar() {
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                    pathname === "/admin/transactions" && "bg-blue-500",
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/transactions" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/transactions" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/transactions" && "opacity-70"
                   )}
@@ -463,8 +507,10 @@ export function Sidebar() {
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start gap-3 text-white hover:bg-blue-500",
-                    pathname === "/admin/payment-attempts" && "bg-blue-500",
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/payment-attempts" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/payment-attempts" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/payment-attempts" && "opacity-70"
                   )}
@@ -485,7 +531,10 @@ export function Sidebar() {
         </nav>
 
         {/* Community & Logout */}
-        <div className="p-4 border-t border-blue-500 space-y-2">
+        <div className={cn(
+          "p-4 border-t space-y-2",
+          userRole === 'dealer' ? "border-amber-600/20" : "border-blue-500"
+        )}>
           {joinCommunityLink && (
             <Button
               variant="ghost"
@@ -505,7 +554,8 @@ export function Sidebar() {
           <Button
             variant="ghost"
             className={cn(
-              "w-full justify-start gap-3 text-white hover:bg-red-600",
+              "w-full justify-start gap-3",
+              userRole === 'dealer' ? "text-black hover:bg-red-500/20" : "text-white hover:bg-red-600",
               !isOpen && "justify-center"
             )}
             onClick={handleLogout}
