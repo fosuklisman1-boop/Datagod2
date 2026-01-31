@@ -1100,7 +1100,10 @@ export default function MyShopPage() {
                         {packages.map((shopPkg) => {
                           const pkg = shopPkg.packages
                           // Get the current parent price from available packages (source of truth)
-                          const availablePkg = allPackages.find(p => p.id === pkg?.id)
+                          // Get the current parent price from available packages (source of truth)
+                          // For sub-agents, allPackages contains parent-packages where id is catalog_id and package_id is the package id
+                          // For regular users, allPackages contains packages where id is package id
+                          const availablePkg = allPackages.find(p => (p.package_id || p.id) === pkg?.id)
                           const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
                           const dealerPrice = pkg?.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
 
