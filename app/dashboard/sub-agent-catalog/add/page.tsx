@@ -82,10 +82,11 @@ export default function AddToCatalogPage() {
             // Pre-fill selling prices for existing items
             const existingPrices: Record<string, string> = {}
             data.catalog.forEach((c: any) => {
-              // Use parent_wholesale_price if available, fallback to package.price, default to 0
+              // Use parent_price if available (this is the cost to the user, including dealer pricing logic)
+              // fallback to package.price, default to 0
               let basePrice = 0;
-              if (typeof c.parent_wholesale_price === 'number') {
-                basePrice = c.parent_wholesale_price;
+              if (typeof c.parent_price === 'number') {
+                basePrice = c.parent_price;
               } else if (c.package && typeof c.package.price === 'number') {
                 basePrice = c.package.price;
               }
@@ -394,8 +395,8 @@ export default function AddToCatalogPage() {
                       <div
                         key={pkg.id}
                         className={`p-4 rounded-lg border transition-colors ${inCatalog
-                            ? "bg-green-50 border-green-200"
-                            : "bg-white border-gray-200 hover:border-gray-300"
+                          ? "bg-green-50 border-green-200"
+                          : "bg-white border-gray-200 hover:border-gray-300"
                           }`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
