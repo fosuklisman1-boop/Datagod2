@@ -94,37 +94,69 @@ export default function BuyStockPage() {
         setWalletBalance(0)
       }
 
-      // Get packages from parent's sub_agent_catalog via API
+      // Get packages based on user type: dealer or sub-agent
       const token = session.access_token
       if (!token) {
         toast.error("Authentication error")
         return
       }
 
-      const response = await fetch("/api/shop/parent-packages", {
-        headers: { "Authorization": `Bearer ${token}` }
-      })
+      // If user is a dealer, fetch dealer packages from admin
+      if (userData?.role === "dealer") {
+        const dealerResponse = await fetch("/api/shop/dealer-packages", {
+          headers: { "Authorization": `Bearer ${token}` }
+        })
 
-      if (!response.ok) {
-        console.error("API Error:", response.status, response.statusText)
-        toast.error(`Failed to fetch packages: ${response.statusText}`)
-        return
-      }
+        if (!dealerResponse.ok) {
+          console.error("API Error:", dealerResponse.status, dealerResponse.statusText)
+          toast.error(`Failed to fetch dealer packages: ${dealerResponse.statusText}`)
+          return
+        }
 
-      const data = await response.json()
-      console.log("[BUY-STOCK] Fetched data:", data)
+        const dealerData = await dealerResponse.json()
+        console.log("[BUY-STOCK] Fetched dealer packages:", dealerData)
 
-      if (!data.is_sub_agent) {
-        toast.error("This page is for sub-agents only")
-        return
-      }
-
-      if (data.packages && data.packages.length > 0) {
-        console.log("[BUY-STOCK] Loaded packages:", data.packages)
-        setPackages(data.packages)
+        if (dealerData.packages && dealerData.packages.length > 0) {
+          // Transform to match WholesalePackage format
+          const transformedPackages = dealerData.packages.map((pkg: { id: string, network: string, size: string, dealer_price: number, description?: string }) => ({
+            id: pkg.id,
+            package_id: pkg.id,
+            network: pkg.network,
+            size: pkg.size,
+            parent_price: pkg.dealer_price, // Dealer buys at dealer_price
+            description: pkg.description
+          }))
+          setPackages(transformedPackages)
+        } else {
+          toast.info("No dealer packages available.")
+        }
       } else {
-        console.log("[BUY-STOCK] No packages available")
-        toast.info("No packages available. Your parent shop needs to add packages to their catalog.")
+        // Sub-agent flow: Get packages from parent's sub_agent_catalog via API
+        const response = await fetch("/api/shop/parent-packages", {
+          headers: { "Authorization": `Bearer ${token}` }
+        })
+
+        if (!response.ok) {
+          console.error("API Error:", response.status, response.statusText)
+          toast.error(`Failed to fetch packages: ${response.statusText}`)
+          return
+        }
+
+        const data = await response.json()
+        console.log("[BUY-STOCK] Fetched data:", data)
+
+        if (!data.is_sub_agent) {
+          toast.error("This page is for sub-agents and dealers only")
+          return
+        }
+
+        if (data.packages && data.packages.length > 0) {
+          console.log("[BUY-STOCK] Loaded packages:", data.packages)
+          setPackages(data.packages)
+        } else {
+          console.log("[BUY-STOCK] No packages available")
+          toast.info("No packages available. Your parent shop needs to add packages to their catalog.")
+        }
       }
 
       // Fetch global ordering status

@@ -19,18 +19,19 @@ export const adminPackageService = {
     network: string
     size: string
     price: number
+    dealer_price?: number | null
     description?: string
   }) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
 
       const response = await fetch("/api/admin/packages", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
@@ -54,14 +55,14 @@ export const adminPackageService = {
   async updatePackage(packageId: string, updates: any) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
 
       const response = await fetch("/api/admin/packages", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
@@ -85,14 +86,14 @@ export const adminPackageService = {
   async deletePackage(packageId: string) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
 
       const response = await fetch("/api/admin/packages/delete", {
         method: "DELETE",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
@@ -119,7 +120,7 @@ export const adminUserService = {
   async getAllUsers() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
@@ -144,20 +145,19 @@ export const adminUserService = {
   async updateUserRole(userId: string, role: string) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
 
-      const endpoint = role === "admin" ? "/api/admin/set-admin" : "/api/admin/remove-admin"
-      
-      const response = await fetch(endpoint, {
+      // Use the new comprehensive update-role endpoint
+      const response = await fetch("/api/admin/users/update-role", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ userId, role }),
       })
 
       const data = await response.json()
@@ -181,14 +181,14 @@ export const adminUserService = {
   async updateUserBalance(shopId: string, amount: number, type: "credit" | "debit") {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
 
       const response = await fetch("/api/admin/update-balance", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
@@ -212,7 +212,7 @@ export const adminUserService = {
   async removeUser(userId: string) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
@@ -306,7 +306,7 @@ export const adminShopService = {
   async getAllShops() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       const headers: HeadersInit = {}
       if (session?.access_token) {
         headers["Authorization"] = `Bearer ${session.access_token}`
@@ -328,7 +328,7 @@ export const adminShopService = {
   async getPendingShops() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       const headers: HeadersInit = {}
       if (session?.access_token) {
         headers["Authorization"] = `Bearer ${session.access_token}`
@@ -350,7 +350,7 @@ export const adminShopService = {
   async approveShop(shopId: string) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
@@ -380,7 +380,7 @@ export const adminShopService = {
   async rejectShop(shopId: string) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }
@@ -428,7 +428,7 @@ export const adminDashboardService = {
   async getDashboardStats() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         throw new Error("No authentication token available")
       }

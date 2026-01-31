@@ -172,7 +172,7 @@ export default function AdminUsersPage() {
     try {
       setStatsLoading(true)
       setUserStats(null)
-      
+
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
         toast.error("Session expired")
@@ -491,63 +491,63 @@ export default function AdminUsersPage() {
                     </tr>
                   ) : (
                     filteredUsers.map((user) => (
-                    <tr key={user.id} className="hover:bg-emerald-100/30 backdrop-blur transition-colors">
-                      <td className="px-6 py-4 font-medium text-gray-900">{user.email}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{user.phoneNumber || "-"}</td>
-                      <td className="px-6 py-4">
-                        <Badge className={user.role === "admin" ? "bg-red-600" : "bg-blue-600"}>
-                          {user.role}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 font-semibold text-blue-600">GHS {(user.walletBalance || 0).toFixed(2)}</td>
-                      <td className="px-6 py-4 font-semibold text-emerald-600">GHS {(user.shopBalance || 0).toFixed(2)}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{user.shop?.shop_name || "No shop"}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        <Badge className="bg-blue-500">
-                          {user.customerCount || 0}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        <Badge className="bg-purple-500">
-                          {user.subAgentCount || 0}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{new Date(user.created_at).toLocaleDateString()}</td>
-                      <td className="px-6 py-4 flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedUser(user)
-                            setNewRole(user.role)
-                            setShowDetailsDialog(true)
-                            loadUserStats(user.id)
-                          }}
-                          className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedUser(user)
-                            setShowBalanceDialog(true)
-                          }}
-                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                        >
-                          <Shield className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleRemoveUser(user.id)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </td>
-                    </tr>
+                      <tr key={user.id} className="hover:bg-emerald-100/30 backdrop-blur transition-colors">
+                        <td className="px-6 py-4 font-medium text-gray-900">{user.email}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{user.phoneNumber || "-"}</td>
+                        <td className="px-6 py-4">
+                          <Badge className={user.role === "admin" ? "bg-red-600" : "bg-blue-600"}>
+                            {user.role}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 font-semibold text-blue-600">GHS {(user.walletBalance || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 font-semibold text-emerald-600">GHS {(user.shopBalance || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{user.shop?.shop_name || "No shop"}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          <Badge className="bg-blue-500">
+                            {user.customerCount || 0}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          <Badge className="bg-purple-500">
+                            {user.subAgentCount || 0}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{new Date(user.created_at).toLocaleDateString()}</td>
+                        <td className="px-6 py-4 flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedUser(user)
+                              setNewRole(user.role)
+                              setShowDetailsDialog(true)
+                              loadUserStats(user.id)
+                            }}
+                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedUser(user)
+                              setShowBalanceDialog(true)
+                            }}
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          >
+                            <Shield className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRemoveUser(user.id)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
+                      </tr>
                     ))
                   )}
                 </tbody>
@@ -795,8 +795,8 @@ export default function AdminUsersPage() {
                                         <td className="px-3 py-2">
                                           <Badge className={
                                             w.status === "completed" || w.status === "approved" ? "bg-green-600" :
-                                            w.status === "pending" ? "bg-orange-500" :
-                                            w.status === "rejected" ? "bg-red-600" : "bg-gray-500"
+                                              w.status === "pending" ? "bg-orange-500" :
+                                                w.status === "rejected" ? "bg-red-600" : "bg-gray-500"
                                           }>
                                             {w.status}
                                           </Badge>
@@ -837,6 +837,7 @@ export default function AdminUsersPage() {
                             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
                           >
                             <option value="user">User</option>
+                            <option value="dealer">Dealer</option>
                             <option value="admin">Admin</option>
                           </select>
                           <Button

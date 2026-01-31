@@ -29,6 +29,7 @@ interface Package {
   network: string
   size: string
   price: number
+  dealer_price?: number
   description?: string
   is_available?: boolean
   created_at?: string
@@ -54,6 +55,7 @@ export default function AdminPackagesPage() {
     network: "",
     size: "",
     price: "",
+    dealer_price: "",
     description: "",
   })
 
@@ -103,12 +105,13 @@ export default function AdminPackagesPage() {
     try {
       // Clean size by removing "GB" suffix if present
       const cleanSize = formData.size.toString().toUpperCase().replace(/\s*GB\s*$/, "")
-      
+
       if (editingId) {
         await adminPackageService.updatePackage(editingId, {
           network: formData.network,
           size: cleanSize,
           price: parseFloat(formData.price),
+          dealer_price: formData.dealer_price ? parseFloat(formData.dealer_price) : null,
           description: formData.description,
         })
         toast.success("Package updated successfully")
@@ -117,6 +120,7 @@ export default function AdminPackagesPage() {
           network: formData.network,
           size: cleanSize,
           price: parseFloat(formData.price),
+          dealer_price: formData.dealer_price ? parseFloat(formData.dealer_price) : null,
           description: formData.description,
         })
         toast.success("Package created successfully")
@@ -137,6 +141,7 @@ export default function AdminPackagesPage() {
       network: pkg.network,
       size: pkg.size,
       price: pkg.price.toString(),
+      dealer_price: pkg.dealer_price?.toString() || "",
       description: pkg.description || "",
     })
     setEditingId(pkg.id)
@@ -192,7 +197,7 @@ export default function AdminPackagesPage() {
   }
 
   const resetForm = () => {
-    setFormData({ network: "", size: "", price: "", description: "" })
+    setFormData({ network: "", size: "", price: "", dealer_price: "", description: "" })
     setEditingId(null)
     setShowForm(false)
   }
@@ -268,6 +273,21 @@ export default function AdminPackagesPage() {
                   />
                 </div>
                 <div>
+                  <Label htmlFor="dealer_price">Dealer Price (GHS)</Label>
+                  <Input
+                    id="dealer_price"
+                    type="number"
+                    placeholder="Leave blank if no dealer price"
+                    value={formData.dealer_price}
+                    onChange={(e) => setFormData({ ...formData, dealer_price: e.target.value })}
+                    className="mt-1"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
                   <Label htmlFor="description">Description</Label>
                   <Input
                     id="description"
@@ -320,6 +340,7 @@ export default function AdminPackagesPage() {
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Network</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Size</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Price</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Dealer Price</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Description</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Available</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
@@ -331,16 +352,16 @@ export default function AdminPackagesPage() {
                       <td className="px-6 py-4 font-medium text-gray-900">{pkg.network}</td>
                       <td className="px-6 py-4 text-gray-900">{pkg.size}</td>
                       <td className="px-6 py-4 font-semibold text-blue-600">GHS {(pkg.price || 0).toFixed(2)}</td>
+                      <td className="px-6 py-4 font-semibold text-purple-600">{pkg.dealer_price ? `GHS ${pkg.dealer_price.toFixed(2)}` : "-"}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
                       <td className="px-6 py-4">
                         <Button
                           size="sm"
                           onClick={() => toggleAvailability(pkg.id, pkg.is_available !== false)}
-                          className={`${
-                            pkg.is_available !== false
-                              ? "bg-green-600 hover:bg-green-700"
-                              : "bg-gray-400 hover:bg-gray-500"
-                          } text-white`}
+                          className={`${pkg.is_available !== false
+                            ? "bg-green-600 hover:bg-green-700"
+                            : "bg-gray-400 hover:bg-gray-500"
+                            } text-white`}
                         >
                           <Power className="w-4 h-4 mr-1" />
                           {pkg.is_available !== false ? "Enabled" : "Disabled"}
