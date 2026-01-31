@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
         // Fallback to sub_agent_catalog
         const { data: catalogEntry } = await supabase
           .from("sub_agent_catalog")
-          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(price)")
+          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(price, dealer_price)")
           .eq("id", shop_package_id)
           .single()
 
