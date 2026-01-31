@@ -105,10 +105,31 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (catalogEntry) {
-          const parentPrice = catalogEntry.parent_price || (catalogEntry.package as any)?.price || 0
-          const margin = catalogEntry.sub_agent_profit_margin ?? catalogEntry.wholesale_margin ?? 0
-          verifiedBasePrice = parentPrice
-          verifiedProfitMargin = margin
+          // Check if parent is a dealer
+          const { data: parentShop } = await supabase
+            .from("user_shops")
+            .select("user_id")
+            .eq("id", shopData.parent_shop_id)
+            .single()
+
+          let isParentDealer = false
+          if (parentShop) {
+            const { data: parentUser } = await supabase
+              .from("users")
+              .select("role")
+              .eq("id", parentShop.user_id)
+              .single()
+            isParentDealer = parentUser?.role === 'dealer'
+          }
+
+          const pkg = (catalogEntry.package as any)
+          const adminPrice = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
+            ? pkg.dealer_price
+            : (pkg?.price || 0)
+
+          const margin = catalogEntry.wholesale_margin ?? 0
+          verifiedBasePrice = adminPrice + margin
+          verifiedProfitMargin = 0 // Sub-agent profit on "Buy Stock" is 0 (it's a restocking purchase)
           verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
         } else {
           console.error("[SHOP-ORDER] ❌ Could not verify sub-agent package price")
@@ -259,49 +280,43 @@ export async function POST(request: NextRequest) {
         // NOT base_price - admin_price (that's the sub-agent's total margin)
         console.log(`[SHOP-ORDER] Looking up catalog for parent_shop_id=${parent_shop_id}, package_id=${package_id}`)
 
+        // Check if parent is a dealer for profit calculation
+        const { data: parentShop } = await supabase
+          .from("user_shops")
+          .select("user_id")
+          .eq("id", parent_shop_id)
+          .single()
+
+        let isParentDealer = false
+        if (parentShop) {
+          const { data: parentUser } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", parentShop.user_id)
+            .single()
+          isParentDealer = parentUser?.role === 'dealer'
+        }
+
         const { data: catalogEntry, error: catalogError } = await supabase
           .from("sub_agent_catalog")
-          .select("wholesale_margin, parent_price")
+          .select("wholesale_margin, parent_price, package:packages(price, dealer_price)")
           .eq("shop_id", parent_shop_id)
           .eq("package_id", package_id)
           .single()
 
-        console.log(`[SHOP-ORDER] Catalog lookup result:`, { catalogEntry, catalogError })
+        if (catalogEntry) {
+          const pkg = (catalogEntry.package as any)
+          const adminCost = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
+            ? pkg.dealer_price
+            : (pkg?.price || 0)
 
-        if (catalogEntry && catalogEntry.wholesale_margin !== null && catalogEntry.wholesale_margin !== undefined && catalogEntry.wholesale_margin > 0) {
-          parent_profit_amount = catalogEntry.wholesale_margin
-          console.log(`[SHOP-ORDER] Using wholesale_margin from catalog: ${parent_profit_amount}`)
-        } else if (catalogEntry && catalogEntry.parent_price) {
-          // If wholesale_margin is 0 but parent_price exists, calculate from parent_price
-          const { data: packageData } = await supabase
-            .from("packages")
-            .select("price")
-            .eq("id", package_id)
-            .single()
+          parent_profit_amount = catalogEntry.wholesale_margin || 0
 
-          const adminPrice = packageData?.price || 0
-          parent_profit_amount = catalogEntry.parent_price - adminPrice
-          if (parent_profit_amount < 0) parent_profit_amount = 0
-          console.log(`[SHOP-ORDER] Calculated from parent_price: parent_price(${catalogEntry.parent_price}) - adminPrice(${adminPrice}) = ${parent_profit_amount}`)
+          // Double check: if parent_price is stored, it should be adminCost + wholesale_margin
+          console.log(`[SHOP-ORDER] Sub-agent parent profit: Parent Margin(${parent_profit_amount}) based on Admin Cost(${adminCost})`)
         } else {
-          // Fallback: calculate from admin price if catalog entry not found
-          const { data: packageData } = await supabase
-            .from("packages")
-            .select("price")
-            .eq("id", package_id)
-            .single()
-
-          const adminPrice = packageData?.price || 0
-          // Calculate: parent profit = what sub-agent pays (base_price) - admin price - sub-agent profit
-          // Actually, for storefront orders: sub-agent sells at base_price + profit_amount
-          // So parent profit = base_price - admin_price (the wholesale markup)
-          // Use verified base price, not client-provided
-          parent_profit_amount = finalBasePrice - adminPrice
-
-          // Ensure it's not negative
-          if (parent_profit_amount < 0) parent_profit_amount = 0
-
-          console.warn(`[SHOP-ORDER] No catalog entry found, using fallback calculation: finalBasePrice(${finalBasePrice}) - adminPrice(${adminPrice}) = ${parent_profit_amount}`)
+          parent_profit_amount = 0
+          console.warn(`[SHOP-ORDER] No catalog entry found for parent profit calculation`)
         }
 
         console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Parent profit: ${parent_profit_amount}`)

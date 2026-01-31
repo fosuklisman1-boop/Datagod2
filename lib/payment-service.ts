@@ -7,6 +7,8 @@ interface InitializePaymentRequest {
   email: string
   userId: string
   shopId?: string
+  type?: string
+  planId?: string
 }
 
 interface InitializePaymentResponse {
@@ -44,7 +46,7 @@ export async function initializePayment(
     })
 
     console.log("[PAYMENT-SERVICE] Response status:", response.status)
-    
+
     if (!response.ok) {
       const errorData = await response.json()
       console.error("[PAYMENT-SERVICE] Error response:", errorData)

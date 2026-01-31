@@ -10,7 +10,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { amount, email, userId, shopId, orderId, shopSlug } = body
+    const { amount, email, userId, shopId, orderId, shopSlug, type, planId } = body
 
     console.log("[PAYMENT-INIT] Request received:")
     console.log("  User:", userId)
@@ -62,6 +62,22 @@ export async function POST(request: NextRequest) {
 
       console.log(`[PAYMENT-INIT] ✓ Price verified. Client sent: ${amount}, DB has: ${verifiedAmount}. Enforcing DB value.`)
       finalAmount = verifiedAmount
+    } else if (type === "dealer_upgrade" && planId) {
+      console.log(`[PAYMENT-INIT] Dealer Upgrade detected. Verifying plan ${planId}...`)
+      const { data: plan, error: planError } = await supabase
+        .from("subscription_plans")
+        .select("price")
+        .eq("id", planId)
+        .eq("is_active", true)
+        .single()
+
+      if (planError || !plan) {
+        console.error("[PAYMENT-INIT] ❌ Could not find active plan:", planError)
+        return NextResponse.json({ error: "Invalid subscription plan" }, { status: 400 })
+      }
+
+      finalAmount = Number(plan.price)
+      console.log(`[PAYMENT-INIT] ✓ Plan price verified: ${finalAmount}`)
     } else {
       // For Wallet Top-up (no orderId), we require amount
       if (!amount || typeof amount !== "number" || amount <= 0) {
@@ -142,7 +158,8 @@ export async function POST(request: NextRequest) {
       metadata: {
         userId,
         shopId: shopId || null,
-        type: "wallet_topup",
+        type: type || "wallet_topup",
+        planId: planId || null,
         originalAmount: finalAmount,
         paystackFee: paystackFee,
       },

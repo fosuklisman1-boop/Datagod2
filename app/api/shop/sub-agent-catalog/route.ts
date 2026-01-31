@@ -136,13 +136,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fetch user role to check for dealer pricing
-    const { data: userData } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .single()
-    const isDealer = userData?.role === 'dealer'
+    // Fetch parent shop owner's role if it's a sub-agent
+    let isParentDealer = false;
+    if (shop.parent_shop_id) {
+      const { data: parentShop } = await supabase
+        .from("user_shops")
+        .select("user_id")
+        .eq("id", shop.parent_shop_id)
+        .single();
+
+      if (parentShop) {
+        const { data: parentUser } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", parentShop.user_id)
+          .single();
+
+        isParentDealer = parentUser?.role === 'dealer';
+      }
+    } else {
+      // If not a sub-agent, check this user's own role (they are the parent)
+      const { data: userData } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+      isParentDealer = userData?.role === 'dealer';
+    }
+
+    const isDealer = isParentDealer; // Rename for logic compatibility
 
     // Transform to include calculated prices
     const catalogWithPrices = (catalog || []).map((item: any) => {
@@ -150,10 +172,16 @@ export async function GET(request: NextRequest) {
       const pkgPrice = item.package?.price || 0
       const dealerPrice = item.package?.dealer_price
 
-      // Use stored parent_price as the base
-      const parentPrice = item.parent_price !== undefined && item.parent_price !== null
-        ? Number(item.parent_price)
-        : (isDealer && dealerPrice && dealerPrice > 0 ? dealerPrice : pkgPrice);
+      // Use dynamic base price based on parent's current role
+      const adminPrice = (isParentDealer && dealerPrice && dealerPrice > 0)
+        ? dealerPrice
+        : pkgPrice;
+
+      // Calculate the actual cost to this user
+      // If sub-agent: cost = adminPrice + parent's margin
+      // If parent: cost = adminPrice
+      const parentMargin = shop.parent_shop_id ? (parentMargins[item.package_id] || 0) : 0;
+      const parentPrice = adminPrice + parentMargin;
 
       // Use sub_agent_profit_margin if available, fallback to wholesale_margin for backwards compatibility
       const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null

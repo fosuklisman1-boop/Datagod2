@@ -33,6 +33,7 @@ import {
   ShoppingBag,
   Zap,
   Crown,
+  Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -58,6 +59,7 @@ const menuItems = [
   { href: "/dashboard/transactions", label: "Transactions", icon: History, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/profile", label: "Profile", icon: User, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/upgrade", label: "Upgrade to Dealer", icon: Sparkles, roles: ["user"] },
 ]
 
 const shopItems = [
@@ -450,6 +452,29 @@ export function Sidebar() {
                   {isOpen && "MTN Settings"}
                 </Button>
               </Link>
+
+              <Link href="/admin/subscriptions" onClick={() => handleNavigation("/admin/subscriptions")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/subscriptions" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/subscriptions" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/subscriptions" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Dealer Plans" : undefined}
+                  disabled={loadingPath === "/admin/subscriptions"}
+                >
+                  {loadingPath === "/admin/subscriptions" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Crown className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Dealer Plans"}
+                </Button>
+              </Link>
               <Link href="/admin/orders" onClick={() => handleNavigation("/admin/orders")}>
                 <Button
                   variant="ghost"
@@ -528,13 +553,15 @@ export function Sidebar() {
             </div>
           )}
 
-        </nav>
+        </nav >
 
         {/* Community & Logout */}
-        <div className={cn(
-          "p-4 border-t space-y-2",
-          userRole === 'dealer' ? "border-amber-600/20" : "border-blue-500"
-        )}>
+        < div className={
+          cn(
+            "p-4 border-t space-y-2",
+            userRole === 'dealer' ? "border-amber-600/20" : "border-blue-500"
+          )
+        }>
           {joinCommunityLink && (
             <Button
               variant="ghost"
@@ -564,8 +591,8 @@ export function Sidebar() {
             <LogOut className="w-5 h-5 flex-shrink-0" />
             {isOpen && "Logout"}
           </Button>
-        </div>
-      </div>
+        </div >
+      </div >
     </>
   )
 }

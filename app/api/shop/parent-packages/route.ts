@@ -31,6 +31,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
+    // Get parent shop owner's role if it's a sub-agent
+    let isParentDealer = false;
+    if (shop.parent_shop_id) {
+      const { data: parentShop } = await supabase
+        .from("user_shops")
+        .select("user_id")
+        .eq("id", shop.parent_shop_id)
+        .single();
+
+      if (parentShop) {
+        const { data: parentUser } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", parentShop.user_id)
+          .single();
+
+        isParentDealer = parentUser?.role === 'dealer';
+      }
+    }
+
     // If no parent shop, return empty (not a sub-agent)
     if (!shop.parent_shop_id) {
       return NextResponse.json({
@@ -52,6 +72,7 @@ export async function GET(request: NextRequest) {
           network,
           size,
           price,
+          dealer_price,
           description,
           active
         )
@@ -68,7 +89,13 @@ export async function GET(request: NextRequest) {
     const transformedPackages = (catalogItems || [])
       .filter((item: any) => item.package?.active)
       .map((item: any) => {
-        const adminPrice = item.package.price
+        const pkgPrice = item.package.price || 0
+        const pkgDealerPrice = item.package.dealer_price
+
+        const adminPrice = (isParentDealer && pkgDealerPrice && pkgDealerPrice > 0)
+          ? pkgDealerPrice
+          : pkgPrice;
+
         const parentMargin = item.wholesale_margin
         const parentSellingPrice = adminPrice + parentMargin
 

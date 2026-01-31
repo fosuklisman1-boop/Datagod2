@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
 
     // Handle charge.success event
     if (event.event === "charge.success") {
-      const { reference, customer, amount, status } = event.data
+      const { reference, customer, amount, status, metadata } = event.data
 
       console.log(`Processing payment: ${reference}`, {
         email: customer.email,
@@ -218,12 +218,33 @@ export async function POST(request: NextRequest) {
                 .single();
 
               if (catalogEntry) {
-                const parentPrice = catalogEntry.parent_price || (catalogEntry.package as any)?.price || 0;
-                const margin = catalogEntry.sub_agent_profit_margin ?? catalogEntry.wholesale_margin ?? 0;
-                verifiedBasePrice = parentPrice;
-                verifiedProfitMargin = margin;
-                verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
-                priceDebugInfo = { source: "sub_agent_catalog", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
+                // Check if parent is a dealer
+                const { data: parentShop } = await supabase
+                  .from("user_shops")
+                  .select("user_id")
+                  .eq("id", shopData.parent_shop_id)
+                  .single()
+
+                let isParentDealer = false
+                if (parentShop) {
+                  const { data: parentUser } = await supabase
+                    .from("users")
+                    .select("role")
+                    .eq("id", parentShop.user_id)
+                    .single()
+                  isParentDealer = parentUser?.role === 'dealer'
+                }
+
+                const pkg = (catalogEntry.package as any)
+                const adminPrice = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
+                  ? pkg.dealer_price
+                  : (pkg?.price || 0)
+
+                const margin = catalogEntry.wholesale_margin ?? 0
+                verifiedBasePrice = adminPrice + margin
+                verifiedProfitMargin = 0 // Restocking buy
+                verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
+                priceDebugInfo = { source: "sub_agent_catalog", isParentDealer, adminPrice, margin, verifiedTotalPrice };
               } else {
                 // Fallback to order total price if catalog lookup fails
                 verifiedTotalPrice = shopOrder.total_price || 0;
@@ -820,16 +841,92 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Credit the wallet ONLY if this is a wallet top-up (not a shop order payment)
-      // Shop orders go to shop profits, not user wallet
+      // Check for dealer upgrade in metadata
+      const isDealerUpgrade = metadata?.type === "dealer_upgrade"
       const isShopOrderPayment = paymentData.order_id && paymentData.shop_id
       console.log("[WEBHOOK] Payment type check:", {
         isShopOrder: isShopOrderPayment,
+        isDealerUpgrade: isDealerUpgrade,
         hasOrderId: !!paymentData.order_id,
         hasShopId: !!paymentData.shop_id,
       })
 
-      if (!isShopOrderPayment) {
+      if (isDealerUpgrade) {
+        console.log("[WEBHOOK] Processing DEALER UPGRADE...")
+        const upgradeUserId = metadata.userId || paymentData.user_id
+        const planId = metadata.planId
+
+        if (!upgradeUserId || !planId) {
+          console.error("[WEBHOOK] ❌ Missing userId or planId in metadata for dealer upgrade")
+        } else {
+          try {
+            // Get plan details
+            const { data: plan } = await supabase
+              .from("subscription_plans")
+              .select("*")
+              .eq("id", planId)
+              .single()
+
+            if (!plan) {
+              console.error(`[WEBHOOK] ❌ Subscription plan ${planId} not found`)
+            } else {
+              // 1. Update user role to dealer
+              const { error: userUpdateError } = await supabase
+                .from("users")
+                .update({ role: "dealer", updated_at: new Date().toISOString() })
+                .eq("id", upgradeUserId)
+
+              if (userUpdateError) {
+                console.error("[WEBHOOK] ❌ Error updating user role:", userUpdateError)
+              } else {
+                console.log(`[WEBHOOK] ✓ User ${upgradeUserId} promoted to DEALER`)
+
+                // 2. Create user subscription record
+                const endDate = new Date()
+                endDate.setDate(endDate.getDate() + plan.duration_days)
+
+                const { error: subError } = await supabase
+                  .from("user_subscriptions")
+                  .insert([
+                    {
+                      user_id: upgradeUserId,
+                      plan_id: planId,
+                      start_date: new Date().toISOString(),
+                      end_date: endDate.toISOString(),
+                      status: "active",
+                      payment_reference: reference,
+                      amount_paid: amount / 100,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }
+                  ])
+
+                if (subError) {
+                  console.error("[WEBHOOK] ❌ Error creating subscription record:", subError)
+                } else {
+                  console.log(`[WEBHOOK] ✓ Subscription record created for user ${upgradeUserId}`)
+
+                  // 3. Send notification
+                  await supabase
+                    .from("notifications")
+                    .insert([
+                      {
+                        user_id: upgradeUserId,
+                        title: "Account Upgraded!",
+                        message: `Congratulations! Your account has been upgraded to Dealer for ${plan.duration_days} days. You now have access to wholesale pricing.`,
+                        type: "role_change",
+                        is_read: false,
+                        created_at: new Date().toISOString(),
+                      }
+                    ])
+                }
+              }
+            }
+          } catch (err) {
+            console.error("[WEBHOOK] ❌ Error in dealer upgrade processing:", err)
+          }
+        }
+      } else if (!isShopOrderPayment) {
         console.log("[WEBHOOK] This is a WALLET payment - will credit wallet and send SMS")
         const amountInGHS = amount / 100
 
