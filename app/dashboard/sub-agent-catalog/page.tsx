@@ -84,7 +84,16 @@ export default function SubAgentCatalogPage() {
         })
         const data = await response.json()
         if (data.catalog) {
-          setCatalog(data.catalog)
+          // Normalize the data to ensure correct prices are used
+          const isDealer = data.is_dealer || false
+          setCatalog(data.catalog.map((item: any) => ({
+            ...item,
+            // Ensure the package price is shown correctly based on role
+            package: {
+              ...item.package,
+              price: isDealer && item.package.dealer_price > 0 ? item.package.dealer_price : item.package.price
+            }
+          })))
         }
       }
 
@@ -269,7 +278,7 @@ export default function SubAgentCatalogPage() {
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">{item.package.network}</TableCell>
                         <TableCell>{item.package.size}</TableCell>
-                        <TableCell className="text-right">GHS {(item.package?.dealer_price && item.package.dealer_price > 0 ? item.package.dealer_price : (item.package?.price || 0)).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">GHS {(item.package?.price || 0).toFixed(2)}</TableCell>
                         <TableCell className="text-right text-green-600">
                           +GHS {(item.wholesale_margin || 0).toFixed(2)}
                         </TableCell>

@@ -136,12 +136,24 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Fetch user role to check for dealer pricing
+    const { data: userData } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .single()
+    const isDealer = userData?.role === 'dealer'
+
     // Transform to include calculated prices
     const catalogWithPrices = (catalog || []).map((item: any) => {
+      // Use dealer_price if dealer, otherwise use packages.price
+      const pkgPrice = item.package?.price || 0
+      const dealerPrice = item.package?.dealer_price
+
       // Use stored parent_price as the base
       const parentPrice = item.parent_price !== undefined && item.parent_price !== null
         ? Number(item.parent_price)
-        : (item.package?.price || 0);
+        : (isDealer && dealerPrice && dealerPrice > 0 ? dealerPrice : pkgPrice);
 
       // Use sub_agent_profit_margin if available, fallback to wholesale_margin for backwards compatibility
       const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
@@ -154,16 +166,19 @@ export async function GET(request: NextRequest) {
         ...item,
         // Ensure these fields are present
         is_active: item.is_active !== undefined ? item.is_active : true,
-        // parent_price: what the parent charges this sub-agent (base cost)
+        // parent_price: what the parent (this user) charges their sub-agent (base cost)
+        // Wait, for this user (the dealer), the base cost is his dealer price.
+        // The wholesale price he offers to his sub-agents is dealer price + wholesale_margin.
         parent_price: parentPrice,
-        // selling_price: what this sub-agent sells at
+        // selling_price: what the sub-agent will pay this user
         selling_price: sellingPrice,
-        // profit_margin for display: the sub-agent's own profit
-        profit_margin: subAgentMargin
+        // profit_margin for display: the user's own profit from this sub-agent
+        profit_margin: subAgentMargin,
+        is_dealer: isDealer // Include for frontend use
       }
     })
 
-    return NextResponse.json({ catalog: catalogWithPrices })
+    return NextResponse.json({ catalog: catalogWithPrices, is_dealer: isDealer })
 
   } catch (error) {
     console.error("Error in sub-agent-catalog API:", error)

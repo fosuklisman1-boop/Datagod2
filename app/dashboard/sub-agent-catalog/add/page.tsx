@@ -111,7 +111,7 @@ export default function AddToCatalogPage() {
       try {
         let apiEndpoint = "/api/shop/admin-packages"
         let headers: Record<string, string> = {}
-        
+
         // Check if this is a sub-agent
         if (userShop?.parent_shop_id) {
           apiEndpoint = "/api/shop/parent-packages"
@@ -122,25 +122,36 @@ export default function AddToCatalogPage() {
             headers["Authorization"] = `Bearer ${session.access_token}`
           }
         }
-        
+
         const pkgResponse = await fetch(apiEndpoint, { headers })
         const pkgData = await pkgResponse.json()
         console.log("Fetched packages:", pkgData.packages?.length || 0)
         console.log("Is sub-agent:", pkgData.is_sub_agent)
         console.log("Sample package:", pkgData.packages?.[0])
-        
+
         if (pkgData.packages && pkgData.packages.length > 0) {
+          // Fetch user role to check for dealer pricing
+          const { data: userData } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", user.id)
+            .single()
+          const isDealer = userData?.role === 'dealer'
+
           // Always use admin-set price as main price for 'Your Cost'
           // For sub-agents: use _original_admin_price (from parent-packages API)
           // For parents/non-sub-agents: use price (from admin-packages API)
           setAllPackages(pkgData.packages.filter((p: AdminPackage) => p.active).map((p: any) => {
             let price = 0;
+            const dealerPrice = p.dealer_price;
+
             if (typeof p._original_admin_price === 'number' && !isNaN(p._original_admin_price)) {
               // From parent-packages API (sub-agent)
               price = p._original_admin_price;
             } else if (typeof p.price === 'number' && !isNaN(p.price)) {
               // From admin-packages API (parent/non-sub-agent)
-              price = p.price;
+              // If dealer and dealerPrice exists, use it
+              price = (isDealer && dealerPrice && dealerPrice > 0) ? dealerPrice : p.price;
             }
             console.log(`Package ${p.size}: _original_admin_price=${p._original_admin_price}, price=${p.price}, mapped price=${price}, parent_price=${p.parent_price}`)
             return { ...p, price };
@@ -215,7 +226,7 @@ export default function AddToCatalogPage() {
       }
 
       toast.success(data.action === "updated" ? "Margin updated!" : "Added to catalog!")
-      
+
       // Update local state
       setExistingCatalog(prev => {
         const exists = prev.find(c => c.package_id === pkg.id)
@@ -239,7 +250,7 @@ export default function AddToCatalogPage() {
 
   // Filter packages
   const filteredPackages = allPackages.filter(pkg => {
-    const matchesSearch = 
+    const matchesSearch =
       pkg.network.toLowerCase().includes(searchQuery.toLowerCase()) ||
       pkg.size.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesNetwork = networkFilter === "all" || pkg.network === networkFilter
@@ -341,7 +352,7 @@ export default function AddToCatalogPage() {
         <Alert className="bg-blue-50 border-blue-200">
           <Package className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-blue-800">
-            <strong>How it works:</strong> Enter the selling price for each package. Your sub-agents will pay 
+            <strong>How it works:</strong> Enter the selling price for each package. Your sub-agents will pay
             this price as their wholesale cost.
           </AlertDescription>
         </Alert>
@@ -382,11 +393,10 @@ export default function AddToCatalogPage() {
                     return (
                       <div
                         key={pkg.id}
-                        className={`p-4 rounded-lg border transition-colors ${
-                          inCatalog 
-                            ? "bg-green-50 border-green-200" 
+                        className={`p-4 rounded-lg border transition-colors ${inCatalog
+                            ? "bg-green-50 border-green-200"
                             : "bg-white border-gray-200 hover:border-gray-300"
-                        }`}
+                          }`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                           {/* Package Info */}
@@ -439,10 +449,10 @@ export default function AddToCatalogPage() {
                               onClick={() => handleAddToCatalog(pkg)}
                               disabled={saving === pkg.id || !sellingPriceValue || (margin !== null && margin < 0)}
                             >
-                              {saving === pkg.id 
-                                ? "Saving..." 
-                                : inCatalog 
-                                  ? "Update" 
+                              {saving === pkg.id
+                                ? "Saving..."
+                                : inCatalog
+                                  ? "Update"
                                   : "Add"
                               }
                             </Button>
