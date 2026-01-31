@@ -1084,11 +1084,14 @@ export default function MyShopPage() {
                           const isDealer = user?.user_metadata?.role === 'dealer'
                           const dealerPrice = pkg?.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
 
-                          const currentParentPrice = availablePkg?.parent_price !== undefined
-                            ? availablePkg.parent_price
-                            : (shopPkg.parent_price !== undefined
-                              ? shopPkg.parent_price
-                              : (isDealer && dealerPrice ? dealerPrice : (pkg?.price || 0)))
+                          // For dealers, prioritize dealer_price over stored parent_price
+                          const currentParentPrice = (isDealer && dealerPrice)
+                            ? dealerPrice
+                            : (availablePkg?.parent_price !== undefined
+                              ? availablePkg.parent_price
+                              : (shopPkg.parent_price !== undefined
+                                ? shopPkg.parent_price
+                                : (pkg?.price || 0)))
                           const displayBasePrice = currentParentPrice
                           const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
                           const profit = shopPkg.profit_margin || 0
