@@ -5,6 +5,7 @@ import { Header } from "./header"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { useUserRole } from "@/hooks/use-user-role"
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [isMobile, setIsMobile] = useState(false)
@@ -13,6 +14,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementMessage, setAnnouncementMessage] = useState("")
   const { user } = useAuth()
+  const { isDealer } = useUserRole()
 
   useEffect(() => {
     const handleResize = () => {
@@ -104,7 +106,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${isDealer ? "bg-amber-50/40" : "bg-gray-50"}`}>
       {/* Sidebar */}
       <Sidebar />
 
