@@ -80,7 +80,12 @@ export function Sidebar() {
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
   const [userPendingOrderCount, setUserPendingOrderCount] = useState(0)
   const [adminPendingOrderCount, setAdminPendingOrderCount] = useState(0)
-  const [userRole, setUserRole] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('userRole')
+    }
+    return null
+  })
   const [roleLoading, setRoleLoading] = useState(true)
 
   const handleLogout = async () => {
@@ -105,6 +110,7 @@ export function Sidebar() {
 
         if (userData?.role) {
           setUserRole(userData.role)
+          localStorage.setItem('userRole', userData.role)
           console.log("[SIDEBAR] User role from users table:", userData.role)
         } else {
           // Fallback: check user_metadata
@@ -112,9 +118,11 @@ export function Sidebar() {
           const metadataRole = authUser?.user_metadata?.role
           if (metadataRole) {
             setUserRole(metadataRole)
+            localStorage.setItem('userRole', metadataRole)
             console.log("[SIDEBAR] User role from metadata:", metadataRole)
           } else {
             setUserRole("user")
+            localStorage.setItem('userRole', "user")
           }
         }
       } catch (error) {

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
+import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -27,6 +28,7 @@ interface Package {
 export default function DataPackagesPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const { isDealer } = useUserRole()
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [selectedNetwork, setSelectedNetwork] = useState("All")
   const [searchTerm, setSearchTerm] = useState("")
@@ -333,14 +335,23 @@ export default function DataPackagesPage() {
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 bg-clip-text text-transparent">Data Packages</h1>
+            <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold bg-clip-text text-transparent ${isDealer
+              ? "bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600"
+              : "bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600"
+              }`}>Data Packages</h1>
             <p className="text-xs sm:text-sm text-gray-500 mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
           </div>
           {wallet && (
-            <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40 w-full sm:w-auto">
+            <Card className={`backdrop-blur-xl border w-full sm:w-auto ${isDealer
+              ? "bg-gradient-to-br from-amber-50/60 to-orange-50/40 border-amber-200/40"
+              : "bg-gradient-to-br from-emerald-50/60 to-teal-50/40 border-emerald-200/40"
+              }`}>
               <CardContent className="pt-4 sm:pt-6">
                 <p className="text-xs sm:text-sm text-gray-600">Wallet Balance</p>
-                <p className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent ${isDealer
+                  ? "bg-gradient-to-r from-amber-600 to-orange-600"
+                  : "bg-gradient-to-r from-emerald-600 to-teal-600"
+                  }`}>
                   GHS {(wallet.balance || 0).toFixed(2)}
                 </p>
               </CardContent>
@@ -349,7 +360,10 @@ export default function DataPackagesPage() {
         </div>
 
         {/* Search and Filters */}
-        <Card className="hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
+        <Card className={`hover:shadow-2xl transition-all duration-300 backdrop-blur-xl border hover:border-opacity-60 ${isDealer
+          ? "bg-gradient-to-br from-amber-50/60 to-orange-50/40 border-amber-200/40 hover:border-amber-300"
+          : "bg-gradient-to-br from-cyan-50/60 to-blue-50/40 border-cyan-200/40 hover:border-cyan-300/60"
+          }`}>
           <CardHeader>
             <CardTitle>Search & Filter</CardTitle>
           </CardHeader>
@@ -359,7 +373,10 @@ export default function DataPackagesPage() {
               <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search packages..."
-                className="pl-10 focus:ring-2 focus:ring-cyan-500 transition-all bg-white/70 backdrop-blur border-cyan-300/50 focus:border-cyan-400"
+                className={`pl-10 focus:ring-2 transition-all bg-white/70 backdrop-blur ${isDealer
+                  ? "focus:ring-amber-500 border-amber-300/50 focus:border-amber-400"
+                  : "focus:ring-cyan-500 border-cyan-300/50 focus:border-cyan-400"
+                  }`}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -373,7 +390,12 @@ export default function DataPackagesPage() {
                   variant={selectedNetwork === network ? "default" : "outline"}
                   size="sm"
                   onClick={() => setSelectedNetwork(network)}
-                  className={`text-xs sm:text-sm transition-all duration-200 ${selectedNetwork === network ? "bg-gradient-to-r from-cyan-600 to-blue-600 shadow-lg text-white" : "hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50/60 bg-cyan-50/30 backdrop-blur border-cyan-300/40 text-gray-700"}`}
+                  className={`text-xs sm:text-sm transition-all duration-200 ${selectedNetwork === network
+                    ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 shadow-lg text-white" : "bg-gradient-to-r from-cyan-600 to-blue-600 shadow-lg text-white"
+                    : isDealer
+                      ? "hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50/60 bg-amber-50/30 backdrop-blur border-amber-300/40 text-gray-700"
+                      : "hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50/60 bg-cyan-50/30 backdrop-blur border-cyan-300/40 text-gray-700"
+                    }`}
                 >
                   {network}
                 </Button>
@@ -386,7 +408,10 @@ export default function DataPackagesPage() {
                 variant={viewMode === "grid" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setViewMode("grid")}
-                className={`transition-all duration-200 ${viewMode === "grid" ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-cyan-300/40 text-gray-700 hover:text-cyan-700 hover:border-cyan-400"}`}
+                className={`transition-all duration-200 ${viewMode === "grid"
+                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-blue-600 text-white"
+                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-amber-300/40 text-gray-700 hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-cyan-300/40 text-gray-700 hover:text-cyan-700 hover:border-cyan-400"
+                  }`}
               >
                 <Grid3x3 className="w-4 h-4 mr-2" />
                 Grid
@@ -395,7 +420,10 @@ export default function DataPackagesPage() {
                 variant={viewMode === "list" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setViewMode("list")}
-                className={`transition-all duration-200 ${viewMode === "list" ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-cyan-300/40 text-gray-700 hover:text-cyan-700 hover:border-cyan-400"}`}
+                className={`transition-all duration-200 ${viewMode === "list"
+                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-blue-600 text-white"
+                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-amber-300/40 text-gray-700 hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-cyan-300/40 text-gray-700 hover:text-cyan-700 hover:border-cyan-400"
+                  }`}
               >
                 <List className="w-4 h-4 mr-2" />
                 List
@@ -408,7 +436,10 @@ export default function DataPackagesPage() {
         {viewMode === "grid" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPackages.map((pkg) => (
-              <Card key={pkg.id} className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 cursor-pointer group border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60 overflow-hidden flex flex-col w-full min-w-0">
+              <Card key={pkg.id} className={`hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 cursor-pointer group border-l-4 backdrop-blur-xl border border-opacity-40 hover:border-opacity-60 overflow-hidden flex flex-col w-full min-w-0 ${isDealer
+                ? "border-l-amber-500 bg-gradient-to-br from-amber-50/60 to-orange-50/40 border-amber-200/40 hover:border-amber-300/60"
+                : "border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 border-cyan-200/40 hover:border-cyan-300/60"
+                }`}>
                 {/* Logo Section */}
                 <div className="h-16 sm:h-20 md:h-32 w-full bg-gray-100 flex items-center justify-center overflow-hidden">
                   {getNetworkLogo(pkg.network) && (
@@ -423,11 +454,17 @@ export default function DataPackagesPage() {
                 <CardHeader>
                   <div className="flex justify-between items-start gap-2">
                     <div>
-                      <Badge className="mb-2 text-xs sm:text-sm bg-gradient-to-r from-cyan-400/40 to-blue-400/30 backdrop-blur text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-blue-600 group-hover:text-white transition-all border border-cyan-300/60">{pkg.network}</Badge>
-                      <CardTitle className="text-lg sm:text-xl md:text-2xl group-hover:text-cyan-600 transition-colors">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
+                      <Badge className={`mb-2 text-xs sm:text-sm backdrop-blur transition-all bg-opacity-40 border border-opacity-60 ${isDealer
+                        ? "bg-gradient-to-r from-amber-400/40 to-orange-400/30 text-amber-900 group-hover:bg-gradient-to-r group-hover:from-amber-600 group-hover:to-orange-600 group-hover:text-white border-amber-300/60"
+                        : "bg-gradient-to-r from-cyan-400/40 to-blue-400/30 text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-blue-600 group-hover:text-white border-cyan-300/60"
+                        }`}>{pkg.network}</Badge>
+                      <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-amber-600" : "group-hover:text-cyan-600"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent group-hover:from-violet-600 group-hover:to-fuchsia-600 transition-colors">GHS {(pkg.price || 0).toFixed(2)}</p>
+                      <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent transition-colors ${isDealer
+                        ? "bg-gradient-to-r from-amber-600 to-orange-600 group-hover:from-amber-700 group-hover:to-orange-700"
+                        : "bg-gradient-to-r from-cyan-600 to-blue-600 group-hover:from-violet-600 group-hover:to-fuchsia-600"
+                        }`}>GHS {(pkg.price || 0).toFixed(2)}</p>
                     </div>
                   </div>
                 </CardHeader>
@@ -450,7 +487,10 @@ export default function DataPackagesPage() {
                   <Button
                     onClick={() => handlePurchase(pkg)}
                     disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
-                    className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 hover:from-cyan-700 hover:via-blue-700 hover:to-violet-700 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                    className={`w-full shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
+                      ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600"
+                      : "bg-gradient-to-r from-cyan-600 via-blue-600 to-violet-600 hover:from-cyan-700 hover:via-blue-700 hover:to-violet-700"
+                      }`}
                   >
                     {purchasing === pkg.id ? (
                       <>
@@ -468,11 +508,17 @@ export default function DataPackagesPage() {
             ))}
           </div>
         ) : (
-          <Card className="hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60 w-full">
+          <Card className={`hover:shadow-2xl transition-all duration-300 backdrop-blur-xl border hover:border-opacity-60 w-full ${isDealer
+            ? "bg-gradient-to-br from-amber-50/60 to-orange-50/40 border-amber-200/40 hover:border-amber-300/60"
+            : "bg-gradient-to-br from-cyan-50/60 to-blue-50/40 border-cyan-200/40 hover:border-cyan-300/60"
+            }`}>
             <CardContent className="p-0">
               <div className="overflow-x-auto w-full">
                 <table className="min-w-[600px] sm:min-w-full w-full text-xs sm:text-sm">
-                  <thead className="bg-gradient-to-r from-cyan-100/60 via-blue-100/60 to-violet-100/60 backdrop-blur border-b border-cyan-200/40">
+                  <thead className={`backdrop-blur border-b ${isDealer
+                    ? "bg-gradient-to-r from-amber-100/60 via-orange-100/60 to-yellow-100/60 border-amber-200/40"
+                    : "bg-gradient-to-r from-cyan-100/60 via-blue-100/60 to-violet-100/60 border-cyan-200/40"
+                    }`}>
                     <tr>
                       <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Logo</th>
                       <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Network</th>
@@ -482,9 +528,10 @@ export default function DataPackagesPage() {
                       <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-gray-900 whitespace-nowrap">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-cyan-100/40">
+                  <tbody className={`divide-y ${isDealer ? "divide-amber-100/40" : "divide-cyan-100/40"}`}>
                     {filteredPackages.map((pkg) => (
-                      <tr key={pkg.id} className="hover:bg-cyan-100/30 hover:backdrop-blur transition-colors duration-200 cursor-pointer">
+                      <tr key={pkg.id} className={`hover:backdrop-blur transition-colors duration-200 cursor-pointer ${isDealer ? "hover:bg-amber-100/30" : "hover:bg-cyan-100/30"
+                        }`}>
                         <td className="px-2 sm:px-6 py-2 sm:py-4">
                           {getNetworkLogo(pkg.network) && (
                             <img
@@ -496,14 +543,20 @@ export default function DataPackagesPage() {
                         </td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4 font-medium text-gray-900 whitespace-nowrap">{pkg.network}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4 font-semibold text-gray-900 whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4 font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent whitespace-nowrap">GHS {(pkg.price || 0).toFixed(2)}</td>
+                        <td className={`px-2 sm:px-6 py-2 sm:py-4 font-bold bg-clip-text text-transparent whitespace-nowrap ${isDealer
+                          ? "bg-gradient-to-r from-amber-600 to-orange-600"
+                          : "bg-gradient-to-r from-cyan-600 to-blue-600"
+                          }`}>GHS {(pkg.price || 0).toFixed(2)}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4 text-gray-600 whitespace-nowrap">{pkg.description || "-"}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4">
                           <Button
                             size="sm"
                             onClick={() => handlePurchase(pkg)}
                             disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
-                            className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                            className={`shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
+                              ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
+                              : "bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700"
+                              }`}
                           >
                             {purchasing === pkg.id ? (
                               <>

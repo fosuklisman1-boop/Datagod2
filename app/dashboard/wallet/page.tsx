@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
+import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -33,6 +34,7 @@ export default function WalletPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, loading: authLoading } = useAuth()
+  const { isDealer } = useUserRole()
   const [userId, setUserId] = useState<string | null>(null)
   const [walletData, setWalletData] = useState<WalletData>({
     balance: 0,
@@ -56,7 +58,7 @@ export default function WalletPage() {
   useEffect(() => {
     if (user) {
       fetchUserAndWallet()
-      
+
       // Check if returning from Paystack payment
       const reference = searchParams.get("reference")
       if (reference) {
@@ -98,7 +100,7 @@ export default function WalletPage() {
           "Authorization": `Bearer ${session.access_token}`,
         },
       })
-      
+
       // If wallet not found (no wallet row exists), create one
       if (response.status === 404) {
         console.log("[WALLET] Wallet not found, creating new wallet via API")
@@ -109,7 +111,7 @@ export default function WalletPage() {
               "Authorization": `Bearer ${session.access_token}`,
             },
           })
-          
+
           if (createResponse.ok) {
             const result = await createResponse.json()
             console.log("[WALLET] Wallet created:", result.wallet)
@@ -176,10 +178,10 @@ export default function WalletPage() {
     try {
       setPaymentVerifying(true)
       console.log("[WALLET] Verifying payment:", reference)
-      
+
       // Clear reference from URL immediately to prevent double verification on reload
       window.history.replaceState({}, "", "/dashboard/wallet")
-      
+
       // Call verification endpoint
       const response = await fetch("/api/payments/verify", {
         method: "POST",
@@ -190,7 +192,7 @@ export default function WalletPage() {
       })
 
       const result = await response.json()
-      
+
       if (!response.ok) {
         console.error("[WALLET] Verification failed:", result)
         toast.error("Payment verification failed. Please try again.")
@@ -199,7 +201,7 @@ export default function WalletPage() {
 
       console.log("[WALLET] Payment verified successfully")
       toast.success("Payment verified! Your wallet will be updated shortly.")
-      
+
       // Refresh wallet data
       if (userId) {
         await Promise.all([
@@ -219,7 +221,7 @@ export default function WalletPage() {
     console.log("[WALLET-PAGE] Top up successful, amount:", amount)
     toast.success(`Wallet topped up by GHS ${amount.toFixed(2)}`)
     setShowTopUp(false)
-    
+
     if (userId) {
       console.log("[WALLET-PAGE] Refetching wallet data and transactions...")
       // Wait a bit more to ensure data is written
@@ -251,22 +253,26 @@ export default function WalletPage() {
         </div>
 
         {/* Balance Card */}
-        <Card className="bg-gradient-to-r from-blue-600 to-purple-600 text-white border-0">
+        <Card className={`text-white border-0 ${isDealer
+          ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500"
+          : "bg-gradient-to-r from-blue-600 to-purple-600"
+          }`}>
           <CardHeader>
             <CardTitle className="text-white">Current Balance</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-blue-100 text-sm">Available Balance</p>
+                <p className={`${isDealer ? "text-amber-100" : "text-blue-100"} text-sm`}>Available Balance</p>
                 <p className="text-2xl sm:text-3xl md:text-4xl font-bold">GHS {walletData.balance.toFixed(2)}</p>
               </div>
-              <Wallet className="w-16 h-16 text-blue-100 opacity-50" />
+              <Wallet className={`w-16 h-16 opacity-50 ${isDealer ? "text-amber-100" : "text-blue-100"}`} />
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-              <Button 
+              <Button
                 onClick={() => setShowTopUp(!showTopUp)}
-                className="bg-white text-blue-600 hover:bg-gray-100 w-full sm:w-auto"
+                className={`bg-white hover:bg-gray-100 w-full sm:w-auto ${isDealer ? "text-amber-600" : "text-blue-600"
+                  }`}
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Funds
@@ -352,9 +358,8 @@ export default function WalletPage() {
                             {new Date(transaction.created_at).toLocaleDateString()}
                           </td>
                           <td className="px-4 py-3">{transaction.description}</td>
-                          <td className={`px-4 py-3 font-semibold ${
-                            transaction.type.includes("credit") ? "text-green-600" : "text-red-600"
-                          }`}>
+                          <td className={`px-4 py-3 font-semibold ${transaction.type.includes("credit") ? "text-green-600" : "text-red-600"
+                            }`}>
                             {transaction.type.includes("credit") ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
                           </td>
                           <td className="px-4 py-3">

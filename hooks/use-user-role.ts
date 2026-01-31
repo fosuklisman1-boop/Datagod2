@@ -4,7 +4,12 @@ import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 
 export function useUserRole() {
-  const [role, setRole] = useState<string | null>(null)
+  const [role, setRole] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('userRole')
+    }
+    return null
+  })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -26,10 +31,12 @@ export function useUserRole() {
 
         if (userData?.role) {
           setRole(userData.role)
+          localStorage.setItem('userRole', userData.role)
         } else {
           // Fallback: check user_metadata
           const metadataRole = session.user.user_metadata?.role
           setRole(metadataRole || "user")
+          localStorage.setItem('userRole', metadataRole || "user")
         }
       } catch (error) {
         console.error("Error fetching user role:", error)

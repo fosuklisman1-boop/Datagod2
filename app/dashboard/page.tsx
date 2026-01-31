@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { useAuth } from "@/hooks/use-auth"
 import { useOnboarding } from "@/hooks/use-onboarding"
+import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { WalletOnboardingModal } from "@/components/onboarding/wallet-onboarding-modal"
 import { PhoneRequiredModal } from "@/components/phone-required-modal"
@@ -47,6 +48,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
   const { showOnboarding, completeOnboarding, isLoading: onboardingLoading } = useOnboarding()
+  const { isDealer } = useUserRole()
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
@@ -68,28 +70,28 @@ export default function DashboardPage() {
   useEffect(() => {
     const checkSubAgent = async () => {
       if (!user) return
-      
+
       try {
         const { data: userShop } = await supabase
           .from("user_shops")
           .select("id, parent_shop_id")
           .eq("user_id", user.id)
           .single()
-        
+
         if (userShop?.parent_shop_id) {
           // Sub-agent detected - redirect immediately
           console.log("[DASHBOARD] Sub-agent detected, redirecting to buy-stock")
           router.replace("/dashboard/buy-stock")
           return
         }
-        
+
         setIsSubAgent(false)
       } catch {
         // No shop or error - not a sub-agent
         setIsSubAgent(false)
       }
     }
-    
+
     if (user && !authLoading) {
       checkSubAgent()
     }
@@ -129,7 +131,7 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (user?.id) {
         setUserEmail(user.email || "")
-        
+
         // Fetch user profile from users table
         const { data: userProfile, error } = await supabase
           .from("users")
@@ -142,7 +144,7 @@ export default function DashboardPage() {
           const name = userProfile.last_name || userProfile.first_name || user.email?.split("@")[0] || "User"
           setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
           setUserRole(userProfile.role || "user")
-          
+
           // Check if user has phone number, show modal if not
           if (!userProfile.phone_number) {
             setShowPhoneRequired(true)
@@ -161,7 +163,7 @@ export default function DashboardPage() {
           const now = new Date()
           const diffTime = Math.abs(now.getTime() - date.getTime())
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-          
+
           if (diffDays < 1) {
             setJoinDate("Today")
           } else if (diffDays < 7) {
@@ -295,7 +297,7 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
-      <WalletOnboardingModal 
+      <WalletOnboardingModal
         open={showOnboarding && !onboardingLoading}
         onComplete={completeOnboarding}
       />
@@ -305,40 +307,50 @@ export default function DashboardPage() {
       />
       <div className="space-y-6">
         {/* Greeting Card */}
-        <Card className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 border-0 hover:shadow-2xl transition-all duration-300 text-white">
+        <Card className={`border-0 hover:shadow-2xl transition-all duration-300 text-white ${isDealer
+          ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500"
+          : "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600"
+          }`}>
           <CardContent className="pt-6">
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h2 className="text-3xl font-bold mb-1">{getGreeting()}, {firstName}! {getGreetingEmoji()}</h2>
-                <p className="text-indigo-100">{new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}</p>
+                <p className={isDealer ? "text-amber-100" : "text-indigo-100"}>
+                  {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                </p>
               </div>
               <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center backdrop-blur border border-white/30">
-                <TrendingUp className="w-8 h-8 text-white" />
+                <TrendingUp className="h-8 w-8 text-white" />
               </div>
             </div>
-            
+
             <div className="grid grid-cols-3 gap-4 mt-6">
               <div className="bg-white/10 backdrop-blur rounded-lg p-3 border border-white/20">
-                <p className="text-indigo-100 text-xs font-medium">Role</p>
-                <p className="text-white font-semibold mt-1">Premium Agent</p>
+                <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Role</p>
+                <p className="text-white font-semibold mt-1">{isDealer ? "Authorized Dealer" : "Premium Agent"}</p>
               </div>
               <div className="bg-white/10 backdrop-blur rounded-lg p-3 border border-white/20">
-                <p className="text-indigo-100 text-xs font-medium">Status</p>
+                <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Status</p>
                 <p className="text-white font-semibold mt-1">Active</p>
               </div>
               <div className="bg-white/10 backdrop-blur rounded-lg p-3 border border-white/20">
-                <p className="text-indigo-100 text-xs font-medium">Member Since</p>
+                <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Member Since</p>
                 <p className="text-white font-semibold mt-1">{joinDate || "Recently"}</p>
               </div>
             </div>
 
-            <p className="text-indigo-100 mt-4">Here's what's happening with your data packages today.</p>
+            <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} mt-4`}>Here's what's happening with your data packages today.</p>
           </CardContent>
         </Card>
 
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Dashboard</h1>
+          <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold bg-clip-text text-transparent ${isDealer
+            ? "bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600"
+            : "bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600"
+            }`}>
+            Dashboard
+          </h1>
           <p className="text-gray-500 mt-1 font-medium">Welcome back! Here's your account overview.</p>
         </div>
 
@@ -415,7 +427,7 @@ export default function DashboardPage() {
           </Card>
 
           {/* Wallet Balance */}
-          <Card 
+          <Card
             className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40 hover:border-green-300/60"
             data-tour="wallet-balance"
           >
@@ -441,26 +453,26 @@ export default function DashboardPage() {
             <CardDescription>Get started with common tasks</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Button 
+            <Button
               onClick={() => router.push("/dashboard/my-shop")}
               className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 font-semibold text-white"
             >
               Create Shop
             </Button>
-            <Button 
+            <Button
               onClick={() => router.push("/dashboard/data-packages")}
               className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 font-semibold text-white"
             >
               Buy Data Package
             </Button>
-            <Button 
+            <Button
               variant="outline"
               onClick={() => router.push("/dashboard/my-orders")}
               className="hover:bg-cyan-50/80 hover:backdrop-blur hover:border-cyan-400 hover:text-cyan-700 transition-all duration-300 hover:shadow-md font-semibold bg-cyan-50/30 backdrop-blur border-cyan-300/40 text-cyan-700"
             >
               View My Orders
             </Button>
-            <Button 
+            <Button
               variant="outline"
               onClick={() => router.push("/dashboard/wallet")}
               className="hover:bg-emerald-50/80 hover:backdrop-blur hover:border-emerald-400 hover:text-emerald-700 transition-all duration-300 hover:shadow-md font-semibold bg-emerald-50/30 backdrop-blur border-emerald-300/40 text-emerald-700"
