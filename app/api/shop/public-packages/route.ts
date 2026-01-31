@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     // Get shop by slug
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id, shop_name, parent_shop_id, is_active")
+      .select("id, shop_name, user_id, parent_shop_id, is_active")
       .eq("shop_slug", shopSlug)
       .eq("is_active", true)
       .single()
@@ -45,6 +45,14 @@ export async function GET(request: NextRequest) {
     if (shopError || !shop) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
+
+    // Fetch user role to check for dealer pricing
+    const { data: userData } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", shop.user_id)
+      .single()
+    const isDealer = userData?.role === 'dealer'
 
     let packages: any[] = []
 
@@ -65,6 +73,7 @@ export async function GET(request: NextRequest) {
             network,
             size,
             price,
+            dealer_price,
             description,
             active
           )
@@ -124,6 +133,7 @@ export async function GET(request: NextRequest) {
               network,
               size,
               price,
+              dealer_price,
               description,
               active
             )
@@ -181,6 +191,7 @@ export async function GET(request: NextRequest) {
             network,
             size,
             price,
+            dealer_price,
             description,
             active
           )
@@ -196,10 +207,20 @@ export async function GET(request: NextRequest) {
       // Filter out inactive admin packages
       packages = (shopPackages || [])
         .filter((item: any) => item.packages?.active !== false)
-        .map((item: any) => ({
-          ...item,
-          selling_price: item.packages.price + item.profit_margin
-        }))
+        .map((item: any) => {
+          const basePrice = (isDealer && item.packages.dealer_price > 0)
+            ? item.packages.dealer_price
+            : item.packages.price;
+
+          return {
+            ...item,
+            packages: {
+              ...item.packages,
+              price: basePrice
+            },
+            selling_price: basePrice + item.profit_margin
+          }
+        })
     }
 
     // Get global ordering status
