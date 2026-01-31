@@ -871,6 +871,25 @@ export async function POST(request: NextRequest) {
             if (!plan) {
               console.error(`[WEBHOOK] ❌ Subscription plan ${planId} not found`)
             } else {
+              // SECURITY CHECK: Verify paid amount matches plan price
+              // This protects against plan switching or manipulated initialization
+              const paidAmountGHS = amount / 100
+              const planPrice = Number(plan.price)
+              const fee = Number(paymentData.fee || 0)
+              const expectedTotal = planPrice + fee
+
+              // Allow small floating point difference (0.05) or exact pesewa match
+              const diff = Math.abs(paidAmountGHS - expectedTotal)
+              if (diff > 0.05) {
+                console.error(`[WEBHOOK] ❌ DEALER UPGRADE PRICE MISMATCH! Plan: ${planPrice}, Fee: ${fee}, Paid: ${paidAmountGHS}, Expected: ${expectedTotal}`)
+                // Stop processing - do not grant upgrade
+                return NextResponse.json(
+                  { error: "Payment amount does not match plan price" },
+                  { status: 400 }
+                )
+              }
+              console.log(`[WEBHOOK] ✓ Dealer upgrade price verified: Paid ${paidAmountGHS} (Plan ${planPrice} + Fee ${fee})`)
+
               // 1. Update user role to dealer
               const { error: userUpdateError } = await supabase
                 .from("users")
