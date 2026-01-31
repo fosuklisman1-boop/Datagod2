@@ -3,11 +3,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
-import { 
-  isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled, 
-  createMTNOrder, 
-  saveMTNTracking, 
-  normalizePhoneNumber 
+import {
+  isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
+  createMTNOrder,
+  saveMTNTracking,
+  normalizePhoneNumber
 } from "@/lib/mtn-fulfillment"
 
 const supabase = createClient(
@@ -25,11 +25,11 @@ async function isAutoFulfillmentEnabled(): Promise<boolean> {
       .select("value")
       .eq("key", "auto_fulfillment_enabled")
       .single()
-    
+
     if (error || !data) {
       return true
     }
-    
+
     return data.value?.enabled ?? true
   } catch (error) {
     console.warn("[WALLET-DEBIT] Error checking auto-fulfillment setting:", error)
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
         const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
         if (Math.abs(amount - shopOrder.total_price) > tolerance) {
           console.error(`[WALLET-DEBIT] ❌ AMOUNT MISMATCH! Debit: ${amount}, Order Total: ${shopOrder.total_price}, Order ID: ${orderId}`)
-          
+
           // Refund the incorrectly debited amount
           await supabase
             .from("wallets")
@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("user_id", user.id)
-          
+
           // Mark order as failed
           await supabase
             .from("shop_orders")
@@ -193,15 +193,15 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", orderId)
-          
+
           return NextResponse.json(
             { error: "Payment amount mismatch - order cancelled" },
             { status: 400 }
           )
         }
-        
+
         console.log(`[WALLET-DEBIT] ✓ Amount verified: ${amount} GHS matches order total: ${shopOrder.total_price} GHS`)
-        
+
         console.log("[WALLET-DEBIT] Marking shop order payment as completed...")
         const { error: updateShopOrderError } = await supabase
           .from("shop_orders")
@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
           console.error("[WALLET-DEBIT] Failed to update shop order:", updateShopOrderError)
         } else {
           console.log("[WALLET-DEBIT] ✓ Shop order payment status updated to completed")
-          
+
           // Track customer NOW that payment is confirmed
           // This prevents inflated customer revenue from abandoned orders
           try {
@@ -229,21 +229,21 @@ export async function POST(request: NextRequest) {
               slug: "wallet-purchase",
               orderId: orderId,
             })
-            
+
             // Update shop_orders with the customer ID
             if (trackingResult?.customerId) {
               await supabase
                 .from("shop_orders")
                 .update({ shop_customer_id: trackingResult.customerId })
                 .eq("id", orderId)
-              
+
               console.log(`[WALLET-DEBIT] ✓ Customer tracked: ${trackingResult.customerId}, Repeat: ${trackingResult.isRepeatCustomer}`)
             }
           } catch (trackingError) {
             console.error("[WALLET-DEBIT] Customer tracking error (non-blocking):", trackingError)
             // Continue without tracking if it fails
           }
-          
+
           // Send SMS notification about successful purchase
           if (shopOrder.customer_phone) {
             // Don't send purchase SMS if order is blacklisted
@@ -252,14 +252,14 @@ export async function POST(request: NextRequest) {
             } else {
               try {
                 const smsMessage = `You have successfully placed an order of ${shopOrder.network} ${shopOrder.volume_gb}GB to ${shopOrder.customer_phone}. If delayed over 2 hours, contact support.`
-                
+
                 await sendSMS({
                   phone: shopOrder.customer_phone,
                   message: smsMessage,
                   type: 'data_purchase_success',
                   reference: orderId,
                 }).catch(err => console.error("[WALLET-DEBIT] SMS error:", err))
-                
+
                 console.log("[WALLET-DEBIT] ✓ SMS notification sent")
               } catch (smsError) {
                 console.warn("[WALLET-DEBIT] Failed to send purchase SMS:", smsError)
@@ -271,21 +271,21 @@ export async function POST(request: NextRequest) {
           const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
           const normalizedNetwork = shopOrder.network?.trim() || ""
           const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
-          
+
           const autoFulfillEnabled = await isAutoFulfillmentEnabled()
           const shouldFulfill = isAutoFulfillable && autoFulfillEnabled && shopOrder.customer_phone
-          
+
           console.log(`[WALLET-DEBIT] Network: "${shopOrder.network}" | Auto-fulfillable: ${isAutoFulfillable} | Enabled: ${autoFulfillEnabled} | Should fulfill: ${shouldFulfill}`)
-          
+
           if (shouldFulfill) {
             try {
               const sizeGb = parseInt(shopOrder.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
               const networkLower = normalizedNetwork.toLowerCase()
               const isBigTime = networkLower.includes("bigtime")
               const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-              
+
               console.log(`[WALLET-DEBIT] Triggering fulfillment: ${apiNetwork}, ${sizeGb}GB to ${shopOrder.customer_phone}`)
-              
+
               atishareService.fulfillOrder({
                 phoneNumber: shopOrder.customer_phone,
                 sizeGb,
@@ -309,11 +309,11 @@ export async function POST(request: NextRequest) {
             console.log(`[WALLET-DEBIT] MTN order detected. Processing MTN fulfillment for order ${orderId}`)
             const sizeGb = parseInt(shopOrder.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
             const normalizedPhone = normalizePhoneNumber(shopOrder.customer_phone)
-            
+
             // Check if MTN auto-fulfillment is enabled
             const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
             console.log(`[WALLET-DEBIT] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
-            
+
             if (mtnAutoEnabled) {
               // Non-blocking MTN fulfillment via direct API call
               (async () => {
@@ -344,9 +344,9 @@ export async function POST(request: NextRequest) {
                     size_gb: sizeGb,
                   }
                   const mtnResult = await createMTNOrder(mtnRequest)
-                  
+
                   console.log(`[WALLET-DEBIT] ✓ MTN API response for order ${orderId}:`, mtnResult)
-                  
+
                   // Save tracking record (saveMTNTracking takes 5 arguments: shopOrderId, mtnOrderId, request, response, orderType)
                   if (mtnResult.order_id) {
                     await saveMTNTracking(
@@ -357,7 +357,7 @@ export async function POST(request: NextRequest) {
                       "shop"  // Storefront order via Wallet
                     )
                   }
-                  
+
                   // Update shop order status
                   if (mtnResult.success) {
                     await supabase
@@ -380,10 +380,97 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // Create shop profit record for the shop owner
+        if (shopOrder.profit_amount > 0) {
+          console.log(`[WALLET-DEBIT] Crediting shop owner ${shopOrder.shop_id} with GHS ${shopOrder.profit_amount}`)
+
+          const { error: shopProfitError } = await supabase
+            .from("shop_profits")
+            .insert([
+              {
+                shop_id: shopOrder.shop_id,
+                shop_order_id: orderId,
+                profit_amount: shopOrder.profit_amount,
+                status: "credited",
+                created_at: new Date().toISOString(),
+              }
+            ])
+
+          if (shopProfitError) {
+            console.error("[WALLET-DEBIT] Error creating shop profit record:", shopProfitError)
+          } else {
+            console.log(`[WALLET-DEBIT] ✓ Shop profit record created: GHS ${shopOrder.profit_amount.toFixed(2)}`)
+
+            // Sync shop available balance
+            try {
+              const { data: shopProfits, error: shopProfitFetchError } = await supabase
+                .from("shop_profits")
+                .select("profit_amount, status")
+                .eq("shop_id", shopOrder.shop_id)
+
+              if (!shopProfitFetchError && shopProfits) {
+                const shopBreakdown = {
+                  totalProfit: 0,
+                  creditedProfit: 0,
+                  withdrawnProfit: 0,
+                }
+
+                shopProfits.forEach((p: any) => {
+                  const amt = p.profit_amount || 0
+                  shopBreakdown.totalProfit += amt
+                  if (p.status === "credited") {
+                    shopBreakdown.creditedProfit += amt
+                  } else if (p.status === "withdrawn") {
+                    shopBreakdown.withdrawnProfit += amt
+                  }
+                })
+
+                const { data: shopWithdrawals } = await supabase
+                  .from("withdrawal_requests")
+                  .select("amount")
+                  .eq("shop_id", shopOrder.shop_id)
+                  .eq("status", "approved")
+
+                let totalShopWithdrawals = 0
+                if (shopWithdrawals) {
+                  totalShopWithdrawals = shopWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
+                }
+
+                const shopAvailableBalance = Math.max(0, shopBreakdown.creditedProfit - totalShopWithdrawals)
+
+                // Delete and insert fresh balance record
+                await supabase
+                  .from("shop_available_balance")
+                  .delete()
+                  .eq("shop_id", shopOrder.shop_id)
+
+                await supabase
+                  .from("shop_available_balance")
+                  .insert([
+                    {
+                      shop_id: shopOrder.shop_id,
+                      available_balance: shopAvailableBalance,
+                      total_profit: shopBreakdown.totalProfit,
+                      withdrawn_amount: shopBreakdown.withdrawnProfit,
+                      credited_profit: shopBreakdown.creditedProfit,
+                      withdrawn_profit: shopBreakdown.withdrawnProfit,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }
+                  ])
+
+                console.log(`[WALLET-DEBIT] ✓ Shop owner available balance synced: GHS ${shopAvailableBalance.toFixed(2)}`)
+              }
+            } catch (syncError) {
+              console.error("[WALLET-DEBIT] Error syncing shop owner balance:", syncError)
+            }
+          }
+        }
+
         // Create parent shop profit record if this is a sub-agent order
         if (shopOrder.parent_shop_id && shopOrder.parent_profit_amount > 0) {
           console.log(`[WALLET-DEBIT] Sub-agent purchase detected. Crediting parent shop ${shopOrder.parent_shop_id} with GHS ${shopOrder.parent_profit_amount}`)
-          
+
           const { error: parentProfitError } = await supabase
             .from("shop_profits")
             .insert([
@@ -400,7 +487,7 @@ export async function POST(request: NextRequest) {
             console.error("[WALLET-DEBIT] Error creating parent shop profit record:", parentProfitError)
           } else {
             console.log(`[WALLET-DEBIT] ✓ Parent shop profit record created: GHS ${shopOrder.parent_profit_amount.toFixed(2)}`)
-            
+
             // Sync parent shop available balance
             try {
               const { data: parentProfits, error: parentProfitFetchError } = await supabase
