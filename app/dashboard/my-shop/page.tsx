@@ -974,106 +974,111 @@ export default function MyShopPage() {
 
                             return filteredPackages
                               .sort((a, b) => parseFloat(a.size) - parseFloat(b.size))
-                              .map((pkg) => (
-                                <Card key={pkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
-                                  <CardContent className="p-4 space-y-3">
-                                    <div>
-                                      <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
-                                      <p className="text-sm text-gray-600">
-                                        {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {(pkg.parent_price ?? pkg.price ?? 0).toFixed(2)}
-                                      </p>
-                                    </div>
+                              .map((pkg) => {
+                                const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
+                                const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
+                                const displayBasePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
 
-                                    {(() => {
-                                      const isAdded = packages.find(p => p.package_id === (pkg.package_id || pkg.id))
-                                      return (
-                                        <>
-                                          {isAdded && (
-                                            <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
-                                              <p className="text-blue-700">
-                                                <span className="font-semibold">Your Cost (Wholesale):</span> GHS {(pkg.parent_price ?? pkg.price ?? 0).toFixed(2)}
+                                return (
+                                  <Card key={pkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
+                                    <CardContent className="p-4 space-y-3">
+                                      <div>
+                                        <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
+                                        <p className="text-sm text-gray-600">
+                                          {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
+                                        </p>
+                                      </div>
+
+                                      {(() => {
+                                        const isAdded = packages.find(p => p.package_id === (pkg.package_id || pkg.id))
+                                        return (
+                                          <>
+                                            {isAdded && (
+                                              <div className="bg-blue-50 p-2 rounded-md text-xs border border-blue-200">
+                                                <p className="text-blue-700">
+                                                  <span className="font-semibold">Your Cost (Wholesale):</span> GHS {displayBasePrice.toFixed(2)}
+                                                </p>
+                                                <p className="text-blue-700">
+                                                  <span className="font-semibold">Current Selling Price:</span> GHS {(displayBasePrice + (isAdded.profit_margin || 0)).toFixed(2)}
+                                                </p>
+                                                <p className="text-blue-600">
+                                                  Your Profit: GHS {(isAdded.profit_margin || 0).toFixed(2)}
+                                                </p>
+                                              </div>
+                                            )}
+                                          </>
+                                        )
+                                      })()}
+
+                                      <div>
+                                        <Label className="text-xs">Your Selling Price (GHS)</Label>
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          placeholder="Enter price"
+                                          value={selectedPackage === pkg.id ? profitMargin : ""}
+                                          onChange={(e) => {
+                                            setSelectedPackage(pkg.id)
+                                            setProfitMargin(e.target.value)
+                                          }}
+                                          className="mt-1 text-sm"
+                                        />
+                                      </div>
+
+                                      {selectedPackage === pkg.id && profitMargin && (
+                                        (() => {
+                                          const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
+                                          const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
+                                          const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
+                                          const sellingPrice = parseFloat(profitMargin)
+                                          const profit = sellingPrice - basePrice
+                                          const isNegative = profit < 0
+                                          return (
+                                            <div className={`p-2 rounded-md text-xs space-y-1 ${isNegative
+                                              ? "bg-red-50 border border-red-200"
+                                              : "bg-emerald-50"
+                                              }`}>
+                                              <p className={isNegative ? "text-red-700" : "text-emerald-700"}>
+                                                <span className="font-semibold">Your Profit:</span> GHS {profit.toFixed(2)}
                                               </p>
-                                              <p className="text-blue-700">
-                                                <span className="font-semibold">Current Selling Price:</span> GHS {((pkg.parent_price ?? pkg.price ?? 0) + (isAdded.profit_margin || 0)).toFixed(2)}
-                                              </p>
-                                              <p className="text-blue-600">
-                                                Your Profit: GHS {(isAdded.profit_margin || 0).toFixed(2)}
-                                              </p>
+                                              {isNegative && (
+                                                <p className="text-red-600 text-xs">
+                                                  ⚠️ Selling price must be higher than base price
+                                                </p>
+                                              )}
                                             </div>
-                                          )}
-                                        </>
-                                      )
-                                    })()}
+                                          )
+                                        })()
+                                      )}
 
-                                    <div>
-                                      <Label className="text-xs">Your Selling Price (GHS)</Label>
-                                      <Input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder="Enter price"
-                                        value={selectedPackage === pkg.id ? profitMargin : ""}
-                                        onChange={(e) => {
-                                          setSelectedPackage(pkg.id)
-                                          setProfitMargin(e.target.value)
-                                        }}
-                                        className="mt-1 text-sm"
-                                      />
-                                    </div>
-
-                                    {selectedPackage === pkg.id && profitMargin && (
-                                      (() => {
+                                      {(() => {
+                                        const isAdded = packages.some(p => p.package_id === (pkg.package_id || pkg.id))
                                         const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
                                         const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
                                         const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
-                                        const sellingPrice = parseFloat(profitMargin)
-                                        const profit = sellingPrice - basePrice
-                                        const isNegative = profit < 0
+                                        const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
+                                        const hasNegativeProfit = profit < 0
                                         return (
-                                          <div className={`p-2 rounded-md text-xs space-y-1 ${isNegative
-                                            ? "bg-red-50 border border-red-200"
-                                            : "bg-emerald-50"
-                                            }`}>
-                                            <p className={isNegative ? "text-red-700" : "text-emerald-700"}>
-                                              <span className="font-semibold">Your Profit:</span> GHS {profit.toFixed(2)}
-                                            </p>
-                                            {isNegative && (
-                                              <p className="text-red-600 text-xs">
-                                                ⚠️ Selling price must be higher than base price
-                                              </p>
-                                            )}
-                                          </div>
+                                          <Button
+                                            onClick={() => {
+                                              if (selectedPackage === pkg.id && profitMargin) {
+                                                handleAddPackage()
+                                              }
+                                            }}
+                                            disabled={selectedPackage !== pkg.id || !profitMargin || hasNegativeProfit}
+                                            size="sm"
+                                            className={`w-full ${isAdded
+                                              ? "bg-blue-600 hover:bg-blue-700"
+                                              : "bg-emerald-600 hover:bg-emerald-700"
+                                              } disabled:opacity-50`}
+                                          >
+                                            {isAdded ? "✓ Edit" : "Add to Shop"}
+                                          </Button>
                                         )
-                                      })()
-                                    )}
-
-                                    {(() => {
-                                      const isAdded = packages.some(p => p.package_id === (pkg.package_id || pkg.id))
-                                      const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
-                                      const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
-                                      const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
-                                      const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
-                                      const hasNegativeProfit = profit < 0
-                                      return (
-                                        <Button
-                                          onClick={() => {
-                                            if (selectedPackage === pkg.id && profitMargin) {
-                                              handleAddPackage()
-                                            }
-                                          }}
-                                          disabled={selectedPackage !== pkg.id || !profitMargin || hasNegativeProfit}
-                                          size="sm"
-                                          className={`w-full ${isAdded
-                                            ? "bg-blue-600 hover:bg-blue-700"
-                                            : "bg-emerald-600 hover:bg-emerald-700"
-                                            } disabled:opacity-50`}
-                                        >
-                                          {isAdded ? "✓ Edit" : "Add to Shop"}
-                                        </Button>
-                                      )
-                                    })()}
-                                  </CardContent>
-                                </Card>
-                              ))
+                                      })()}
+                                    </CardContent>
+                                  </Card>
+                                })
                           })()}
                         </div>
                       </div>
