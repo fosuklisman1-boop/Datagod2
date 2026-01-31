@@ -13,6 +13,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { authService } from "@/lib/auth"
+import { useUserRole } from "@/hooks/use-user-role"
 
 interface UserProfile {
   firstName: string
@@ -34,6 +35,7 @@ interface UserStats {
 export default function ProfilePage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const { isDealer } = useUserRole()
   const [profile, setProfile] = useState<UserProfile>({
     firstName: "",
     lastName: "",
@@ -94,7 +96,7 @@ export default function ProfilePage() {
       // Get user profile from users table
       const { data: profileData, error: profileError } = await supabase
         .from("users")
-        .select("first_name, last_name, phone_number, created_at")
+        .select("first_name, last_name, phone_number, created_at, role")
         .eq("id", user.id)
         .single()
 
@@ -111,7 +113,7 @@ export default function ProfilePage() {
         firstName = profileData.first_name || firstName
         lastName = profileData.last_name || ""
         phone = profileData.phone_number || ""
-        
+
         if (profileData.created_at) {
           memberSince = new Date(profileData.created_at).toLocaleDateString("en-US", {
             year: "numeric",
@@ -126,7 +128,7 @@ export default function ProfilePage() {
         lastName,
         email,
         phone,
-        role: "Agent",
+        role: profileData?.role || "user",
         status: "ACTIVE",
         memberSince,
       })
@@ -347,31 +349,36 @@ export default function ProfilePage() {
         </div>
 
         {/* Profile Header Card */}
-        <Card className="bg-gradient-to-r from-blue-600 to-purple-600 text-white border-0">
+        <Card className={`border-0 text-white ${isDealer
+            ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500"
+            : "bg-gradient-to-r from-blue-600 to-purple-600"
+          }`}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center">
-                  <User className="w-8 h-8 text-blue-600" />
+                  <User className={`w-8 h-8 ${isDealer ? "text-amber-600" : "text-blue-600"}`} />
                 </div>
                 <div>
                   <h2 className="text-2xl font-bold">{profile.firstName} {profile.lastName}</h2>
-                  <p className="text-blue-100">{profile.email}</p>
+                  <p className={isDealer ? "text-amber-100" : "text-blue-100"}>{profile.email}</p>
                   <div className="flex gap-2 mt-2">
-                    <Badge className="bg-white text-blue-600">{profile.role}</Badge>
+                    <Badge className={`bg-white ${isDealer ? "text-amber-600" : "text-blue-600"}`}>
+                      {profile.role ? profile.role.toUpperCase() : "USER"}
+                    </Badge>
                     <Badge className="bg-green-500">{profile.status}</Badge>
                   </div>
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button 
-                  className="bg-white text-blue-600 hover:bg-gray-100"
+                <Button
+                  className={`bg-white hover:bg-gray-100 ${isDealer ? "text-amber-600" : "text-blue-600"}`}
                   onClick={handleOpenEditDialog}
                 >
                   Edit Profile
                 </Button>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="border-white text-white hover:bg-white/20"
                   onClick={() => setShowChangePasswordDialog(true)}
                 >
