@@ -3,6 +3,17 @@ import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
+import {
+  isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
+  createMTNOrder,
+  saveMTNTracking,
+  normalizePhoneNumber,
+} from "@/lib/mtn-fulfillment"
+import { atishareService } from "@/lib/at-ishare-service"
+import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
+// create-bulk uses `supabase` created with serviceRoleKey which IS admin privileges.
+// But `isAutoFulfillmentEnabled` helper in purchase uses `supabaseAdmin`.
+// Here `supabase` = createClient(..., serviceRoleKey) so it is admin.
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -298,6 +309,157 @@ export async function POST(request: NextRequest) {
         console.warn("[SMS] Failed to send bulk order SMS:", smsError)
         // Don't fail the bulk order if SMS fails
       }
+    }
+
+    // Trigger MTN Fulfillment (Automatic)
+    const normalizedNetwork = network?.trim() || ""
+    const isMTNNetwork = normalizedNetwork.toLowerCase() === "mtn"
+
+    if (isMTNNetwork && createdOrders && createdOrders.length > 0) {
+      console.log(`[BULK-FULFILLMENT] MTN bulk order detected. Checking MTN auto-fulfillment setting...`)
+
+        // Use IIFE for non-blocking execution to allow response to return fast
+        // Note: On some serverless platforms this might be cut off, but following existing pattern from purchase route
+        ; (async () => {
+          try {
+            const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
+            console.log(`[BULK-FULFILLMENT] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
+
+            if (!mtnAutoEnabled) {
+              console.log(`[BULK-FULFILLMENT] MTN auto-fulfillment disabled. Orders will go to admin queue.`)
+              return
+            }
+
+            console.log(`[BULK-FULFILLMENT] Starting async fulfillment for ${createdOrders.length} orders...`)
+
+            // Process each order
+            for (const order of createdOrders) {
+              try {
+                // Check if order is in blacklist queue
+                if (order.queue === "blacklisted") {
+                  console.log(`[BULK-FULFILLMENT] ⚠️ Order ${order.id} is in blacklist queue - skipping MTN fulfillment`)
+                  continue
+                }
+
+                const sizeGb = parseFloat(order.size) || 0
+                const normalizedPhone = normalizePhoneNumber(order.phone_number)
+                console.log(`[BULK-FULFILLMENT] Calling MTN API for order ${order.id}: ${normalizedPhone}, ${sizeGb}GB`)
+
+                const mtnRequest = {
+                  recipient_phone: normalizedPhone,
+                  network: "MTN" as const,
+                  size_gb: sizeGb,
+                }
+
+                // Call MTN API
+                const mtnResult = await createMTNOrder(mtnRequest)
+
+                console.log(`[BULK-FULFILLMENT] ✓ MTN API response for order ${order.id}:`, mtnResult)
+
+                // Save tracking record
+                if (mtnResult.order_id) {
+                  await saveMTNTracking(
+                    order.id,      // order_id from orders table
+                    mtnResult.order_id,
+                    mtnRequest,
+                    mtnResult,
+                    "bulk"         // this is a bulk order
+                  )
+                }
+
+                // Update order status if successful
+                if (mtnResult.success) {
+                  await supabase
+                    .from("orders")
+                    .update({
+                      status: "processing",
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq("id", order.id)
+
+                  console.log(`[BULK-FULFILLMENT] ✓ Order ${order.id} marked as processing via MTN auto-fulfillment`)
+                } else {
+                  console.log(`[BULK-FULFILLMENT] ✗ Order ${order.id} failed MTN fulfillment: ${mtnResult.message}`)
+                }
+
+                // Small delay to prevent rate limit spikes if many orders
+                await new Promise(resolve => setTimeout(resolve, 200))
+
+              } catch (orderError) {
+                console.error(`[BULK-FULFILLMENT] Error processing order ${order.id}:`, orderError)
+              }
+            }
+          } catch (err) {
+            console.error(`[BULK-FULFILLMENT] Global error in bulk processing block:`, err)
+          }
+        })()
+    }
+
+    // Trigger Fulfillment for Other Networks (AT, Telecel)
+    const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
+    const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork.toLowerCase())
+
+    if (isAutoFulfillable && createdOrders && createdOrders.length > 0) {
+      console.log(`[BULK-FULFILLMENT] ${network} bulk order detected. Checking auto-fulfillment settings...`)
+
+        ; (async () => {
+          try {
+            // Check generic auto-fulfillment setting
+            const { data: setting } = await supabase
+              .from("admin_settings")
+              .select("value")
+              .eq("key", "auto_fulfillment_enabled")
+              .single()
+
+            const autoFulfillEnabled = setting?.value?.enabled ?? true
+
+            if (!autoFulfillEnabled) {
+              console.log(`[BULK-FULFILLMENT] Auto-fulfillment disabled for ${network}. Orders will go to admin queue.`)
+              return
+            }
+
+            console.log(`[BULK-FULFILLMENT] Starting async fulfillment for ${createdOrders.length} ${network} orders...`)
+            const networkLower = normalizedNetwork.toLowerCase()
+            const isBigTime = networkLower.includes("bigtime")
+            const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
+
+            for (const order of createdOrders) {
+              try {
+                // Check blacklist
+                if (order.queue === "blacklisted") {
+                  console.log(`[BULK-FULFILLMENT] ⚠️ Order ${order.id} is in blacklist queue - skipping fulfillment`)
+                  continue
+                }
+
+                const sizeGb = parseFloat(order.size) || 0
+                if (sizeGb === 0) continue
+
+                console.log(`[BULK-FULFILLMENT] Triggering ${apiNetwork} fulfillment for order ${order.id}: ${order.phone_number}, ${sizeGb}GB`)
+
+                atishareService.fulfillOrder({
+                  phoneNumber: order.phone_number,
+                  sizeGb,
+                  orderId: order.id,
+                  network: apiNetwork,
+                  orderType: "wallet", // Bulk creates orders in 'orders' table, same as wallet purchase
+                  isBigTime,
+                }).then(result => {
+                  console.log(`[BULK-FULFILLMENT] Fulfillment result for order ${order.id}:`, result)
+                }).catch(err => {
+                  console.error(`[BULK-FULFILLMENT] Failed fulfillment for order ${order.id}:`, err)
+                })
+
+                // Small delay to prevent rate limits
+                await new Promise(resolve => setTimeout(resolve, 300))
+
+              } catch (err) {
+                console.error(`[BULK-FULFILLMENT] Error in loop for order ${order.id}:`, err)
+              }
+            }
+          } catch (err) {
+            console.error(`[BULK-FULFILLMENT] Global error in non-MTN bulk processing:`, err)
+          }
+        })()
     }
 
     return NextResponse.json({
