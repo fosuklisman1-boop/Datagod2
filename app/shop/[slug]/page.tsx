@@ -161,9 +161,16 @@ export default function ShopStorefront() {
       const normalizedPhone = phoneResult.normalized
 
       const pkg = selectedPackage.packages
-      const basePrice = pkg.price
       const profitAmount = selectedPackage.profit_margin
-      const totalPrice = basePrice + profitAmount
+
+      // Use selling_price from API if available (for sub-agents), otherwise calculate
+      // This ensures we respect the dealer pricing logic used in public-packages API
+      const totalPrice = selectedPackage.selling_price !== undefined
+        ? selectedPackage.selling_price
+        : (pkg.price + profitAmount)
+
+      // Derive base price from total (total = base + profit)
+      const basePrice = totalPrice - profitAmount
 
       // Extract volume as number (e.g., "1GB" -> 1)
       const volumeGb = parseInt(pkg.size.toString().replace(/[^0-9]/g, "")) || 0
