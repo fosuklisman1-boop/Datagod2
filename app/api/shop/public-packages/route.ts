@@ -133,7 +133,10 @@ export async function GET(request: NextRequest) {
               : pkgPrice;
 
             const parentMargin = parentMargins[item.package_id] || 0;
-            const parentPrice = adminPrice + parentMargin;
+            // Use stored parent_price if available (source of truth), otherwise calculate
+            const parentPrice = (item.parent_price !== undefined && item.parent_price !== null)
+              ? Number(item.parent_price)
+              : (adminPrice + parentMargin);
 
             const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
               ? Number(item.sub_agent_profit_margin)
