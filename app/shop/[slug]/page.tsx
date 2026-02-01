@@ -755,7 +755,7 @@ export default function ShopStorefront() {
                   <div className="flex justify-between items-end mb-3">
                     <span className="font-semibold text-gray-700">Total Amount:</span>
                     <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
-                      GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
+                      GHS {(selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)).toFixed(2)}
                     </span>
                   </div>
                 </div>
