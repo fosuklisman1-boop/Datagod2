@@ -122,7 +122,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     console.log('[SMS] Sending to:', normalizedPhone, '- Message:', payload.message.substring(0, 60))
 
     const vasKey = process.env.MOOLRE_API_KEY || ''
-    const senderId = process.env.MOOLRE_SENDER_ID || 'BMSG'
+    const senderId = process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
 
     // Build query parameters
     const queryParams = new URLSearchParams({
