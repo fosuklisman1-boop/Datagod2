@@ -70,6 +70,22 @@ export const SMSTemplates = {
 
   adminDebited: (amount: string, balance: string) =>
     `DATAGOD: Your wallet has been debited GHS ${amount} by admin. New balance: GHS ${balance}`,
+
+  // Dealer subscription notifications
+  subscriptionSuccess: (planName: string, endDate: string) =>
+    `DATAGOD: ✓ Subscription activated! Plan: ${planName}. Valid until ${endDate}. Enjoy dealer privileges!`,
+
+  subscriptionExpiry1Day: (planName: string, endDate: string) =>
+    `DATAGOD: Your ${planName} subscription expires in 1 day (${endDate}). Renew now to keep dealer access.`,
+
+  subscriptionExpiry12Hours: (planName: string, endDate: string) =>
+    `DATAGOD: ⚠️ Your ${planName} subscription expires in 12 hours (${endDate}). Renew to avoid interruption.`,
+
+  subscriptionExpiry6Hours: (planName: string, endDate: string) =>
+    `DATAGOD: ⚠️ URGENT: Your ${planName} subscription expires in 6 hours (${endDate}). Renew now!`,
+
+  subscriptionExpiry1Hour: (planName: string, endDate: string) =>
+    `DATAGOD: 🚨 CRITICAL: Your ${planName} subscription expires in 1 hour (${endDate}). Renew immediately!`,
 }
 
 /**

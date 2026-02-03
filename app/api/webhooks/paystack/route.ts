@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS, notifyPaymentMismatch } from "@/lib/sms-service"
+import { sendSMS, notifyPaymentMismatch, SMSTemplates } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
@@ -298,8 +298,8 @@ export async function POST(request: NextRequest) {
 
 
 
-      if (paidAmountPesewas !== expectedAmountPesewas) {
-        console.error(`[WEBHOOK] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}, Reference: ${reference}`);
+      if (paidAmountPesewas < expectedAmountPesewas) {
+        console.error(`[WEBHOOK] ❌ PAYMENT UNDERPAYMENT DETECTED! Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}, Reference: ${reference}`);
         console.error(`[WEBHOOK] Price debug info:`, priceDebugInfo);
 
         // Alert admins via SMS (non-blocking)
@@ -309,13 +309,13 @@ export async function POST(request: NextRequest) {
           expectedAmountPesewas / 100
         ).catch(err => console.error("[WEBHOOK] Failed to notify admins:", err))
 
-        // Update payment as failed due to amount mismatch
+        // Update payment as failed due to underpayment
         await supabase
           .from("wallet_payments")
           .update({
             status: "failed",
             amount_received: paidAmountPesewas / 100,
-            failure_reason: `Amount mismatch: paid ${paidAmountPesewas / 100}, expected ${expectedAmountPesewas / 100}`,
+            failure_reason: `Underpayment: paid ${paidAmountPesewas / 100}, expected ${expectedAmountPesewas / 100}`,
             updated_at: new Date().toISOString(),
           })
           .eq("id", paymentData.id);
@@ -331,9 +331,15 @@ export async function POST(request: NextRequest) {
             .eq("id", paymentData.order_id);
         }
         return NextResponse.json(
-          { error: "Payment amount mismatch - possible fraud attempt" },
+          { error: "Payment underpayment - possible fraud attempt" },
           { status: 400 }
         );
+      }
+
+      // Log overpayments for record-keeping (but allow them to proceed)
+      if (paidAmountPesewas > expectedAmountPesewas) {
+        console.warn(`[WEBHOOK] ⚠️ OVERPAYMENT detected (non-critical): Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}, Reference: ${reference}`);
+        console.log(`[WEBHOOK] Price debug info:`, priceDebugInfo);
       }
 
       console.log(`[WEBHOOK] ✓ Payment amount verified: ${expectedAmountGHS} GHS`, priceDebugInfo);
@@ -958,6 +964,38 @@ export async function POST(request: NextRequest) {
                         created_at: new Date().toISOString(),
                       }
                     ])
+
+                  // 4. Send SMS notification for successful subscription
+                  try {
+                    const { data: userData } = await supabase
+                      .from("users")
+                      .select("phone_number")
+                      .eq("id", upgradeUserId)
+                      .single()
+
+                    if (userData?.phone_number) {
+                      const formattedEndDate = new Date(endDate).toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric'
+                      })
+
+                      await sendSMS({
+                        phone: userData.phone_number,
+                        message: SMSTemplates.subscriptionSuccess(plan.name, formattedEndDate),
+                        type: 'subscription_success',
+                        reference: reference,
+                        userId: upgradeUserId,
+                      }).catch(err => console.error("[WEBHOOK] Subscription SMS error:", err))
+
+                      console.log(`[WEBHOOK] ✓ Subscription success SMS sent to user ${upgradeUserId}`)
+                    } else {
+                      console.warn(`[WEBHOOK] User ${upgradeUserId} has no phone number, skipping subscription SMS`)
+                    }
+                  } catch (smsError) {
+                    console.warn("[WEBHOOK] Error sending subscription SMS:", smsError)
+                    // Don't fail the webhook if SMS fails
+                  }
                 }
               }
             }
