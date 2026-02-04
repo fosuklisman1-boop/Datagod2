@@ -7,14 +7,6 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function GET(request: NextRequest) {
     try {
-        // SECURITY: Ensure this is called by a cron job or admin
-        const authHeader = request.headers.get("authorization")
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            // return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-            // For local development or if CRON_SECRET is not set, we might want to allow it
-            // In production, CRON_SECRET should be set in environment variables
-        }
-
         console.log("[CRON] Checking for expired subscriptions...")
 
         // Call the database function
