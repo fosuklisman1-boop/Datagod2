@@ -57,20 +57,8 @@ export async function GET(request: NextRequest) {
 
         // Execute Queries in Parallel
         const [bulkRes, shopRes] = await Promise.all([
-            bulkQuery.order("created_at", { ascending: false }), // We fetch all to calc stats, or we need a separate stats query? 
-            // Fetching ALL rows for stats might be heavy. 
-            // User asked for "total orders for the day... total sum of price".
-            // If the range is "today", fetching all is fine. If "all time", it might be heavy.
-            // Let's rely on the client specifying a reasonable date range, or we limit aggregation.
-            // For now, fetch all matching the filter (without limit) to calculate stats, then slice for pagination?
-            // No, that's dangerous for "All Time".
-            // We should use .select with count if we just wanted count.
-            // But we need sum(volume) and sum(price). Supabase doesn't support sum() directly in API easily without RPC or fetching.
-            // We will fetch all metadata (minimal columns) for stats if range is small, 
-            // OR we just limit to 1000 or so. 
-            // Actually, let's just fetch everything for the date range. If it's a specific day, it's fine.
-            // If it's "All Time", we might need to cap it.
-            shopQuery.order("created_at", { ascending: false })
+            bulkQuery.order("created_at", { ascending: false }).limit(5000),
+            shopQuery.order("created_at", { ascending: false }).limit(5000)
         ])
 
         if (bulkRes.error) throw bulkRes.error
@@ -130,7 +118,15 @@ export async function GET(request: NextRequest) {
     } catch (error) {
         console.error("[ORDER-HISTORY] Error:", error)
         return NextResponse.json(
-            { error: "Failed to fetch order history", details: error instanceof Error ? error.message : "" },
+            {
+                error: "Failed to fetch order history",
+                details: error instanceof Error ? error.message : "Unknown error",
+                params: {
+                    dateFrom: request.nextUrl.searchParams.get("dateFrom"),
+                    dateTo: request.nextUrl.searchParams.get("dateTo"),
+                    network: request.nextUrl.searchParams.get("network")
+                }
+            },
             { status: 500 }
         )
     }
