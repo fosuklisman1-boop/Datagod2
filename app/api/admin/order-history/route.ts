@@ -37,11 +37,11 @@ export async function GET(request: NextRequest) {
 
         console.log(`[ORDER-HISTORY] Fetching history. Date: ${dateFrom} to ${dateTo}, Network: ${network}`)
 
-        // Base query for Bulk/Wallet Orders
+        // Base query for Bulk/Wallet Orders (orders table doesn't have payment_status)
         let bulkQuery = supabase
             .from("orders")
-            .select("id, created_at, phone_number, price, size, network, status, payment_status")
-            .eq("payment_status", "completed")
+            .select("id, created_at, phone_number, price, size, network, status")
+            .eq("status", "completed") // orders table uses 'status', not 'payment_status'
 
         // Base query for Shop Orders
         let shopQuery = supabase
