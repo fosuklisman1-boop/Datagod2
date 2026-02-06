@@ -13,6 +13,7 @@ import { toast } from "sonner"
 import { format } from "date-fns"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { useRouter } from "next/navigation"
+import { supabase } from "@/lib/supabase"
 
 interface OrderHistoryStats {
     totalOrders: number
@@ -48,15 +49,14 @@ export default function OrderHistoryPage() {
     const fetchData = async () => {
         try {
             setLoading(true)
-            const params = new URLSearchParams({
-                dateFrom,
-                dateTo, // We might need to adjust this to end of day if backend expects date string only to mean "start of day"
-                // But let's assume backend logic handles lte correctly or we append time.
-                // Actually best practice for "To" date in inclusive ranges is to set it to 23:59:59 if only date provided.
-                // Let's pass full ISO strings for precision if we can, but input type=date gives YYYY-MM-DD.
-                // So we will append time here.
-                network
-            })
+
+            // Get Supabase session for Authorization
+            const { data: { session } } = await supabase.auth.getSession()
+            if (!session?.access_token) {
+                toast.error("Authentication required")
+                setLoading(false)
+                return
+            }
 
             // Adjust dates to cover full days
             const start = new Date(dateFrom)
@@ -65,7 +65,14 @@ export default function OrderHistoryPage() {
             const end = new Date(dateTo)
             end.setHours(23, 59, 59, 999)
 
-            const response = await fetch(`/api/admin/order-history?dateFrom=${start.toISOString()}&dateTo=${end.toISOString()}&network=${network}`)
+            const response = await fetch(
+                `/api/admin/order-history?dateFrom=${start.toISOString()}&dateTo=${end.toISOString()}&network=${network}`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${session.access_token}`
+                    }
+                }
+            )
 
             if (!response.ok) {
                 throw new Error("Failed to fetch history")
