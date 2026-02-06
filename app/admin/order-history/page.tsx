@@ -74,8 +74,12 @@ export default function OrderHistoryPage() {
                 }
             )
 
+            console.log('[ORDER-HISTORY-FRONTEND] Response status:', response.status)
+
             if (!response.ok) {
-                throw new Error("Failed to fetch history")
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+                console.error('[ORDER-HISTORY-FRONTEND] Error response:', errorData)
+                throw new Error(errorData.error || errorData.details || `HTTP ${response.status}`)
             }
 
             const data = await response.json()

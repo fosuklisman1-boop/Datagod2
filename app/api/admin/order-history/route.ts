@@ -4,12 +4,27 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+// Validate environment variables
+if (!supabaseUrl || !serviceRoleKey) {
+    console.error('[ORDER-HISTORY] CRITICAL: Missing environment variables!')
+    console.error('[ORDER-HISTORY] NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'Set' : 'NOT SET')
+    console.error('[ORDER-HISTORY] SUPABASE_SERVICE_ROLE_KEY:', serviceRoleKey ? 'Set' : 'NOT SET')
+}
+
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function GET(request: NextRequest) {
     try {
+        console.log('[ORDER-HISTORY] API called')
+        console.log('[ORDER-HISTORY] Supabase URL:', supabaseUrl ? 'Set' : 'NOT SET')
+        console.log('[ORDER-HISTORY] Service key:', serviceRoleKey ? `Set (${serviceRoleKey.length} chars)` : 'NOT SET')
+
         const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+        console.log('[ORDER-HISTORY] Admin check result:', isAdmin)
+
         if (!isAdmin) {
+            console.log('[ORDER-HISTORY] Access denied - not admin')
             return errorResponse
         }
 
@@ -56,13 +71,26 @@ export async function GET(request: NextRequest) {
         }
 
         // Execute Queries in Parallel
+        console.log('[ORDER-HISTORY] Executing queries...')
+        console.log('[ORDER-HISTORY] Date range:', dateFrom, 'to', dateTo)
+        console.log('[ORDER-HISTORY] Network filter:', network)
+
         const [bulkRes, shopRes] = await Promise.all([
             bulkQuery.order("created_at", { ascending: false }).limit(5000),
             shopQuery.order("created_at", { ascending: false }).limit(5000)
         ])
 
-        if (bulkRes.error) throw bulkRes.error
-        if (shopRes.error) throw shopRes.error
+        console.log('[ORDER-HISTORY] Bulk query result:', bulkRes.error ? 'ERROR' : `${bulkRes.data?.length || 0} rows`)
+        console.log('[ORDER-HISTORY] Shop query result:', shopRes.error ? 'ERROR' : `${shopRes.data?.length || 0} rows`)
+
+        if (bulkRes.error) {
+            console.error('[ORDER-HISTORY] Bulk orders query error:', bulkRes.error)
+            throw new Error(`Bulk orders query failed: ${bulkRes.error.message}`)
+        }
+        if (shopRes.error) {
+            console.error('[ORDER-HISTORY] Shop orders query error:', shopRes.error)
+            throw new Error(`Shop orders query failed: ${shopRes.error.message}`)
+        }
 
         const bulkOrders = bulkRes.data || []
         const shopOrders = shopRes.data || []
@@ -117,10 +145,14 @@ export async function GET(request: NextRequest) {
 
     } catch (error) {
         console.error("[ORDER-HISTORY] Error:", error)
+        console.error("[ORDER-HISTORY] Error stack:", error instanceof Error ? error.stack : 'No stack')
+        console.error("[ORDER-HISTORY] Error message:", error instanceof Error ? error.message : String(error))
+
         return NextResponse.json(
             {
                 error: "Failed to fetch order history",
-                details: error instanceof Error ? error.message : "Unknown error",
+                details: error instanceof Error ? error.message : String(error),
+                stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : undefined) : undefined,
                 params: {
                     dateFrom: request.nextUrl.searchParams.get("dateFrom"),
                     dateTo: request.nextUrl.searchParams.get("dateTo"),

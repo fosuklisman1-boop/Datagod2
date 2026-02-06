@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { applyRateLimit } from "@/lib/rate-limiter"
+import { RATE_LIMITS } from "@/lib/rate-limit-config"
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic"
@@ -24,6 +26,28 @@ function getSupabaseClient() {
 // GET: Get packages for a public shop storefront (by slug)
 // This handles both regular shops (shop_packages) and sub-agents (sub_agent_catalog)
 export async function GET(request: NextRequest) {
+  // Apply rate limiting: 60 requests per minute per IP
+  const rateLimit = await applyRateLimit(
+    request,
+    'public-packages',
+    RATE_LIMITS.PUBLIC_PACKAGES.maxRequests,
+    RATE_LIMITS.PUBLIC_PACKAGES.windowMs
+  )
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: RATE_LIMITS.PUBLIC_PACKAGES.message },
+      {
+        status: 429,
+        headers: {
+          'X-RateLimit-Limit': RATE_LIMITS.PUBLIC_PACKAGES.maxRequests.toString(),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': new Date(rateLimit.resetAt).toISOString(),
+        }
+      }
+    )
+  }
+
   try {
     const supabase = getSupabaseClient()
 

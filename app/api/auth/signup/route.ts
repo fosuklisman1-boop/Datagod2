@@ -1,7 +1,31 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { applyRateLimit } from "@/lib/rate-limiter"
+import { RATE_LIMITS } from "@/lib/rate-limit-config"
 
 export async function POST(request: NextRequest) {
+  // Apply rate limiting: 5 signups per hour per IP
+  const rateLimit = await applyRateLimit(
+    request,
+    'signup',
+    RATE_LIMITS.SIGNUP.maxRequests,
+    RATE_LIMITS.SIGNUP.windowMs
+  )
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: RATE_LIMITS.SIGNUP.message },
+      {
+        status: 429,
+        headers: {
+          'X-RateLimit-Limit': RATE_LIMITS.SIGNUP.maxRequests.toString(),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': new Date(rateLimit.resetAt).toISOString(),
+        }
+      }
+    )
+  }
+
   try {
     const { email, userId, firstName, lastName, phoneNumber } = await request.json()
 
