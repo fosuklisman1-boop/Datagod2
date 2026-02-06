@@ -34,7 +34,22 @@ export async function GET(request: NextRequest) {
       .from("orders")
       .select("id, created_at, phone_number, price, status, size, network, transaction_code, order_code")
       .order("created_at", { ascending: false })
-      .range(0, 9999) // Paginate instead of unlimited
+
+    // Apply search filter to DB query if present
+    if (searchQuery) {
+      const q = searchQuery.trim()
+      if (searchType === "phone") {
+        bulkOrdersQuery = bulkOrdersQuery.ilike("phone_number", `%${q}%`)
+      } else if (searchType === "reference") {
+        bulkOrdersQuery = bulkOrdersQuery.or(`transaction_code.ilike.%${q}%,order_code.ilike.%${q}%`)
+      } else {
+        // all
+        bulkOrdersQuery = bulkOrdersQuery.or(`phone_number.ilike.%${q}%,transaction_code.ilike.%${q}%,order_code.ilike.%${q}%`)
+      }
+    }
+
+    // Apply range limit (pagination)
+    bulkOrdersQuery = bulkOrdersQuery.range(0, 9999)
 
     const { data: bulkOrders, error: bulkError } = await bulkOrdersQuery
 
@@ -46,7 +61,7 @@ export async function GET(request: NextRequest) {
     console.log(`Found ${bulkOrders?.length || 0} bulk orders`)
 
     // Fetch all shop orders (any status) with pagination
-    const { data: shopOrdersData, error: shopError } = await supabase
+    let shopOrdersQuery = supabase
       .from("shop_orders")
       .select(`
         id,
@@ -67,7 +82,20 @@ export async function GET(request: NextRequest) {
         )
       `)
       .order("created_at", { ascending: false })
-      .range(0, 9999) // Paginate instead of unlimited
+
+    if (searchQuery) {
+      const q = searchQuery.trim()
+      if (searchType === "phone") {
+        shopOrdersQuery = shopOrdersQuery.ilike("customer_phone", `%${q}%`)
+      } else if (searchType === "reference") {
+        shopOrdersQuery = shopOrdersQuery.or(`transaction_id.ilike.%${q}%,reference_code.ilike.%${q}%`)
+      } else {
+        shopOrdersQuery = shopOrdersQuery.or(`customer_phone.ilike.%${q}%,transaction_id.ilike.%${q}%,reference_code.ilike.%${q}%`)
+      }
+    }
+
+    const { data: shopOrdersData, error: shopError } = await shopOrdersQuery
+      .range(0, 9999)
 
     if (shopError) {
       console.error("Supabase error fetching shop orders:", shopError)
@@ -92,7 +120,7 @@ export async function GET(request: NextRequest) {
     console.log(`Found ${shopOrdersData?.length || 0} shop orders`)
 
     // Fetch wallet payments to get Paystack references with pagination
-    const { data: walletPayments, error: walletPaymentsError } = await supabase
+    let walletQuery = supabase
       .from("wallet_payments")
       .select(`
         id,
@@ -106,7 +134,18 @@ export async function GET(request: NextRequest) {
         order_id
       `)
       .order("created_at", { ascending: false })
-      .range(0, 9999) // Paginate instead of unlimited
+
+    if (searchQuery) {
+      const q = searchQuery.trim()
+      if (searchType === "reference" || searchType === "all") {
+        walletQuery = walletQuery.ilike("reference", `%${q}%`)
+      } else if (searchType === "phone") {
+        walletQuery = walletQuery.eq("id", -1)
+      }
+    }
+
+    const { data: walletPayments, error: walletPaymentsError } = await walletQuery
+      .range(0, 9999)
 
     if (walletPaymentsError) {
       console.error("Supabase error fetching wallet payments:", walletPaymentsError)
@@ -163,22 +202,8 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase().trim()
-      allOrders = allOrders.filter((order: any) => {
-        if (searchType === "reference") {
-          return order.payment_reference.toLowerCase().includes(query)
-        } else if (searchType === "phone") {
-          return order.phone_number.toLowerCase().includes(query)
-        } else {
-          // "all" - search both reference and phone
-          return (
-            order.payment_reference.toLowerCase().includes(query) ||
-            order.phone_number.toLowerCase().includes(query)
-          )
-        }
-      })
-    }
+    // Note: Search filtering is now done at the database level for performance and accuracy across the entire dataset.
+    // The previous in-memory filtering code has been removed.
 
     console.log(`Returning ${allOrders.length} filtered orders`)
 

@@ -455,6 +455,35 @@ export default function AdminDashboardPage() {
             </CardContent>
           </Card>
 
+          {/* Order History */}
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-indigo-50/60 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-gradient-to-br from-indigo-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-indigo-300/60">
+                  <TrendingUp className="h-5 w-5 text-indigo-600" />
+                </div>
+                <CardTitle>Order History</CardTitle>
+              </div>
+              <CardDescription>View completed order stats and history</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => handleNavigate("/admin/order-history")}
+                disabled={navigating !== null}
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold"
+              >
+                {navigating === "/admin/order-history" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "View Order History"
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* Sub-Agent Profits */}
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-fuchsia-50/60 to-purple-50/40 backdrop-blur-xl border border-fuchsia-200/40 hover:border-fuchsia-300/60">
             <CardHeader>

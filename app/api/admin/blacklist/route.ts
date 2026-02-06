@@ -20,18 +20,21 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const search = searchParams.get("search") || ""
-    const limit = parseInt(searchParams.get("limit") || "50")
+    const limit = parseInt(searchParams.get("limit") || "1000")
     const offset = parseInt(searchParams.get("offset") || "0")
 
     let query = supabase
       .from("blacklisted_phone_numbers")
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1)
+      .order("created_at", { ascending: false })
 
     if (search) {
       query = query.ilike("phone_number", `%${search}%`)
     }
+
+    // Apply pagination AFTER filtering
+    query = query.range(offset, offset + limit - 1)
 
     const { data, error, count } = await query
 
@@ -183,7 +186,7 @@ export async function DELETE(request: NextRequest) {
       console.error("[BLACKLIST] Error updating shop_orders:", shopOrdersError)
     } else if (shopOrdersUpdated && shopOrdersUpdated.length > 0) {
       console.log(`[BLACKLIST] ✓ Updated ${shopOrdersUpdated.length} shop_orders back to pending for phone: ${phone}`)
-      
+
       // Trigger fulfillment only for orders with completed payment
       for (const order of shopOrdersUpdated) {
         try {
@@ -194,10 +197,10 @@ export async function DELETE(request: NextRequest) {
           }
 
           // Trigger fulfillment endpoint
-          const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
-            ? `https://${process.env.VERCEL_URL}` 
+          const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
             : "http://localhost:3000"
-          
+
           await fetch(`${baseUrl}/api/fulfillment/process-order`, {
             method: "POST",
             headers: {
@@ -211,13 +214,13 @@ export async function DELETE(request: NextRequest) {
               customer_name: order.customer_name || "Customer",
             }),
           }).catch(err => console.warn("[BLACKLIST] Fulfillment trigger failed for order", order.id, ":", err))
-          
+
           console.log(`[BLACKLIST] ✓ Triggered fulfillment for shop order: ${order.id}`)
         } catch (fulfillmentError) {
           console.warn("[BLACKLIST] Failed to trigger fulfillment for order", order.id, ":", fulfillmentError)
         }
       }
-      
+
       // Send SMS notification to customers about their orders being cleared
       for (const order of shopOrdersUpdated) {
         try {
@@ -250,7 +253,7 @@ export async function DELETE(request: NextRequest) {
       console.error("[BLACKLIST] Error updating orders:", ordersError)
     } else if (ordersUpdated && ordersUpdated.length > 0) {
       console.log(`[BLACKLIST] ✓ Updated ${ordersUpdated.length} orders back to pending for phone: ${phone}`)
-      
+
       // Trigger fulfillment only for orders with completed payment
       for (const order of ordersUpdated) {
         try {
@@ -261,10 +264,10 @@ export async function DELETE(request: NextRequest) {
           }
 
           // Trigger fulfillment endpoint for wallet orders (data packages)
-          const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
-            ? `https://${process.env.VERCEL_URL}` 
+          const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
             : "http://localhost:3000"
-          
+
           await fetch(`${baseUrl}/api/fulfillment/process-order`, {
             method: "POST",
             headers: {
@@ -277,13 +280,13 @@ export async function DELETE(request: NextRequest) {
               size: order.size,
             }),
           }).catch(err => console.warn("[BLACKLIST] Fulfillment trigger failed for wallet order", order.id, ":", err))
-          
+
           console.log(`[BLACKLIST] ✓ Triggered fulfillment for wallet order: ${order.id}`)
         } catch (fulfillmentError) {
           console.warn("[BLACKLIST] Failed to trigger fulfillment for wallet order", order.id, ":", fulfillmentError)
         }
       }
-      
+
       // Send SMS notification to customers about their orders being cleared
       for (const order of ordersUpdated) {
         try {
