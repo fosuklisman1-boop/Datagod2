@@ -118,10 +118,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Check mtn_fulfillment_tracking to see if already tracked
-    const trackingQuery = order_type === "bulk" 
+    const trackingQuery = order_type === "bulk"
       ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("order_id", shop_order_id.trim())
       : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("shop_order_id", shop_order_id.trim())
-    
+
     const { data: existingTracking, error: trackingError } = await trackingQuery
       .order("created_at", { ascending: false })
       .limit(1)
@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
       console.error("[MANUAL-FULFILL] MTN API failed:", mtnResponse.message)
 
       // Update order status
-      const failureUpdateData = order_type === "bulk" 
+      const failureUpdateData = order_type === "bulk"
         ? { status: "failed", updated_at: new Date().toISOString() }
         : { order_status: "failed", updated_at: new Date().toISOString() }
 
@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
     const trackingId = await saveMTNTracking(shop_order_id, mtnResponse.order_id, mtnRequest, mtnResponse, order_type as "shop" | "bulk")
 
     // Update order in appropriate table
-    const updateData = order_type === "bulk" 
+    const updateData = order_type === "bulk"
       ? { status: "processing", external_order_id: mtnResponse.order_id, updated_at: new Date().toISOString() }
       : { order_status: "processing", external_order_id: mtnResponse.order_id, updated_at: new Date().toISOString() }
 
@@ -291,7 +291,19 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    // Get pending MTN orders
+    const { searchParams } = new URL(request.url)
+    const page = parseInt(searchParams.get("page") || "1")
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500) // Max 500 per page
+    const offset = (page - 1) * limit
+
+    // Get total count
+    const { count } = await supabase
+      .from("shop_orders")
+      .select("*", { count: "exact", head: true })
+      .eq("network", "MTN")
+      .eq("order_status", "pending_download")
+
+    // Get pending MTN orders with pagination
     const { data: orders, error } = await supabase
       .from("shop_orders")
       .select(
@@ -311,7 +323,7 @@ export async function GET(request: NextRequest) {
       .eq("network", "MTN")
       .eq("order_status", "pending_download")
       .order("created_at", { ascending: false })
-      .limit(100)
+      .range(offset, offset + limit - 1)
 
     if (error) {
       console.error("[MANUAL-FULFILL] Failed to fetch pending orders:", error)
@@ -320,8 +332,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      count: orders?.length || 0,
       orders: orders || [],
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
     })
   } catch (error) {
     console.error("[MANUAL-FULFILL] Error:", error)

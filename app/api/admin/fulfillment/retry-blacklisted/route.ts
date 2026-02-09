@@ -133,6 +133,9 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const orderType = searchParams.get("type") || "shop" // "shop" or "bulk"
+    const page = parseInt(searchParams.get("page") || "1")
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500) // Max 500 per page
+    const offset = (page - 1) * limit
 
     console.log(`[RETRY-BLACKLISTED] Fetching blacklisted orders (${orderType})...`)
 
@@ -141,12 +144,19 @@ export async function GET(request: NextRequest) {
       ? "id, network, size, phone_number, status, created_at, updated_at"
       : "id, network, volume_gb, customer_phone, customer_name, order_status, created_at, updated_at"
 
+    // Get total count
+    const { count } = await supabase
+      .from(tableName)
+      .select("*", { count: "exact", head: true })
+      .eq("queue", "blacklisted")
+
+    // Get paginated results
     const { data: blacklistedOrders, error } = await supabase
       .from(tableName)
       .select(columns)
       .eq("queue", "blacklisted")
       .order("created_at", { ascending: false })
-      .limit(100)
+      .range(offset, offset + limit - 1)
 
     if (error) {
       console.error(`[RETRY-BLACKLISTED] Failed to fetch blacklisted orders:`, error)
@@ -178,10 +188,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       orderType,
-      total: ordersWithStatus.length,
-      ready_to_retry: readyToRetry.length,
-      still_blacklisted: stillBlacklisted.length,
       orders: ordersWithStatus,
+      stats: {
+        ready_to_retry: readyToRetry.length,
+        still_blacklisted: stillBlacklisted.length,
+      },
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
     })
   } catch (error) {
     console.error("[RETRY-BLACKLISTED] Error:", error)

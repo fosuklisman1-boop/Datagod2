@@ -20,13 +20,27 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get("status")
+    const page = parseInt(searchParams.get("page") || "1")
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500) // Max 500 per page
+    const offset = (page - 1) * limit
 
-    // Fetch fulfillment logs
+    // Get total count
+    let countQuery = supabase
+      .from("fulfillment_logs")
+      .select("*", { count: "exact", head: true })
+
+    if (status && status !== "all") {
+      countQuery = countQuery.eq("status", status)
+    }
+
+    const { count } = await countQuery
+
+    // Fetch fulfillment logs with pagination
     let query = supabase
       .from("fulfillment_logs")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(100)
+      .range(offset, offset + limit - 1)
 
     if (status && status !== "all") {
       query = query.eq("status", status)
@@ -45,7 +59,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       logs: logs || [],
-      count: logs?.length || 0,
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
     })
   } catch (error) {
     console.error("[FULFILLMENT-LOGS] Error:", error)
