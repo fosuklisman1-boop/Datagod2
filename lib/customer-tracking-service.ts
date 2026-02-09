@@ -205,15 +205,31 @@ export const customerTrackingService = {
 
       const new_customers_month = newCustomersData?.length || 0
 
-      // Query 4: Average LTV and total revenue (combined)
-      const { data: ltcData, error: ltcError } = await supabase
-        .from("shop_customers")
-        .select("total_spent")
-        .eq("shop_id", shopId)
+      // Query 4: Average LTV and total revenue (with pagination for shops with >1000 customers)
+      let allCustomerData: any[] = []
+      let offset = 0
+      const batchSize = 1000
+      let hasMore = true
 
-      if (ltcError) throw ltcError
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("shop_customers")
+          .select("total_spent")
+          .eq("shop_id", shopId)
+          .range(offset, offset + batchSize - 1)
 
-      const totalRevenue = ltcData?.reduce((sum, c) => sum + (c.total_spent || 0), 0) || 0
+        if (error) throw error
+
+        if (data && data.length > 0) {
+          allCustomerData = allCustomerData.concat(data)
+          offset += batchSize
+          hasMore = data.length === batchSize
+        } else {
+          hasMore = false
+        }
+      }
+
+      const totalRevenue = allCustomerData.reduce((sum, c) => sum + (c.total_spent || 0), 0)
       const average_ltv = total_customers > 0 ? totalRevenue / total_customers : 0
       const total_revenue = totalRevenue
 

@@ -5,6 +5,41 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// Helper to fetch all records with pagination
+async function fetchAllRecords(
+    table: string,
+    columns: string,
+    filterFn: (query: any) => any
+) {
+    let allRecords: any[] = []
+    let offset = 0
+    const batchSize = 1000
+    let hasMore = true
+
+    while (hasMore) {
+        let query = supabase
+            .from(table)
+            .select(columns)
+            .range(offset, offset + batchSize - 1)
+
+        query = filterFn(query)
+
+        const { data, error } = await query
+
+        if (error) throw error
+
+        if (data && data.length > 0) {
+            allRecords = allRecords.concat(data)
+            offset += batchSize
+            hasMore = data.length === batchSize
+        } else {
+            hasMore = false
+        }
+    }
+
+    return allRecords
+}
+
 export async function GET(
     request: NextRequest,
     { params }: { params: Promise<{ shopId: string }> }
@@ -81,10 +116,10 @@ export async function GET(
       `)
             .eq("parent_shop_id", shopId)
 
-        // Get all completed orders from sub-agents that contributed to this parent
-        const { data: subAgentOrders } = await supabase
-            .from("shop_orders")
-            .select(`
+        // Get all completed orders from sub-agents WITH PAGINATION (handles >1000 orders)
+        const subAgentOrders = await fetchAllRecords(
+            "shop_orders",
+            `
         id,
         reference_code,
         shop_id,
@@ -98,15 +133,17 @@ export async function GET(
         payment_status,
         order_status,
         created_at
-      `)
-            .eq("parent_shop_id", shopId)
-            .eq("payment_status", "completed")
-            .order("created_at", { ascending: false })
+      `,
+            (q) => q
+                .eq("parent_shop_id", shopId)
+                .eq("payment_status", "completed")
+                .order("created_at", { ascending: false })
+        )
 
-        // Get profit records for this parent shop
-        const { data: profitRecords } = await supabase
-            .from("shop_profits")
-            .select(`
+        // Get profit records for this parent shop WITH PAGINATION (handles >1000 profits)
+        const profitRecords = await fetchAllRecords(
+            "shop_profits",
+            `
         id,
         shop_order_id,
         profit_amount,
@@ -114,9 +151,11 @@ export async function GET(
         profit_balance_after,
         status,
         created_at
-      `)
-            .eq("shop_id", shopId)
-            .order("created_at", { ascending: false })
+      `,
+            (q) => q
+                .eq("shop_id", shopId)
+                .order("created_at", { ascending: false })
+        )
 
         // Enrich sub-agents with their individual stats
         const enrichedSubAgents = await Promise.all(
