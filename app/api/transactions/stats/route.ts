@@ -6,6 +6,42 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+/**
+ * Helper function to fetch all transactions with pagination
+ */
+async function fetchAllTransactions(
+  userId: string,
+  type: string,
+  startDate: string
+) {
+  let allTransactions: any[] = []
+  let offset = 0
+  const batchSize = 1000
+  let hasMore = true
+
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("amount")
+      .eq("user_id", userId)
+      .eq("type", type)
+      .gte("created_at", startDate)
+      .range(offset, offset + batchSize - 1)
+
+    if (error) throw error
+
+    if (data && data.length > 0) {
+      allTransactions = allTransactions.concat(data)
+      offset += batchSize
+      hasMore = data.length === batchSize
+    } else {
+      hasMore = false
+    }
+  }
+
+  return allTransactions
+}
+
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get("authorization")
@@ -31,35 +67,17 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
 
-    // Get today's income (credits)
-    const { data: todayCredits } = await supabase
-      .from("transactions")
-      .select("amount")
-      .eq("user_id", userId)
-      .eq("type", "credit")
-      .gte("created_at", todayString)
+    // Get today's income (credits) WITH PAGINATION
+    const todayCredits = await fetchAllTransactions(userId, "credit", todayString)
+    const todayIncome = todayCredits.reduce((sum, t) => sum + t.amount, 0)
 
-    const todayIncome = todayCredits?.reduce((sum, t) => sum + t.amount, 0) || 0
+    // Get today's expenses (debits) WITH PAGINATION
+    const todayDebits = await fetchAllTransactions(userId, "debit", todayString)
+    const todayExpenses = todayDebits.reduce((sum, t) => sum + t.amount, 0)
 
-    // Get today's expenses (debits)
-    const { data: todayDebits } = await supabase
-      .from("transactions")
-      .select("amount")
-      .eq("user_id", userId)
-      .eq("type", "debit")
-      .gte("created_at", todayString)
-
-    const todayExpenses = todayDebits?.reduce((sum, t) => sum + t.amount, 0) || 0
-
-    // Get today's refunds
-    const { data: todayRefunds } = await supabase
-      .from("transactions")
-      .select("amount")
-      .eq("user_id", userId)
-      .eq("type", "refund")
-      .gte("created_at", todayString)
-
-    const todayRefundsTotal = todayRefunds?.reduce((sum, t) => sum + t.amount, 0) || 0
+    // Get today's refunds WITH PAGINATION
+    const todayRefunds = await fetchAllTransactions(userId, "refund", todayString)
+    const todayRefundsTotal = todayRefunds.reduce((sum, t) => sum + t.amount, 0)
 
     return NextResponse.json({
       totalTransactions: totalCount || 0,

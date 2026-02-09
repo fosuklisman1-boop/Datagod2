@@ -74,18 +74,37 @@ export async function GET(request: NextRequest) {
       .from("shop_orders")
       .select("id", { count: "exact", head: true })
 
-    // Get total revenue and completed orders in one paginated query
-    const { data: orders, error: ordersError } = await supabase
-      .from("shop_orders")
-      .select("id, total_price, order_status")
-      .order("created_at", { ascending: false })
-      .range(0, 9999) // Get first 10k records for revenue calculation
+    // Get total revenue by paginating through ALL orders
+    let allOrders: any[] = []
+    let ordersOffset = 0
+    const ordersBatchSize = 1000
+    let hasMoreOrders = true
 
-    // Calculate totals from fetched data
+    while (hasMoreOrders) {
+      const { data, error } = await supabase
+        .from("shop_orders")
+        .select("total_price")
+        .range(ordersOffset, ordersOffset + ordersBatchSize - 1)
+
+      if (error) {
+        console.error("[ADMIN-STATS] Error fetching orders batch:", error)
+        break
+      }
+
+      if (data && data.length > 0) {
+        allOrders = allOrders.concat(data)
+        ordersOffset += ordersBatchSize
+        hasMoreOrders = data.length === ordersBatchSize
+      } else {
+        hasMoreOrders = false
+      }
+    }
+
+    // Calculate totals from ALL fetched orders
     const totalOrders = totalOrdersCount || 0
-    const totalRevenue = orders?.reduce((sum: number, order: any) => {
+    const totalRevenue = allOrders.reduce((sum: number, order: any) => {
       return sum + (order.total_price || 0)
-    }, 0) || 0
+    }, 0)
 
     // Get pending shops count using efficient exact count query
     const { count: pendingShops, error: pendingError } = await supabase

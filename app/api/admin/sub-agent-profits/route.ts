@@ -5,6 +5,42 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+/**
+ * Helper function to fetch all records with pagination
+ */
+async function fetchAllRecords(
+    table: string,
+    columns: string,
+    filterFn: (query: any) => any
+) {
+    let allRecords: any[] = []
+    let offset = 0
+    const batchSize = 1000
+    let hasMore = true
+
+    while (hasMore) {
+        let query = supabase
+            .from(table)
+            .select(columns)
+            .range(offset, offset + batchSize - 1)
+
+        query = filterFn(query)
+
+        const { data, error } = await query
+        if (error) throw error
+
+        if (data && data.length > 0) {
+            allRecords = allRecords.concat(data)
+            offset += batchSize
+            hasMore = data.length === batchSize
+        } else {
+            hasMore = false
+        }
+    }
+
+    return allRecords
+}
+
 export async function GET(request: NextRequest) {
     try {
         // Verify admin access
@@ -102,18 +138,19 @@ async function enrichParentShops(parentShops: any[]) {
         `)
                 .eq("parent_shop_id", shop.id)
 
-            // Get profit records for this parent shop (from sub-agent orders)
-            const { data: profits } = await supabase
-                .from("shop_profits")
-                .select("profit_amount, shop_order_id, created_at")
-                .eq("shop_id", shop.id)
+            // Get profit records for this parent shop WITH PAGINATION
+            const profits = await fetchAllRecords(
+                "shop_profits",
+                "profit_amount, shop_order_id, created_at",
+                (q) => q.eq("shop_id", shop.id)
+            )
 
-            // Get orders that generated these profits (sub-agent orders)
-            const { data: subAgentOrders } = await supabase
-                .from("shop_orders")
-                .select("id, shop_id, parent_profit_amount, total_price, created_at")
-                .eq("parent_shop_id", shop.id)
-                .eq("payment_status", "completed")
+            // Get orders that generated these profits WITH PAGINATION
+            const subAgentOrders = await fetchAllRecords(
+                "shop_orders",
+                "id, shop_id, parent_profit_amount, total_price, created_at",
+                (q) => q.eq("parent_shop_id", shop.id).eq("payment_status", "completed")
+            )
 
             // Calculate total earned from sub-agents
             const totalEarnedFromSubagents = profits?.reduce(
