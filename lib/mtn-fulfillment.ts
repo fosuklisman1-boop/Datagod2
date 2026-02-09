@@ -436,9 +436,14 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
   }
 }
 
+// In-memory cache for orders to avoid redundant large fetches
+let ordersCache: { data: any[]; timestamp: number } | null = null
+const ORDERS_CACHE_TTL = 30000 // 30 seconds
+
 /**
  * Check MTN order status from Sykes API
- * Fetches all orders and finds the matching one by ID
+ * Fetches orders and finds the matching one by ID
+ * Optimized to use cache and progressive fetching
  */
 export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
   success: boolean
@@ -451,119 +456,102 @@ export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
   try {
     log("info", "StatusCheck", `Checking status for MTN order ${mtnOrderId}`, { traceId, mtnOrderId })
     
-    // The Sykes API GET /api/orders returns all orders, not a single one
-    // So we fetch all orders and filter for the one we need
-    // Use limit=5000 to get all orders (API defaults to only 20)
-    const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
-      method: "GET",
-      headers: {
-        "X-API-KEY": MTN_API_KEY,
-        "Content-Type": "application/json",
-      },
-    })
-
-    const responseText = await response.text()
-    log("info", "StatusCheck", `API response: ${response.status}`, { traceId, responseText })
-
-    if (!response.ok) {
-      return {
-        success: false,
-        message: `API error: ${response.status} - ${responseText}`,
-      }
-    }
-
-    let data
-    try {
-      data = JSON.parse(responseText)
-    } catch {
-      return {
-        success: false,
-        message: `Invalid JSON response: ${responseText.slice(0, 100)}`,
-      }
-    }
-
-    log("info", "StatusCheck", `Order status retrieved`, { traceId, data })
-
-    // Handle various response formats:
-    // 1. Array of orders: [{id, status, ...}]
-    // 2. Single order wrapped: {order: {id, status, ...}}
-    // 3. Direct order object: {id, status, ...}
-    // 4. Data wrapper: {data: [{id, status, ...}]}
-    // 5. Orders wrapper: {orders: [{id, status, ...}]}
-    let order
     let allOrders: any[] = []
-    
-    if (Array.isArray(data)) {
-      allOrders = data
-    } else if (data.order) {
-      order = data.order
-    } else if (data.data && Array.isArray(data.data)) {
-      allOrders = data.data
-    } else if (data.orders && Array.isArray(data.orders)) {
-      allOrders = data.orders
-    } else if (data.id) {
-      order = data
+    let order: any = null
+    const now = Date.now()
+
+    // 1. Try Cache First
+    if (ordersCache && now - ordersCache.timestamp < ORDERS_CACHE_TTL) {
+      log("debug", "StatusCheck", "Using cached orders list", { traceId })
+      allOrders = ordersCache.data
+      order = allOrders.find((o: any) => String(o.id || o.order_id) === String(mtnOrderId))
     }
 
-    // Find the order by ID (handle both string and number comparison)
-    if (!order && allOrders.length > 0) {
-      // Try exact match first
-      order = allOrders.find((o: any) => o.id === mtnOrderId || o.id === String(mtnOrderId) || String(o.id) === String(mtnOrderId))
-      
-      if (!order) {
-        // Try matching order_id field as well
-        order = allOrders.find((o: any) => o.order_id === mtnOrderId || o.order_id === String(mtnOrderId) || String(o.order_id) === String(mtnOrderId))
+    // 2. If not in cache, try Progressive Fetch (Recent 100)
+    if (!order) {
+      log("debug", "StatusCheck", "Fetching recent orders (limit=100)", { traceId })
+      try {
+        const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=100`, {
+          method: "GET",
+          headers: {
+            "X-API-KEY": MTN_API_KEY,
+            "Content-Type": "application/json",
+          },
+          signal: AbortSignal.timeout(10000),
+        })
+
+        if (response.ok) {
+          const responseText = await response.text()
+          const jsonMatch = responseText.match(/\{[\s\S]*\}|\[[\s\S]*\]/)
+          if (jsonMatch) {
+            const data = JSON.parse(jsonMatch[0])
+            const fetched = Array.isArray(data) ? data : (data.data || data.orders || [])
+            order = fetched.find((o: any) => String(o.id || o.order_id) === String(mtnOrderId))
+
+            // Even if not found, we can update the cache with these 100 for other recent checks
+            if (order) {
+              allOrders = fetched
+              log("debug", "StatusCheck", "Order found in recent list", { traceId })
+            }
+          }
+        }
+      } catch (e) {
+        log("warn", "StatusCheck", "Recent fetch failed, will try full list", { traceId, error: String(e) })
       }
-      
-      if (!order) {
-        console.log(`[MTN-STATUS] Order ${mtnOrderId} not found in ${allOrders.length} orders. Available IDs: ${allOrders.map((o: any) => o.id || o.order_id).slice(0, 10).join(', ')}`)
+    }
+
+    // 3. If still not found, try Full Fetch (Limit 5000)
+    if (!order) {
+      log("info", "StatusCheck", "Order not in recent/cache, fetching full list (limit=5000)", { traceId })
+      const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
+        method: "GET",
+        headers: {
+          "X-API-KEY": MTN_API_KEY,
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+      })
+
+      if (!response.ok) {
         return {
           success: false,
-          message: `Order ${mtnOrderId} not found in API response (${allOrders.length} orders returned)`,
+          message: `API error: ${response.status}`,
         }
+      }
+
+      const responseText = await response.text()
+      const jsonMatch = responseText.match(/\{[\s\S]*\}|\[[\s\S]*\]/)
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[0])
+        allOrders = Array.isArray(data) ? data : (data.data || data.orders || [])
+
+        // Update cache
+        ordersCache = { data: allOrders, timestamp: Date.now() }
+
+        order = allOrders.find((o: any) => String(o.id || o.order_id) === String(mtnOrderId))
+      }
+    }
+
+    if (!order) {
+      return {
+        success: false,
+        message: `Order ${mtnOrderId} not found in API response`,
       }
     }
     
     if (!order || !order.status) {
-      console.log(`[MTN-STATUS] Order or status not found. Order:`, order, `Data:`, JSON.stringify(data).slice(0, 300))
+      console.log(`[MTN-STATUS] Order or status not found for ${mtnOrderId}`)
       return {
         success: false,
-        message: `Order not found or no status. Response: ${JSON.stringify(data).slice(0, 200)}`,
+        message: `Order not found or no status field in response`,
       }
     }
 
-    // Log the raw status for debugging
-    console.log(`[MTN-STATUS] Raw API status for order ${mtnOrderId}: "${order.status}" (type: ${typeof order.status})`)
-
     // Normalize status from API to our expected values
-    let normalizedStatus: "pending" | "processing" | "completed" | "failed" = "pending"
-    const apiStatus = String(order.status).toLowerCase().trim()
+    const normalizedStatus = normalizeMTNStatus(order.status)
     
-    // Completed status variations
-    if (apiStatus === "completed" || apiStatus === "success" || apiStatus === "delivered" || 
-        apiStatus === "done" || apiStatus === "fulfilled" || apiStatus === "sent" ||
-        apiStatus === "successful" || apiStatus === "complete") {
-      normalizedStatus = "completed"
-    } 
-    // Failed status variations
-    else if (apiStatus === "failed" || apiStatus === "error" || apiStatus === "cancelled" ||
-             apiStatus === "rejected" || apiStatus === "expired" || apiStatus === "refunded") {
-      normalizedStatus = "failed"
-    } 
-    // Processing status variations
-    else if (apiStatus === "processing" || apiStatus === "in_progress" || apiStatus === "queued" ||
-             apiStatus === "in-progress" || apiStatus === "sending" || apiStatus === "submitted") {
-      normalizedStatus = "processing"
-    } 
-    // Pending status
-    else if (apiStatus === "pending" || apiStatus === "waiting" || apiStatus === "new") {
-      normalizedStatus = "pending"
-    } 
-    // Unknown status - log it clearly
-    else {
-      console.warn(`[MTN-STATUS] ⚠️ UNKNOWN API status: "${order.status}" for order ${mtnOrderId} - defaulting to processing`)
-      log("warn", "StatusCheck", `Unknown API status: ${order.status}, defaulting to processing`, { traceId })
-      normalizedStatus = "processing"
+    if (!isKnownMTNStatus(order.status)) {
+        console.warn(`[MTN-STATUS] ⚠️ UNKNOWN API status: "${order.status}" for order ${mtnOrderId} - defaulted to ${normalizedStatus}`)
     }
 
     console.log(`[MTN-STATUS] Normalized: "${order.status}" -> "${normalizedStatus}"`)
@@ -769,15 +757,8 @@ export async function updateMTNOrderFromWebhook(
 ): Promise<boolean> {
   try {
     const mtnOrderId = webhook.order.id
-    // Map API status to our status - include "processing"
-    const newStatus =
-      webhook.order.status === "completed"
-        ? "completed"
-        : webhook.order.status === "failed"
-          ? "failed"
-          : webhook.order.status === "processing"
-            ? "processing"
-            : "pending"
+    // Normalize status from webhook
+    const newStatus = normalizeMTNStatus(webhook.order.status)
 
     // Update tracking table
     const { error: trackingError } = await supabase
@@ -943,4 +924,45 @@ export function getRetryBackoffMs(attemptNumber: number): number {
   // Attempt 4+: 24 hours (should escalate to manual review)
   const backoffs = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000, 24 * 60 * 60 * 1000]
   return backoffs[Math.min(attemptNumber, backoffs.length - 1)]
+}
+
+/**
+ * Normalize Sykes API status to our expected values
+ */
+export function normalizeMTNStatus(apiStatus: string): "pending" | "processing" | "completed" | "failed" {
+  const status = String(apiStatus).toLowerCase().trim()
+
+  // Completed variations
+  if (["completed", "success", "delivered", "done", "fulfilled", "sent", "successful", "complete"].includes(status)) {
+    return "completed"
+  }
+  // Failed variations
+  if (["failed", "error", "cancelled", "rejected", "expired", "refunded"].includes(status)) {
+    return "failed"
+  }
+  // Processing variations
+  if (["processing", "in_progress", "queued", "in-progress", "sending", "submitted"].includes(status)) {
+    return "processing"
+  }
+  // Pending variations
+  if (["pending", "waiting", "new"].includes(status)) {
+    return "pending"
+  }
+
+  // Default to processing for unknown statuses (matching original logic)
+  return "processing"
+}
+
+/**
+ * Check if a status string is recognized by the system
+ */
+export function isKnownMTNStatus(apiStatus: string): boolean {
+  const status = String(apiStatus).toLowerCase().trim()
+  const allKnown = [
+    "completed", "success", "delivered", "done", "fulfilled", "sent", "successful", "complete",
+    "failed", "error", "cancelled", "rejected", "expired", "refunded",
+    "processing", "in_progress", "queued", "in-progress", "sending", "submitted",
+    "pending", "waiting", "new"
+  ]
+  return allKnown.includes(status)
 }
