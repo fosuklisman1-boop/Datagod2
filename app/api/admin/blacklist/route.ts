@@ -157,10 +157,19 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    // Get both formats (with and without leading 0) to match isPhoneBlacklisted behavior
+    const cleaned = phone.replace(/\D/g, "")
+    const withoutZero = cleaned.startsWith("0") ? cleaned.substring(1) : cleaned
+    const withZero = cleaned.startsWith("0") ? cleaned : "0" + cleaned
+    const formats = [withoutZero, withZero]
+
+    console.log(`[BLACKLIST] Removing phone from blacklist. Input: "${phone}", Formats: ${JSON.stringify(formats)}`)
+
+    // Delete from blacklist (checks both formats)
     const { error } = await supabase
       .from("blacklisted_phone_numbers")
       .delete()
-      .eq("phone_number", phone)
+      .in("phone_number", formats)
 
     if (error) {
       console.error("[BLACKLIST] Error removing from blacklist:", error)
@@ -170,7 +179,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // Update shop_orders: reset blacklisted orders back to pending if they haven't been processed
+    // Update shop_orders: reset blacklisted orders back to pending (checks both phone formats)
     const { data: shopOrdersUpdated, error: shopOrdersError } = await supabase
       .from("shop_orders")
       .update({
@@ -178,7 +187,7 @@ export async function DELETE(request: NextRequest) {
         queue: "default",
         updated_at: new Date().toISOString(),
       })
-      .eq("customer_phone", phone)
+      .in("customer_phone", formats)
       .eq("order_status", "blacklisted")
       .select()
 
@@ -237,7 +246,7 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Update orders (wallet): reset blacklisted orders back to pending if they haven't been processed
+    // Update orders (wallet): reset blacklisted orders back to pending (checks both phone formats)
     const { data: ordersUpdated, error: ordersError } = await supabase
       .from("orders")
       .update({
@@ -245,7 +254,7 @@ export async function DELETE(request: NextRequest) {
         queue: "default",
         updated_at: new Date().toISOString(),
       })
-      .eq("phone_number", phone)
+      .in("phone_number", formats)
       .eq("status", "blacklisted")
       .select()
 
