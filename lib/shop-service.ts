@@ -319,6 +319,11 @@ export const shopProfitService = {
       .select()
 
     if (error) throw error
+
+    // Automatically sync balance after creating profit to ensure consistency
+    // This prevents discrepancies between shop_profits and shop_available_balance tables
+    await this.syncAvailableBalance(shopId)
+
     return data[0]
   },
 
