@@ -48,19 +48,19 @@ async function isPhoneBlacklisted(phone: string): Promise<boolean> {
 async function fixOrphanedBlacklistedOrders() {
     console.log("🔍 Finding orphaned blacklisted orders...\n")
 
-    // Get all orders with blacklisted status
+    // Get all orders with blacklisted status OR blacklisted queue
     const { data: shopOrders } = await supabase
         .from("shop_orders")
-        .select("id, customer_phone, order_status")
-        .eq("order_status", "blacklisted")
+        .select("id, customer_phone, order_status, queue")
+        .or("order_status.eq.blacklisted,queue.eq.blacklisted")
 
     const { data: walletOrders } = await supabase
         .from("orders")
-        .select("id, phone_number, status")
-        .eq("status", "blacklisted")
+        .select("id, phone_number, status, queue")
+        .or("status.eq.blacklisted,queue.eq.blacklisted")
 
-    console.log(`Found ${shopOrders?.length || 0} shop orders with blacklisted status`)
-    console.log(`Found ${walletOrders?.length || 0} wallet orders with blacklisted status\n`)
+    console.log(`Found ${shopOrders?.length || 0} shop orders with blacklisted status/queue`)
+    console.log(`Found ${walletOrders?.length || 0} wallet orders with blacklisted status/queue\n`)
 
     let shopOrdersFixed = 0
     let walletOrdersFixed = 0

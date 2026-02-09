@@ -49,16 +49,16 @@ export async function POST(request: NextRequest) {
 
         console.log("[FIX-ORPHANED] Starting orphaned blacklisted orders fix...")
 
-        // Get all orders with blacklisted status
+        // Get all orders with blacklisted status OR blacklisted queue
         const { data: shopOrders } = await supabase
             .from("shop_orders")
-            .select("id, customer_phone, order_status")
-            .eq("order_status", "blacklisted")
+            .select("id, customer_phone, order_status, queue")
+            .or("order_status.eq.blacklisted,queue.eq.blacklisted")
 
         const { data: walletOrders } = await supabase
             .from("orders")
-            .select("id, phone_number, status")
-            .eq("status", "blacklisted")
+            .select("id, phone_number, status, queue")
+            .or("status.eq.blacklisted,queue.eq.blacklisted")
 
         console.log(`[FIX-ORPHANED] Found ${shopOrders?.length || 0} shop orders, ${walletOrders?.length || 0} wallet orders`)
 
