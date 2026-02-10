@@ -43,15 +43,24 @@ function getNetworkColor(network: string): string {
 export default function OrderPaymentStatusPage() {
   const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
-  
+
   const [allOrders, setAllOrders] = useState<AllOrder[]>([])
   const [loadingAllOrders, setLoadingAllOrders] = useState(false)
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [fulfillingOrderId, setFulfillingOrderId] = useState<string | null>(null)
   const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(false)
-  
+
   const [searchQuery, setSearchQuery] = useState("")
   const [searchType, setSearchType] = useState<"all" | "reference" | "phone">("all")
+
+  // Bulk update state
+  const [showBulkUpdate, setShowBulkUpdate] = useState(false)
+  const [bulkDate, setBulkDate] = useState("")
+  const [bulkStartTime, setBulkStartTime] = useState("")
+  const [bulkEndTime, setBulkEndTime] = useState("")
+  const [bulkNetwork, setBulkNetwork] = useState("")
+  const [bulkStatus, setBulkStatus] = useState("")
+  const [bulkUpdating, setBulkUpdating] = useState(false)
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -100,15 +109,15 @@ export default function OrderPaymentStatusPage() {
     try {
       setLoadingAllOrders(true)
       console.log("Fetching all orders with search...")
-      
+
       const params = new URLSearchParams()
       if (searchQuery) {
         params.append("search", searchQuery)
         params.append("searchType", searchType)
       }
-      
+
       const response = await fetch(`/api/admin/orders/all?${params.toString()}`)
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || "Failed to load all orders")
@@ -128,10 +137,10 @@ export default function OrderPaymentStatusPage() {
 
   const handleStatusUpdate = async (orderId: string, orderType: string, newStatus: string) => {
     if (!newStatus) return
-    
+
     try {
       setUpdatingOrderId(orderId)
-      
+
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
         toast.error("Authentication required")
@@ -140,7 +149,7 @@ export default function OrderPaymentStatusPage() {
 
       const response = await fetch("/api/admin/orders/bulk-update-status", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
@@ -157,9 +166,9 @@ export default function OrderPaymentStatusPage() {
       }
 
       toast.success(`Order status updated to ${newStatus}`)
-      
+
       // Update local state
-      setAllOrders(prev => prev.map(order => 
+      setAllOrders(prev => prev.map(order =>
         order.id === orderId ? { ...order, status: newStatus } : order
       ))
     } catch (error) {
@@ -178,7 +187,7 @@ export default function OrderPaymentStatusPage() {
 
     try {
       setFulfillingOrderId(orderId)
-      
+
       // Find the actual order object to inspect its data
       const orderObject = allOrders.find(o => o.id === orderId)
       console.log("[PAYMENT-STATUS] Order object to fulfill:", {
@@ -190,7 +199,7 @@ export default function OrderPaymentStatusPage() {
         fullObject: orderObject
       })
       console.log("[PAYMENT-STATUS] Triggering manual fulfillment:", { orderId, orderType })
-      
+
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
         toast.error("Authentication required")
@@ -223,9 +232,9 @@ export default function OrderPaymentStatusPage() {
       const result = await response.json()
       console.log("[PAYMENT-STATUS] Fulfillment successful:", result)
       toast.success("Fulfillment triggered successfully")
-      
+
       // Update local state - change status to processing
-      setAllOrders(prev => prev.map(order => 
+      setAllOrders(prev => prev.map(order =>
         order.id === orderId ? { ...order, status: "processing" } : order
       ))
     } catch (error) {
@@ -233,6 +242,146 @@ export default function OrderPaymentStatusPage() {
       toast.error(error instanceof Error ? error.message : "Failed to trigger fulfillment")
     } finally {
       setFulfillingOrderId(null)
+    }
+  }
+
+  const handleBulkStatusUpdate = async () => {
+    if (!bulkStatus) {
+      toast.error("Please select a status to update to")
+      return
+    }
+
+    if (!bulkDate) {
+      toast.error("Please select a date")
+      return
+    }
+
+    try {
+      setBulkUpdating(true)
+
+      // Filter orders based on criteria
+      const filteredOrders = allOrders.filter(order => {
+        const orderDate = new Date(order.created_at)
+        const selectedDate = new Date(bulkDate)
+
+        // Check if same day
+        const isSameDay = orderDate.toDateString() === selectedDate.toDateString()
+        if (!isSameDay) return false
+
+        // Check time range if provided
+        if (bulkStartTime || bulkEndTime) {
+          const orderTime = orderDate.getHours() * 60 + orderDate.getMinutes()
+
+          if (bulkStartTime) {
+            const [startHour, startMin] = bulkStartTime.split(':').map(Number)
+            const startTimeMin = startHour * 60 + startMin
+            if (orderTime < startTimeMin) return false
+          }
+
+          if (bulkEndTime) {
+            const [endHour, endMin] = bulkEndTime.split(':').map(Number)
+            const endTimeMin = endHour * 60 + endMin
+            if (orderTime > endTimeMin) return false
+          }
+        }
+
+        // Check network if provided
+        if (bulkNetwork && order.network !== bulkNetwork) return false
+
+        return true
+      })
+
+      if (filteredOrders.length === 0) {
+        toast.error("No orders match the selected criteria")
+        return
+      }
+
+      // Confirm before updating
+      const confirmed = window.confirm(
+        `Update ${filteredOrders.length} order(s) to status "${bulkStatus}"?\n\n` +
+        `Date: ${bulkDate}\n` +
+        `${bulkStartTime || bulkEndTime ? `Time: ${bulkStartTime || '00:00'} - ${bulkEndTime || '23:59'}\n` : ''}` +
+        `${bulkNetwork ? `Network: ${bulkNetwork}\n` : ''}` +
+        `\nThis action cannot be undone.`
+      )
+
+      if (!confirmed) return
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      // Group by order type
+      const shopOrders = filteredOrders.filter(o => o.type === "shop")
+      const bulkOrders = filteredOrders.filter(o => o.type === "bulk")
+
+      let updatedCount = 0
+
+      // Update shop orders
+      if (shopOrders.length > 0) {
+        const response = await fetch("/api/admin/orders/bulk-update-status", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            orderIds: shopOrders.map(o => o.id),
+            status: bulkStatus,
+            orderType: "shop"
+          })
+        })
+
+        if (response.ok) {
+          updatedCount += shopOrders.length
+        }
+      }
+
+      // Update bulk orders
+      if (bulkOrders.length > 0) {
+        const response = await fetch("/api/admin/orders/bulk-update-status", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            orderIds: bulkOrders.map(o => o.id),
+            status: bulkStatus,
+            orderType: "bulk"
+          })
+        })
+
+        if (response.ok) {
+          updatedCount += bulkOrders.length
+        }
+      }
+
+      toast.success(`Successfully updated ${updatedCount} order(s)`)
+
+      // Update local state
+      setAllOrders(prev => prev.map(order => {
+        if (filteredOrders.some(fo => fo.id === order.id)) {
+          return { ...order, status: bulkStatus }
+        }
+        return order
+      }))
+
+      // Reset bulk update form
+      setBulkDate("")
+      setBulkStartTime("")
+      setBulkEndTime("")
+      setBulkNetwork("")
+      setBulkStatus("")
+      setShowBulkUpdate(false)
+
+    } catch (error) {
+      console.error("Error bulk updating orders:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to bulk update orders")
+    } finally {
+      setBulkUpdating(false)
     }
   }
 
@@ -295,6 +444,120 @@ export default function OrderPaymentStatusPage() {
               </div>
             </div>
           </CardContent>
+        </Card>
+
+        {/* Bulk Status Update */}
+        <Card className="border-blue-200 bg-blue-50/30">
+          <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowBulkUpdate(!showBulkUpdate)}>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Edit className="w-5 h-5" />
+                  Bulk Status Update
+                </CardTitle>
+                <CardDescription>Update multiple orders at once by date, time, and network</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm">
+                {showBulkUpdate ? "Hide" : "Show"}
+              </Button>
+            </div>
+          </CardHeader>
+
+          {showBulkUpdate && (
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Date */}
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Date *</label>
+                  <Input
+                    type="date"
+                    value={bulkDate}
+                    onChange={(e) => setBulkDate(e.target.value)}
+                    required
+                  />
+                </div>
+
+                {/* Start Time */}
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Start Time (Optional)</label>
+                  <Input
+                    type="time"
+                    value={bulkStartTime}
+                    onChange={(e) => setBulkStartTime(e.target.value)}
+                  />
+                </div>
+
+                {/* End Time */}
+                <div>
+                  <label className="text-sm font-medium mb-1 block">End Time (Optional)</label>
+                  <Input
+                    type="time"
+                    value={bulkEndTime}
+                    onChange={(e) => setBulkEndTime(e.target.value)}
+                  />
+                </div>
+
+                {/* Network */}
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Network (Optional)</label>
+                  <select
+                    value={bulkNetwork}
+                    onChange={(e) => setBulkNetwork(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">All Networks</option>
+                    <option value="MTN">MTN</option>
+                    <option value="Telecel">Telecel</option>
+                    <option value="AT - iShare">AT - iShare</option>
+                    <option value="AT - BigTime">AT - BigTime</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-end gap-4">
+                <div className="flex-1">
+                  <label className="text-sm font-medium mb-1 block">New Status *</label>
+                  <select
+                    value={bulkStatus}
+                    onChange={(e) => setBulkStatus(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="">Select status...</option>
+                    <option value="pending">Pending</option>
+                    <option value="processing">Processing</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                  </select>
+                </div>
+
+                <Button
+                  onClick={handleBulkStatusUpdate}
+                  disabled={bulkUpdating || !bulkDate || !bulkStatus}
+                  className="px-6"
+                >
+                  {bulkUpdating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    <>
+                      <Edit className="w-4 h-4 mr-2" />
+                      Update Orders
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  This will update ALL orders matching the criteria. Date is required. Time range and network are optional filters.
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+          )}
         </Card>
 
         {/* Orders Results */}
@@ -373,30 +636,28 @@ export default function OrderPaymentStatusPage() {
                         <td className="px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
                         <td className="px-4 py-3 text-center">
                           <Badge
-                            className={`text-xs border ${
-                              order.payment_status === "completed"
-                                ? "bg-green-100 text-green-800 border-green-200"
-                                : order.payment_status === "pending"
+                            className={`text-xs border ${order.payment_status === "completed"
+                              ? "bg-green-100 text-green-800 border-green-200"
+                              : order.payment_status === "pending"
                                 ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                                 : order.payment_status === "failed"
-                                ? "bg-red-100 text-red-800 border-red-200"
-                                : "bg-gray-100 text-gray-800 border-gray-200"
-                            }`}
+                                  ? "bg-red-100 text-red-800 border-red-200"
+                                  : "bg-gray-100 text-gray-800 border-gray-200"
+                              }`}
                           >
                             {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1) || "Unknown"}
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-center">
                           <Badge
-                            className={`text-xs border ${
-                              order.status === "completed"
-                                ? "bg-green-100 text-green-800 border-green-200"
-                                : order.status === "pending"
+                            className={`text-xs border ${order.status === "completed"
+                              ? "bg-green-100 text-green-800 border-green-200"
+                              : order.status === "pending"
                                 ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                                 : order.status === "processing"
-                                ? "bg-blue-100 text-blue-800 border-blue-200"
-                                : "bg-red-100 text-red-800 border-red-200"
-                            }`}
+                                  ? "bg-blue-100 text-blue-800 border-blue-200"
+                                  : "bg-red-100 text-red-800 border-red-200"
+                              }`}
                           >
                             {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
                           </Badge>

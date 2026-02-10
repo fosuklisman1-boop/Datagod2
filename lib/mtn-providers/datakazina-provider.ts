@@ -190,6 +190,23 @@ export class DataKazinaProvider implements MTNProvider {
 
             const responseText = await response.text()
 
+            // Special case: 404 with "No active transactions" means order completed/failed
+            // DataKazina's API only returns "active" transactions, completed ones return 404
+            if (response.status === 404 && responseText.includes("No active transactions")) {
+                log("warn", "StatusCheck", `DataKazina transaction ${transactionId} returned 404 - likely completed or inactive`, {
+                    traceId,
+                    transactionId,
+                })
+
+                // For 404, we can't know the exact final status without checking DataKazina dashboard
+                // Return a special response indicating the order needs manual verification
+                return {
+                    success: false,
+                    message: `Transaction not found in active queue (404). Order may be completed/failed. Check DataKazina dashboard for final status.`,
+                    status: undefined, // Don't auto-update status on 404
+                }
+            }
+
             if (!response.ok) {
                 return {
                     success: false,
