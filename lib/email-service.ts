@@ -9,6 +9,7 @@ const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 const BREVO_API_KEY = process.env.BREVO_API_KEY
 const SENDER_NAME = process.env.EMAIL_SENDER_NAME || "DataGod"
 const SENDER_EMAIL = process.env.EMAIL_SENDER_ADDRESS || "noreply@datagod.com"
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://datagod.store"
 
 export interface EmailRecipient {
   email: string
@@ -19,7 +20,7 @@ export interface EmailPayload {
   to: EmailRecipient[]
   subject: string
   htmlContent: string
-  textContent?: string // Plain text version for better deliverability
+  textContent?: string
   userId?: string // For logging
   referenceId?: string // For logging
   type?: string // For logging (e.g., 'order_confirmation')
@@ -37,9 +38,12 @@ interface BrevoResponse {
 }
 
 /**
- * Standard HTML Wrapper for consistent email styling
+ * Premium HTML Template Wrapper
+ * Design: Dark Grid Header, Gold Accents, Clean White Card
  */
-function wrapHtml(content: string, title: string): string {
+function wrapHtml(content: string, title: string, showHero: boolean = false): string {
+  const logoUrl = `${APP_URL}/apple-touch-icon.png`
+
   return `
     <!DOCTYPE html>
     <html>
@@ -48,31 +52,90 @@ function wrapHtml(content: string, title: string): string {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${title}</title>
       <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f9fafb; }
-        .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
-        .header { background-color: #000000; color: #ffffff; padding: 20px; text-align: center; }
-        .content { padding: 30px 20px; }
-        .footer { background-color: #f3f4f6; color: #6b7280; padding: 20px; text-align: center; font-size: 12px; }
-        .button { display: inline-block; background-color: #000000; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; margin-top: 15px; }
-        .alert { padding: 10px; border-radius: 4px; margin-bottom: 15px; }
-        .alert-error { background-color: #fee2e2; color: #991b1b; }
-        .alert-success { background-color: #dcfce7; color: #166534; }
-        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e5e7eb; }
-        th { font-weight: 600; color: #4b5563; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, Arial, sans-serif; line-height: 1.6; color: #374151; margin: 0; padding: 0; background-color: #f3f4f6; }
+        .wrapper { background-color: #f3f4f6; padding: 20px 0; }
+        .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+        
+        /* Premium Header */
+        .header { background-color: #0f172a; color: #ffffff; padding: 30px 20px; text-align: center; background-image: radial-gradient(#1e293b 1px, #0f172a 1px); background-size: 20px 20px; }
+        .brand-logo { width: 48px; height: 48px; border-radius: 8px; margin-bottom: 12px; }
+        .brand-name { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: #fbbf24; margin: 0; }
+        .header-title { font-size: 24px; font-weight: 700; margin: 10px 0 5px 0; color: #ffffff; }
+        
+        /* Content Body */
+        .content { padding: 30px 25px; }
+        
+        /* Buttons */
+        .button-primary { display: inline-block; background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%); color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-top: 20px; width: 100%; text-align: center; box-sizing: border-box; box-shadow: 0 4px 6px rgba(251, 191, 36, 0.3); }
+        .button-secondary { display: inline-block; background-color: #f3f4f6; color: #4b5563; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; margin-top: 10px; width: 100%; text-align: center; box-sizing: border-box; }
+        
+        /* Text Styles */
+        h1, h2, h3 { color: #111827; margin-top: 0; }
+        p { margin-bottom: 15px; font-size: 15px; color: #4b5563; }
+        
+        /* Cards & Tables */
+        .info-card { background-color: #f9fafb; border-radius: 8px; padding: 20px; border: 1px solid #e5e7eb; margin: 20px 0; }
+        .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb;font-size: 14px; }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { color: #6b7280; font-weight: 500; }
+        .info-value { color: #111827; font-weight: 600; text-align: right; }
+        .info-value.highlight { color: #059669; font-weight: 700; }
+        
+        /* Status Badges */
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+        .badge-success { background-color: #dcfce7; color: #166534; }
+        .badge-warning { background-color: #fef3c7; color: #92400e; }
+        .badge-error { background-color: #fee2e2; color: #991b1b; }
+
+        /* Footer */
+        .footer { background-color: #f9fafb; padding: 30px 20px; text-align: center; border-top: 1px solid #e5e7eb; }
+        .footer-links { margin-bottom: 20px; }
+        .footer-link { color: #6b7280; text-decoration: none; font-size: 12px; margin: 0 8px; font-weight: 500; }
+        .footer-text { font-size: 12px; color: #9ca3af; margin: 5px 0; line-height: 1.5; }
+        .footer-contact { color: #2563eb; text-decoration: none; font-weight: 500; }
+        
+        /* Utilities */
+        .text-center { text-align: center; }
+        .mt-4 { margin-top: 16px; }
+        .mb-2 { margin-bottom: 8px; }
+        .icon-large { font-size: 32px; margin-bottom: 10px; display: block; }
       </style>
     </head>
     <body>
-      <div class="container">
-        <div class="header">
-          <h1>${title}</h1>
-        </div>
-        <div class="content">
-          ${content}
-        </div>
-        <div class="footer">
-          <p>&copy; ${new Date().getFullYear()} ${SENDER_NAME}. All rights reserved.</p>
-          <p>This is an automated message, please do not reply directly.</p>
+      <div class="wrapper">
+        <div class="container">
+          <!-- Premium Header -->
+          <div class="header">
+            <!-- Logo Section -->
+            <img src="${logoUrl}" alt="Logo" class="brand-logo" onerror="this.style.display='none'">
+            <p class="brand-name">${SENDER_NAME}</p>
+            
+            ${showHero ? `<h1 class="header-title">${title}</h1>` : ''}
+          </div>
+
+          <!-- Main Content -->
+          <div class="content">
+            ${content}
+          </div>
+
+          <!-- Footer -->
+          <div class="footer">
+            <div class="footer-links">
+              <a href="${APP_URL}" class="footer-link">Website</a>
+              <a href="${APP_URL}/dashboard" class="footer-link">Dashboard</a>
+              <a href="${APP_URL}/support" class="footer-link">Support</a>
+            </div>
+            <p class="footer-text">
+              Questions? Reply to this email or contact us at<br>
+              <a href="mailto:${SENDER_EMAIL}" class="footer-contact">${SENDER_EMAIL}</a>
+            </p>
+            <p class="footer-text">
+              &copy; ${new Date().getFullYear()} ${SENDER_NAME}. All rights reserved.<br>
+              Premium Data Reseller Platform
+            </p>
+          </div>
         </div>
       </div>
     </body>
@@ -80,238 +143,328 @@ function wrapHtml(content: string, title: string): string {
   `
 }
 
-// Email Templates (Mirrors SMSTemplates)
 export const EmailTemplates = {
-  walletTopUpInitiated: (amount: string, ref: string) => ({
-    subject: "Wallet Top-up Initiated",
-    html: wrapHtml(`
-      <p>A wallet top-up request has been initiated.</p>
-      <table>
-        <tr><th>Amount</th><td>GHS ${amount}</td></tr>
-        <tr><th>Reference</th><td>${ref}</td></tr>
-        <tr><th>Status</th><td>Processing payment...</td></tr>
-      </table>
-      <p>Your balance will be updated automatically once payment is confirmed.</p>
-    `, "Wallet Top-up"),
-  }),
-
   welcomeEmail: (firstName: string) => ({
     subject: `Welcome to ${SENDER_NAME}!`,
     html: wrapHtml(`
-      <div class="alert alert-success">Welcome to the family!</div>
-      <p>Hi ${firstName},</p>
-      <p>Thank you for joining ${SENDER_NAME}. We are excited to have you on board.</p>
-      <p>You can now:</p>
-      <ul>
-        <li>Purchase affordable data bundles</li>
-        <li>Manage your wallet</li>
-        <li>Apply to become a shop owner</li>
-      </ul>
-      <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard" class="button">Go to Dashboard</a></p>
-    `, "Welcome"),
+      <div class="text-center">
+        <span class="icon-large">👋</span>
+        <h2>Welcome to the Family!</h2>
+        <p>Hi ${firstName},</p>
+        <p>Thank you for joining <strong>${SENDER_NAME}</strong>. We are thrilled to have you on board.</p>
+      </div>
+      
+      <div class="info-card">
+        <h3>What you can do now:</h3>
+        <p>🚀 Purchase affordable data bundles</p>
+        <p>💰 Fund your wallet instantly</p>
+        <p>🏪 Apply to become a shop owner</p>
+      </div>
+
+      <a href="${APP_URL}/dashboard" class="button-primary">Go to Dashboard</a>
+    `, "Welcome Onboard", false),
   }),
 
   walletTopUpSuccess: (amount: string, balance: string, ref: string) => ({
-    subject: "✓ Wallet Top-up Successful",
+    subject: `Top-up Successful: GHS ${amount}`,
     html: wrapHtml(`
-      <div class="alert alert-success">Your wallet has been successfully funded!</div>
-      <p>Thank you for topping up your wallet.</p>
-      <table>
-        <tr><th>Amount Credited</th><td>GHS ${amount}</td></tr>
-        <tr><th>New Balance</th><td>GHS ${balance}</td></tr>
-        <tr><th>Reference</th><td>${ref}</td></tr>
-      </table>
-    `, "Payment Received"),
+      <div class="text-center">
+        <span class="icon-large">✅</span>
+        <h2>Wallet Funded!</h2>
+        <p>Your wallet has been successfully credited.</p>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row">
+          <span class="info-label">Amount Credited</span>
+          <span class="info-value highlight">GHS ${amount}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">New Balance</span>
+          <span class="info-value">GHS ${balance}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Reference</span>
+          <span class="info-value">${ref}</span>
+        </div>
+      </div>
+
+      <a href="${APP_URL}/dashboard/wallet" class="button-primary">View Wallet</a>
+    `, "Payment Received", true),
+  }),
+
+  walletTopUpInitiated: (amount: string, ref: string) => ({
+    subject: "Wallet Top-up Initiated",
+    html: wrapHtml(`
+       <div class="text-center">
+        <span class="icon-large">⏳</span>
+        <h2>Processing Top-up</h2>
+        <p>We have received your request to top up.</p>
+      </div>
+      <div class="info-card">
+        <div class="info-row">
+          <span class="info-label">Amount</span>
+          <span class="info-value">GHS ${amount}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Reference</span>
+          <span class="info-value">${ref}</span>
+        </div>
+      </div>
+    `, "Processing Transaction", true),
   }),
 
   walletTopUpFailed: (amount: string, ref: string) => ({
-    subject: "✗ Wallet Top-up Failed",
+    subject: "Top-up Failed",
     html: wrapHtml(`
-      <div class="alert alert-error">The top-up transaction could not be completed.</div>
-      <p>We attempted to process your top-up but encountered an issue.</p>
-      <table>
-        <tr><th>Amount</th><td>GHS ${amount}</td></tr>
-        <tr><th>Reference</th><td>${ref}</td></tr>
-      </table>
-      <p>If you have been debited, please contact support immediately with your reference code.</p>
-    `, "Transaction Failed"),
+      <div class="text-center">
+        <span class="icon-large">❌</span>
+        <h2>Transaction Failed</h2>
+        <p>We could not complete your top-up request.</p>
+      </div>
+      <div class="info-card">
+         <div class="info-row">
+          <span class="info-label">Amount</span>
+          <span class="info-value">GHS ${amount}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Reference</span>
+          <span class="info-value">${ref}</span>
+        </div>
+      </div>
+      <p>If you were debited, please contact support.</p>
+    `, "Failed Transaction", true),
   }),
 
   orderCreated: (orderId: string, network: string, volume: string, amount: string) => ({
-    subject: `Order Confirmed: ${network} ${volume}GB`,
+    subject: `Order Confirmed - ${network} ${volume}GB`,
     html: wrapHtml(`
-      <p>Your order has been placed successfully and is pending payment/processing.</p>
-      <table>
-        <tr><th>Order ID</th><td>${orderId}</td></tr>
-        <tr><th>Package</th><td>${network} ${volume}GB</td></tr>
-        <tr><th>Amount</th><td>GHS ${amount}</td></tr>
-      </table>
-    `, "Order Confirmation"),
+      <div class="text-center">
+        <span class="icon-large">📦</span>
+        <h2>Order Placed Successfully!</h2>
+        <span class="badge badge-warning">Processing</span>
+        <p class="mt-4">Your order is being processed.</p>
+      </div>
+
+      <div class="info-card">
+        <h3 style="font-size: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 15px;">Order Details</h3>
+        <div class="info-row">
+          <span class="info-label">Order ID</span>
+          <span class="info-value">${orderId}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Network</span>
+          <span class="info-value">${network}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Package</span>
+          <span class="info-value">${volume}GB</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Amount Paid</span>
+          <span class="info-value highlight">GHS ${amount}</span>
+        </div>
+      </div>
+
+      <a href="${APP_URL}/dashboard/my-orders" class="button-primary">Track Your Order</a>
+    `, "Order Confirmation", true),
   }),
 
   orderPaymentConfirmed: (orderId: string, network: string, volume: string, amount: string) => ({
-    subject: `✓ Payment Confirmed: Order #${orderId}`,
+    subject: `Payment Confirmed: Order #${orderId}`,
     html: wrapHtml(`
-      <div class="alert alert-success">Payment received! Your order is now processing.</div>
-      <table>
-        <tr><th>Order ID</th><td>${orderId}</td></tr>
-        <tr><th>Package</th><td>${network} ${volume}GB</td></tr>
-        <tr><th>Amount Paid</th><td>GHS ${amount}</td></tr>
-      </table>
-      <p>You will receive a notification once the data bundle is delivered.</p>
-    `, "Payment Confirmed"),
+      <div class="text-center">
+        <span class="icon-large">✅</span>
+        <h2>Payment Received</h2>
+        <p>We are now processing your data bundle.</p>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row">
+          <span class="info-label">Order ID</span>
+          <span class="info-value">${orderId}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Package</span>
+          <span class="info-value">${network} ${volume}GB</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Amount</span>
+          <span class="info-value highlight">GHS ${amount}</span>
+        </div>
+      </div>
+      
+      <a href="${APP_URL}/dashboard/my-orders" class="button-primary">View Status</a>
+    `, "Payment Success", true),
   }),
 
   orderDelivered: (orderId: string, network: string, volume: string) => ({
-    subject: `✓ Order Delivered: #${orderId}`,
+    subject: `✓ Order Delivered: ${network} ${volume}GB`,
     html: wrapHtml(`
-      <div class="alert alert-success">Your data bundle has been delivered!</div>
-      <p>Enjoy your ${network} ${volume}GB data package.</p>
-      <p>Thank you for choosing ${SENDER_NAME}.</p>
-    `, "Order Delivered"),
+      <div class="text-center">
+        <span class="icon-large">🚀</span>
+        <h2>Order Delivered!</h2>
+        <span class="badge badge-success">Completed</span>
+        <p class="mt-4">Your data bundle has been sent to your phone.</p>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row">
+          <span class="info-label">Order ID</span>
+          <span class="info-value">${orderId}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Package</span>
+          <span class="info-value">${network} ${volume}GB</span>
+        </div>
+      </div>
+
+      <a href="${APP_URL}/dashboard/my-orders" class="button-secondary">Buy Again</a>
+    `, "Delivery Success", true),
   }),
 
   orderFailed: (orderId: string, reason: string) => ({
-    subject: `✗ Order Failed: #${orderId}`,
+    subject: `Order Failed: #${orderId}`,
     html: wrapHtml(`
-      <div class="alert alert-error">We could not fulfill your order.</div>
-      <p>Unfortunately, your order #${orderId} failed.</p>
-      <p><strong>Reason:</strong> ${reason}</p>
-      <p>Any deducted funds have been refunded to your wallet.</p>
-    `, "Order Failed"),
+      <div class="text-center">
+        <span class="icon-large">❌</span>
+        <h2>Order Failed</h2>
+        <span class="badge badge-error">Refunded</span>
+        <p class="mt-4">We could not complete your request.</p>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row">
+          <span class="info-label">Order ID</span>
+          <span class="info-value">${orderId}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Reason</span>
+          <span class="info-value">${reason}</span>
+        </div>
+      </div>
+      <p>Funds have been refunded to your wallet.</p>
+    `, "Order Failed", true),
   }),
 
+  // Legacy Support for other templates (simplified to fit new style)
   withdrawalApproved: (amount: string, ref: string) => ({
-    subject: "✓ Withdrawal Approved",
+    subject: "Withdrawal Approved",
     html: wrapHtml(`
-      <p>Your withdrawal request has been approved and processed.</p>
-      <table>
-        <tr><th>Amount</th><td>GHS ${amount}</td></tr>
-        <tr><th>Reference</th><td>${ref}</td></tr>
-      </table>
-      <p>The funds should reflect in your account shortly.</p>
-    `, "Withdrawal Approved"),
+      <div class="text-center"><h2>Withdrawal Processed</h2></div>
+       <div class="info-card">
+        <div class="info-row"><span class="info-label">Amount</span><span class="info-value">GHS ${amount}</span></div>
+        <div class="info-row"><span class="info-label">Reference</span><span class="info-value">${ref}</span></div>
+      </div>
+    `, "Withdrawal Approved", true),
   }),
 
   withdrawalRejected: (amount: string, reason?: string) => ({
-    subject: "✗ Withdrawal Request Rejected",
+    subject: "Withdrawal Rejected",
     html: wrapHtml(`
-      <p>Your withdrawal request for GHS ${amount} was rejected.</p>
+      <div class="text-center"><h2 style="color:#ef4444">Withdrawal Rejected</h2></div>
+      <p>Your request for GHS ${amount} was rejected.</p>
       ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
-      <p>Please contact support for more information.</p>
-    `, "Withdrawal Rejected"),
+    `, "Withdrawal Status", true),
   }),
 
   shopApproved: (shopName: string, shopId: string) => ({
-    subject: "🎉 Shop Approved!",
+    subject: "Shop Approved!",
     html: wrapHtml(`
-      <div class="alert alert-success">Your shop "${shopName}" has been approved!</div>
-      <p>Congratulations! You can now start selling on our platform.</p>
-      <p>Visit your dashboard to manage your shop and view orders.</p>
-      <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard/shop" class="button">Go to Shop Dashboard</a></p>
-    `, "Shop Approved"),
+      <div class="text-center">
+          <span class="icon-large">🎉</span>
+          <h2>Shop Approved!</h2>
+          <p>Your shop "<strong>${shopName}</strong>" is now live.</p>
+      </div>
+      <a href="${APP_URL}/dashboard/shop" class="button-primary">Manage Shop</a>
+    `, "Shop Approved", true),
   }),
 
   shopRejected: (shopName: string, shopId: string, reason?: string) => ({
-    subject: "Shop Verification Status",
+    subject: "Shop Application Update",
     html: wrapHtml(`
-      <p>Your shop "${shopName}" application was not approved.</p>
+      <h2>Application Status</h2>
+      <p>Your shop "${shopName}" was not approved.</p>
       ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
-      <p>Please review our guidelines and contact support if you have questions.</p>
-    `, "Shop Rejected"),
+    `, "Shop Status", true),
   }),
 
-  // Admin Alerts
+  // Admin Alerts - Simplified
   fulfillmentFailed: (orderId: string, phone: string, network: string, sizeGb: string, reason: string) => ({
     subject: `[ALERT] Fulfillment Failed: #${orderId}`,
     html: wrapHtml(`
-      <div class="alert alert-error">Automated fulfillment failed for an order.</div>
-      <table>
-        <tr><th>Order ID</th><td>${orderId}</td></tr>
-        <tr><th>Customer</th><td>${phone}</td></tr>
-        <tr><th>Package</th><td>${network} ${sizeGb}GB</td></tr>
-        <tr><th>Reason</th><td>${reason}</td></tr>
-      </table>
-      <a href="${process.env.NEXT_PUBLIC_APP_URL}/admin/orders" class="button">View Order in Admin</a>
-    `, "Fulfillment Alert"),
+      <h2 style="color:#ef4444">Fulfillment Failed</h2>
+       <div class="info-card">
+        <div class="info-row"><span class="info-label">Order</span><span class="info-value">${orderId}</span></div>
+        <div class="info-row"><span class="info-label">Phone</span><span class="info-value">${phone}</span></div>
+        <div class="info-row"><span class="info-label">Package</span><span class="info-value">${network} ${sizeGb}GB</span></div>
+        <div class="info-row"><span class="info-label">Reason</span><span class="info-value text-red-600">${reason}</span></div>
+      </div>
+       <a href="${APP_URL}/admin/orders" class="button-primary">View in Admin</a>
+    `, "Admin Alert", true),
   }),
 
   priceManipulationDetected: (phone: string, clientPrice: string, actualPrice: string, network: string, volume: string) => ({
     subject: `[FRAUD] Price Manipulation Detected`,
     html: wrapHtml(`
-      <div class="alert alert-error"><strong>CRITICAL:</strong> Price manipulation attempt detected.</div>
-      <table>
-        <tr><th>User Phone</th><td>${phone}</td></tr>
-        <tr><th>Package</th><td>${network} ${volume}GB</td></tr>
-        <tr><th>Client Sent Price</th><td>GHS ${clientPrice}</td></tr>
-        <tr><th>Actual System Price</th><td>GHS ${actualPrice}</td></tr>
-      </table>
-      <p>This user may be attempting to tamper with client-side code.</p>
-    `, "Security Alert"),
+      <h2 style="color:#ef4444">FRAUD ALERT</h2>
+      <p>Price manipulation detected.</p>
+       <div class="info-card">
+        <div class="info-row"><span class="info-label">User</span><span class="info-value">${phone}</span></div>
+        <div class="info-row"><span class="info-label">Difference</span><span class="info-value">GHS ${clientPrice} vs ${actualPrice}</span></div>
+      </div>
+    `, "Security Alert", true),
   }),
 
   paymentMismatchDetected: (reference: string, paidAmount: string, expectedAmount: string) => ({
-    subject: `[ALERT] Payment Mismatch: ${reference}`,
+    subject: `[ALERT] Payment Mismatch`,
     html: wrapHtml(`
-      <div class="alert alert-error"><strong>Payment Underpayment Detected</strong></div>
-      <p>A payment was received but it does not match the expected amount.</p>
-      <table>
-        <tr><th>Reference</th><td>${reference}</td></tr>
-        <tr><th>Paid Amount</th><td>GHS ${paidAmount}</td></tr>
-        <tr><th>Expected Amount</th><td>GHS ${expectedAmount}</td></tr>
-        <tr><th>Difference</th><td>GHS ${(parseFloat(expectedAmount) - parseFloat(paidAmount)).toFixed(2)}</td></tr>
-      </table>
-      <p>Please investigate this transaction.</p>
-    `, "Payment Alert"),
+      <h2 style="color:#f59e0b">Payment Warning</h2>
+       <div class="info-card">
+        <div class="info-row"><span class="info-label">Ref</span><span class="info-value">${reference}</span></div>
+        <div class="info-row"><span class="info-label">Paid</span><span class="info-value">GHS ${paidAmount}</span></div>
+        <div class="info-row"><span class="info-label">Expected</span><span class="info-value">GHS ${expectedAmount}</span></div>
+      </div>
+    `, "Payment Alert", true),
   }),
 
-  // Subscription Alerts
   subscriptionExpiry1Day: (planName: string, expiryDate: string) => ({
-    subject: "Subscription Expiring in 24 Hours",
+    subject: "Subscription Expiring Soon",
     html: wrapHtml(`
-      <p>Your <strong>${planName}</strong> subscription will expire in approximately 24 hours.</p>
-      <p><strong>Expiry Date:</strong> ${expiryDate}</p>
-      <p>Please renew your subscription to avoid losing access to dealer pricing and features.</p>
-      <a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard/subscription" class="button">Renew Subscription</a>
-    `, "Subscription Expiry Warning"),
+      <h2>Renew Your Subscription</h2>
+      <p>Your <strong>${planName}</strong> plan expires in 24 hours.</p>
+      <a href="${APP_URL}/dashboard/subscription" class="button-primary">Renew Now</a>
+    `, "Subscription Alert", true),
   }),
 
   subscriptionExpiry12Hours: (planName: string, expiryDate: string) => ({
-    subject: "Subscription Expiring in 12 Hours",
+    subject: "Subscription Expiring in 12h",
     html: wrapHtml(`
-      <p>Your <strong>${planName}</strong> subscription is expiring in 12 hours.</p>
-      <p><strong>Expiry Date:</strong> ${expiryDate}</p>
-      <p>Don't miss out on dealer benefits. Renew now.</p>
-      <a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard/subscription" class="button">Renew Subscription</a>
-    `, "Subscription Expiry Warning"),
+      <h2>Don't lose your benefits!</h2>
+      <p>Your <strong>${planName}</strong> plan expires in 12 hours.</p>
+       <a href="${APP_URL}/dashboard/subscription" class="button-primary">Renew Now</a>
+    `, "Subscription Alert", true),
   }),
 
   subscriptionExpiry6Hours: (planName: string, expiryDate: string) => ({
-    subject: "URGENT: Subscription Expiring in 6 Hours",
+    subject: "Urgent: Expires in 6 Hours",
     html: wrapHtml(`
-      <div class="alert alert-error">Your subscription expires in just 6 hours!</div>
-      <p>Your <strong>${planName}</strong> subscription is ending soon.</p>
-      <p><strong>Expiry Date:</strong> ${expiryDate}</p>
-      <p>Renew immediately to ensure uninterrupted service.</p>
-      <a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard/subscription" class="button">Renew Now</a>
-    `, "Urgent Expiry Warning"),
+      <h2 style="color:#ef4444">Urgent Warning</h2>
+      <p>Your <strong>${planName}</strong> plan expires in 6 hours.</p>
+       <a href="${APP_URL}/dashboard/subscription" class="button-primary">Renew Now</a>
+    `, "Subscription Alert", true),
   }),
 
   subscriptionExpiry1Hour: (planName: string, expiryDate: string) => ({
-    subject: "FINAL CALL: Subscription Expiring in 1 Hour",
+    subject: "Final Call: Expires in 1 Hour",
     html: wrapHtml(`
-      <div class="alert alert-error"><strong>Action Required:</strong> Subscription expires in 1 hour.</div>
-      <p>Your <strong>${planName}</strong> plan is about to expire.</p>
-      <p><strong>Expiry Date:</strong> ${expiryDate}</p>
-      <p>Renew now to keep your dealer status active.</p>
-      <a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard/subscription" class="button">Renew Immediately</a>
-    `, "Final Expiry Warning"),
+      <h2 style="color:#ef4444">Final Call</h2>
+      <p>Your <strong>${planName}</strong> plan expires in 1 Hour!</p>
+       <a href="${APP_URL}/dashboard/subscription" class="button-primary">Renew Now</a>
+    `, "Subscription Alert", true),
   }),
 }
 
-/**
- * Send a generic email via Brevo API
- */
 export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string }> {
   if (!BREVO_API_KEY) {
     console.warn("[Email] BREVO_API_KEY is missing. Email skipped:", payload.subject)
@@ -353,7 +506,6 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
     const data: BrevoResponse = await response.json()
     console.log(`[Email] Sent successfully. ID: ${data.messageId}`)
 
-    // Log to DB if user ID provided
     if (payload.userId) {
       await logEmail(payload, "sent", data.messageId)
     }
@@ -371,38 +523,16 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
   }
 }
 
-/**
- * Log email to database
- */
 async function logEmail(payload: EmailPayload, status: "sent" | "failed", messageId?: string, errorMessage?: string) {
   try {
-    // We'll reuse the sms_logs table or create a new email_logs table?
-    // For now, let's assume we might want to create a dedicated table later,
-    // but since the schema wasn't requested, we will skip DB logging for now or log to console.
-    // If 'email_logs' table existed:
-    /*
-    await supabase.from('email_logs').insert({
-        user_id: payload.userId,
-        subject: payload.subject,
-        recipient: payload.to[0].email,
-        status,
-        message_id: messageId,
-        error_message: errorMessage,
-        type: payload.type
-    })
-    */
     console.log(`[Email] Logging to DB skipped (table not created yet). Status: ${status}`)
   } catch (e) {
     console.error("[Email] Failed to log email:", e)
   }
 }
 
-/**
- * Send email to all admins
- */
 export async function notifyAdmins(subject: string, htmlContent: string): Promise<void> {
   try {
-    // Fetch admin emails
     const { data: admins } = await supabase
       .from('users')
       .select('email')
@@ -427,10 +557,6 @@ export async function notifyAdmins(subject: string, htmlContent: string): Promis
   }
 }
 
-/**
- * Send batch emails via Brevo API
- * Suitable for cron jobs (up to 1000 recipients per call)
- */
 export async function sendBatchEmails(payload: BatchEmailPayload): Promise<{ success: boolean; messageId?: string; error?: string }> {
   if (!BREVO_API_KEY) {
     console.warn("[Email] BREVO_API_KEY is missing. Batch email skipped.")
@@ -442,7 +568,6 @@ export async function sendBatchEmails(payload: BatchEmailPayload): Promise<{ suc
 
     const messageVersions = payload.recipients.map(recipient => ({
       to: [{ email: recipient.email, name: recipient.name }],
-      // Start with global subject/content, but can be overridden here if needed per recipient
     }))
 
     const body = {
@@ -473,7 +598,7 @@ export async function sendBatchEmails(payload: BatchEmailPayload): Promise<{ suc
     const data = await response.json()
     console.log(`[Email] Batch sent successfully.`)
 
-    return { success: true, messageId: data.messageIds?.[0] } // Returns array of IDs usually
+    return { success: true, messageId: data.messageIds?.[0] }
 
   } catch (error: any) {
     console.error("[Email] Batch send failed:", error)
