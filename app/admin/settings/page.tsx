@@ -30,6 +30,10 @@ export default function AdminSettingsPage() {
   // App Control settings
   const [orderingEnabled, setOrderingEnabled] = useState(true)
 
+  // MTN Provider settings
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina">("sykes")
+  const [savingProvider, setSavingProvider] = useState(false)
+
   // Announcement settings
   const [announcementEnabled, setAnnouncementEnabled] = useState(false)
   const [announcementTitle, setAnnouncementTitle] = useState("")
@@ -130,6 +134,13 @@ export default function AdminSettingsPage() {
         const christmasData = await christmasResponse.json()
         if (christmasData.christmas_theme_enabled !== undefined) {
           setChristmasThemeEnabled(christmasData.christmas_theme_enabled)
+        }
+
+        // Load MTN provider setting
+        const providerResponse = await fetch("/api/admin/settings/mtn-provider")
+        const providerData = await providerResponse.json()
+        if (providerData.provider) {
+          setMtnProvider(providerData.provider)
         }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
