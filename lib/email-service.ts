@@ -94,6 +94,22 @@ export const EmailTemplates = {
     `, "Wallet Top-up"),
   }),
 
+  welcomeEmail: (firstName: string) => ({
+    subject: `Welcome to ${SENDER_NAME}!`,
+    html: wrapHtml(`
+      <div class="alert alert-success">Welcome to the family!</div>
+      <p>Hi ${firstName},</p>
+      <p>Thank you for joining ${SENDER_NAME}. We are excited to have you on board.</p>
+      <p>You can now:</p>
+      <ul>
+        <li>Purchase affordable data bundles</li>
+        <li>Manage your wallet</li>
+        <li>Apply to become a shop owner</li>
+      </ul>
+      <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard" class="button">Go to Dashboard</a></p>
+    `, "Welcome"),
+  }),
+
   walletTopUpSuccess: (amount: string, balance: string, ref: string) => ({
     subject: "✓ Wallet Top-up Successful",
     html: wrapHtml(`

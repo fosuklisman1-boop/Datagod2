@@ -114,6 +114,20 @@ export async function POST(request: NextRequest) {
       // Don't fail signup if wallet creation fails, but log it
     }
 
+    // Send Welcome Email
+    if (email) {
+      import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+        const payload = EmailTemplates.welcomeEmail(firstName || "User");
+        sendEmail({
+          to: [{ email, name: firstName }],
+          subject: payload.subject,
+          htmlContent: payload.html,
+          userId: userId,
+          type: 'welcome_email'
+        }).catch(err => console.error("[EMAIL] Welcome Email error:", err));
+      });
+    }
+
     return NextResponse.json(
       { profile: data?.[0] },
       { status: 201 }
