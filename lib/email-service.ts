@@ -496,14 +496,17 @@ export const EmailTemplates = {
   }),
 }
 
-export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string }> {
+/**
+ * Send email via Brevo
+ */
+async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string; provider?: string }> {
   if (!BREVO_API_KEY) {
     console.warn("[Email] BREVO_API_KEY is missing. Email skipped:", payload.subject)
-    return { success: false, error: "Configuration missing" }
+    return { success: false, error: "Brevo API key not configured" }
   }
 
   try {
-    console.log(`[Email] Sending '${payload.subject}' to ${payload.to.length} recipient(s)`)
+    console.log(`[Email] Sending via Brevo '${payload.subject}' to ${payload.to.length} recipient(s)`)
 
     const textContent = payload.textContent || payload.htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -530,29 +533,90 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[Email] API Failed: ${response.status}`, errorText)
+      console.error(`[Email] Brevo API Failed: ${response.status}`, errorText)
       throw new Error(`Brevo API Error: ${response.status} ${errorText}`)
     }
 
     const data: BrevoResponse = await response.json()
-    console.log(`[Email] Sent successfully. ID: ${data.messageId}`)
+    console.log(`[Email] ✓ Brevo sent successfully. ID: ${data.messageId}`)
 
     if (payload.userId) {
       await logEmail(payload, "sent", data.messageId)
     }
 
-    return { success: true, messageId: data.messageId }
+    return { success: true, messageId: data.messageId, provider: 'brevo' }
 
   } catch (error: any) {
-    console.error("[Email] Send failed:", error)
+    console.error("[Email] Brevo send failed:", error)
 
     if (payload.userId) {
       await logEmail(payload, "failed", undefined, error.message)
     }
 
-    return { success: false, error: error.message }
+    return { success: false, error: error.message, provider: 'brevo' }
   }
 }
+
+/**
+ * Send email via Resend
+ */
+async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string; provider?: string }> {
+  if (!resendClient || !RESEND_API_KEY) {
+    console.warn("[Email] RESEND_API_KEY is missing. Email skipped:", payload.subject)
+    return { success: false, error: "Resend API key not configured" }
+  }
+
+  try {
+    console.log(`[Email] Sending via Resend '${payload.subject}' to ${payload.to.length} recipient(s)`)
+
+    const textContent = payload.textContent || payload.htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+    const { data, error } = await resendClient.emails.send({
+      from: `${SENDER_NAME} <${SENDER_EMAIL}>`,
+      to: payload.to.map(r => r.email),
+      subject: payload.subject,
+      html: payload.htmlContent,
+      text: textContent,
+    })
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    const messageId = data?.id || 'unknown'
+    console.log(`[Email] ✓ Resend sent successfully. ID: ${messageId}`)
+
+    if (payload.userId) {
+      await logEmail(payload, "sent", messageId)
+    }
+
+    return { success: true, messageId, provider: 'resend' }
+
+  } catch (error: any) {
+    console.error("[Email] Resend send failed:", error)
+
+    if (payload.userId) {
+      await logEmail(payload, "failed", undefined, error.message)
+    }
+
+    return { success: false, error: error.message, provider: 'resend' }
+  }
+}
+
+/**
+ * Router function - sends email using configured provider
+ */
+export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string; provider?: string }> {
+  console.log(`[Email] Provider: ${EMAIL_PROVIDER}`)
+
+  // Route to the appropriate provider
+  if (EMAIL_PROVIDER === 'resend') {
+    return sendEmailViaResend(payload)
+  } else {
+    return sendEmailViaBrevo(payload)
+  }
+}
+
 
 async function logEmail(payload: EmailPayload, status: "sent" | "failed", messageId?: string, errorMessage?: string) {
   try {
