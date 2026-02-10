@@ -75,6 +75,8 @@ export async function POST(request: NextRequest) {
                 key: "mtn_provider_selection",
                 value: { provider },
                 updated_at: new Date().toISOString(),
+            }, {
+                onConflict: 'key' // Specify which column to use for conflict resolution
             })
 
         if (error) {
