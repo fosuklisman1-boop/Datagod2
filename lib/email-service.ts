@@ -280,11 +280,11 @@ export const EmailTemplates = {
   }),
 
   orderPaymentConfirmed: (orderId: string, network: string, volume: string, amount: string) => ({
-    subject: `Payment Confirmed: Order #${orderId}`,
+    subject: `Order Confirmed: #${orderId}`,
     html: wrapHtml(`
       <div class="text-center">
         <span class="icon-large">✅</span>
-        <h2>Payment Received</h2>
+        <h2>Order Confirmed</h2>
         <p>We are now processing your data bundle.</p>
       </div>
 
@@ -304,7 +304,7 @@ export const EmailTemplates = {
       </div>
       
       <a href="${APP_URL}/dashboard/my-orders" class="button-primary">View Status</a>
-    `, "Payment Success", true),
+    `, "Order Confirmed", true),
   }),
 
   orderDelivered: (orderId: string, network: string, volume: string) => ({
