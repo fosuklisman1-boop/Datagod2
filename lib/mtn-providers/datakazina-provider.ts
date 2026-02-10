@@ -264,10 +264,22 @@ export class DataKazinaProvider implements MTNProvider {
                 order: transaction,
             }
         } catch (error) {
-            log("error", "StatusCheck", `Error checking DataKazina status`, {
+            // Enhanced error logging for network issues
+            const errorDetails: any = {
                 traceId,
                 error: String(error),
-            })
+                errorType: error instanceof Error ? error.constructor.name : typeof error,
+            }
+
+            // Add additional context for fetch errors
+            if (error instanceof TypeError && error.message.includes('fetch failed')) {
+                errorDetails.likelyReason = "Network connectivity issue - API may be down or unreachable"
+                errorDetails.apiUrl = `${DATAKAZINA_API_BASE_URL}/fetch-single-transaction`
+                log("error", "StatusCheck", `DataKazina API unreachable (network error)`, errorDetails)
+            } else {
+                log("error", "StatusCheck", `Error checking DataKazina status`, errorDetails)
+            }
+
             return {
                 success: false,
                 message: error instanceof Error ? error.message : "Failed to check status",

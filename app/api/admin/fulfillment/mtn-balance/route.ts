@@ -4,6 +4,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { getMTNProvider } from "@/lib/mtn-providers/factory"
 import { SykesProvider } from "@/lib/mtn-providers/sykes-provider"
 import { DataKazinaProvider } from "@/lib/mtn-providers/datakazina-provider"
+import { notifyAdmins } from "@/lib/email-service"
 
 /**
  * GET /api/admin/fulfillment/mtn-balance
@@ -152,6 +153,40 @@ async function sendLowBalanceAlert(
         api_key: TERMII_API_KEY,
       }),
     })
+
+    // Send Email alert to all admins
+    try {
+      let emailMessage = `<div style="text-align: center;">
+        <h2 style="color: #dc2626;">⚠️ MTN Wallet Balance Alert</h2>
+        <p>One or more MTN provider balances have fallen below the threshold.</p>
+      </div>
+
+      <div style="background-color: #fee2e2; border-radius: 8px; padding: 20px; border: 1px solid #fca5a5; margin: 20px 0;">
+        <h3 style="margin-top: 0; color: #991b1b;">Low Balance Details:</h3>`
+
+      if (sykesLow && sykesBalance !== null) {
+        emailMessage += `<p style="margin: 10px 0;"><strong>Sykes Provider:</strong> ₵${sykesBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
+      }
+      if (datakazinaLow && datakazinaBalance !== null) {
+        emailMessage += `<p style="margin: 10px 0;"><strong>DataKazina Provider:</strong> ₵${datakazinaBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
+      }
+
+      emailMessage += `<p style="margin: 15px 0 0 0; padding-top: 15px; border-top: 1px solid #fca5a5;">
+        <strong>Alert Threshold:</strong> ₵${threshold}
+      </p>
+      </div>
+
+      <div style="background-color: #fef3c7; border-radius: 8px; padding: 15px; border: 1px solid #fbbf24;">
+        <p style="margin: 0; color: #92400e;">
+          <strong>⚠️ Action Required:</strong> Please top up your MTN account(s) to avoid service disruption.
+        </p>
+      </div>`
+
+      await notifyAdmins("⚠️ MTN Wallet Balance Alert - Low Balance Detected", emailMessage)
+      console.log("[Balance Alert] Email sent successfully")
+    } catch (emailError) {
+      console.error("[Balance Alert] Failed to send email:", emailError)
+    }
 
     // Update last alert timestamp
     await supabase
