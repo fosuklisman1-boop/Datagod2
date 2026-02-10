@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (emailToSend) {
-          import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+          import("@/lib/email-service").then(({ sendEmail, EmailTemplates, notifyAdmins }) => {
             const payload = EmailTemplates.fulfillmentFailed(
               shop_order_id.substring(0, 8),
               phone,
@@ -236,6 +236,8 @@ export async function POST(request: NextRequest) {
               (orderData.volume_gb || orderData.size || "0").toString(),
               mtnResponse.message || "Order could not be processed"
             );
+
+            // Send to customer
             sendEmail({
               to: [{ email: emailToSend, name: nameToSend }],
               subject: payload.subject,
@@ -243,6 +245,10 @@ export async function POST(request: NextRequest) {
               referenceId: shop_order_id,
               type: 'fulfillment_failed_manual'
             }).catch(err => console.error("[EMAIL] Fulfillment Fail Email error:", err));
+
+            // Notify admins
+            notifyAdmins(payload.subject, payload.html)
+              .catch(err => console.error("[MANUAL-FULFILL] Failed to notify admins:", err));
           });
         }
       } catch (emailError) {

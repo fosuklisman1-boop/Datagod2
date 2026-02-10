@@ -181,7 +181,7 @@ async function handleMTNAutoFulfillment(
       try {
         const { data: so } = await supabase.from('shop_orders').select('customer_email').eq('id', shopOrderId).single();
         if (so?.customer_email) {
-          import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+          import("@/lib/email-service").then(({ sendEmail, EmailTemplates, notifyAdmins }) => {
             const payload = EmailTemplates.fulfillmentFailed(
               shopOrderId.substring(0, 8),
               phoneNumber,
@@ -189,6 +189,8 @@ async function handleMTNAutoFulfillment(
               volumeGb.toString(),
               mtnResponse.message || "Order could not be processed"
             );
+
+            // Send to customer
             sendEmail({
               to: [{ email: so.customer_email, name: customerName || "Customer" }],
               subject: payload.subject,
@@ -196,6 +198,10 @@ async function handleMTNAutoFulfillment(
               referenceId: shopOrderId,
               type: 'fulfillment_failed'
             }).catch(err => console.error("[FULFILLMENT] Failed to send error Email:", err));
+
+            // Notify admins
+            notifyAdmins(payload.subject, payload.html)
+              .catch(err => console.error("[FULFILLMENT] Failed to notify admins:", err));
           });
         }
       } catch (emailError) {
