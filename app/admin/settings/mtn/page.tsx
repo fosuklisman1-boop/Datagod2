@@ -50,6 +50,8 @@ export default function MTNSettingsPage() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [toggling, setToggling] = useState(false)
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina">("sykes")
+  const [savingProvider, setSavingProvider] = useState(false)
 
   useEffect(() => {
     if (adminLoading) return
@@ -58,6 +60,7 @@ export default function MTNSettingsPage() {
 
     loadSettings()
     loadBalance()
+    loadProvider()
 
     // Refresh balance every 30 seconds
     const balanceInterval = setInterval(loadBalance, 30000)
@@ -155,6 +158,61 @@ export default function MTNSettingsPage() {
       toast.error("Error updating MTN setting")
     } finally {
       setToggling(false)
+    }
+  }
+
+  const loadProvider = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+
+      const response = await fetch("/api/admin/settings/mtn-provider", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setMtnProvider(data.provider || "sykes")
+      }
+    } catch (error) {
+      console.error("Error loading provider:", error)
+    }
+  }
+
+  const handleMTNProviderChange = async (provider: "sykes" | "datakazina") => {
+    setSavingProvider(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/settings/mtn-provider", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ provider }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setMtnProvider(provider)
+        toast.success(data.message)
+        // Reload balance to show updated active provider
+        loadBalance()
+      } else {
+        toast.error("Failed to update provider")
+      }
+    } catch (error) {
+      console.error("Error updating provider:", error)
+      toast.error("Error updating MTN provider")
+    } finally {
+      setSavingProvider(false)
     }
   }
 
@@ -374,6 +432,79 @@ export default function MTNSettingsPage() {
                 </AlertDescription>
               </Alert>
             )}
+          </CardContent>
+        </Card>
+
+        {/* MTN Provider Selection */}
+        <Card className="border-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              MTN Fulfillment Provider
+            </CardTitle>
+            <CardDescription>
+              Select which MTN API provider to use for order fulfillment
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Choose your preferred MTN data provider. Switching only affects new orders.
+              </p>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* Sykes Option */}
+                <button
+                  onClick={() => handleMTNProviderChange("sykes")}
+                  disabled={savingProvider || mtnProvider === "sykes"}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "sykes"
+                      ? "bg-blue-50 border-blue-500 shadow-md"
+                      : "bg-white border-gray-200 hover:border-blue-300"
+                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-gray-900">Sykes API</span>
+                    {mtnProvider === "sykes" && (
+                      <Badge className="bg-blue-600">Active</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-600">Current/Legacy provider</p>
+                </button>
+
+                {/* DataKazina Option */}
+                <button
+                  onClick={() => handleMTNProviderChange("datakazina")}
+                  disabled={savingProvider || mtnProvider === "datakazina"}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "datakazina"
+                      ? "bg-green-50 border-green-500 shadow-md"
+                      : "bg-white border-gray-200 hover:border-green-300"
+                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-gray-900">DataKazina API</span>
+                    {mtnProvider === "datakazina" && (
+                      <Badge className="bg-green-600">Active</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-600">Alternative MTN provider</p>
+                </button>
+              </div>
+
+              {savingProvider && (
+                <div className="flex items-center justify-center p-4 bg-gray-50 rounded-lg">
+                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  <span className="text-sm text-gray-600">Updating provider...</span>
+                </div>
+              )}
+
+              <Alert className="border-amber-200 bg-amber-50">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-700 text-sm">
+                  <strong>Note:</strong> Switching providers only affects NEW orders.
+                  In-flight orders will continue with their original provider.
+                </AlertDescription>
+              </Alert>
+            </div>
           </CardContent>
         </Card>
 
