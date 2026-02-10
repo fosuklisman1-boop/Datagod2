@@ -1320,7 +1320,7 @@ export async function POST(request: NextRequest) {
         try {
           const { data: userData } = await supabase
             .from("users")
-            .select("phone_number, first_name")
+            .select("phone_number, first_name, email")
             .eq("id", paymentData.user_id)
             .single()
 
@@ -1336,6 +1336,30 @@ export async function POST(request: NextRequest) {
             }).catch(err => console.error("[WEBHOOK] Failed payment SMS error:", err))
 
             console.log(`[SMS] Failed payment SMS sent to user ${paymentData.user_id}`)
+          }
+
+          // Send Email for failed payment
+          if (userData?.email) {
+            import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+              const payload = EmailTemplates.walletTopUpFailed(
+                amountInGHS.toFixed(2),
+                reference
+              );
+              sendEmail({
+                to: [{ email: userData.email, name: userData.first_name || "Customer" }],
+                subject: payload.subject,
+                htmlContent: payload.html,
+                userId: paymentData.user_id,
+                referenceId: reference,
+                type: 'wallet_topup_failed'
+              }).catch(err => {
+                console.error("[EMAIL] ❌ Failed Payment Email FAILED:", err)
+                console.error("[EMAIL] Error message:", err?.message)
+                console.error("[EMAIL] Error stack:", err?.stack)
+                console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
+              });
+            });
+            console.log(`[EMAIL] Failed payment email sent to user ${paymentData.user_id}`)
           }
         } catch (smsError) {
           console.warn("[SMS] Failed to send payment failure SMS:", smsError)
