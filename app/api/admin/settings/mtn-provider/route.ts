@@ -79,7 +79,12 @@ export async function POST(request: NextRequest) {
 
         if (error) {
             console.error("[Admin] Error updating provider setting:", error)
-            return NextResponse.json({ error: "Failed to update setting" }, { status: 500 })
+            return NextResponse.json({
+                error: "Failed to update setting",
+                details: error.message,
+                code: error.code,
+                hint: error.hint
+            }, { status: 500 })
         }
 
         console.log(`[Admin] MTN provider updated to: ${provider}`)
@@ -91,6 +96,9 @@ export async function POST(request: NextRequest) {
         })
     } catch (error) {
         console.error("[Admin] Error in POST /api/admin/settings/mtn-provider:", error)
-        return NextResponse.json({ error: "Server error" }, { status: 500 })
+        return NextResponse.json({
+            error: "Server error",
+            details: error instanceof Error ? error.message : "Unknown error"
+        }, { status: 500 })
     }
 }
