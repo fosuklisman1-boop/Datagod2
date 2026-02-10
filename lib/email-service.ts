@@ -693,7 +693,7 @@ export async function notifyAdmins(subject: string, htmlContent: string): Promis
   try {
     const { data: admins } = await supabase
       .from('users')
-      .select('email')
+      .select('email, first_name')
       .eq('role', 'admin')
 
     if (!admins || admins.length === 0) {
@@ -701,9 +701,19 @@ export async function notifyAdmins(subject: string, htmlContent: string): Promis
       return
     }
 
-    const validAdmins = admins.filter(a => a.email && a.email.includes('@')).map(a => ({ email: a.email }))
+    const validAdmins = admins
+      .filter(a => a.email && a.email.includes('@'))
+      .map(a => ({
+        email: a.email,
+        name: a.first_name || 'Admin'
+      }))
 
-    if (validAdmins.length === 0) return
+    if (validAdmins.length === 0) {
+      console.warn("[Email] No valid admin emails found")
+      return
+    }
+
+    console.log(`[Email] Notifying ${validAdmins.length} admin(s)`)
 
     await sendEmail({
       to: validAdmins,
