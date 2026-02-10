@@ -26,6 +26,7 @@ export interface MTNOrderResponse {
   message: string
   traceId?: string
   error_type?: string
+  provider?: string // Which provider was used: "sykes" or "datakazina"
 }
 
 export interface MTNWebhookPayload {
@@ -749,17 +750,19 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
  * @param request - The MTN order request
  * @param response - The MTN order response
  * @param orderType - 'shop' for storefront orders, 'bulk' for data package orders
+ * @param provider - The MTN provider used (sykes, datakazina)
  */
 export async function saveMTNTracking(
   orderId: string,
-  mtnOrderId: number,
+  mtnOrderId: number | string,
   request: MTNOrderRequest,
   response: MTNOrderResponse,
-  orderType: "shop" | "bulk" = "shop"
+  orderType: "shop" | "bulk" = "shop",
+  provider: string = "sykes"
 ): Promise<string | null> {
   try {
     // Build insert data based on order type
-    // Set status to "pending" - the cron job will sync the actual status from Sykes
+    // Set status to "pending" - the cron job will sync the actual status from provider
     const insertData: Record<string, unknown> = {
       mtn_order_id: mtnOrderId,
       status: "pending",
@@ -769,6 +772,7 @@ export async function saveMTNTracking(
       api_request_payload: request,
       api_response_payload: response,
       order_type: orderType,
+      provider, // Track which provider was used
     }
 
     // Set the appropriate order ID column based on type
@@ -785,7 +789,7 @@ export async function saveMTNTracking(
       .single()
 
     if (error) throw error
-    console.log(`[MTN] Tracking record created: ${data?.id} for ${orderType} order ${orderId}`)
+    console.log(`[MTN] Tracking record created: ${data?.id} for ${orderType} order ${orderId} (provider: ${provider})`)
     return data?.id || null
   } catch (error) {
     console.error("[MTN] Error saving tracking:", error)

@@ -189,7 +189,7 @@ async function handleMTNAutoFulfillment(
     }
 
     // Save tracking record
-    const trackingId = await saveMTNTracking(shopOrderId, mtnResponse.order_id, orderRequest, mtnResponse, "shop")
+    const trackingId = await saveMTNTracking(shopOrderId, mtnResponse.order_id, orderRequest, mtnResponse, "shop", mtnResponse.provider || "sykes")
 
     if (!trackingId) {
       console.error("[FULFILLMENT] Failed to save tracking record")

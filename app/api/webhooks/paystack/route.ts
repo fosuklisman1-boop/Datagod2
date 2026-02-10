@@ -600,7 +600,8 @@ export async function POST(request: NextRequest) {
                         mtnResult.order_id,
                         mtnRequest,
                         mtnResult,
-                        "shop"  // Storefront order via Paystack
+                        "shop",  // Storefront order via Paystack
+                        mtnResult.provider || "sykes"
                       )
                     }
 

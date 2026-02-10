@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save tracking (use "bulk" if bulk order, otherwise "shop")
-    const trackingId = await saveMTNTracking(shop_order_id, mtnResponse.order_id, mtnRequest, mtnResponse, order_type as "shop" | "bulk")
+    const trackingId = await saveMTNTracking(shop_order_id, mtnResponse.order_id, mtnRequest, mtnResponse, order_type as "shop" | "bulk", mtnResponse.provider || "sykes")
 
     // Update order in appropriate table
     const updateData = order_type === "bulk"

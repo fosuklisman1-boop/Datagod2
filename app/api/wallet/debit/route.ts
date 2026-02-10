@@ -347,14 +347,15 @@ export async function POST(request: NextRequest) {
 
                   console.log(`[WALLET-DEBIT] ✓ MTN API response for order ${orderId}:`, mtnResult)
 
-                  // Save tracking record (saveMTNTracking takes 5 arguments: shopOrderId, mtnOrderId, request, response, orderType)
+                  // Save tracking record
                   if (mtnResult.order_id) {
                     await saveMTNTracking(
                       orderId,
                       mtnResult.order_id,
                       mtnRequest,
                       mtnResult,
-                      "shop"  // Storefront order via Wallet
+                      "shop",  // Storefront order via Wallet
+                      mtnResult.provider || "sykes"
                     )
                   }
 

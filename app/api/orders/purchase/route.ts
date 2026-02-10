@@ -397,7 +397,8 @@ export async function POST(request: NextRequest) {
                 mtnResult.order_id,
                 mtnRequest,
                 mtnResult,
-                "bulk"  // This is a bulk order from the data packages page
+                "bulk",  // This is a bulk order from the data packages page
+                mtnResult.provider || "sykes"
               )
             }
 
