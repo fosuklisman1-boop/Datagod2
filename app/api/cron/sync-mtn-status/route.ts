@@ -9,6 +9,10 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 const MTN_API_BASE_URL = process.env.MTN_API_BASE_URL || "https://sykesofficial.net"
 const MTN_API_KEY = process.env.MTN_API_KEY || ""
 
+// DataKazina API configuration
+const DATAKAZINA_API_URL = process.env.DATAKAZINA_API_URL || "https://reseller.dakazinabusinessconsult.com/api/v1"
+const DATAKAZINA_API_KEY = process.env.DATAKAZINA_API_KEY || ""
+
 // Cron secret to prevent unauthorized access
 const CRON_SECRET = process.env.CRON_SECRET
 
@@ -18,7 +22,7 @@ const CRON_SECRET = process.env.CRON_SECRET
 async function fetchAllSykesOrders(): Promise<{ success: boolean; orders: any[]; message?: string }> {
   try {
     console.log("[CRON] Fetching all orders from Sykes API...")
-    
+
     // Use limit=5000 to get all orders (API defaults to only 20)
     const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
       method: "GET",
@@ -75,7 +79,7 @@ async function fetchAllSykesOrders(): Promise<{ success: boolean; orders: any[];
     }
 
     console.log(`[CRON] ✅ Fetched ${orders.length} orders from Sykes API`)
-    
+
     // Log some sample orders for debugging
     if (orders.length > 0) {
       console.log(`[CRON] Sample order structure:`, JSON.stringify(orders[0]).slice(0, 300))
@@ -94,32 +98,96 @@ async function fetchAllSykesOrders(): Promise<{ success: boolean; orders: any[];
 }
 
 /**
+ * Fetch ALL orders from DataKazina API
+ */
+async function fetchAllDataKazinaOrders(): Promise<{ success: boolean; orders: any[]; message?: string }> {
+  try {
+    console.log("[CRON] Fetching all orders from DataKazina API...")
+
+    const response = await fetch(`${DATAKAZINA_API_URL}/orders`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${DATAKAZINA_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    })
+
+    const responseText = await response.text()
+    console.log(`[CRON] DataKazina API response status: ${response.status}`)
+
+    if (!response.ok) {
+      return {
+        success: false,
+        orders: [],
+        message: `API error: ${response.status} - ${responseText.slice(0, 200)}`,
+      }
+    }
+
+    let data
+    try {
+      data = JSON.parse(responseText)
+    } catch {
+      return {
+        success: false,
+        orders: [],
+        message: `Invalid JSON response: ${responseText.slice(0, 100)}`,
+      }
+    }
+
+    // Handle DataKazina response format
+    let orders: any[] = []
+    if (data.status === "success" && Array.isArray(data.data)) {
+      orders = data.data
+    } else if (Array.isArray(data)) {
+      orders = data
+    } else if (data.orders && Array.isArray(data.orders)) {
+      orders = data.orders
+    }
+
+    console.log(`[CRON] ✅ Fetched ${orders.length} orders from DataKazina API`)
+
+    if (orders.length > 0) {
+      console.log(`[CRON] Sample DataKazina order:`, JSON.stringify(orders[0]).slice(0, 300))
+    }
+
+    return { success: true, orders }
+  } catch (error) {
+    console.error("[CRON] Error fetching DataKazina orders:", error)
+    return {
+      success: false,
+      orders: [],
+      message: error instanceof Error ? error.message : "Unknown error",
+    }
+  }
+}
+
+/**
  * Normalize Sykes API status to our expected values
  */
 function normalizeStatus(apiStatus: string): "pending" | "processing" | "completed" | "failed" {
   const status = String(apiStatus).toLowerCase().trim()
-  
+
   // Completed variations
-  if (status === "completed" || status === "success" || status === "delivered" || 
-      status === "done" || status === "fulfilled" || status === "sent" ||
-      status === "successful" || status === "complete") {
+  if (status === "completed" || status === "success" || status === "delivered" ||
+    status === "done" || status === "fulfilled" || status === "sent" ||
+    status === "successful" || status === "complete") {
     return "completed"
   }
   // Failed variations  
   if (status === "failed" || status === "error" || status === "cancelled" ||
-      status === "rejected" || status === "expired" || status === "refunded") {
+    status === "rejected" || status === "expired" || status === "refunded") {
     return "failed"
   }
   // Processing variations
   if (status === "processing" || status === "in_progress" || status === "queued" ||
-      status === "in-progress" || status === "sending" || status === "submitted") {
+    status === "in-progress" || status === "sending" || status === "submitted") {
     return "processing"
   }
   // Pending variations
   if (status === "pending" || status === "waiting" || status === "new") {
     return "pending"
   }
-  
+
   console.warn(`[CRON] ⚠️ Unknown status: "${apiStatus}" - defaulting to processing`)
   return "processing"
 }
@@ -134,12 +202,12 @@ async function isMTNAutoFulfillmentEnabled(): Promise<boolean> {
       .select("value")
       .eq("key", "mtn_auto_fulfillment_enabled")
       .maybeSingle()
-    
+
     if (error || !data) {
       // Default to disabled if setting doesn't exist
       return false
     }
-    
+
     // Extract enabled value from JSON object
     return data.value?.enabled === true
   } catch (error) {
@@ -170,33 +238,45 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Step 1: Fetch ALL orders from Sykes API in a single call
-    const sykesResult = await fetchAllSykesOrders()
-    
-    if (!sykesResult.success) {
-      console.error("[CRON] Failed to fetch Sykes orders:", sykesResult.message)
-      return NextResponse.json({ 
-        error: "Failed to fetch orders from Sykes API",
-        details: sykesResult.message 
+    // Step 1: Fetch orders from BOTH provider APIs in parallel
+    const [sykesResult, datakazinaResult] = await Promise.all([
+      fetchAllSykesOrders(),
+      fetchAllDataKazinaOrders()
+    ])
+
+    if (!sykesResult.success && !datakazinaResult.success) {
+      console.error("[CRON] Failed to fetch from both providers")
+      return NextResponse.json({
+        error: "Failed to fetch orders from any provider",
+        sykes: sykesResult.message,
+        datakazina: datakazinaResult.message
       }, { status: 500 })
     }
 
-    // Create a map of Sykes orders for fast lookup (by ID)
+    // Create lookup maps for each provider
     const sykesOrderMap = new Map<string, any>()
+    const datakazinaOrderMap = new Map<string, any>()
+
     for (const order of sykesResult.orders) {
       const orderId = String(order.id || order.order_id)
       sykesOrderMap.set(orderId, order)
     }
-    console.log(`[CRON] Created lookup map with ${sykesOrderMap.size} Sykes orders`)
 
-    // Step 2: Get all pending and processing orders from our database
+    for (const order of datakazinaResult.orders) {
+      const orderId = String(order.id || order.order_id || order.transaction_id)
+      datakazinaOrderMap.set(orderId, order)
+    }
+
+    console.log(`[CRON] Created lookup maps: ${sykesOrderMap.size} Sykes, ${datakazinaOrderMap.size} DataKazina orders`)
+
+    // Step 2: Get all pending and processing orders from our database (WITH PROVIDER)
     const { data: pendingOrders, error: fetchError } = await supabase
       .from("mtn_fulfillment_tracking")
-      .select("id, mtn_order_id, status, shop_order_id, order_id, order_type")
+      .select("id, mtn_order_id, status, shop_order_id, order_id, order_type, provider")
       .in("status", ["pending", "processing"])
       .not("mtn_order_id", "is", null)
       .order("created_at", { ascending: true })
-      .limit(100) // Can process more since we're not making individual API calls
+      .limit(100) // Can process more since we're batching by provider
 
     if (fetchError) {
       console.error("[CRON] Error fetching pending orders:", fetchError)
@@ -221,9 +301,9 @@ export async function GET(request: NextRequest) {
           .select("id")
           .in("id", shopOrderIds)
           .eq("queue", "blacklisted")
-        
+
         const blacklistedShopIds = new Set((blacklistedShopOrders || []).map((o: any) => o.id))
-        ordersToProcess = ordersToProcess.filter((o: any) => 
+        ordersToProcess = ordersToProcess.filter((o: any) =>
           !o.shop_order_id || !blacklistedShopIds.has(o.shop_order_id)
         )
         if (blacklistedShopIds.size > 0) {
@@ -238,9 +318,9 @@ export async function GET(request: NextRequest) {
           .select("id")
           .in("id", bulkOrderIds)
           .eq("queue", "blacklisted")
-        
+
         const blacklistedBulkIds = new Set((blacklistedBulkOrders || []).map((o: any) => o.id))
-        ordersToProcess = ordersToProcess.filter((o: any) => 
+        ordersToProcess = ordersToProcess.filter((o: any) =>
           !o.order_id || !blacklistedBulkIds.has(o.order_id)
         )
         if (blacklistedBulkIds.size > 0) {
@@ -251,8 +331,8 @@ export async function GET(request: NextRequest) {
 
     if (!ordersToProcess || ordersToProcess.length === 0) {
       console.log("[CRON] No pending/processing orders to sync (all blacklisted or none available)")
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: "No orders to sync",
         synced: 0,
         sykesOrderCount: sykesResult.orders.length
@@ -266,42 +346,46 @@ export async function GET(request: NextRequest) {
     let notFound = 0
     const results: Array<{ id: string; mtn_order_id: number; oldStatus: string; newStatus: string | null; error?: string }> = []
 
-    // Step 3: Process each pending order by looking up in the Sykes map
+    // Step 3: Process each pending order by looking up in the CORRECT provider map
     for (const order of ordersToProcess) {
       try {
-        // Look up this order in the Sykes order map
-        const mtnOrderIdStr = String(order.mtn_order_id)
-        const sykesOrder = sykesOrderMap.get(mtnOrderIdStr)
+        // Determine which provider this order used (default to sykes for backward compatibility)
+        const orderProvider = order.provider || "sykes"
+        const providerMap = orderProvider === "datakazina" ? datakazinaOrderMap : sykesOrderMap
 
-        if (!sykesOrder) {
-          console.log(`[CRON] Order ${order.mtn_order_id} not found in Sykes API response`)
-          results.push({ 
-            id: order.id, 
-            mtn_order_id: order.mtn_order_id, 
-            oldStatus: order.status, 
+        // Look up this order in the appropriate provider's map
+        const mtnOrderIdStr = String(order.mtn_order_id)
+        const providerOrder = providerMap.get(mtnOrderIdStr)
+
+        if (!providerOrder) {
+          console.log(`[CRON] Order ${order.mtn_order_id} (${orderProvider}) not found in ${orderProvider} API response`)
+          results.push({
+            id: order.id,
+            mtn_order_id: order.mtn_order_id,
+            oldStatus: order.status,
             newStatus: null,
-            error: "Order not found in Sykes API" 
+            error: `Order not found in ${orderProvider} API`
           })
           notFound++
           continue
         }
 
-        if (!sykesOrder.status) {
-          console.log(`[CRON] Order ${order.mtn_order_id} has no status field in Sykes response`)
-          results.push({ 
-            id: order.id, 
-            mtn_order_id: order.mtn_order_id, 
-            oldStatus: order.status, 
+        if (!providerOrder.status) {
+          console.log(`[CRON] Order ${order.mtn_order_id} has no status field in ${orderProvider} response`)
+          results.push({
+            id: order.id,
+            mtn_order_id: order.mtn_order_id,
+            oldStatus: order.status,
             newStatus: null,
-            error: "No status field in Sykes order" 
+            error: `No status field in ${orderProvider} order`
           })
           failed++
           continue
         }
 
-        // Normalize the status from Sykes
-        const normalizedStatus = normalizeStatus(sykesOrder.status)
-        console.log(`[CRON] Order ${order.mtn_order_id}: Sykes "${sykesOrder.status}" -> normalized "${normalizedStatus}"`)
+        // Normalize the status from provider
+        const normalizedStatus = normalizeStatus(providerOrder.status)
+        console.log(`[CRON] Order ${order.mtn_order_id} (${orderProvider}): "${providerOrder.status}" -> normalized "${normalizedStatus}"`)
 
         // If status changed, update the database
         if (normalizedStatus !== order.status) {
@@ -310,18 +394,18 @@ export async function GET(request: NextRequest) {
             .from("mtn_fulfillment_tracking")
             .update({
               status: normalizedStatus,
-              external_status: sykesOrder.status,
-              external_message: sykesOrder.message,
+              external_status: providerOrder.status,
+              external_message: providerOrder.message,
               updated_at: new Date().toISOString(),
             })
             .eq("id", order.id)
 
           if (trackingError) {
             console.error(`[CRON] ❌ Failed to update tracking for ${order.mtn_order_id}:`, trackingError)
-            results.push({ 
-              id: order.id, 
-              mtn_order_id: order.mtn_order_id, 
-              oldStatus: order.status, 
+            results.push({
+              id: order.id,
+              mtn_order_id: order.mtn_order_id,
+              oldStatus: order.status,
               newStatus: null,
               error: `DB error: ${trackingError.message}`
             })
@@ -343,7 +427,7 @@ export async function GET(request: NextRequest) {
               .eq("id", order.order_id)
               .select("user_id, network, size, phone_number")
               .single()
-            
+
             if (orderError) {
               console.error(`[CRON] ⚠️ Failed to update bulk order ${order.order_id}:`, orderError)
             } else if (orderData) {
@@ -360,7 +444,7 @@ export async function GET(request: NextRequest) {
               .eq("id", order.shop_order_id)
               .select("shop_id, network, volume_gb, customer_phone")
               .single()
-            
+
             if (shopError) {
               console.error(`[CRON] ⚠️ Failed to update shop order ${order.shop_order_id}:`, shopError)
             } else if (shopData) {
@@ -377,13 +461,13 @@ export async function GET(request: NextRequest) {
 
           // Send in-app notification for status changes
           if (userId && (normalizedStatus === "completed" || normalizedStatus === "failed")) {
-            const notifTitle = normalizedStatus === "completed" 
-              ? "Order Delivered Successfully" 
+            const notifTitle = normalizedStatus === "completed"
+              ? "Order Delivered Successfully"
               : "Order Delivery Failed"
             const notifMessage = normalizedStatus === "completed"
               ? `Your MTN ${orderDetails.size || ""} data order to ${orderDetails.phone || "recipient"} has been delivered successfully.`
               : `Your MTN ${orderDetails.size || ""} data order to ${orderDetails.phone || "recipient"} failed. Please contact support.`
-            
+
             const { error: notifError } = await supabase
               .from("notifications")
               .insert({
@@ -392,12 +476,12 @@ export async function GET(request: NextRequest) {
                 message: notifMessage,
                 type: normalizedStatus === "completed" ? "order_completed" : "order_failed",
                 reference_id: order.order_id || order.shop_order_id,
-                action_url: order.order_type === "bulk" 
-                  ? `/dashboard/my-orders?orderId=${order.order_id}` 
+                action_url: order.order_type === "bulk"
+                  ? `/dashboard/my-orders?orderId=${order.order_id}`
                   : `/dashboard/shop/orders`,
                 read: false,
               })
-            
+
             if (notifError) {
               console.error(`[CRON] ⚠️ Failed to send notification for order ${order.mtn_order_id}:`, notifError)
             } else {
@@ -406,30 +490,30 @@ export async function GET(request: NextRequest) {
           }
 
           console.log(`[CRON] ✅ Updated order ${order.mtn_order_id}: ${order.status} -> ${normalizedStatus}`)
-          results.push({ 
-            id: order.id, 
-            mtn_order_id: order.mtn_order_id, 
-            oldStatus: order.status, 
-            newStatus: normalizedStatus 
+          results.push({
+            id: order.id,
+            mtn_order_id: order.mtn_order_id,
+            oldStatus: order.status,
+            newStatus: normalizedStatus
           })
           synced++
         } else {
           // Status unchanged
-          results.push({ 
-            id: order.id, 
-            mtn_order_id: order.mtn_order_id, 
-            oldStatus: order.status, 
-            newStatus: order.status 
+          results.push({
+            id: order.id,
+            mtn_order_id: order.mtn_order_id,
+            oldStatus: order.status,
+            newStatus: order.status
           })
         }
       } catch (err) {
         console.error(`[CRON] Error processing order ${order.mtn_order_id}:`, err)
-        results.push({ 
-          id: order.id, 
-          mtn_order_id: order.mtn_order_id, 
-          oldStatus: order.status, 
+        results.push({
+          id: order.id,
+          mtn_order_id: order.mtn_order_id,
+          oldStatus: order.status,
           newStatus: null,
-          error: err instanceof Error ? err.message : "Unknown error" 
+          error: err instanceof Error ? err.message : "Unknown error"
         })
         failed++
       }
