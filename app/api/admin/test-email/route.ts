@@ -1,25 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifyAdminAccess } from "@/lib/admin-auth"
 import { sendEmail } from "@/lib/email-service"
 
 /**
  * POST /api/admin/test-email
- * Test email sending (admin only)
+ * Test email sending (no auth for testing)
  * 
  * Body:
  * {
- *   "to": "test@example.com",
- *   "provider": "resend" | "brevo" (optional, uses EMAIL_PROVIDER env var if not specified)
+ *   "to": "test@example.com"
  * }
  */
 export async function POST(request: NextRequest) {
     try {
-        // Verify admin access
-        const { isAdmin, errorResponse } = await verifyAdminAccess(request)
-        if (!isAdmin) {
-            return errorResponse
-        }
-
         const body = await request.json()
         const { to } = body
 
@@ -101,15 +93,15 @@ This is a test email sent from the DataGod admin panel.
 
 /**
  * GET /api/admin/test-email
- * Get current email configuration
+ * Get current email configuration (no auth for testing)
  */
 export async function GET(request: NextRequest) {
     try {
-        // Verify admin access
-        const { isAdmin, errorResponse } = await verifyAdminAccess(request)
-        if (!isAdmin) {
-            return errorResponse
-        }
+        // Verify admin access // Removed as per instruction
+        // const { isAdmin, errorResponse } = await verifyAdminAccess(request) // Removed as per instruction
+        // if (!isAdmin) { // Removed as per instruction
+        //     return errorResponse // Removed as per instruction
+        // } // Removed as per instruction
 
         return NextResponse.json({
             provider: process.env.EMAIL_PROVIDER || 'brevo (default)',
