@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
                     // Get user's phone number and verify dealer role
                     const { data: userData } = await supabase
                         .from("users")
-                        .select("phone_number, role")
+                        .select("phone_number, email, role, first_name")
                         .eq("id", sub.user_id)
                         .single()
 
@@ -155,8 +155,41 @@ export async function GET(request: NextRequest) {
                             results.errors++
                         }
                     } catch (smsError) {
-                        console.error(`[CRON-SUBSCRIPTION] Error sending ${reminderType} reminder:`, smsError)
                         results.errors++
+                    }
+
+                    // Send Email Notification
+                    if (userData.email) {
+                        try {
+                            const formattedEndDate = endDate.toLocaleDateString('en-GB', {
+                                day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                            });
+                            const planName = (sub.plan as any)?.name || "Dealer";
+                            const firstName = userData.first_name || "Subscriber";
+
+                            import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+                                let emailPayload;
+                                switch (reminderType) {
+                                    case '1day': emailPayload = EmailTemplates.subscriptionExpiry1Day(planName, formattedEndDate); break;
+                                    case '12hours': emailPayload = EmailTemplates.subscriptionExpiry12Hours(planName, formattedEndDate); break;
+                                    case '6hours': emailPayload = EmailTemplates.subscriptionExpiry6Hours(planName, formattedEndDate); break;
+                                    case '1hour': emailPayload = EmailTemplates.subscriptionExpiry1Hour(planName, formattedEndDate); break;
+                                }
+
+                                if (emailPayload) {
+                                    sendEmail({
+                                        to: [{ email: userData.email, name: firstName }],
+                                        subject: emailPayload.subject,
+                                        htmlContent: emailPayload.html,
+                                        referenceId: sub.id,
+                                        userId: sub.user_id,
+                                        type: `subscription_expiry_${reminderType}`
+                                    }).catch(err => console.error("[CRON-SUBSCRIPTION] Email send failed:", err));
+                                }
+                            });
+                        } catch (emailError) {
+                            console.error("[CRON-SUBSCRIPTION] Error preparing email:", emailError);
+                        }
                     }
                 }
             }

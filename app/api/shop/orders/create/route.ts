@@ -195,6 +195,18 @@ export async function POST(request: NextRequest) {
         volume_gb
       ).catch(err => console.error("[SHOP-ORDER] Failed to notify admins:", err))
 
+      // Alert admins via Email (non-blocking)
+      import("@/lib/email-service").then(({ notifyAdmins, EmailTemplates }) => {
+        const payload = EmailTemplates.priceManipulationDetected(
+          customer_phone,
+          total_price.toString(),
+          verifiedTotalPrice.toString(),
+          network,
+          volume_gb.toString()
+        );
+        notifyAdmins(payload.subject, payload.html).catch(err => console.error("[SHOP-ORDER] Email notify failed:", err));
+      });
+
       return NextResponse.json(
         { error: "Invalid price - please refresh and try again" },
         { status: 400 }

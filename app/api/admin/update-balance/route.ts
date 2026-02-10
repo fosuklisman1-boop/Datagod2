@@ -64,26 +64,26 @@ export async function POST(request: NextRequest) {
     }
 
     const currentBalance = wallet.balance || 0
-    const newBalance = type === "credit" 
-      ? currentBalance + amount 
+    const newBalance = type === "credit"
+      ? currentBalance + amount
       : Math.max(0, currentBalance - amount)
 
     // Calculate updated total_credited and total_spent
     const currentTotalCredited = wallet.total_credited || 0
     const currentTotalSpent = wallet.total_spent || 0
-    
-    const newTotalCredited = type === "credit" 
-      ? currentTotalCredited + amount 
+
+    const newTotalCredited = type === "credit"
+      ? currentTotalCredited + amount
       : currentTotalCredited
-    
-    const newTotalSpent = type === "debit" 
-      ? currentTotalSpent + amount 
+
+    const newTotalSpent = type === "debit"
+      ? currentTotalSpent + amount
       : currentTotalSpent
 
     // Update wallet balance and totals
     const { data: updated, error: updateError } = await supabase
       .from("wallets")
-      .update({ 
+      .update({
         balance: newBalance,
         total_credited: newTotalCredited,
         total_spent: newTotalSpent,
@@ -101,8 +101,8 @@ export async function POST(request: NextRequest) {
 
     // Create transaction history record
     const transactionType = type === "credit" ? "admin_credit" : "admin_debit"
-    const description = type === "credit" 
-      ? `Admin credited GHS ${amount.toFixed(2)}` 
+    const description = type === "credit"
+      ? `Admin credited GHS ${amount.toFixed(2)}`
       : `Admin debited GHS ${amount.toFixed(2)}`
 
     const { error: transactionError } = await supabase
@@ -129,14 +129,14 @@ export async function POST(request: NextRequest) {
 
     // Send notification to user about the balance update
     try {
-      const notificationTitle = type === "credit" 
+      const notificationTitle = type === "credit"
         ? "Wallet Credited"
         : "Wallet Debited"
-      
+
       const notificationMessage = type === "credit"
         ? `Your wallet has been credited with GHS ${amount.toFixed(2)} by admin. New balance: GHS ${newBalance.toFixed(2)}`
         : `Your wallet has been debited by GHS ${amount.toFixed(2)} by admin. New balance: GHS ${newBalance.toFixed(2)}`
-      
+
       const notificationType: "balance_updated" | "admin_action" = "balance_updated"
 
       const { error: notifError } = await supabase
@@ -164,12 +164,12 @@ export async function POST(request: NextRequest) {
       // Don't fail the operation if notification fails
     }
 
-    // Send SMS to user about the balance update
+    // Send SMS and Email to user about the balance update
     try {
-      // Get user's phone number
+      // Get user's phone number and email
       const { data: userProfile } = await supabase
         .from("users")
-        .select("phone_number")
+        .select("phone_number, email")
         .eq("id", userId)
         .single()
 
@@ -190,9 +190,31 @@ export async function POST(request: NextRequest) {
       } else {
         console.warn(`[SMS] User ${userId} has no phone number, skipping SMS`)
       }
-    } catch (smsError) {
-      console.warn("[SMS] Error sending admin balance SMS:", smsError)
-      // Don't fail the operation if SMS fails
+
+      // Send Email
+      if (userProfile?.email) {
+        const { sendEmail, EmailTemplates } = await import("@/lib/email-service")
+
+        const emailPayload = type === "credit"
+          ? EmailTemplates.walletTopUpSuccess(amount.toFixed(2), newBalance.toFixed(2), `ADMIN_${type.toUpperCase()}_${Date.now()}`)
+          : {
+            subject: "Wallet Debited",
+            html: `Your wallet has been debited GHS ${amount.toFixed(2)}. New Balance: GHS ${newBalance.toFixed(2)}`
+          } // Fallback if no specific template for debit
+
+        await sendEmail({
+          to: [{ email: userProfile.email }],
+          subject: emailPayload.subject,
+          htmlContent: typeof emailPayload.html === 'string' ? emailPayload.html : (emailPayload as any).htmlContent || emailPayload.html, // Handle potential type mismatch if I didn't verify template generic return
+          userId: userId,
+          type: type === "credit" ? "admin_credit" : "admin_debit"
+        })
+        console.log(`[Email] Admin ${type} email sent to user ${userId}`)
+      }
+
+    } catch (notificationError) {
+      console.warn("[NOTIFICATION] Error sending admin balance notification:", notificationError)
+      // Don't fail the operation
     }
 
     return NextResponse.json({

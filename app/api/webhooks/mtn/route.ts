@@ -226,6 +226,42 @@ async function handleOrderCompleted(
       log("warn", "Webhook", "Failed to send success SMS", { traceId, error: String(smsError) })
     }
 
+    // Send success Email
+    try {
+      let emailAddress: string | undefined;
+      let customerName: string | undefined;
+
+      if (tracking.shop_order_id) {
+        const { data: so } = await supabase.from('shop_orders').select('customer_email, customer_name').eq('id', tracking.shop_order_id).single();
+        if (so?.customer_email) { emailAddress = so.customer_email; customerName = so.customer_name; }
+      } else if (tracking.order_id) {
+        const { data: o } = await supabase.from('orders').select('user_id').eq('id', tracking.order_id).single();
+        if (o?.user_id) {
+          const { data: u } = await supabase.from('users').select('email, first_name').eq('id', o.user_id).single();
+          if (u?.email) { emailAddress = u.email; customerName = u.first_name; }
+        }
+      }
+
+      if (emailAddress) {
+        const { sendEmail, EmailTemplates } = await import("@/lib/email-service");
+        const payload = EmailTemplates.orderDelivered(
+          order.id.toString(),
+          order.network || "MTN",
+          (order.size_mb / 1000).toFixed(1)
+        );
+        await sendEmail({
+          to: [{ email: emailAddress, name: customerName }],
+          subject: payload.subject,
+          htmlContent: (payload as any).htmlContent || payload.html,
+          referenceId: order.id.toString(),
+          type: 'order_delivered'
+        });
+        log("info", "Webhook", "Sent success Email", { traceId, email: emailAddress });
+      }
+    } catch (emailError) {
+      log("warn", "Webhook", "Failed to send success Email", { traceId, error: String(emailError) });
+    }
+
     // Update profit tracking for shop orders
     if (tracking.shop_order_id && tracking.order_type !== "bulk") {
       await updateProfitOnCompletion(tracking.shop_order_id)
@@ -272,6 +308,41 @@ async function handleOrderFailed(
       log("info", "Webhook", "Sent failure SMS", { traceId, phone: tracking.recipient_phone })
     } catch (smsError) {
       log("warn", "Webhook", "Failed to send failure SMS", { traceId, error: String(smsError) })
+    }
+
+    // Send failure Email
+    try {
+      let emailAddress: string | undefined;
+      let customerName: string | undefined;
+
+      if (tracking.shop_order_id) {
+        const { data: so } = await supabase.from('shop_orders').select('customer_email, customer_name').eq('id', tracking.shop_order_id).single();
+        if (so?.customer_email) { emailAddress = so.customer_email; customerName = so.customer_name; }
+      } else if (tracking.order_id) {
+        const { data: o } = await supabase.from('orders').select('user_id').eq('id', tracking.order_id).single();
+        if (o?.user_id) {
+          const { data: u } = await supabase.from('users').select('email, first_name').eq('id', o.user_id).single();
+          if (u?.email) { emailAddress = u.email; customerName = u.first_name; }
+        }
+      }
+
+      if (emailAddress) {
+        const { sendEmail, EmailTemplates } = await import("@/lib/email-service");
+        const payload = EmailTemplates.orderFailed(
+          order.id.toString(),
+          order.message || "Order could not be processed"
+        );
+        await sendEmail({
+          to: [{ email: emailAddress, name: customerName }],
+          subject: payload.subject,
+          htmlContent: (payload as any).htmlContent || payload.html,
+          referenceId: order.id.toString(),
+          type: 'order_failed'
+        });
+        log("info", "Webhook", "Sent failure Email", { traceId, email: emailAddress });
+      }
+    } catch (emailError) {
+      log("warn", "Webhook", "Failed to send failure Email", { traceId, error: String(emailError) });
     }
 
     // Check if eligible for retry

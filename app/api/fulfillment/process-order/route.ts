@@ -177,6 +177,31 @@ async function handleMTNAutoFulfillment(
         console.error("[FULFILLMENT] Failed to send error SMS:", smsError)
       }
 
+      // Send error Email
+      try {
+        const { data: so } = await supabase.from('shop_orders').select('customer_email').eq('id', shopOrderId).single();
+        if (so?.customer_email) {
+          import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+            const payload = EmailTemplates.fulfillmentFailed(
+              shopOrderId.substring(0, 8),
+              phoneNumber,
+              network,
+              volumeGb.toString(),
+              mtnResponse.message || "Order could not be processed"
+            );
+            sendEmail({
+              to: [{ email: so.customer_email, name: customerName || "Customer" }],
+              subject: payload.subject,
+              htmlContent: payload.html,
+              referenceId: shopOrderId,
+              type: 'fulfillment_failed'
+            }).catch(err => console.error("[FULFILLMENT] Failed to send error Email:", err));
+          });
+        }
+      } catch (emailError) {
+        console.error("[FULFILLMENT] Error preparing error Email:", emailError);
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -239,6 +264,30 @@ async function handleMTNAutoFulfillment(
       })
     } catch (smsError) {
       console.error("[FULFILLMENT] Failed to send success SMS:", smsError)
+    }
+
+    // Send success Email
+    try {
+      const { data: so } = await supabase.from('shop_orders').select('customer_email').eq('id', shopOrderId).single();
+      if (so?.customer_email) {
+        import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+          const payload = EmailTemplates.orderPaymentConfirmed(
+            mtnResponse.order_id?.toString() || shopOrderId.substring(0, 8),
+            network,
+            volumeGb.toString(),
+            "Paid" // No price available in this context easily, just say Paid
+          );
+          sendEmail({
+            to: [{ email: so.customer_email, name: customerName || "Customer" }],
+            subject: payload.subject,
+            htmlContent: payload.html,
+            referenceId: shopOrderId,
+            type: 'order_confirmed'
+          }).catch(err => console.error("[FULFILLMENT] Failed to send success Email:", err));
+        });
+      }
+    } catch (emailError) {
+      console.error("[FULFILLMENT] Error preparing success Email:", emailError);
     }
 
     console.log("[FULFILLMENT] ✓ MTN order created:", mtnResponse.order_id)

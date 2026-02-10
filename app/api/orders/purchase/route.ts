@@ -463,6 +463,30 @@ export async function POST(request: NextRequest) {
       // Don't fail the purchase if SMS fails
     }
 
+    // Send Email about successful purchase
+    try {
+      if (userEmail) {
+        import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+          const payload = EmailTemplates.orderPaymentConfirmed(
+            order[0].id,
+            network,
+            size.toString(),
+            price.toFixed(2)
+          );
+          sendEmail({
+            to: [{ email: userEmail, name: user?.user_metadata?.first_name || "User" }],
+            subject: payload.subject,
+            htmlContent: payload.html,
+            referenceId: order[0].id,
+            userId: userId,
+            type: 'data_purchase_success'
+          }).catch(err => console.error("[EMAIL] Email error:", err));
+        });
+      }
+    } catch (emailError) {
+      console.warn("[EMAIL] Failed to send purchase Email:", emailError);
+    }
+
     // NOTE: Blacklist notification SMS and admin alerts are sent AFTER payment verification
     // See: webhook and payment verify endpoints for SMS delivery
 

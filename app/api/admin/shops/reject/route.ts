@@ -71,20 +71,37 @@ export async function POST(request: NextRequest) {
         const shop = data[0]
         const { data: userData, error: userError } = await supabase
           .from("users")
-          .select("phone_number")
+          .select("phone_number, email, first_name")
           .eq("id", shop.user_id)
           .single()
 
-        if (!userError && userData?.phone_number) {
-          const reasonText = reason ? ` Reason: ${reason}` : ""
-          const smsMessage = `Your shop "${shop.shop_name}" has been rejected.${reasonText} Contact support for more details.`
-          
-          await sendSMS({
-            phone: userData.phone_number,
-            message: smsMessage,
-            type: 'shop_rejected',
-            reference: shopId,
-          }).catch(err => console.error("[SMS] SMS error:", err))
+        if (!userError && userData) {
+          // Send Email
+          if (userData.email) {
+            import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+              const payload = EmailTemplates.shopRejected(shop.shop_name || "Your Shop", shopId, reason);
+              sendEmail({
+                to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
+                subject: payload.subject,
+                htmlContent: payload.html,
+                referenceId: shopId,
+                userId: shop.user_id,
+                type: 'shop_rejected'
+              }).catch(err => console.error("[EMAIL] Shop Rejection Email error:", err));
+            });
+          }
+
+          if (userData.phone_number) {
+            const reasonText = reason ? ` Reason: ${reason}` : ""
+            const smsMessage = `Your shop "${shop.shop_name}" has been rejected.${reasonText} Contact support for more details.`
+
+            await sendSMS({
+              phone: userData.phone_number,
+              message: smsMessage,
+              type: 'shop_rejected',
+              reference: shopId,
+            }).catch(err => console.error("[SMS] SMS error:", err))
+          }
         }
       } catch (smsError) {
         console.warn("[SMS] Failed to send shop rejection SMS:", smsError)

@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     if (order_type === "bulk") {
       const response = await supabase
         .from(tableName)
-        .select("id, network, size, phone_number, status, queue")
+        .select("id, network, size, phone_number, status, queue, user_id")
         .eq("id", shop_order_id.trim())
         .single()
       orderData = response.data
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     } else {
       const response = await supabase
         .from(tableName)
-        .select("id, network, volume_gb, customer_phone, customer_name, order_status, queue")
+        .select("id, network, volume_gb, customer_phone, customer_name, customer_email, order_status, queue")
         .eq("id", shop_order_id.trim())
         .single()
       orderData = response.data
@@ -211,6 +211,44 @@ export async function POST(request: NextRequest) {
         console.error("[MANUAL-FULFILL] Failed to send error SMS:", smsError)
       }
 
+      // Send error Email
+      try {
+        // Determine email address
+        let emailToSend = null;
+        let nameToSend = "Customer";
+
+        if (order_type === 'shop') {
+          emailToSend = orderData.customer_email;
+          nameToSend = orderData.customer_name || "Customer";
+        } else if (order_type === 'bulk' && orderData.user_id) {
+          // Fetch user email if not present
+          const { data: u } = await supabase.from('users').select('email, first_name').eq('id', orderData.user_id).single();
+          emailToSend = u?.email;
+          nameToSend = u?.first_name || "User";
+        }
+
+        if (emailToSend) {
+          import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+            const payload = EmailTemplates.fulfillmentFailed(
+              shop_order_id.substring(0, 8),
+              phone,
+              orderData.network || "MTN",
+              (orderData.volume_gb || orderData.size || "0").toString(),
+              mtnResponse.message || "Order could not be processed"
+            );
+            sendEmail({
+              to: [{ email: emailToSend, name: nameToSend }],
+              subject: payload.subject,
+              htmlContent: payload.html,
+              referenceId: shop_order_id,
+              type: 'fulfillment_failed_manual'
+            }).catch(err => console.error("[EMAIL] Fulfillment Fail Email error:", err));
+          });
+        }
+      } catch (emailError) {
+        console.error("[MANUAL-FULFILL] Error sending failure email:", emailError);
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -267,6 +305,43 @@ export async function POST(request: NextRequest) {
       })
     } catch (smsError) {
       console.error("[MANUAL-FULFILL] Failed to send success SMS:", smsError)
+    }
+
+    // Send success Email
+    try {
+      // Determine email address (copy-paste logic or reuse if scoped variable, effectively logic repeated for safety)
+      let emailToSend = null;
+      let nameToSend = "Customer";
+
+      if (order_type === 'shop') {
+        emailToSend = orderData.customer_email;
+        nameToSend = orderData.customer_name || "Customer";
+      } else if (order_type === 'bulk' && orderData.user_id) {
+        const { data: u } = await supabase.from('users').select('email, first_name').eq('id', orderData.user_id).single();
+        emailToSend = u?.email;
+        nameToSend = u?.first_name || "User";
+      }
+
+      if (emailToSend) {
+        const sizeGb = parseInt(orderData.volume_gb?.toString() || orderData.size?.toString() || "0")
+        import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+          const payload = EmailTemplates.orderPaymentConfirmed(
+            shop_order_id.substring(0, 8),
+            "MTN",
+            sizeGb.toString(),
+            "Paid/Manual"
+          );
+          sendEmail({
+            to: [{ email: emailToSend, name: nameToSend }],
+            subject: payload.subject,
+            htmlContent: payload.html,
+            referenceId: shop_order_id,
+            type: 'order_fulfilled_manual'
+          }).catch(err => console.error("[EMAIL] Fulfillment Success Email error:", err));
+        });
+      }
+    } catch (emailError) {
+      console.error("[MANUAL-FULFILL] Error sending success email:", emailError);
     }
 
     console.log("[MANUAL-FULFILL] ✓ Order fulfilled:", shop_order_id)

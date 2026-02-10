@@ -91,19 +91,36 @@ export async function POST(request: NextRequest) {
         try {
           const { data: userData, error: userError } = await supabase
             .from("users")
-            .select("phone_number")
+            .select("phone_number, email, first_name")
             .eq("id", shop.user_id)
             .single()
 
-          if (!userError && userData?.phone_number) {
-            const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been approved. Funds will be transferred to ${withdrawal.account_details?.phone || withdrawal.account_details?.account_number || "your account"} shortly.`
-            
-            await sendSMS({
-              phone: userData.phone_number,
-              message: smsMessage,
-              type: 'withdrawal_approved',
-              reference: withdrawalId,
-            }).catch(err => console.error("[SMS] SMS error:", err))
+          if (!userError && userData) {
+            // Send Email
+            if (userData.email) {
+              import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+                const payload = EmailTemplates.withdrawalApproved(withdrawal.amount.toFixed(2), withdrawalId);
+                sendEmail({
+                  to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
+                  subject: payload.subject,
+                  htmlContent: payload.html,
+                  referenceId: withdrawalId,
+                  userId: shop.user_id,
+                  type: 'withdrawal_approved'
+                }).catch(err => console.error("[EMAIL] Withdrawal Approval Email error:", err));
+              });
+            }
+
+            if (userData.phone_number) {
+              const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been approved. Funds will be transferred to ${withdrawal.account_details?.phone || withdrawal.account_details?.account_number || "your account"} shortly.`
+
+              await sendSMS({
+                phone: userData.phone_number,
+                message: smsMessage,
+                type: 'withdrawal_approved',
+                reference: withdrawalId,
+              }).catch(err => console.error("[SMS] SMS error:", err))
+            }
           }
         } catch (smsError) {
           console.warn("[SMS] Failed to send withdrawal approval SMS:", smsError)
@@ -155,7 +172,7 @@ export async function POST(request: NextRequest) {
 
         // Available balance = credited profit - approved withdrawals
         const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
-        
+
         console.log(`[WITHDRAWAL-APPROVE-BALANCE] Shop ${withdrawal.shop_id}:`, {
           creditedProfit: breakdown.creditedProfit,
           totalApprovedWithdrawals,

@@ -1,0 +1,18 @@
+npm warn Unknown project config "shamefully-hoist". This will stop working in the next major version of npm.
+app/api/admin/shops/approve/route.ts(104,11): error TS1005: 'try' expected.
+app/api/admin/shops/approve/route.ts(110,5): error TS1472: 'catch' or 'finally' expected.
+app/api/admin/shops/approve/route.ts(114,7): error TS1005: 'try' expected.
+app/api/admin/shops/approve/route.ts(122,1): error TS1472: 'catch' or 'finally' expected.
+app/api/admin/shops/reject/route.ts(105,11): error TS1005: 'try' expected.
+app/api/admin/shops/reject/route.ts(111,5): error TS1472: 'catch' or 'finally' expected.
+app/api/admin/shops/reject/route.ts(115,7): error TS1005: 'try' expected.
+app/api/admin/shops/reject/route.ts(123,1): error TS1472: 'catch' or 'finally' expected.
+app/api/admin/withdrawals/approve/route.ts(124,13): error TS1005: 'try' expected.
+app/api/admin/withdrawals/approve/route.ts(129,5): error TS1472: 'catch' or 'finally' expected.
+app/api/admin/withdrawals/approve/route.ts(129,7): error TS1005: 'try' expected.
+app/api/admin/withdrawals/approve/route.ts(220,1): error TS1472: 'catch' or 'finally' expected.
+app/api/admin/withdrawals/reject/route.ts(114,13): error TS1005: 'try' expected.
+app/api/admin/withdrawals/reject/route.ts(119,5): error TS1472: 'catch' or 'finally' expected.
+app/api/admin/withdrawals/reject/route.ts(119,7): error TS1005: 'try' expected.
+app/api/admin/withdrawals/reject/route.ts(210,1): error TS1472: 'catch' or 'finally' expected.
+scripts/test-webhook-signature.ts(5,1): error TS1005: '}' expected.

@@ -88,7 +88,9 @@ export async function GET(request: NextRequest) {
                     id: order.id,
                     mtn_order_id: order.mtn_order_id,
                     success: result.success,
-                    status: result.status || order.status
+                    status: result.status || order.status,
+                    message: result.message,
+                    debug: result.order
                 })
             } catch (err) {
                 console.error(`[CRON-DATAKAZINA] Error processing ${order.mtn_order_id}:`, err)

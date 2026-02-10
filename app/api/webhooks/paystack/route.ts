@@ -309,6 +309,16 @@ export async function POST(request: NextRequest) {
           expectedAmountPesewas / 100
         ).catch(err => console.error("[WEBHOOK] Failed to notify admins:", err))
 
+        // Alert admins via Email (non-blocking)
+        import("@/lib/email-service").then(({ notifyAdmins, EmailTemplates }) => {
+          const payload = EmailTemplates.paymentMismatchDetected(
+            reference,
+            (paidAmountPesewas / 100).toFixed(2),
+            (expectedAmountPesewas / 100).toFixed(2)
+          );
+          notifyAdmins(payload.subject, (payload as any).htmlContent || payload.html).catch(err => console.error("[WEBHOOK] Email notify failed:", err));
+        });
+
         // Update payment as failed due to underpayment
         await supabase
           .from("wallet_payments")
@@ -486,6 +496,25 @@ export async function POST(request: NextRequest) {
                     type: 'order_payment_confirmed',
                     reference: paymentData.order_id,
                   }).catch(err => console.error("[WEBHOOK] SMS error:", err))
+
+                  // Send Email Confirmation
+                  if (shopOrderData.customer_email) {
+                    import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+                      const payload = EmailTemplates.orderPaymentConfirmed(
+                        paymentData.order_id,
+                        shopOrderData.network,
+                        shopOrderData.volume_gb,
+                        (shopOrderData.total_price || 0).toFixed(2)
+                      );
+                      sendEmail({
+                        to: [{ email: shopOrderData.customer_email, name: shopOrderData.customer_name }],
+                        subject: payload.subject,
+                        htmlContent: (payload as any).htmlContent || payload.html,
+                        referenceId: paymentData.order_id,
+                        type: 'order_payment_confirmed'
+                      }).catch(err => console.error("[WEBHOOK] Customer Email error:", err));
+                    });
+                  }
                 } catch (smsError) {
                   console.warn("[WEBHOOK] SMS notification failed:", smsError)
                 }
