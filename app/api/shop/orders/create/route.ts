@@ -204,7 +204,12 @@ export async function POST(request: NextRequest) {
           network,
           volume_gb.toString()
         );
-        notifyAdmins(payload.subject, payload.html).catch(err => console.error("[SHOP-ORDER] Email notify failed:", err));
+        notifyAdmins(payload.subject, payload.html).catch(err => {
+          console.error("[SHOP-ORDER] ❌ Price Manipulation Email FAILED:", err)
+          console.error("[SHOP-ORDER] Error message:", err?.message)
+          console.error("[SHOP-ORDER] Error stack:", err?.stack)
+          console.error("[SHOP-ORDER] Full error:", JSON.stringify(err, null, 2))
+        });
       });
 
       return NextResponse.json(
