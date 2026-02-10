@@ -96,7 +96,12 @@ export async function POST(request: NextRequest) {
                   referenceId: withdrawalId,
                   userId: shop.user_id,
                   type: 'withdrawal_rejected'
-                }).catch(err => console.error("[EMAIL] Withdrawal Rejection Email error:", err));
+                }).catch(err => {
+                  console.error("[EMAIL] ❌ Withdrawal Rejection Email FAILED:", err)
+                  console.error("[EMAIL] Error message:", err?.message)
+                  console.error("[EMAIL] Error stack:", err?.stack)
+                  console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
+                });
               });
             }
 

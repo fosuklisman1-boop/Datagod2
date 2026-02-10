@@ -87,7 +87,12 @@ export async function POST(request: NextRequest) {
                 referenceId: shopId,
                 userId: shop.user_id,
                 type: 'shop_approved'
-              }).catch(err => console.error("[EMAIL] Shop Approval Email error:", err));
+              }).catch(err => {
+                console.error("[EMAIL] ❌ Shop Approval Email FAILED:", err)
+                console.error("[EMAIL] Error message:", err?.message)
+                console.error("[EMAIL] Error stack:", err?.stack)
+                console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
+              });
             });
           }
 
