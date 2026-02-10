@@ -259,8 +259,11 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     // Call the provider's createOrder method
     const response = await provider.createOrder(order)
 
-    // Return the response (provider-specific tracking happens elsewhere)
-    return response
+    // Return the response with provider name included
+    return {
+      ...response,
+      provider: provider.name
+    }
   } catch (error) {
     console.error("[MTN] Error in createMTNOrder:", error)
 

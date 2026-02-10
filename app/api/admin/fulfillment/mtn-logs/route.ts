@@ -43,7 +43,8 @@ export async function GET(request: NextRequest) {
         created_at,
         updated_at,
         webhook_received_at,
-        api_response_payload
+        api_response_payload,
+        provider
       `, { count: "exact" })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1)

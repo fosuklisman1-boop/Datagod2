@@ -8,12 +8,12 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { 
-  Loader2, 
-  RefreshCw, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
+import {
+  Loader2,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  Clock,
   AlertTriangle,
   ArrowLeft,
   Phone,
@@ -45,6 +45,7 @@ interface MTNLog {
   updated_at: string
   webhook_received_at: string | null
   api_response_payload: any
+  provider?: string
 }
 
 interface Summary {
@@ -61,7 +62,7 @@ const ITEMS_PER_PAGE = 25
 export default function MTNFulfillmentLogsPage() {
   const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
-  
+
   const [logs, setLogs] = useState<MTNLog[]>([])
   const [loading, setLoading] = useState(true)
   const [summary, setSummary] = useState<Summary>({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, retrying: 0 })
@@ -139,7 +140,7 @@ export default function MTNFulfillmentLogsPage() {
       })
 
       const data = await response.json()
-      
+
       if (response.ok && data.success) {
         toast.success("Order re-submitted to MTN API")
         loadLogs() // Refresh the list
@@ -174,7 +175,7 @@ export default function MTNFulfillmentLogsPage() {
       })
 
       const data = await response.json()
-      
+
       if (response.ok && data.success) {
         toast.success(data.message || "Status synced")
         loadLogs()
@@ -209,7 +210,7 @@ export default function MTNFulfillmentLogsPage() {
       })
 
       const data = await response.json()
-      
+
       if (response.ok && data.success) {
         toast.success(data.message || `Synced ${data.total} orders`)
         loadLogs()
@@ -229,13 +230,13 @@ export default function MTNFulfillmentLogsPage() {
     try {
       setSyncing(true)
       toast.info("Triggering sync from Sykes API...")
-      
+
       const response = await fetch("/api/cron/sync-mtn-status", {
         method: "GET",
       })
 
       const data = await response.json()
-      
+
       if (response.ok && data.success) {
         toast.success(`Synced ${data.synced} orders. (${data.sykesOrderCount} orders from Sykes, ${data.notFound || 0} not found)`)
         loadLogs()
@@ -307,9 +308,9 @@ export default function MTNFulfillmentLogsPage() {
             </div>
           </div>
           <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-center sm:gap-2">
-            <Button 
+            <Button
               variant="default"
-              onClick={handleTriggerCronSync} 
+              onClick={handleTriggerCronSync}
               disabled={syncing}
               className="w-full sm:w-auto"
             >
@@ -320,9 +321,9 @@ export default function MTNFulfillmentLogsPage() {
               )}
               Sync All from Sykes
             </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleSyncAllPending} 
+            <Button
+              variant="outline"
+              onClick={handleSyncAllPending}
               disabled={syncing || (summary.pending + summary.processing) === 0}
               className="w-full sm:w-auto"
             >
@@ -385,6 +386,7 @@ export default function MTNFulfillmentLogsPage() {
                         <TableRow>
                           <TableHead>Status</TableHead>
                           <TableHead>Type</TableHead>
+                          <TableHead>Provider</TableHead>
                           <TableHead>MTN Order ID</TableHead>
                           <TableHead>Phone</TableHead>
                           <TableHead>Size</TableHead>
@@ -402,6 +404,13 @@ export default function MTNFulfillmentLogsPage() {
                               <Badge variant={log.order_type === "bulk" ? "secondary" : "outline"}>
                                 {log.order_type === "bulk" ? "Bulk" : log.order_type === "shop" ? "Storefront" : "Legacy"}
                               </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {log.provider === "datakazina" ? (
+                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">DataKazina</Badge>
+                              ) : (
+                                <Badge className="bg-blue-100 text-blue-800 border-blue-200">Sykes</Badge>
+                              )}
                             </TableCell>
                             <TableCell>
                               {log.mtn_order_id ? (
@@ -495,7 +504,7 @@ export default function MTNFulfillmentLogsPage() {
                         {(() => {
                           const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
                           const pages: (number | string)[] = []
-                          
+
                           if (totalPages <= 7) {
                             for (let i = 1; i <= totalPages; i++) pages.push(i)
                           } else {
@@ -507,7 +516,7 @@ export default function MTNFulfillmentLogsPage() {
                             if (currentPage < totalPages - 2) pages.push("...")
                             pages.push(totalPages)
                           }
-                          
+
                           return pages.map((page, idx) => (
                             page === "..." ? (
                               <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">...</span>
