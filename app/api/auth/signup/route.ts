@@ -124,7 +124,12 @@ export async function POST(request: NextRequest) {
           htmlContent: payload.html,
           userId: userId,
           type: 'welcome_email'
-        }).catch(err => console.error("[EMAIL] Welcome Email error:", err));
+        }).catch(err => {
+          console.error("[EMAIL] ❌ Welcome Email FAILED:", err)
+          console.error("[EMAIL] Error message:", err?.message)
+          console.error("[EMAIL] Error stack:", err?.stack)
+          console.error("[EMAIL] Full error object:", JSON.stringify(err, null, 2))
+        });
       });
     }
 
