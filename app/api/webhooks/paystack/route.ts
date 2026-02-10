@@ -1158,7 +1158,7 @@ export async function POST(request: NextRequest) {
           // Get user's phone number and first name from users table
           const { data: userData, error: userError } = await supabase
             .from("users")
-            .select("phone_number, first_name")
+            .select("phone_number, first_name, email")
             .eq("id", paymentData.user_id)
             .single()
 
@@ -1178,6 +1178,33 @@ export async function POST(request: NextRequest) {
             console.warn("[SMS] Failed to fetch user phone number:", userError)
           } else {
             console.warn("[SMS] User does not have a phone number on file")
+          }
+
+          // Send Email to user about wallet top-up
+          if (userData?.email) {
+            import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+              const payload = EmailTemplates.walletTopUpSuccess(
+                creditAmount.toFixed(2),
+                newBalance.toFixed(2),
+                paymentData.reference
+              );
+              sendEmail({
+                to: [{ email: userData.email, name: userData.first_name || "User" }],
+                subject: payload.subject,
+                htmlContent: payload.html,
+                userId: paymentData.user_id,
+                referenceId: paymentData.reference,
+                type: 'wallet_topup_success'
+              }).catch(err => {
+                console.error("[EMAIL] ❌ Wallet Top-up Email FAILED:", err)
+                console.error("[EMAIL] Error message:", err?.message)
+                console.error("[EMAIL] Error stack:", err?.stack)
+                console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
+              });
+            });
+            console.log(`[EMAIL] Wallet top-up email sent to user ${paymentData.user_id}`)
+          } else {
+            console.warn("[EMAIL] User does not have an email on file")
           }
         } catch (smsError) {
           console.warn("[SMS] Failed to send wallet top-up SMS:", smsError)
