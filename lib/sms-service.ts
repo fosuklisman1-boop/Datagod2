@@ -5,6 +5,13 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// SMS Provider Configuration
+const SMS_PROVIDER = process.env.SMS_PROVIDER || 'moolre' // 'moolre' or 'brevo'
+const BREVO_API_KEY = process.env.BREVO_API_KEY
+const BREVO_SMS_SENDER = process.env.BREVO_SMS_SENDER || process.env.EMAIL_SENDER_NAME || 'DATAGOD'
+const MOOLRE_API_KEY = process.env.MOOLRE_API_KEY
+const MOOLRE_SENDER_ID = process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
+
 interface SMSPayload {
   phone: string
   message: string
@@ -18,6 +25,7 @@ interface SendSMSResponse {
   messageId?: string
   skipped?: boolean
   error?: string
+  provider?: string
 }
 
 // SMS Templates
@@ -111,74 +119,54 @@ function normalizePhoneNumber(phone: string): string {
 }
 
 /**
- * Send SMS via Moolre API
+ * Send SMS via Brevo API (formerly SendinBlue)
  */
-export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
-  console.log('[SMS] sendSMS called with:', { phone: payload.phone, type: payload.type })
+async function sendSMSViaBrevo(payload: SMSPayload): Promise<SendSMSResponse> {
+  console.log('[SMS] Sending via Brevo to:', payload.phone)
 
-  if (process.env.SMS_ENABLED !== 'true') {
-    console.log('[SMS] SMS disabled (SMS_ENABLED !== true), skipping:', payload.message.substring(0, 50))
-    return { success: true, skipped: true }
+  if (!BREVO_API_KEY) {
+    console.warn('[SMS] Brevo API key not configured')
+    return { success: false, error: 'Brevo API key not configured' }
   }
-
-  if (!process.env.MOOLRE_API_KEY) {
-    console.warn('[SMS] Moolre API key not configured')
-    return { success: false, error: 'SMS service not configured' }
-  }
-
-  console.log('[SMS] SMS_ENABLED is true, proceeding with send')
-  console.log('[SMS] Environment variables check:', {
-    hasApiKey: !!process.env.MOOLRE_API_KEY,
-    hasSenderId: !!process.env.MOOLRE_SENDER_ID,
-  })
 
   try {
     const normalizedPhone = normalizePhoneNumber(payload.phone)
+    // Remove + for Brevo (expects format like 33680065433)
+    const brevoPhone = normalizedPhone.replace('+', '')
 
-    console.log('[SMS] Sending to:', normalizedPhone, '- Message:', payload.message.substring(0, 60))
-
-    const vasKey = process.env.MOOLRE_API_KEY || ''
-    const senderId = process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
-
-    // Build query parameters
-    const queryParams = new URLSearchParams({
-      type: '1',
-      senderid: senderId,
-      recipient: normalizedPhone,
-      message: payload.message,
-    })
-
-    if (payload.reference) {
-      queryParams.append('ref', payload.reference)
+    const requestBody = {
+      sender: BREVO_SMS_SENDER.substring(0, 11), // Max 11 chars for alphanumeric
+      recipient: brevoPhone,
+      content: payload.message,
+      type: 'transactional', // Use 'transactional' for non-marketing SMS
+      tag: payload.type,
+      unicodeEnabled: true,
     }
 
-    const url = `https://api.moolre.com/open/sms/send?${queryParams.toString()}&X-API-VASKEY=${vasKey}`
-
-    console.log('[SMS] Making GET request to:', `https://api.moolre.com/open/sms/send?${queryParams.toString()}&X-API-VASKEY=***`)
-    console.log('[SMS] Request fields:', {
-      type: '1',
-      senderid: senderId,
-      recipient: normalizedPhone,
-      message: payload.message.substring(0, 60) + '...',
-      ref: payload.reference || '',
-      hasVasKey: !!vasKey,
+    console.log('[SMS] Brevo request:', {
+      sender: requestBody.sender,
+      recipient: brevoPhone,
+      type: requestBody.type,
+      tag: payload.type,
+      messageLength: payload.message.length,
     })
 
-    const response = await axios.get(url)
+    const response = await axios.post(
+      'https://api.brevo.com/v3/transactionalSMS/sms',
+      requestBody,
+      {
+        headers: {
+          'api-key': BREVO_API_KEY,
+          'content-type': 'application/json',
+          'accept': 'application/json',
+        },
+      }
+    )
 
-    console.log('[SMS] Response received:', response.data)
+    const messageId = response.data.messageId?.toString() || 'unknown'
+    console.log('[SMS] ✓ Brevo Success - Message ID:', messageId)
 
-    // Check if response indicates success
-    if (response.data.status !== 1) {
-      throw new Error(`Moolre API Error: ${response.data.message || 'Unknown error'}`)
-    }
-
-    // Extract message ID from response data
-    const messageId = response.data.data?.messages?.[0]?.id || response.data.data?.id || response.data.id || 'unknown'
-    console.log('[SMS] ✓ Success - Message ID:', messageId)
-    console.log('[SMS] Response:', response.data.message || 'Success')
-
-    // Log to database if user provided
+    // Log to database
     if (payload.userId) {
       try {
         await supabase.from('sms_logs').insert({
@@ -187,7 +175,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
           message: payload.message,
           message_type: payload.type,
           reference_id: payload.reference,
-          moolre_message_id: messageId,
+          moolre_message_id: messageId, // Reuse column for Brevo message ID
           status: 'sent',
         })
       } catch (logError) {
@@ -198,18 +186,17 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     return {
       success: true,
       messageId,
+      provider: 'brevo',
     }
   } catch (error) {
-    console.error('[SMS] Error sending SMS:', error)
+    console.error('[SMS] Brevo Error:', error)
 
-    // Extract error details
-    let errorMessage = 'Failed to send SMS'
+    let errorMessage = 'Failed to send SMS via Brevo'
     if (axios.isAxiosError(error)) {
       errorMessage = error.response?.data?.message || error.message
-      console.error('[SMS] Moolre Error:', {
+      console.error('[SMS] Brevo API Error:', {
         status: error.response?.status,
-        code: error.response?.data?.code,
-        message: error.response?.data?.message,
+        data: error.response?.data,
       })
     }
 
@@ -233,7 +220,120 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     return {
       success: false,
       error: errorMessage,
+      provider: 'brevo',
     }
+  }
+}
+
+/**
+ * Send SMS via Moolre API
+ */
+async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
+  console.log('[SMS] Sending via Moolre to:', payload.phone)
+
+  if (!MOOLRE_API_KEY) {
+    console.warn('[SMS] Moolre API key not configured')
+    return { success: false, error: 'Moolre API key not configured' }
+  }
+
+  try {
+    const normalizedPhone = normalizePhoneNumber(payload.phone)
+
+    const queryParams = new URLSearchParams({
+      type: '1',
+      senderid: MOOLRE_SENDER_ID,
+      recipient: normalizedPhone,
+      message: payload.message,
+    })
+
+    if (payload.reference) {
+      queryParams.append('ref', payload.reference)
+    }
+
+    const url = `https://api.moolre.com/open/sms/send?${queryParams.toString()}&X-API-VASKEY=${MOOLRE_API_KEY}`
+
+    console.log('[SMS] Moolre request to:', payload.phone.substring(0, 6) + '***')
+
+    const response = await axios.get(url)
+
+    if (response.data.status !== 1) {
+      throw new Error(`Moolre API Error: ${response.data.message || 'Unknown error'}`)
+    }
+
+    const messageId = response.data.data?.messages?.[0]?.id || response.data.data?.id || response.data.id || 'unknown'
+    console.log('[SMS] ✓ Moolre Success - Message ID:', messageId)
+
+    // Log to database
+    if (payload.userId) {
+      try {
+        await supabase.from('sms_logs').insert({
+          user_id: payload.userId,
+          phone_number: payload.phone,
+          message: payload.message,
+          message_type: payload.type,
+          reference_id: payload.reference,
+          moolre_message_id: messageId,
+          status: 'sent',
+        })
+      } catch (logError) {
+        console.warn('[SMS] Failed to log SMS:', logError)
+      }
+    }
+
+    return {
+      success: true,
+      messageId,
+      provider: 'moolre',
+    }
+  } catch (error) {
+    console.error('[SMS] Moolre Error:', error)
+
+    let errorMessage = 'Failed to send SMS via Moolre'
+    if (axios.isAxiosError(error)) {
+      errorMessage = error.response?.data?.message || error.message
+    }
+
+    // Log failed SMS
+    if (payload.userId) {
+      try {
+        await supabase.from('sms_logs').insert({
+          user_id: payload.userId,
+          phone_number: payload.phone,
+          message: payload.message,
+          message_type: payload.type,
+          reference_id: payload.reference,
+          status: 'failed',
+          error_message: errorMessage,
+        })
+      } catch (logError) {
+        console.warn('[SMS] Failed to log failed SMS:', logError)
+      }
+    }
+
+    return {
+      success: false,
+      error: errorMessage,
+      provider: 'moolre',
+    }
+  }
+}
+
+/**
+ * Send SMS using configured provider (Brevo or Moolre)
+ */
+export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
+  console.log('[SMS] sendSMS called with:', { phone: payload.phone, type: payload.type, provider: SMS_PROVIDER })
+
+  if (process.env.SMS_ENABLED !== 'true') {
+    console.log('[SMS] SMS disabled (SMS_ENABLED !== true), skipping')
+    return { success: true, skipped: true }
+  }
+
+  // Route to the appropriate provider
+  if (SMS_PROVIDER === 'brevo') {
+    return sendSMSViaBrevo(payload)
+  } else {
+    return sendSMSViaMoolre(payload)
   }
 }
 
