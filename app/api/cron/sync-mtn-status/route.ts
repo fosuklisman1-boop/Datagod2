@@ -107,7 +107,7 @@ async function fetchAllDataKazinaOrders(): Promise<{ success: boolean; orders: a
     const response = await fetch(`${DATAKAZINA_API_URL}/orders`, {
       method: "GET",
       headers: {
-        "Authorization": `Bearer ${DATAKAZINA_API_KEY}`,
+        "x-api-key": DATAKAZINA_API_KEY,
         "Content-Type": "application/json",
       },
     })
@@ -355,10 +355,25 @@ export async function GET(request: NextRequest) {
 
         // Look up this order in the appropriate provider's map
         const mtnOrderIdStr = String(order.mtn_order_id)
-        const providerOrder = providerMap.get(mtnOrderIdStr)
+        let providerOrder = providerMap.get(mtnOrderIdStr)
+
+        // FALLBACK: If not found in map (e.g. bulk fetch failed/unsupported), try individual sync
+        if (!providerOrder) {
+          console.log(`[CRON] Order ${order.mtn_order_id} (${orderProvider}) not found in map, trying individual sync...`)
+          const { checkMTNOrderStatus } = await import("@/lib/mtn-fulfillment")
+          const individualResult = await checkMTNOrderStatus(order.mtn_order_id, orderProvider)
+
+          if (individualResult.success && individualResult.status) {
+            console.log(`[CRON] Individual sync success for ${order.mtn_order_id}: ${individualResult.status}`)
+            providerOrder = {
+              status: individualResult.status,
+              ...individualResult.order
+            }
+          }
+        }
 
         if (!providerOrder) {
-          console.log(`[CRON] Order ${order.mtn_order_id} (${orderProvider}) not found in ${orderProvider} API response`)
+          console.log(`[CRON] Order ${order.mtn_order_id} (${orderProvider}) still not found after individual check`)
           results.push({
             id: order.id,
             mtn_order_id: order.mtn_order_id,
