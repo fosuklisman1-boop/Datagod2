@@ -9,14 +9,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { 
-  Users, 
-  Plus, 
-  Copy, 
-  Loader2, 
-  Store, 
-  TrendingUp, 
-  Clock, 
+import {
+  Users,
+  Plus,
+  Copy,
+  Loader2,
+  Store,
+  TrendingUp,
+  Clock,
   CheckCircle,
   XCircle,
   ExternalLink,
@@ -61,6 +61,7 @@ export default function SubAgentsPage() {
   // Create invite modal
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [invitePhone, setInvitePhone] = useState("")
+  const [inviteEmail, setInviteEmail] = useState("")
   const [creatingInvite, setCreatingInvite] = useState(false)
   const [newInviteUrl, setNewInviteUrl] = useState<string | null>(null)
 
@@ -72,7 +73,7 @@ export default function SubAgentsPage() {
     try {
       setLoading(true)
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         toast.error("Please log in")
         return
@@ -100,7 +101,7 @@ export default function SubAgentsPage() {
       if (statsResponse.ok) {
         const data = await statsResponse.json()
         console.log("[SUB-AGENTS] API response:", data)
-        
+
         setSubAgents(data.subAgents || [])
         setStats(data.stats || {
           totalSubAgents: 0,
@@ -116,7 +117,7 @@ export default function SubAgentsPage() {
       const response = await fetch("/api/shop/invites", {
         headers: { Authorization: `Bearer ${session.access_token}` }
       })
-      
+
       if (response.ok) {
         const data = await response.json()
         setInvites(data.invites || [])
@@ -133,7 +134,7 @@ export default function SubAgentsPage() {
     try {
       setCreatingInvite(true)
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         toast.error("Please log in")
         return
@@ -145,7 +146,10 @@ export default function SubAgentsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({ phone: invitePhone || null })
+        body: JSON.stringify({
+          phone: invitePhone || null,
+          email: inviteEmail || null
+        })
       })
 
       const data = await response.json()
@@ -156,7 +160,7 @@ export default function SubAgentsPage() {
 
       setNewInviteUrl(data.invite.invite_url)
       toast.success("Invite created!")
-      
+
       // Refresh invites list
       loadData()
     } catch (error) {
@@ -174,7 +178,7 @@ export default function SubAgentsPage() {
   const deleteInvite = async (inviteId: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) return
 
       const response = await fetch(`/api/shop/invites?id=${inviteId}`, {
@@ -217,11 +221,11 @@ export default function SubAgentsPage() {
             </h1>
             <p className="text-gray-500 mt-1">Manage your reseller network</p>
           </div>
-          <Button 
-            onClick={() => { 
-              setShowInviteModal(true); 
-              setNewInviteUrl(null); 
-              setInvitePhone(""); 
+          <Button
+            onClick={() => {
+              setShowInviteModal(true);
+              setNewInviteUrl(null);
+              setInvitePhone("");
             }}
             className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white"
           >
@@ -415,8 +419,33 @@ export default function SubAgentsPage() {
                     value={invitePhone}
                     onChange={(e) => setInvitePhone(e.target.value)}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="inviteEmail">Email Address (optional)</Label>
+                  <Input
+                    id="inviteEmail"
+                    type="email"
+                    placeholder="user@example.com"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                  />
                   <p className="text-xs text-gray-500">
-                    If provided, we&apos;ll send an SMS with the invite link.
+                    We&apos;ll send the invite link via SMS or Email if provided.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="inviteEmail">Email Address (optional)</Label>
+                  <Input
+                    id="inviteEmail"
+                    type="email"
+                    placeholder="user@example.com"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                  />
+                  <p className="text-xs text-gray-500">
+                    We&apos;ll send the invite link via SMS or Email if provided.
                   </p>
                 </div>
 
@@ -441,7 +470,7 @@ export default function SubAgentsPage() {
                     ) : (
                       <>
                         <Share2 className="w-4 h-4 mr-2" />
-                        Create Invite Link
+                        Send Invite
                       </>
                     )}
                   </Button>

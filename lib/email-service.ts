@@ -428,6 +428,28 @@ export const EmailTemplates = {
     `, "Payment Alert", true),
   }),
 
+  subAgentInvitation: (shopName: string, inviteUrl: string, expiryDate: string) => ({
+    subject: `You're invited to join ${shopName}!`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🤝</span>
+        <h2>Partner Invitation</h2>
+        <p><strong>${shopName}</strong> has invited you to become a sub-agent.</p>
+      </div>
+
+      <div class="info-card">
+        <h3>Why join?</h3>
+        <p>🚀 Sell data bundles at wholesale prices</p>
+        <p>💰 Earn profit on every sale</p>
+        <p>🏪 Build your own reseller business</p>
+      </div>
+      
+      <p class="text-center text-sm text-gray-500">This invite expires on ${expiryDate}</p>
+
+      <a href="${inviteUrl}" class="button-primary">Accept Invitation</a>
+    `, "Invitation", true),
+  }),
+
   subscriptionExpiry1Day: (planName: string, expiryDate: string) => ({
     subject: "Subscription Expiring Soon",
     html: wrapHtml(`

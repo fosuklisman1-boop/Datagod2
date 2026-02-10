@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     // Generate unique invite code
     let inviteCode = generateInviteCode()
     let attempts = 0
-    
+
     // Ensure code is unique
     while (attempts < 5) {
       const { data: existing } = await supabase
@@ -143,22 +143,41 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://yoursite.com"
     const inviteUrl = `${baseUrl}/join/${inviteCode}`
 
-    // Send SMS if phone number provided
+    // Send Notification (SMS or Email)
     if (phone) {
       try {
         const smsMessage = `${shop.shop_name} has invited you to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`
-        
+
         await sendSMS({
           phone: phone,
           message: smsMessage,
           type: 'sub_agent_invite',
           reference: invite.id,
         })
-        
+
         console.log(`[INVITE] SMS sent to ${phone} with invite code ${inviteCode}`)
       } catch (smsError) {
         console.warn("[INVITE] Failed to send SMS invite:", smsError)
-        // Don't fail the invite creation if SMS fails
+      }
+    }
+
+    if (body.email) {
+      try {
+        const { sendEmail, EmailTemplates } = await import("@/lib/email-service")
+        const expiryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString()
+
+        const template = EmailTemplates.subAgentInvitation(shop.shop_name, inviteUrl, expiryDate)
+
+        await sendEmail({
+          to: [{ email: body.email }],
+          subject: template.subject,
+          htmlContent: template.html,
+          userId: user.id, // Log against inviter
+          type: 'sub_agent_invite'
+        })
+        console.log(`[INVITE] Email sent to ${body.email}`)
+      } catch (emailError) {
+        console.warn("[INVITE] Failed to send Email invite:", emailError)
       }
     }
 
