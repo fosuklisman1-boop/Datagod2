@@ -294,8 +294,8 @@ export class DataKazinaProvider implements MTNProvider {
 
             const data = await response.json()
 
-            // Extract balance from response (field name may vary)
-            const balance = data.balance ?? data.wallet_balance ?? data.amount ?? data.console_balance
+            // DataKazina returns balance in 'Wallet Balance' field (capital W, with space)
+            const balance = data['Wallet Balance'] ?? data.balance ?? data.wallet_balance ?? data.amount ?? data.console_balance
 
             if (typeof balance === "number") {
                 return balance
