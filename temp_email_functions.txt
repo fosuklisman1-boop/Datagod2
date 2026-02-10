@@ -1,0 +1,120 @@
+/**
+ * Send Email via Brevo API
+ */
+async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string; provider?: string }> {
+  if (!BREVO_API_KEY) {
+    console.warn("[Email] BREVO_API_KEY is missing. Email skipped:", payload.subject)
+    return { success: false, error: "Brevo API key not configured" }
+  }
+
+  try {
+    console.log(`[Email] Sending via Brevo '${payload.subject}' to ${payload.to.length} recipient(s)`)
+
+    const textContent = payload.textContent || payload.htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+    const body = {
+      sender: {
+        name: SENDER_NAME,
+        email: SENDER_EMAIL,
+      },
+      to: payload.to,
+      subject: payload.subject,
+      htmlContent: payload.htmlContent,
+      textContent: textContent,
+    }
+
+    const response = await fetch(BREVO_API_URL, {
+      method: "POST",
+      headers: {
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json",
+        "accept": "application/json",
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[Email] API Failed: ${response.status}`, errorText)
+      throw new Error(`Brevo API Error: ${response.status} ${errorText}`)
+    }
+
+    const data: BrevoResponse = await response.json()
+    console.log(`[Email] ✓ Brevo sent successfully. ID: ${data.messageId}`)
+
+    if (payload.userId) {
+      await logEmail(payload, "sent", data.messageId)
+    }
+
+    return { success: true, messageId: data.messageId, provider: 'brevo' }
+
+  } catch (error: any) {
+    console.error("[Email] Brevo send failed:", error)
+
+    if (payload.userId) {
+      await logEmail(payload, "failed", undefined, error.message)
+    }
+
+    return { success: false, error: error.message, provider: 'brevo' }
+  }
+}
+
+/**
+ * Send Email via Resend API
+ */
+async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string; provider?: string }> {
+  if (!resendClient || !RESEND_API_KEY) {
+    console.warn("[Email] RESEND_API_KEY is missing. Email skipped:", payload.subject)
+    return { success: false, error: "Resend API key not configured" }
+  }
+
+  try {
+    console.log(`[Email] Sending via Resend '${payload.subject}' to ${payload.to.length} recipient(s)`)
+
+    const textContent = payload.textContent || payload.htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+    const { data, error } = await resendClient.emails.send({
+      from: `${SENDER_NAME} <${SENDER_EMAIL}>`,
+      to: payload.to.map(r => r.email),
+      subject: payload.subject,
+      html: payload.htmlContent,
+      text: textContent,
+    })
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    const messageId = data?.id || 'unknown'
+    console.log(`[Email] ✓ Resend sent successfully. ID: ${messageId}`)
+
+    if (payload.userId) {
+      await logEmail(payload, "sent", messageId)
+    }
+
+    return { success: true, messageId, provider: 'resend' }
+
+  } catch (error: any) {
+    console.error("[Email] Resend send failed:", error)
+
+    if (payload.userId) {
+      await logEmail(payload, "failed", undefined, error.message)
+    }
+
+    return { success: false, error: error.message, provider: 'resend' }
+  }
+}
+
+/**
+ * Send Email using configured provider (Brevo or Resend)
+ */
+export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string; provider?: string }> {
+  console.log(`[Email] Provider: ${EMAIL_PROVIDER}`)
+
+  // Route to the appropriate provider
+  if (EMAIL_PROVIDER === 'resend') {
+    return sendEmailViaResend(payload)
+  } else {
+    return sendEmailViaBrevo(payload)
+  }
+}
