@@ -377,7 +377,7 @@ export const EmailTemplates = {
     `, "Withdrawal Status", true),
   }),
 
-  shopApproved: (shopName: string, shopId: string) => ({
+  shopApproved: (shopName: string, shopId: string, ownerPhone?: string) => ({
     subject: "Shop Approved!",
     html: wrapHtml(`
       <div class="text-center">
@@ -385,16 +385,55 @@ export const EmailTemplates = {
           <h2>Shop Approved!</h2>
           <p>Your shop "<strong>${shopName}</strong>" is now live.</p>
       </div>
-      <a href="${APP_URL}/dashboard/shop" class="button-primary">Manage Shop</a>
+      
+      <div class="info-card">
+        <h3 style="font-size: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 15px;">Shop Details</h3>
+        <div class="info-row">
+          <span class="info-label">Shop Name</span>
+          <span class="info-value">${shopName}</span>
+        </div>
+        ${ownerPhone ? `<div class="info-row">
+          <span class="info-label">Contact Number</span>
+          <span class="info-value">${ownerPhone}</span>
+        </div>` : ''}
+        <div class="info-row">
+          <span class="info-label">Shop ID</span>
+          <span class="info-value">${shopId}</span>
+        </div>
+      </div>
+      
+      <p>You can now start selling data bundles and managing your shop from your dashboard.</p>
+      <a href="${APP_URL}/dashboard/my-shop" class="button-primary">Manage Shop</a>
     `, "Shop Approved", true),
   }),
 
-  shopRejected: (shopName: string, shopId: string, reason?: string) => ({
+  shopRejected: (shopName: string, shopId: string, ownerPhone?: string, reason?: string) => ({
     subject: "Shop Application Update",
     html: wrapHtml(`
-      <h2>Application Status</h2>
-      <p>Your shop "${shopName}" was not approved.</p>
-      ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
+      <div class="text-center">
+        <span class="icon-large">📋</span>
+        <h2>Application Status Update</h2>
+        <p>Your shop application for "<strong>${shopName}</strong>" was not approved.</p>
+      </div>
+      
+      <div class="info-card">
+        <h3 style="font-size: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 15px;">Shop Details</h3>
+        <div class="info-row">
+          <span class="info-label">Shop Name</span>
+          <span class="info-value">${shopName}</span>
+        </div>
+        ${ownerPhone ? `<div class="info-row">
+          <span class="info-label">Contact Number</span>
+          <span class="info-value">${ownerPhone}</span>
+        </div>` : ''}
+        ${reason ? `<div class="info-row">
+          <span class="info-label">Reason</span>
+          <span class="info-value" style="color: #dc2626;">${reason}</span>
+        </div>` : ''}
+      </div>
+      
+      <p>If you have questions about this decision, please contact our support team.</p>
+      <a href="${APP_URL}/dashboard" class="button-secondary">Back to Dashboard</a>
     `, "Shop Status", true),
   }),
 

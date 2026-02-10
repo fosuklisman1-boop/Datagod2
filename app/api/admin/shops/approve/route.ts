@@ -79,7 +79,11 @@ export async function POST(request: NextRequest) {
           // Send Email
           if (userData.email) {
             import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-              const payload = EmailTemplates.shopApproved(shop.shop_name || "Your Shop", shopId);
+              const payload = EmailTemplates.shopApproved(
+                shop.shop_name || "Your Shop",
+                shopId,
+                userData.phone_number || undefined
+              );
               sendEmail({
                 to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
                 subject: payload.subject,
