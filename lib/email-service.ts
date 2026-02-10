@@ -19,6 +19,7 @@ export interface EmailPayload {
   to: EmailRecipient[]
   subject: string
   htmlContent: string
+  textContent?: string // Plain text version for better deliverability
   userId?: string // For logging
   referenceId?: string // For logging
   type?: string // For logging (e.g., 'order_confirmation')
@@ -320,6 +321,8 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
   try {
     console.log(`[Email] Sending '${payload.subject}' to ${payload.to.length} recipient(s)`)
 
+    const textContent = payload.textContent || payload.htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
     const body = {
       sender: {
         name: SENDER_NAME,
@@ -328,6 +331,7 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
       to: payload.to,
       subject: payload.subject,
       htmlContent: payload.htmlContent,
+      textContent: textContent,
     }
 
     const response = await fetch(BREVO_API_URL, {
