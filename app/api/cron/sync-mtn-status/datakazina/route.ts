@@ -10,6 +10,18 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 const DATAKAZINA_API_URL = process.env.DATAKAZINA_API_URL || "https://reseller.dakazinabusinessconsult.com/api/v1"
 const DATAKAZINA_API_KEY = process.env.DATAKAZINA_API_KEY || ""
 
+// Rate limiting configuration (prevent 429 errors)
+const BATCH_SIZE = 10 // Process 10 orders at a time (reduced from 50)
+const DELAY_BETWEEN_REQUESTS_MS = 2000 // 2 second delay between each status check
+const DELAY_ON_429_MS = 10000 // 10 second delay if we hit rate limit
+
+/**
+ * Sleep helper function
+ */
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 /**
  * GET /api/cron/sync-mtn-status/datakazina
  * 
@@ -20,14 +32,14 @@ export async function GET(request: NextRequest) {
     try {
         console.log("[CRON-DATAKAZINA] Starting status sync...")
 
-        // 1. Get all pending/processing DataKazina orders
+        // 1. Get all pending/processing DataKazina orders (limited batch)
         const { data: pendingOrders, error: fetchError } = await supabase
             .from("mtn_fulfillment_tracking")
             .select("id, mtn_order_id, status, shop_order_id, order_id, order_type")
             .eq("provider", "datakazina")
             .in("status", ["pending", "processing"])
             .order("created_at", { ascending: true })
-            .limit(50)
+            .limit(BATCH_SIZE)
 
         if (fetchError) {
             console.error("[CRON-DATAKAZINA] Error fetching orders:", fetchError)
@@ -42,14 +54,36 @@ export async function GET(request: NextRequest) {
 
         let synced = 0
         let failed = 0
+        let rateLimited = 0
         const results = []
 
-        // 2. Poll each order individually for the most accurate status
-        for (const order of pendingOrders) {
+        // 2. Poll each order individually with rate limiting
+        for (let i = 0; i < pendingOrders.length; i++) {
+            const order = pendingOrders[i]
+
             try {
-                console.log(`[CRON-DATAKAZINA] Syncing order ${order.mtn_order_id}...`)
+                console.log(`[CRON-DATAKAZINA] Syncing order ${i + 1}/${pendingOrders.length}: ${order.mtn_order_id}...`)
 
                 const result = await checkMTNOrderStatus(order.mtn_order_id, "datakazina")
+
+                // Check if we hit rate limit (429 error)
+                if (!result.success && result.message?.includes("429")) {
+                    console.warn(`[CRON-DATAKAZINA] ⚠️ Rate limited on order ${order.mtn_order_id}, waiting ${DELAY_ON_429_MS}ms...`)
+                    rateLimited++
+                    failed++
+
+                    results.push({
+                        id: order.id,
+                        mtn_order_id: order.mtn_order_id,
+                        success: false,
+                        status: order.status,
+                        message: "Rate limited - will retry later",
+                    })
+
+                    // Wait longer if rate limited, then continue
+                    await sleep(DELAY_ON_429_MS)
+                    continue
+                }
 
                 if (result.success && result.status) {
                     const oldStatus = order.status
@@ -90,8 +124,13 @@ export async function GET(request: NextRequest) {
                     success: result.success,
                     status: result.status || order.status,
                     message: result.message,
-                    debug: result.order
                 })
+
+                // Add delay between requests to avoid rate limiting (skip on last item)
+                if (i < pendingOrders.length - 1) {
+                    console.log(`[CRON-DATAKAZINA] Waiting ${DELAY_BETWEEN_REQUESTS_MS}ms before next request...`)
+                    await sleep(DELAY_BETWEEN_REQUESTS_MS)
+                }
             } catch (err) {
                 console.error(`[CRON-DATAKAZINA] Error processing ${order.mtn_order_id}:`, err)
                 failed++
@@ -102,8 +141,13 @@ export async function GET(request: NextRequest) {
             success: true,
             synced,
             failed,
+            rateLimited,
             total: pendingOrders.length,
-            results
+            results,
+            config: {
+                batchSize: BATCH_SIZE,
+                delayBetweenRequests: DELAY_BETWEEN_REQUESTS_MS,
+            }
         })
     } catch (error) {
         console.error("[CRON-DATAKAZINA] Critical error:", error)
