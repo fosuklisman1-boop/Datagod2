@@ -97,12 +97,6 @@ This is a test email sent from the DataGod admin panel.
  */
 export async function GET(request: NextRequest) {
     try {
-        // Verify admin access // Removed as per instruction
-        // const { isAdmin, errorResponse } = await verifyAdminAccess(request) // Removed as per instruction
-        // if (!isAdmin) { // Removed as per instruction
-        //     return errorResponse // Removed as per instruction
-        // } // Removed as per instruction
-
         return NextResponse.json({
             provider: process.env.EMAIL_PROVIDER || 'brevo (default)',
             senderName: process.env.EMAIL_SENDER_NAME || 'DataGod',

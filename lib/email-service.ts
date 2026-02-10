@@ -561,30 +561,43 @@ async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: bool
  * Send email via Resend
  */
 async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string; provider?: string }> {
+  console.log(`[Resend] ============ RESEND EMAIL DEBUG ============`)
+  console.log(`[Resend] resendClient:`, resendClient ? 'INITIALIZED' : 'NOT INITIALIZED')
+  console.log(`[Resend] RESEND_API_KEY:`, RESEND_API_KEY ? 'CONFIGURED' : 'NOT CONFIGURED')
+
   if (!resendClient || !RESEND_API_KEY) {
-    console.warn("[Email] RESEND_API_KEY is missing. Email skipped:", payload.subject)
+    console.warn("[Resend] ❌ RESEND_API_KEY is missing. Email skipped:", payload.subject)
     return { success: false, error: "Resend API key not configured" }
   }
 
   try {
-    console.log(`[Email] Sending via Resend '${payload.subject}' to ${payload.to.length} recipient(s)`)
+    console.log(`[Resend] ✅ Sending via Resend '${payload.subject}' to ${payload.to.length} recipient(s)`)
+    console.log(`[Resend] From: ${SENDER_NAME} <${SENDER_EMAIL}>`)
+    console.log(`[Resend] To:`, payload.to.map(r => r.email))
 
     const textContent = payload.textContent || payload.htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
-    const { data, error } = await resendClient.emails.send({
+    const emailData = {
       from: `${SENDER_NAME} <${SENDER_EMAIL}>`,
       to: payload.to.map(r => r.email),
       subject: payload.subject,
       html: payload.htmlContent,
       text: textContent,
-    })
+    }
+
+    console.log(`[Resend] 📧 About to call resendClient.emails.send()...`)
+    const { data, error } = await resendClient.emails.send(emailData)
+    console.log(`[Resend] API Response - data:`, data)
+    console.log(`[Resend] API Response - error:`, error)
 
     if (error) {
+      console.error(`[Resend] ❌ API returned error:`, error)
       throw new Error(error.message)
     }
 
     const messageId = data?.id || 'unknown'
-    console.log(`[Email] ✓ Resend sent successfully. ID: ${messageId}`)
+    console.log(`[Resend] ✅ Sent successfully. ID: ${messageId}`)
+    console.log(`[Resend] ============================================`)
 
     if (payload.userId) {
       await logEmail(payload, "sent", messageId)
@@ -593,7 +606,9 @@ async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boo
     return { success: true, messageId, provider: 'resend' }
 
   } catch (error: any) {
-    console.error("[Email] Resend send failed:", error)
+    console.error("[Resend] ❌ Send failed:", error)
+    console.error("[Resend] Error message:", error.message)
+    console.error("[Resend] Error stack:", error.stack)
 
     if (payload.userId) {
       await logEmail(payload, "failed", undefined, error.message)
@@ -607,12 +622,21 @@ async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boo
  * Router function - sends email using configured provider
  */
 export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string; provider?: string }> {
-  console.log(`[Email] Provider: ${EMAIL_PROVIDER}`)
+  console.log(`[Email Router] ============ EMAIL ROUTING DEBUG ============`)
+  console.log(`[Email Router] EMAIL_PROVIDER env variable:`, EMAIL_PROVIDER)
+  console.log(`[Email Router] EMAIL_PROVIDER type:`, typeof EMAIL_PROVIDER)
+  console.log(`[Email Router] RESEND_API_KEY configured:`, !!RESEND_API_KEY)
+  console.log(`[Email Router] BREVO_API_KEY configured:`, !!BREVO_API_KEY)
+  console.log(`[Email Router] resendClient initialized:`, !!resendClient)
+  console.log(`[Email Router] Checking: EMAIL_PROVIDER === 'resend'`, EMAIL_PROVIDER === 'resend')
+  console.log(`[Email Router] ============================================`)
 
   // Route to the appropriate provider
   if (EMAIL_PROVIDER === 'resend') {
+    console.log(`[Email Router] 🚀 Routing to RESEND`)
     return sendEmailViaResend(payload)
   } else {
+    console.log(`[Email Router] 🚀 Routing to BREVO (default)`)
     return sendEmailViaBrevo(payload)
   }
 }
