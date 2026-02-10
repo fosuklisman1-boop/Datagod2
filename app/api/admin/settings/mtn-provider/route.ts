@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { verifyAdmin } from "@/lib/admin-auth"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 
 /**
@@ -16,9 +16,9 @@ import { supabaseAdmin as supabase } from "@/lib/supabase"
 export async function GET(request: NextRequest) {
     try {
         // Verify admin authentication
-        const adminCheck = await verifyAdmin(request)
-        if (!adminCheck.isValid) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+        if (!isAdmin) {
+            return errorResponse
         }
 
         // Fetch provider selection from admin_settings
@@ -52,9 +52,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         // Verify admin authentication
-        const adminCheck = await verifyAdmin(request)
-        if (!adminCheck.isValid) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+        if (!isAdmin) {
+            return errorResponse
         }
 
         const body = await request.json()
