@@ -20,13 +20,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { tracking_id, mtn_order_id, sync_all_pending } = body
+    const { tracking_id, mtn_order_id, sync_all_pending, provider } = body
 
     // Option 1: Sync a specific tracking record
     if (tracking_id) {
       console.log(`[SYNC-STATUS] Syncing tracking record ${tracking_id}`)
       const result = await syncMTNOrderStatus(tracking_id)
-      
+
       return NextResponse.json({
         success: result.success,
         message: result.message,
@@ -36,11 +36,11 @@ export async function POST(request: NextRequest) {
 
     // Option 2: Check status by MTN order ID directly (for debugging)
     if (mtn_order_id) {
-      console.log(`[SYNC-STATUS] Checking MTN order ${mtn_order_id} directly from API`)
-      const result = await checkMTNOrderStatus(mtn_order_id)
-      
+      console.log(`[SYNC-STATUS] Checking MTN order ${mtn_order_id} directly from API (provider: ${provider || "default"})`)
+      const result = await checkMTNOrderStatus(mtn_order_id, provider)
+
       console.log(`[SYNC-STATUS] Direct API check result:`, JSON.stringify(result, null, 2))
-      
+
       return NextResponse.json({
         success: result.success,
         status: result.status,
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     // Option 3: Sync all pending orders
     if (sync_all_pending) {
       console.log(`[SYNC-STATUS] Syncing all pending MTN orders`)
-      
+
       const { data: pendingOrders, error } = await supabase
         .from("mtn_fulfillment_tracking")
         .select("id, mtn_order_id")

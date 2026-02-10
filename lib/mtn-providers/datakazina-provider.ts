@@ -207,10 +207,11 @@ export class DataKazinaProvider implements MTNProvider {
                 }
             }
 
-            log("info", "StatusCheck", `DataKazina transaction status retrieved`, { traceId, data })
+            log("info", "StatusCheck", `DataKazina transaction status retrieved`, { traceId, data, rawBody: responseText.slice(0, 1000) })
 
             // Handle error responses
-            if (data.success === false || data.error) {
+            if (data.success === false || data.error || data.status === "error") {
+                log("error", "StatusCheck", "DataKazina returned error status", { traceId, data })
                 return {
                     success: false,
                     message: data.message || data.error || "Failed to fetch transaction",
