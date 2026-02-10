@@ -20,17 +20,31 @@ interface MTNSettings {
 }
 
 interface MTNBalance {
-  balance: number
-  currency: string
+  balances: {
+    sykes: {
+      balance: number | null
+      currency: string
+      is_low: boolean
+      is_active: boolean
+      alert: string | null
+    }
+    datakazina: {
+      balance: number | null
+      currency: string
+      is_low: boolean
+      is_active: boolean
+      alert: string | null
+    }
+  }
   threshold: number
-  is_low: boolean
-  alert: string | null
+  active_provider: string
+  timestamp: string
 }
 
 export default function MTNSettingsPage() {
   const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
-  
+
   const [settings, setSettings] = useState<MTNSettings | null>(null)
   const [balance, setBalance] = useState<MTNBalance | null>(null)
   const [loadingSettings, setLoadingSettings] = useState(true)
@@ -39,12 +53,12 @@ export default function MTNSettingsPage() {
 
   useEffect(() => {
     if (adminLoading) return
-    
+
     if (!isAdmin) return // useAdminProtected handles redirect
 
     loadSettings()
     loadBalance()
-    
+
     // Refresh balance every 30 seconds
     const balanceInterval = setInterval(loadBalance, 30000)
     return () => clearInterval(balanceInterval)
@@ -248,15 +262,15 @@ export default function MTNSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* MTN Wallet Balance */}
+        {/* MTN Wallet Balances - DUAL PROVIDER */}
         <Card className="border-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Wallet className="h-5 w-5" />
-              MTN Wallet Balance
+              MTN Wallet Balances
             </CardTitle>
             <CardDescription>
-              Real-time wallet balance for fulfilling orders
+              Real-time wallet balances for both MTN providers
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -266,18 +280,75 @@ export default function MTNSettingsPage() {
               </div>
             ) : balance ? (
               <div className="space-y-4">
-                <div className="flex items-baseline gap-2 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
-                  <span className="text-4xl font-bold text-emerald-900">
-                    ₵{balance.balance.toFixed(2)}
-                  </span>
-                  <span className="text-sm text-emerald-700">GHS</span>
+                {/* Dual Balance Display */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  {/* Sykes Balance */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.sykes.is_active
+                    ? 'bg-blue-50 border-blue-300 shadow-md'
+                    : 'bg-gray-50 border-gray-200'
+                    }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">Sykes API</span>
+                      {balance.balances.sykes.is_active && (
+                        <Badge className="bg-blue-600">Active</Badge>
+                      )}
+                    </div>
+                    {balance.balances.sykes.balance !== null ? (
+                      <>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-3xl font-bold ${balance.balances.sykes.is_low ? 'text-orange-600' : 'text-emerald-900'
+                            }`}>
+                            ₵{balance.balances.sykes.balance.toFixed(2)}
+                          </span>
+                          <span className="text-sm text-gray-600">GHS</span>
+                        </div>
+                        {balance.balances.sykes.is_low && (
+                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-500">Unable to fetch</p>
+                    )}
+                  </div>
+
+                  {/* DataKazina Balance */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.datakazina.is_active
+                    ? 'bg-green-50 border-green-300 shadow-md'
+                    : 'bg-gray-50 border-gray-200'
+                    }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">DataKazina API</span>
+                      {balance.balances.datakazina.is_active && (
+                        <Badge className="bg-green-600">Active</Badge>
+                      )}
+                    </div>
+                    {balance.balances.datakazina.balance !== null ? (
+                      <>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-3xl font-bold ${balance.balances.datakazina.is_low ? 'text-orange-600' : 'text-emerald-900'
+                            }`}>
+                            ₵{balance.balances.datakazina.balance.toFixed(2)}
+                          </span>
+                          <span className="text-sm text-gray-600">GHS</span>
+                        </div>
+                        {balance.balances.datakazina.is_low && (
+                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-500">Unable to fetch</p>
+                    )}
+                  </div>
                 </div>
 
-                {balance.is_low && (
+                {/* Low Balance Alerts */}
+                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low) && (
                   <Alert className="border-orange-200 bg-orange-50">
                     <AlertCircle className="h-4 w-4 text-orange-600" />
                     <AlertDescription className="text-orange-700">
-                      {balance.alert}
+                      {balance.balances.sykes.alert && <p>• {balance.balances.sykes.alert}</p>}
+                      {balance.balances.datakazina.alert && <p>• {balance.balances.datakazina.alert}</p>}
+                      <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
                     </AlertDescription>
                   </Alert>
                 )}
@@ -292,14 +363,14 @@ export default function MTNSettingsPage() {
                   variant="outline"
                   className="w-full"
                 >
-                  Refresh Balance
+                  Refresh Balances
                 </Button>
               </div>
             ) : (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Unable to fetch balance. Check MTN API connection.
+                  Unable to fetch balances. Check MTN API connections.
                 </AlertDescription>
               </Alert>
             )}
