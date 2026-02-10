@@ -229,7 +229,7 @@ export default function MTNFulfillmentLogsPage() {
   const handleTriggerCronSync = async () => {
     try {
       setSyncing(true)
-      toast.info("Triggering sync from Sykes API...")
+      toast.info("Triggering background sync for all orders...")
 
       const response = await fetch("/api/cron/sync-mtn-status", {
         method: "GET",
@@ -238,7 +238,7 @@ export default function MTNFulfillmentLogsPage() {
       const data = await response.json()
 
       if (response.ok && data.success) {
-        toast.success(`Synced ${data.synced} orders. (${data.sykesOrderCount} orders from Sykes, ${data.notFound || 0} not found)`)
+        toast.success(`Synced ${data.synced} orders. (${data.sykesOrderCount || 0} from Sykes, ${data.datakazinaOrderCount || 0} from DataKazina)`)
         loadLogs()
       } else {
         toast.error(data.error || "Failed to trigger sync")
@@ -319,7 +319,7 @@ export default function MTNFulfillmentLogsPage() {
               ) : (
                 <RefreshCw className="w-4 h-4 mr-2" />
               )}
-              Sync All from Sykes
+              Sync All Statuses
             </Button>
             <Button
               variant="outline"
@@ -448,7 +448,7 @@ export default function MTNFulfillmentLogsPage() {
                                     variant="ghost"
                                     onClick={() => handleSyncStatus(log.id)}
                                     disabled={syncingId === log.id}
-                                    title="Check status from Sykes API"
+                                    title="Check status from provider API"
                                   >
                                     {syncingId === log.id ? (
                                       <Loader2 className="w-3 h-3 animate-spin" />

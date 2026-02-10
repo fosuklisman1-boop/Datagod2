@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { shop_order_id, order_type = "shop" } = body
+    const { shop_order_id, order_type = "shop", provider } = body
 
     console.log(`[MANUAL-FULFILL] Received body:`, JSON.stringify(body, null, 2))
     console.log(`[MANUAL-FULFILL] Extracted shop_order_id: "${shop_order_id}", order_type: "${order_type}"`)
@@ -176,6 +176,7 @@ export async function POST(request: NextRequest) {
       recipient_phone: phone,
       network: "MTN",
       size_gb: volumeGb, // createMTNOrder will round to integer
+      provider, // Optional provider override
     }
 
     const mtnResponse = await createMTNOrder(mtnRequest)

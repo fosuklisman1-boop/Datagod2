@@ -18,6 +18,7 @@ export interface MTNOrderRequest {
   network: "MTN" | "Telecel" | "AirtelTigo"
   size_gb: number
   traceId?: string
+  provider?: string // Force a specific provider
 }
 
 export interface MTNOrderResponse {
@@ -248,11 +249,13 @@ export async function checkMTNBalance(): Promise<number | null> {
  * based on admin settings, while maintaining backward compatibility.
  */
 export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderResponse> {
-  const { getMTNProvider } = await import("@/lib/mtn-providers/factory")
+  const { getMTNProvider, getProviderByName } = await import("@/lib/mtn-providers/factory")
 
   try {
-    // Get the selected provider (Sykes or DataKazina)
-    const provider = await getMTNProvider()
+    // Get the selected provider (either forced in request or from global settings)
+    const provider = order.provider
+      ? getProviderByName(order.provider as any)
+      : await getMTNProvider()
 
     console.log(`[MTN] Creating order with provider: ${provider.name}`)
 
@@ -473,147 +476,33 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
   }
 }
 
-/**
- * Check MTN order status from Sykes API
- * Fetches all orders and finds the matching one by ID
- */
-export async function checkMTNOrderStatus(mtnOrderId: number): Promise<{
+export async function checkMTNOrderStatus(
+  mtnOrderId: number | string,
+  providerName?: string
+): Promise<{
   success: boolean
   status?: "pending" | "processing" | "completed" | "failed"
   message: string
-  order?: MTNWebhookPayload["order"]
+  order?: any
 }> {
+  const { getMTNProvider, getProviderByName } = await import("@/lib/mtn-providers/factory")
   const traceId = generateTraceId()
 
   try {
-    log("info", "StatusCheck", `Checking status for MTN order ${mtnOrderId}`, { traceId, mtnOrderId })
+    // Get the appropriate provider
+    const provider = providerName
+      ? getProviderByName(providerName as any)
+      : await getMTNProvider()
 
-    // The Sykes API GET /api/orders returns all orders, not a single one
-    // So we fetch all orders and filter for the one we need
-    // Use limit=5000 to get all orders (API defaults to only 20)
-    const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
-      method: "GET",
-      headers: {
-        "X-API-KEY": MTN_API_KEY,
-        "Content-Type": "application/json",
-      },
-    })
+    log("info", "StatusCheck", `Checking status for MTN order ${mtnOrderId} via ${provider.name}`, { traceId, mtnOrderId, provider: provider.name })
 
-    const responseText = await response.text()
-    log("info", "StatusCheck", `API response: ${response.status}`, { traceId, responseText })
+    // Call the provider's status check method
+    // Call the provider's status check method
+    const result = await provider.checkOrderStatus(mtnOrderId)
 
-    if (!response.ok) {
-      return {
-        success: false,
-        message: `API error: ${response.status} - ${responseText}`,
-      }
-    }
-
-    let data
-    try {
-      data = JSON.parse(responseText)
-    } catch {
-      return {
-        success: false,
-        message: `Invalid JSON response: ${responseText.slice(0, 100)}`,
-      }
-    }
-
-    log("info", "StatusCheck", `Order status retrieved`, { traceId, data })
-
-    // Handle various response formats:
-    // 1. Array of orders: [{id, status, ...}]
-    // 2. Single order wrapped: {order: {id, status, ...}}
-    // 3. Direct order object: {id, status, ...}
-    // 4. Data wrapper: {data: [{id, status, ...}]}
-    // 5. Orders wrapper: {orders: [{id, status, ...}]}
-    let order
-    let allOrders: any[] = []
-
-    if (Array.isArray(data)) {
-      allOrders = data
-    } else if (data.order) {
-      order = data.order
-    } else if (data.data && Array.isArray(data.data)) {
-      allOrders = data.data
-    } else if (data.orders && Array.isArray(data.orders)) {
-      allOrders = data.orders
-    } else if (data.id) {
-      order = data
-    }
-
-    // Find the order by ID (handle both string and number comparison)
-    if (!order && allOrders.length > 0) {
-      // Try exact match first
-      order = allOrders.find((o: any) => o.id === mtnOrderId || o.id === String(mtnOrderId) || String(o.id) === String(mtnOrderId))
-
-      if (!order) {
-        // Try matching order_id field as well
-        order = allOrders.find((o: any) => o.order_id === mtnOrderId || o.order_id === String(mtnOrderId) || String(o.order_id) === String(mtnOrderId))
-      }
-
-      if (!order) {
-        console.log(`[MTN-STATUS] Order ${mtnOrderId} not found in ${allOrders.length} orders. Available IDs: ${allOrders.map((o: any) => o.id || o.order_id).slice(0, 10).join(', ')}`)
-        return {
-          success: false,
-          message: `Order ${mtnOrderId} not found in API response (${allOrders.length} orders returned)`,
-        }
-      }
-    }
-
-    if (!order || !order.status) {
-      console.log(`[MTN-STATUS] Order or status not found. Order:`, order, `Data:`, JSON.stringify(data).slice(0, 300))
-      return {
-        success: false,
-        message: `Order not found or no status. Response: ${JSON.stringify(data).slice(0, 200)}`,
-      }
-    }
-
-    // Log the raw status for debugging
-    console.log(`[MTN-STATUS] Raw API status for order ${mtnOrderId}: "${order.status}" (type: ${typeof order.status})`)
-
-    // Normalize status from API to our expected values
-    let normalizedStatus: "pending" | "processing" | "completed" | "failed" = "pending"
-    const apiStatus = String(order.status).toLowerCase().trim()
-
-    // Completed status variations
-    if (apiStatus === "completed" || apiStatus === "success" || apiStatus === "delivered" ||
-      apiStatus === "done" || apiStatus === "fulfilled" || apiStatus === "sent" ||
-      apiStatus === "successful" || apiStatus === "complete") {
-      normalizedStatus = "completed"
-    }
-    // Failed status variations
-    else if (apiStatus === "failed" || apiStatus === "error" || apiStatus === "cancelled" ||
-      apiStatus === "rejected" || apiStatus === "expired" || apiStatus === "refunded") {
-      normalizedStatus = "failed"
-    }
-    // Processing status variations
-    else if (apiStatus === "processing" || apiStatus === "in_progress" || apiStatus === "queued" ||
-      apiStatus === "in-progress" || apiStatus === "sending" || apiStatus === "submitted") {
-      normalizedStatus = "processing"
-    }
-    // Pending status
-    else if (apiStatus === "pending" || apiStatus === "waiting" || apiStatus === "new") {
-      normalizedStatus = "pending"
-    }
-    // Unknown status - log it clearly
-    else {
-      console.warn(`[MTN-STATUS] ⚠️ UNKNOWN API status: "${order.status}" for order ${mtnOrderId} - defaulting to processing`)
-      log("warn", "StatusCheck", `Unknown API status: ${order.status}, defaulting to processing`, { traceId })
-      normalizedStatus = "processing"
-    }
-
-    console.log(`[MTN-STATUS] Normalized: "${order.status}" -> "${normalizedStatus}"`)
-    log("info", "StatusCheck", `Status normalized: ${order.status} -> ${normalizedStatus}`, { traceId })
-
-    return {
-      success: true,
-      status: normalizedStatus,
-      message: order.message || "Status retrieved",
-      order,
-    }
+    return result
   } catch (error) {
-    log("error", "StatusCheck", `Error checking order status`, { traceId, error: String(error) })
+    log("error", "StatusCheck", `Error checking MTN order status`, { traceId, error: String(error) })
     return {
       success: false,
       message: error instanceof Error ? error.message : "Failed to check status",
@@ -645,10 +534,10 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
       return { success: false, message: "No MTN order ID in tracking record" }
     }
 
-    console.log(`[MTN-SYNC] Checking status for order ${tracking.mtn_order_id}, current status: ${tracking.status}`)
+    console.log(`[MTN-SYNC] Checking status for order ${tracking.mtn_order_id} (provider: ${tracking.provider || "sykes"}), current status: ${tracking.status}`)
 
-    // Check status from API
-    const statusResult = await checkMTNOrderStatus(tracking.mtn_order_id)
+    // Check status from API using the provider that handled the order
+    const statusResult = await checkMTNOrderStatus(tracking.mtn_order_id, tracking.provider || "sykes")
 
     console.log(`[MTN-SYNC] API result:`, JSON.stringify(statusResult))
 

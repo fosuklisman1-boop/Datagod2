@@ -11,6 +11,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -52,15 +59,15 @@ export default function AdminOrdersPage() {
   const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [activeTab, setActiveTab] = useState<"pending" | "downloaded" | "fulfillment">("pending")
-  
+
   const [pendingOrders, setPendingOrders] = useState<ShopOrder[]>([])
   const [downloadedOrders, setDownloadedOrders] = useState<DownloadedOrders>({})
-  
+
   const [loadingPending, setLoadingPending] = useState(true)
   const [loadingDownloaded, setLoadingDownloaded] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [updatingBatch, setUpdatingBatch] = useState<string | null>(null)
-  
+
   const [showNetworkSelection, setShowNetworkSelection] = useState(false)
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([])
   const [downloadedBatchFilter, setDownloadedBatchFilter] = useState("all")
@@ -68,16 +75,16 @@ export default function AdminOrdersPage() {
   const [downloadedBatchSearch, setDownloadedBatchSearch] = useState("")
   const [downloadedNetworkFilter, setDownloadedNetworkFilter] = useState("all")
   const allNetworks = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
-  
+
   // Auto-fulfillment toggle state
   const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(true)
   const [loadingAutoFulfillment, setLoadingAutoFulfillment] = useState(true)
   const [togglingAutoFulfillment, setTogglingAutoFulfillment] = useState(false)
-  
+
   // Bulk delete state
   const [deleteBatchesEndDate, setDeleteBatchesEndDate] = useState("")
   const [deletingBatches, setDeletingBatches] = useState(false)
-  
+
   // Sync with CodeCraft state
   const [syncingWithCodeCraft, setSyncingWithCodeCraft] = useState(false)
 
@@ -86,6 +93,7 @@ export default function AdminOrdersPage() {
   const [loadingMTNOrders, setLoadingMTNOrders] = useState(false)
   const [fulfillingMTNOrder, setFulfillingMTNOrder] = useState<string | null>(null)
   const [mtnFulfillmentStatus, setMTNFulfillmentStatus] = useState<{ [key: string]: string }>({})
+  const [selectedProviders, setSelectedProviders] = useState<{ [key: string]: string }>({})
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -118,7 +126,7 @@ export default function AdminOrdersPage() {
     try {
       setTogglingAutoFulfillment(true)
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         toast.error("Authentication required")
         return
@@ -141,7 +149,7 @@ export default function AdminOrdersPage() {
       const data = await response.json()
       setAutoFulfillmentEnabled(data.setting.enabled)
       toast.success(data.message)
-      
+
       // Reload pending orders since the list may have changed
       loadPendingOrders()
     } catch (error) {
@@ -156,7 +164,7 @@ export default function AdminOrdersPage() {
     try {
       setSyncingWithCodeCraft(true)
       toast.info("Syncing CodeCraft orders (AT-iShare, Telecel, BigTime)... MTN orders are skipped.")
-      
+
       const response = await fetch("/api/admin/sync-orders", {
         method: "POST",
       })
@@ -175,7 +183,7 @@ export default function AdminOrdersPage() {
         loadPendingOrders()
         loadDownloadedOrders()
       } else if (data.checked === 0) {
-        toast.info(data.skipped > 0 
+        toast.info(data.skipped > 0
           ? `No CodeCraft orders to sync. ${data.skipped} MTN/manual orders skipped.`
           : "No processing orders found to sync")
       } else {
@@ -194,7 +202,7 @@ export default function AdminOrdersPage() {
       setLoadingPending(true)
       console.log("Fetching pending orders from API...")
       const response = await fetch("/api/admin/orders/pending")
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || "Failed to load pending orders")
@@ -221,7 +229,7 @@ export default function AdminOrdersPage() {
       setLoadingDownloaded(true)
       console.log("Fetching downloaded batches from API...")
       const response = await fetch("/api/admin/orders/batches")
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || "Failed to load downloaded orders")
@@ -289,7 +297,7 @@ export default function AdminOrdersPage() {
     try {
       setLoadingMTNOrders(true)
       const response = await fetch("/api/admin/fulfillment/manual-fulfill")
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || "Failed to load pending MTN orders")
@@ -298,7 +306,7 @@ export default function AdminOrdersPage() {
       const result = await response.json()
       console.log("Fetched pending MTN orders:", result.count)
       setPendingMTNOrders(result.orders || [])
-      
+
       // Initialize status map
       const statusMap: { [key: string]: string } = {}
       result.orders?.forEach((order: any) => {
@@ -317,7 +325,7 @@ export default function AdminOrdersPage() {
   const handleManualFulfill = async (orderId: string) => {
     try {
       setFulfillingMTNOrder(orderId)
-      
+
       // Find the order to get network and other details
       const order = pendingMTNOrders.find(o => o.id === orderId)
       if (!order) {
@@ -330,7 +338,8 @@ export default function AdminOrdersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           shop_order_id: orderId,
-          network: order.network
+          network: order.network,
+          provider: selectedProviders[orderId] || "sykes"
         })
       })
 
@@ -340,29 +349,29 @@ export default function AdminOrdersPage() {
       }
 
       const result = await response.json()
-      
+
       // Update status
       setMTNFulfillmentStatus(prev => ({
         ...prev,
         [orderId]: "fulfilled"
       }))
-      
+
       // Remove from pending list
       setPendingMTNOrders(prev => prev.filter(o => o.id !== orderId))
-      
+
       toast.success(`Order ${orderId} fulfilled successfully`)
-      
+
       // Reload the list
       await loadPendingMTNOrders()
     } catch (error) {
       console.error("Error fulfilling order:", error)
-      
+
       // Update status to show error
       setMTNFulfillmentStatus(prev => ({
         ...prev,
         [orderId]: "error"
       }))
-      
+
       toast.error(error instanceof Error ? error.message : "Failed to fulfill order")
     } finally {
       setFulfillingMTNOrder(null)
@@ -377,11 +386,11 @@ export default function AdminOrdersPage() {
 
     // Show loading state while refreshing data
     setDownloading(true)
-    
+
     try {
       // Reload pending orders to ensure fresh data
       await loadPendingOrders()
-      
+
       // Open network selection dialog
       setSelectedNetworks([]) // Reset selection
       setShowNetworkSelection(true)
@@ -409,7 +418,7 @@ export default function AdminOrdersPage() {
 
       // Filter fresh orders by selected networks
       const filteredOrders = freshOrders.filter((o: any) => selectedNetworks.includes(o.network))
-      
+
       if (filteredOrders.length === 0) {
         toast.error("No orders found for selected networks")
         return
@@ -417,7 +426,7 @@ export default function AdminOrdersPage() {
 
       // Call API endpoint to download orders
       const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         toast.error("Authentication required. Please log in again.")
         return
@@ -425,11 +434,11 @@ export default function AdminOrdersPage() {
 
       const response = await fetch("/api/admin/orders/download", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           orderIds: filteredOrders.map((o: any) => o.id)
         })
       })
@@ -445,7 +454,7 @@ export default function AdminOrdersPage() {
           // If response isn't JSON, use status text
           errorMessage = response.statusText || errorMessage
         }
-        
+
         // If orders were already downloaded by another admin, show specific message and refresh
         if (isConflict) {
           toast.error("These orders were already downloaded by another admin. Refreshing list...")
@@ -453,7 +462,7 @@ export default function AdminOrdersPage() {
           setShowNetworkSelection(false)
           return
         }
-        
+
         throw new Error(errorMessage)
       }
 
@@ -469,7 +478,7 @@ export default function AdminOrdersPage() {
       window.URL.revokeObjectURL(url)
 
       toast.success(`Downloaded ${filteredOrders.length} orders from ${selectedNetworks.join(', ')}. Status updated to processing.`)
-      
+
       // Close dialog and reload orders
       setShowNetworkSelection(false)
       await loadPendingOrders()
@@ -490,7 +499,7 @@ export default function AdminOrdersPage() {
       setUpdatingBatch(batchKey)
 
       const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         toast.error("Authentication required. Please log in again.")
         return
@@ -498,7 +507,7 @@ export default function AdminOrdersPage() {
 
       const response = await fetch("/api/admin/orders/download", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
@@ -557,7 +566,7 @@ export default function AdminOrdersPage() {
       }
 
       toast.success(`Updated ${batch.orders.length} orders to ${newStatus}`)
-      
+
       // Update the batch orders in state with new status immediately
       const updatedBatch = {
         ...batch,
@@ -566,12 +575,12 @@ export default function AdminOrdersPage() {
           status: newStatus
         }))
       }
-      
+
       setDownloadedOrders(prev => ({
         ...prev,
         [batchKey]: updatedBatch
       }))
-      
+
       // Reload pending orders to update counts
       await loadPendingOrders()
     } catch (error) {
@@ -592,7 +601,7 @@ export default function AdminOrdersPage() {
     const confirmed = confirm(
       `Are you sure you want to delete all batches before ${deleteBatchesEndDate}? This action cannot be undone.`
     )
-    
+
     if (!confirmed) return
 
     try {
@@ -613,7 +622,7 @@ export default function AdminOrdersPage() {
 
       const result = await response.json()
       toast.success(result.message || `Deleted ${result.deletedCount} batch(es)`)
-      
+
       // Reset form and reload batches
       setDeleteBatchesEndDate("")
       await loadDownloadedOrders()
@@ -650,12 +659,12 @@ export default function AdminOrdersPage() {
 
       // Check search filter - search in phone numbers, admin email, or network
       if (searchLower) {
-        const phoneMatch = batch.orders.some(o => 
+        const phoneMatch = batch.orders.some(o =>
           o.phone_number?.toLowerCase().includes(searchLower)
         )
         const adminMatch = batch.downloadedByEmail?.toLowerCase().includes(searchLower)
         const networkMatch = batch.network.toLowerCase().includes(searchLower)
-        
+
         if (!phoneMatch && !adminMatch && !networkMatch) return false
       }
 
@@ -691,7 +700,7 @@ export default function AdminOrdersPage() {
 
       // Check status filter
       if (downloadedBatchStatusFilter === "all") return true
-      
+
       // Filter by batch status
       const statuses = batch.orders.map(o => o.status || "processing")
       if (downloadedBatchStatusFilter === "completed") {
@@ -1031,97 +1040,96 @@ export default function AdminOrdersPage() {
                   </Card>
                 ) : (
                   getFilteredDownloadedOrders().map(([batchKey, batch]) => (
-                  <Card key={batchKey} className="border-l-4 border-l-emerald-500">
-                    <CardHeader>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div>
-                          <CardTitle className="flex items-center gap-2">
-                            <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">
-                              {batch.network}
+                    <Card key={batchKey} className="border-l-4 border-l-emerald-500">
+                      <CardHeader>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div>
+                            <CardTitle className="flex items-center gap-2">
+                              <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                {batch.network}
+                              </Badge>
+                              <span className="text-gray-600">Batch</span>
+                            </CardTitle>
+                            <CardDescription>
+                              Downloaded: {new Date(batch.downloadedAt).toLocaleString()}
+                              {batch.downloadedByEmail && (
+                                <span className="ml-2 text-blue-600">by {batch.downloadedByEmail}</span>
+                              )}
+                            </CardDescription>
+                          </div>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                            <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1 w-full sm:w-auto text-center">
+                              {formatCount(batch.orders.length)} orders
                             </Badge>
-                            <span className="text-gray-600">Batch</span>
-                          </CardTitle>
-                          <CardDescription>
-                            Downloaded: {new Date(batch.downloadedAt).toLocaleString()}
-                            {batch.downloadedByEmail && (
-                              <span className="ml-2 text-blue-600">by {batch.downloadedByEmail}</span>
-                            )}
-                          </CardDescription>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRedownloadBatch(batchKey)}
+                              disabled={updatingBatch === batchKey}
+                              className="w-full sm:w-auto"
+                            >
+                              {updatingBatch === batchKey ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4 mr-2" />
+                              )}
+                              {updatingBatch === batchKey ? "Downloading..." : "Redownload"}
+                            </Button>
+                            <select
+                              className="px-3 py-2 border rounded-md text-sm w-full sm:w-auto"
+                              onChange={(e) => handleBulkStatusUpdate(batchKey, e.target.value)}
+                              disabled={updatingBatch === batchKey}
+                              defaultValue=""
+                              aria-label="Update batch status"
+                            >
+                              <option value="">Update Status</option>
+                              <option value="completed">Completed</option>
+                            </select>
+                          </div>
                         </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-                          <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1 w-full sm:w-auto text-center">
-                            {formatCount(batch.orders.length)} orders
-                          </Badge>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleRedownloadBatch(batchKey)}
-                            disabled={updatingBatch === batchKey}
-                            className="w-full sm:w-auto"
-                          >
-                            {updatingBatch === batchKey ? (
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            ) : (
-                              <Download className="h-4 w-4 mr-2" />
-                            )}
-                            {updatingBatch === batchKey ? "Downloading..." : "Redownload"}
-                          </Button>
-                          <select
-                            className="px-3 py-2 border rounded-md text-sm w-full sm:w-auto"
-                            onChange={(e) => handleBulkStatusUpdate(batchKey, e.target.value)}
-                            disabled={updatingBatch === batchKey}
-                            defaultValue=""
-                            aria-label="Update batch status"
-                          >
-                            <option value="">Update Status</option>
-                            <option value="completed">Completed</option>
-                          </select>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50 border-b">
-                            <tr>
-                              <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Order ID</th>
-                              <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Network</th>
-                              <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Package</th>
-                              <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Phone</th>
-                              <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 text-xs sm:text-sm">Price (GHS)</th>
-                              <th className="px-2 sm:px-4 py-2 text-center font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {batch.orders.map((order: any) => (
-                              <tr key={order.id} className="hover:bg-gray-50">
-                                <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
-                                <td className="px-2 sm:px-4 py-3">
-                                  <Badge className={`${getNetworkColor(order.network)} border text-xs`}>
-                                    {order.network}
-                                  </Badge>
-                                </td>
-                                <td className="px-2 sm:px-4 py-3 text-xs sm:text-sm">{order.size}GB</td>
-                                <td className="px-2 sm:px-4 py-3 font-mono text-xs">{order.phone_number}</td>
-                                <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">₵ {(order.price || 0).toFixed(2)}</td>
-                                <td className="px-2 sm:px-4 py-3 text-center">
-                                  <Badge className={`border text-xs ${
-                                    order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
-                                    order.status === "failed" ? "bg-red-100 text-red-800 border-red-200" :
-                                    order.status === "processing" ? "bg-blue-100 text-blue-800 border-blue-200" :
-                                    order.status ? "bg-gray-100 text-gray-800 border-gray-200" :
-                                    "bg-yellow-100 text-yellow-800 border-yellow-200"
-                                  }`}>
-                                    {order.status ? (order.status.charAt(0).toUpperCase() + order.status.slice(1)) : "Unknown"}
-                                  </Badge>
-                                </td>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Order ID</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Network</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Package</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Phone</th>
+                                <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 text-xs sm:text-sm">Price (GHS)</th>
+                                <th className="px-2 sm:px-4 py-2 text-center font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardContent>
-                  </Card>
+                            </thead>
+                            <tbody className="divide-y">
+                              {batch.orders.map((order: any) => (
+                                <tr key={order.id} className="hover:bg-gray-50">
+                                  <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
+                                  <td className="px-2 sm:px-4 py-3">
+                                    <Badge className={`${getNetworkColor(order.network)} border text-xs`}>
+                                      {order.network}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-2 sm:px-4 py-3 text-xs sm:text-sm">{order.size}GB</td>
+                                  <td className="px-2 sm:px-4 py-3 font-mono text-xs">{order.phone_number}</td>
+                                  <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">₵ {(order.price || 0).toFixed(2)}</td>
+                                  <td className="px-2 sm:px-4 py-3 text-center">
+                                    <Badge className={`border text-xs ${order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
+                                      order.status === "failed" ? "bg-red-100 text-red-800 border-red-200" :
+                                        order.status === "processing" ? "bg-blue-100 text-blue-800 border-blue-200" :
+                                          order.status ? "bg-gray-100 text-gray-800 border-gray-200" :
+                                            "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                      }`}>
+                                      {order.status ? (order.status.charAt(0).toUpperCase() + order.status.slice(1)) : "Unknown"}
+                                    </Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardContent>
+                    </Card>
                   ))
                 )}
               </div>
@@ -1176,20 +1184,20 @@ export default function AdminOrdersPage() {
                     <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
                     <Badge className="bg-purple-100 text-purple-800 border border-purple-200">AT - BigTime</Badge>
                   </div>
-                  
+
                   {/* Status Description */}
                   <Alert className={autoFulfillmentEnabled ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'}>
                     <AlertCircle className={`h-4 w-4 ${autoFulfillmentEnabled ? 'text-green-600' : 'text-orange-600'}`} />
                     <AlertDescription className={autoFulfillmentEnabled ? 'text-green-800' : 'text-orange-800'}>
                       {autoFulfillmentEnabled ? (
                         <>
-                          <strong>Auto-fulfillment is ON:</strong> AT-iShare, Telecel, and AT-BigTime orders are automatically 
-                          fulfilled via Code Craft API when payment is confirmed. These orders will NOT appear 
+                          <strong>Auto-fulfillment is ON:</strong> AT-iShare, Telecel, and AT-BigTime orders are automatically
+                          fulfilled via Code Craft API when payment is confirmed. These orders will NOT appear
                           in the admin download queue.
                         </>
                       ) : (
                         <>
-                          <strong>Auto-fulfillment is OFF:</strong> AT-iShare, Telecel, and AT-BigTime orders will be sent to 
+                          <strong>Auto-fulfillment is OFF:</strong> AT-iShare, Telecel, and AT-BigTime orders will be sent to
                           the admin download queue for manual processing, just like MTN orders.
                         </>
                       )}
@@ -1222,7 +1230,7 @@ export default function AdminOrdersPage() {
                           Open Fulfillment Dashboard
                         </Button>
                       </a>
-                      <Button 
+                      <Button
                         variant="outline"
                         onClick={syncWithCodeCraft}
                         disabled={syncingWithCodeCraft}
@@ -1312,7 +1320,24 @@ export default function AdminOrdersPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</span>
+                          <div className="flex items-center gap-4">
+                            <div className="min-w-[120px]">
+                              <Select
+                                value={selectedProviders[order.id] || "sykes"}
+                                onValueChange={(val) => setSelectedProviders(prev => ({ ...prev, [order.id]: val }))}
+                                disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="Select Provider" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="sykes">Sykes</SelectItem>
+                                  <SelectItem value="datakazina">DataKazina</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <span className="text-right font-semibold whitespace-nowrap">₵ {(order.price || 0).toFixed(2)}</span>
+                          </div>
                           <Button
                             onClick={() => handleManualFulfill(order.id)}
                             disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
@@ -1352,7 +1377,7 @@ export default function AdminOrdersPage() {
             <DialogHeader>
               <DialogTitle>Select Networks to Download</DialogTitle>
               <DialogDescription>
-                Choose which networks you want to download orders for. 
+                Choose which networks you want to download orders for.
                 {pendingOrders.length > 0 && (
                   <span className="block mt-2 text-sm">
                     Available orders: {formatCount(pendingOrders.length)}
@@ -1360,14 +1385,14 @@ export default function AdminOrdersPage() {
                 )}
               </DialogDescription>
             </DialogHeader>
-            
+
             <div className="space-y-2">
               {allNetworks.map((network) => {
                 const networkOrders = pendingOrders.filter(o => o.network === network)
                 const networkOrderCount = networkOrders.length
                 const isSelected = selectedNetworks.includes(network)
                 const isDisabled = networkOrderCount === 0
-                
+
                 return (
                   <button
                     key={network}
@@ -1382,17 +1407,15 @@ export default function AdminOrdersPage() {
                       }
                     }}
                     disabled={isDisabled}
-                    className={`w-full flex items-center gap-3 p-3 rounded border-2 transition-all ${
-                      isSelected 
-                        ? 'bg-blue-50 border-blue-500' 
-                        : 'bg-white border-gray-200 hover:border-gray-300'
-                    } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    className={`w-full flex items-center gap-3 p-3 rounded border-2 transition-all ${isSelected
+                      ? 'bg-blue-50 border-blue-500'
+                      : 'bg-white border-gray-200 hover:border-gray-300'
+                      } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
-                    <div className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${
-                      isSelected 
-                        ? 'bg-blue-500 border-blue-500' 
-                        : 'border-gray-300 bg-white'
-                    }`}>
+                    <div className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${isSelected
+                      ? 'bg-blue-500 border-blue-500'
+                      : 'border-gray-300 bg-white'
+                      }`}>
                       {isSelected && <Check className="w-4 h-4 text-white" />}
                     </div>
                     <div className="flex-1 text-left">
