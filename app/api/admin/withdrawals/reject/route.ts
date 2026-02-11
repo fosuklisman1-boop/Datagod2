@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     // Get the withdrawal request
     const { data: withdrawal, error: fetchError } = await supabase
       .from("withdrawal_requests")
-      .select("id, shop_id, amount, status, user_id, account_details")
+      .select("id, shop_id, amount, status, user_id, account_details, withdrawal_method")
       .eq("id", withdrawalId)
       .single()
 
@@ -90,7 +90,8 @@ export async function POST(request: NextRequest) {
               import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
                 // Extract payment method and phone from account_details
                 const accountDetails = withdrawal.account_details as any;
-                const paymentMethod = accountDetails?.account_name || accountDetails?.network || "Mobile Money";
+                // Use withdrawal_method field if available, otherwise extract from account_details
+                const paymentMethod = withdrawal.withdrawal_method || accountDetails?.network || "Mobile Money";
                 const recipientPhone = accountDetails?.account_number || userData.phone_number;
 
                 // Get current balance (rejection doesn't change it)
