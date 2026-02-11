@@ -178,7 +178,7 @@ export class DataKazinaProvider implements MTNProvider {
                 transactionId,
             })
 
-            const response = await fetch(`${DATAKAZINA_API_BASE_URL}/fetch-single-transaction`, {
+            const response = await fetch(`${DATAKAZINA_API_BASE_URL}/transaction-status`, {
                 method: "POST",
                 headers: {
                     "x-api-key": DATAKAZINA_API_KEY,
@@ -291,7 +291,7 @@ export class DataKazinaProvider implements MTNProvider {
             // Add additional context for fetch errors
             if (error instanceof TypeError && error.message.includes('fetch failed')) {
                 errorDetails.likelyReason = "Network connectivity issue - API may be down or unreachable"
-                errorDetails.apiUrl = `${DATAKAZINA_API_BASE_URL}/fetch-single-transaction`
+                errorDetails.apiUrl = `${DATAKAZINA_API_BASE_URL}/transaction-status`
                 log("error", "StatusCheck", `DataKazina API unreachable (network error)`, errorDetails)
             } else {
                 log("error", "StatusCheck", `Error checking DataKazina status`, errorDetails)
