@@ -6,6 +6,20 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// Chunk size for batch queries (Supabase/PostgreSQL has limits on IN clause size)
+const CHUNK_SIZE = 500
+
+/**
+ * Helper function to chunk an array into smaller arrays
+ */
+function chunkArray<T>(array: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize))
+  }
+  return chunks
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { orderIds } = await request.json()
@@ -19,38 +33,48 @@ export async function POST(request: NextRequest) {
 
     console.log("[BATCH-STATUSES] Fetching current statuses for", orderIds.length, "orders")
 
-    // Fetch from both tables to get current status
-    const [bulkResult, shopResult] = await Promise.all([
-      supabase
-        .from("orders")
-        .select("id, status")
-        .in("id", orderIds),
-      supabase
-        .from("shop_orders")
-        .select("id, order_status")
-        .in("id", orderIds)
-    ])
+    // Split order IDs into chunks to avoid query limits
+    const orderIdChunks = chunkArray(orderIds, CHUNK_SIZE)
+    console.log(`[BATCH-STATUSES] Split into ${orderIdChunks.length} chunks of max ${CHUNK_SIZE} orders`)
 
-    if (bulkResult.error) {
-      console.error("Error fetching bulk order statuses:", bulkResult.error)
-      throw new Error(`Failed to fetch bulk order statuses: ${bulkResult.error.message}`)
-    }
-
-    if (shopResult.error) {
-      console.error("Error fetching shop order statuses:", shopResult.error)
-      throw new Error(`Failed to fetch shop order statuses: ${shopResult.error.message}`)
-    }
-
-    // Combine results into a map
     const statusMap: { [key: string]: string } = {}
 
-    bulkResult.data?.forEach((order: any) => {
-      statusMap[order.id] = order.status
-    })
+    // Process each chunk
+    for (let i = 0; i < orderIdChunks.length; i++) {
+      const chunk = orderIdChunks[i]
+      console.log(`[BATCH-STATUSES] Processing chunk ${i + 1}/${orderIdChunks.length} (${chunk.length} orders)`)
 
-    shopResult.data?.forEach((order: any) => {
-      statusMap[order.id] = order.order_status
-    })
+      // Fetch from both tables to get current status for this chunk
+      const [bulkResult, shopResult] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("id, status")
+          .in("id", chunk),
+        supabase
+          .from("shop_orders")
+          .select("id, order_status")
+          .in("id", chunk)
+      ])
+
+      if (bulkResult.error) {
+        console.error(`[BATCH-STATUSES] Error fetching bulk order statuses (chunk ${i + 1}):`, bulkResult.error)
+        throw new Error(`Failed to fetch bulk order statuses: ${bulkResult.error.message || 'Unknown error'}`)
+      }
+
+      if (shopResult.error) {
+        console.error(`[BATCH-STATUSES] Error fetching shop order statuses (chunk ${i + 1}):`, shopResult.error)
+        throw new Error(`Failed to fetch shop order statuses: ${shopResult.error.message || 'Unknown error'}`)
+      }
+
+      // Add results to status map
+      bulkResult.data?.forEach((order: any) => {
+        statusMap[order.id] = order.status
+      })
+
+      shopResult.data?.forEach((order: any) => {
+        statusMap[order.id] = order.order_status
+      })
+    }
 
     console.log("[BATCH-STATUSES] Found statuses for", Object.keys(statusMap).length, "orders")
 
