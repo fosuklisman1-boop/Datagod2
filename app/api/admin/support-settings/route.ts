@@ -7,7 +7,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
-    const { support_whatsapp, support_email, support_phone } = await request.json()
+    const { support_whatsapp, support_email, support_phone, guest_purchase_url, guest_purchase_button_text } = await request.json()
 
     // Validate WhatsApp number format (should be international format)
     if (!support_whatsapp) {
@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
           support_whatsapp,
           support_email,
           support_phone,
+          guest_purchase_url: guest_purchase_url || null,
+          guest_purchase_button_text: guest_purchase_button_text || 'Buy as Guest',
           updated_at: new Date().toISOString()
         })
         .eq("id", existingData.id)
@@ -53,7 +55,9 @@ export async function POST(request: NextRequest) {
         .insert([{
           support_whatsapp,
           support_email,
-          support_phone
+          support_phone,
+          guest_purchase_url: guest_purchase_url || null,
+          guest_purchase_button_text: guest_purchase_button_text || 'Buy as Guest'
         }])
         .select()
 

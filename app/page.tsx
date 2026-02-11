@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Package, Zap, Users, ArrowRight, Lock } from "lucide-react"
+import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 
 export default function HomePage() {
   return (
@@ -45,6 +46,7 @@ export default function HomePage() {
               Get Started
             </Button>
           </Link>
+          <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
         </div>
       </nav>
 

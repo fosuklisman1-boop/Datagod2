@@ -6,11 +6,12 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
+import { Label } from "@label/ui/label"
 import { toast } from "sonner"
 import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
 import { supabase } from "@/lib/supabase"
+import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 
 export default function LoginForm() {
   const router = useRouter()
@@ -51,10 +52,10 @@ export default function LoginForm() {
 
       await authService.login(formData.email, formData.password)
       toast.success("Login successful!")
-      
+
       // Wait longer for session to be fully established
       await new Promise(resolve => setTimeout(resolve, 1000))
-      
+
       // Check if user is a sub-agent (has parent_shop_id)
       try {
         const { data: { user } } = await supabase.auth.getUser()
@@ -64,7 +65,7 @@ export default function LoginForm() {
             .select("id, parent_shop_id")
             .eq("user_id", user.id)
             .single()
-          
+
           // If user is a sub-agent (has parent_shop_id), redirect to buy-stock page
           if (userShop?.parent_shop_id) {
             console.log("[LOGIN] Sub-agent detected, redirecting to buy-stock")
@@ -76,7 +77,7 @@ export default function LoginForm() {
         console.warn("[LOGIN] Could not check shop status:", shopError)
         // Continue with default redirect if check fails
       }
-      
+
       // Redirect to the specified URL (from query params) or dashboard
       window.location.href = redirectTo
     } catch (error: any) {
@@ -152,6 +153,11 @@ export default function LoginForm() {
               <Link href="/auth/signup" className="text-blue-600 hover:underline font-medium">
                 Create an account
               </Link>
+            </div>
+
+            {/* Guest Purchase Button */}
+            <div className="text-center">
+              <GuestPurchaseButton variant="secondary" className="w-full mb-3" />
             </div>
 
             {/* Back to Home Link */}

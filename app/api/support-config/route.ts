@@ -16,7 +16,7 @@ export async function GET() {
     // Fetch support settings from support_settings table
     const { data: settings, error } = await supabaseClient
       .from("support_settings")
-      .select("support_email, support_phone, support_whatsapp")
+      .select("support_email, support_phone, support_whatsapp, guest_purchase_url, guest_purchase_button_text")
       .limit(1)
       .single()
 
@@ -46,7 +46,7 @@ export async function GET() {
     }
 
     console.log("[SUPPORT-CONFIG] Using database settings:", settings)
-    
+
     // Format WhatsApp URL if it's just the number
     let whatsappUrl = settings.support_whatsapp || "https://wa.me/233XXXXXXXXX"
     if (whatsappUrl && !whatsappUrl.startsWith("http")) {
@@ -58,6 +58,8 @@ export async function GET() {
       phone: settings.support_phone || "+233 XXX XXX XXXX",
       whatsapp: whatsappUrl,
       website: "https://datagod.com",
+      guestPurchaseUrl: settings.guest_purchase_url || null,
+      guestPurchaseButtonText: settings.guest_purchase_button_text || 'Buy as Guest',
     })
   } catch (error: any) {
     console.error("API error:", error)
