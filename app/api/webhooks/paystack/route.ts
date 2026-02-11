@@ -306,7 +306,8 @@ export async function POST(request: NextRequest) {
         notifyPaymentMismatch(
           reference,
           paidAmountPesewas / 100,
-          expectedAmountPesewas / 100
+          expectedAmountPesewas / 100,
+          true // skipEmailFallback (explicit email sent below)
         ).catch(err => console.error("[WEBHOOK] Failed to notify admins:", err))
 
         // Alert admins via Email (non-blocking)

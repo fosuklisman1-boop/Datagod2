@@ -191,8 +191,7 @@ export async function POST(request: NextRequest) {
         customer_phone,
         total_price,
         verifiedTotalPrice,
-        network,
-        volume_gb
+        true // skipEmailFallback (explicit email sent below)
       ).catch(err => console.error("[SHOP-ORDER] Failed to notify admins:", err))
 
       // Alert admins via Email (non-blocking)

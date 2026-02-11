@@ -444,12 +444,15 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
  * Send SMS notification to all admin users
  * Used for critical alerts like fulfillment failures
  */
-export async function notifyAdmins(message: string, type: string, reference?: string): Promise<void> {
+export async function notifyAdmins(message: string, type: string, reference?: string, skipEmailFallback = false): Promise<void> {
   // Check if SMS is known to be exhausted
   const now = Date.now()
   if (isSmsExhausted && (now - lastExhaustionCheck < EXHAUSTION_CACHE_MS)) {
-    console.warn('[SMS] SMS is exhausted. Falling back to Email for admin notification.')
-    await sendAdminEmail(`[SMS FALLBACK] ${type}`, message)
+    console.warn('[SMS] SMS is exhausted. Skipping admin notification.')
+    if (!skipEmailFallback) {
+      console.log('[SMS] Triggering Email fallback for exhausted SMS.')
+      await sendAdminEmail(`[SMS FALLBACK] ${type}`, message)
+    }
     return
   }
 
@@ -484,8 +487,8 @@ export async function notifyAdmins(message: string, type: string, reference?: st
 
   await Promise.allSettled(sendPromises)
 
-  // If we hit a 402 during the send, trigger email fallback immediately for this alert
-  if (fallbackNeeded) {
+  // If we hit a 402 during the send, trigger email fallback immediately for this alert (if allowed)
+  if (fallbackNeeded && !skipEmailFallback) {
     console.warn('[SMS] 402 Detected during notifyAdmins. Triggering Email fallback.')
     await sendAdminEmail(`[SMS FALLBACK] ${type}`, message)
   }
@@ -498,54 +501,36 @@ export async function notifyFulfillmentFailure(
   orderId: string,
   customerPhone: string,
   network: string,
-  sizeGb: number,
-  reason: string
+  volumeGb: number | string,
+  reason: string,
+  skipEmailFallback = false
 ): Promise<void> {
-  const message = SMSTemplates.fulfillmentFailed(
-    orderId,
-    customerPhone,
-    network,
-    sizeGb.toString(),
-    reason
-  )
-
-  await notifyAdmins(message, 'fulfillment_failure', orderId)
+  const message = SMSTemplates.fulfillmentFailed(orderId, customerPhone, network, volumeGb.toString(), reason)
+  await notifyAdmins(message, 'fulfillment_failure', orderId, skipEmailFallback)
 }
 
 /**
- * Notify admins of a price manipulation attempt during order creation
+ * Notify admins of price manipulation detection
  */
 export async function notifyPriceManipulation(
   customerPhone: string,
-  clientPrice: number,
   actualPrice: number,
-  network: string,
-  volumeGb: number
+  manipulatedPrice: number,
+  skipEmailFallback = false
 ): Promise<void> {
-  const message = SMSTemplates.priceManipulationDetected(
-    customerPhone,
-    clientPrice.toFixed(2),
-    actualPrice.toFixed(2),
-    network,
-    volumeGb.toString()
-  )
-
-  await notifyAdmins(message, 'price_manipulation', customerPhone)
+  const message = `[FRAUD ALERT] Price manipulation detected! Phone: ${customerPhone} | Paid: GHS${actualPrice} | Expected: GHS${manipulatedPrice}`
+  await notifyAdmins(message, 'price_manipulation', customerPhone, skipEmailFallback)
 }
 
 /**
- * Notify admins of a payment amount mismatch (potential fraud)
+ * Notify admins of payment mismatch
  */
 export async function notifyPaymentMismatch(
   reference: string,
   paidAmount: number,
-  expectedAmount: number
+  expectedAmount: number,
+  skipEmailFallback = false
 ): Promise<void> {
-  const message = SMSTemplates.paymentMismatchDetected(
-    reference,
-    paidAmount.toFixed(2),
-    expectedAmount.toFixed(2)
-  )
-
-  await notifyAdmins(message, 'payment_mismatch', reference)
+  const message = SMSTemplates.paymentMismatchDetected(reference, paidAmount.toFixed(2), expectedAmount.toFixed(2))
+  await notifyAdmins(message, 'payment_mismatch', reference, skipEmailFallback)
 }
