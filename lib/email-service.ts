@@ -357,23 +357,79 @@ export const EmailTemplates = {
   }),
 
   // Legacy Support for other templates (simplified to fit new style)
-  withdrawalApproved: (amount: string, ref: string) => ({
+  withdrawalApproved: (amount: string, ref: string, remainingBalance?: string, method?: string, phone?: string) => ({
     subject: "Withdrawal Approved",
     html: wrapHtml(`
-      <div class="text-center"><h2>Withdrawal Processed</h2></div>
-       <div class="info-card">
-        <div class="info-row"><span class="info-label">Amount</span><span class="info-value">GHS ${amount}</span></div>
-        <div class="info-row"><span class="info-label">Reference</span><span class="info-value">${ref}</span></div>
+      <div class="text-center">
+        <span class="icon-large">✅</span>
+        <h2>Withdrawal Processed</h2>
+        <p>Your withdrawal request has been approved and processed.</p>
       </div>
+      
+      <div class="info-card">
+        <h3 style="font-size: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 15px;">Withdrawal Details</h3>
+        <div class="info-row">
+          <span class="info-label">Amount Withdrawn</span>
+          <span class="info-value highlight">GHS ${amount}</span>
+        </div>
+        ${remainingBalance ? `<div class="info-row">
+          <span class="info-label">Remaining Balance</span>
+          <span class="info-value">GHS ${remainingBalance}</span>
+        </div>` : ''}
+        ${method ? `<div class="info-row">
+          <span class="info-label">Payment Method</span>
+          <span class="info-value">${method}</span>
+        </div>` : ''}
+        ${phone ? `<div class="info-row">
+          <span class="info-label">Recipient Number</span>
+          <span class="info-value">${phone}</span>
+        </div>` : ''}
+        <div class="info-row">
+          <span class="info-label">Reference</span>
+          <span class="info-value">${ref}</span>
+        </div>
+      </div>
+      
+      <p>The funds should arrive in your account within 24 hours.</p>
+      <a href="${APP_URL}/dashboard/my-shop" class="button-primary">View Shop Balance</a>
     `, "Withdrawal Approved", true),
   }),
 
-  withdrawalRejected: (amount: string, reason?: string) => ({
+  withdrawalRejected: (amount: string, remainingBalance?: string, method?: string, phone?: string, reason?: string) => ({
     subject: "Withdrawal Rejected",
     html: wrapHtml(`
-      <div class="text-center"><h2 style="color:#ef4444">Withdrawal Rejected</h2></div>
-      <p>Your request for GHS ${amount} was rejected.</p>
-      ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
+      <div class="text-center">
+        <span class="icon-large">❌</span>
+        <h2 style="color:#ef4444">Withdrawal Not Approved</h2>
+        <p>Your withdrawal request could not be processed.</p>
+      </div>
+      
+      <div class="info-card">
+        <h3 style="font-size: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 15px;">Request Details</h3>
+        <div class="info-row">
+          <span class="info-label">Requested Amount</span>
+          <span class="info-value">GHS ${amount}</span>
+        </div>
+        ${remainingBalance ? `<div class="info-row">
+          <span class="info-label">Your Balance</span>
+          <span class="info-value">GHS ${remainingBalance}</span>
+        </div>` : ''}
+        ${method ? `<div class="info-row">
+          <span class="info-label">Payment Method</span>
+          <span class="info-value">${method}</span>
+        </div>` : ''}
+        ${phone ? `<div class="info-row">
+          <span class="info-label">Recipient Number</span>
+          <span class="info-value">${phone}</span>
+        </div>` : ''}
+        ${reason ? `<div class="info-row">
+          <span class="info-label">Rejection Reason</span>
+          <span class="info-value" style="color: #dc2626;">${reason}</span>
+        </div>` : ''}
+      </div>
+      
+      <p>Your balance remains unchanged. If you have questions, please contact support.</p>
+      <a href="${APP_URL}/dashboard/my-shop" class="button-secondary">View Shop Balance</a>
     `, "Withdrawal Status", true),
   }),
 

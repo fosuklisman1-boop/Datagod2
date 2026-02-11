@@ -88,20 +88,42 @@ export async function POST(request: NextRequest) {
             // Send Email
             if (userData.email) {
               import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-                const payload = EmailTemplates.withdrawalRejected(withdrawal.amount.toFixed(2), reason || "No reason provided");
-                sendEmail({
-                  to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
-                  subject: payload.subject,
-                  htmlContent: payload.html,
-                  referenceId: withdrawalId,
-                  userId: shop.user_id,
-                  type: 'withdrawal_rejected'
-                }).catch(err => {
-                  console.error("[EMAIL] ❌ Withdrawal Rejection Email FAILED:", err)
-                  console.error("[EMAIL] Error message:", err?.message)
-                  console.error("[EMAIL] Error stack:", err?.stack)
-                  console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
-                });
+                // Extract payment method and phone from account_details
+                const accountDetails = withdrawal.account_details as any;
+                const paymentMethod = accountDetails?.account_name || accountDetails?.network || "Mobile Money";
+                const recipientPhone = accountDetails?.account_number || userData.phone_number;
+
+                // Get current balance (rejection doesn't change it)
+                supabase
+                  .from("shop_balances")
+                  .select("available_balance")
+                  .eq("shop_id", withdrawal.shop_id)
+                  .single()
+                  .then(({ data: balanceData }) => {
+                    const remainingBalance = balanceData?.available_balance?.toFixed(2);
+
+                    const payload = EmailTemplates.withdrawalRejected(
+                      withdrawal.amount.toFixed(2),
+                      remainingBalance,
+                      paymentMethod,
+                      recipientPhone,
+                      reason || "No reason provided"
+                    );
+
+                    sendEmail({
+                      to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
+                      subject: payload.subject,
+                      htmlContent: payload.html,
+                      referenceId: withdrawalId,
+                      userId: shop.user_id,
+                      type: 'withdrawal_rejected'
+                    }).catch(err => {
+                      console.error("[EMAIL] ❌ Withdrawal Rejection Email FAILED:", err)
+                      console.error("[EMAIL] Error message:", err?.message)
+                      console.error("[EMAIL] Error stack:", err?.stack)
+                      console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
+                    });
+                  });
               });
             }
 
