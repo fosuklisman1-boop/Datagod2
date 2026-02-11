@@ -46,7 +46,6 @@ export default function HomePage() {
               Get Started
             </Button>
           </Link>
-          <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
         </div>
       </nav>
 
@@ -60,6 +59,7 @@ export default function HomePage() {
             Buy data packages from multiple networks, manage your wallet, and track your orders all in one place.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+            <GuestPurchaseButton variant="secondary" className="w-full sm:w-auto" />
             <Link href="/auth/login">
               <Button size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 gap-2 w-full sm:w-auto">
                 Login to Dashboard
