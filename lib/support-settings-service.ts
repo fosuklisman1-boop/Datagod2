@@ -23,7 +23,9 @@ export const supportSettingsService = {
   async updateSupportSettings(
     support_whatsapp: string,
     support_email?: string,
-    support_phone?: string
+    support_phone?: string,
+    guest_purchase_url?: string,
+    guest_purchase_button_text?: string
   ) {
     try {
       const response = await fetch("/api/admin/support-settings", {
@@ -34,7 +36,9 @@ export const supportSettingsService = {
         body: JSON.stringify({
           support_whatsapp,
           support_email,
-          support_phone
+          support_phone,
+          guest_purchase_url,
+          guest_purchase_button_text
         }),
       })
 

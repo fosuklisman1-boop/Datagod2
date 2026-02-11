@@ -54,6 +54,10 @@ export default function AdminSettingsPage() {
   const [christmasThemeEnabled, setChristmasThemeEnabled] = useState(false)
   const [savingChristmasTheme, setSavingChristmasTheme] = useState(false)
 
+  // Guest purchase settings
+  const [guestPurchaseUrl, setGuestPurchaseUrl] = useState("")
+  const [guestPurchaseButtonText, setGuestPurchaseButtonText] = useState("Buy as Guest")
+
   const [domainUrls] = useState([
     { name: "Main App", url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000" },
     { name: "Admin Dashboard", url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin` },
@@ -86,6 +90,14 @@ export default function AdminSettingsPage() {
             "Hi, I need help resetting my password."
           )
           setPreviewWhatsappUrl(url)
+        }
+
+        // Load guest purchase settings
+        if (supportSettings?.guest_purchase_url) {
+          setGuestPurchaseUrl(supportSettings.guest_purchase_url)
+        }
+        if (supportSettings?.guest_purchase_button_text) {
+          setGuestPurchaseButtonText(supportSettings.guest_purchase_button_text)
         }
 
         // Load ordering settings
@@ -304,7 +316,9 @@ export default function AdminSettingsPage() {
       await supportSettingsService.updateSupportSettings(
         whatsappNumber,
         supportEmail,
-        supportPhone
+        supportPhone,
+        guestPurchaseUrl,
+        guestPurchaseButtonText
       )
 
       toast.success("Settings saved successfully!")
@@ -499,6 +513,67 @@ export default function AdminSettingsPage() {
                 className="w-full"
               />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Guest Purchase Configuration */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <LinkIcon className="w-5 h-5 text-blue-600" />
+              Guest Purchase Button
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Configure the "Buy as Guest" button that appears on landing and login pages
+            </p>
+
+            <div>
+              <Label htmlFor="guestPurchaseUrl" className="text-sm font-medium">
+                Guest Purchase URL (Optional)
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                URL where guests can purchase without logging in. Leave empty to hide the button.
+              </p>
+              <Input
+                id="guestPurchaseUrl"
+                type="url"
+                placeholder="https://shop.example.com/purchase"
+                value={guestPurchaseUrl}
+                onChange={(e) => setGuestPurchaseUrl(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="guestPurchaseButtonText" className="text-sm font-medium">
+                Button Text
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                Text displayed on the guest purchase button
+              </p>
+              <Input
+                id="guestPurchaseButtonText"
+                type="text"
+                placeholder="Buy as Guest"
+                value={guestPurchaseButtonText}
+                onChange={(e) => setGuestPurchaseButtonText(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            {guestPurchaseUrl && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm font-medium text-blue-900 mb-2">Preview:</p>
+                <Button variant="outline" type="button" className="pointer-events-none">
+                  {guestPurchaseButtonText || "Buy as Guest"}
+                </Button>
+                <p className="text-xs text-blue-700 mt-2">
+                  This button will appear on the landing page and login page, opening in a new window.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
