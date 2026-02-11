@@ -601,9 +601,17 @@ async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: bool
   }
 
   try {
-    console.log(`[Email] Sending via Brevo '${payload.subject}' to ${payload.to.length} recipient(s)`)
+    console.log(`[Email] Sending '${payload.subject}' to ${payload.to.length} recipient(s)`)
 
     const textContent = payload.textContent || payload.htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+    // Fetch support email for reply-to
+    const { data: settings } = await supabase
+      .from('support_settings')
+      .select('support_email')
+      .single()
+
+    const replyToEmail = settings?.support_email || SENDER_EMAIL
 
     const body = {
       sender: {
@@ -613,7 +621,10 @@ async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: bool
       to: payload.to,
       subject: payload.subject,
       htmlContent: payload.htmlContent,
-      textContent: textContent,
+      textContent,
+      replyTo: {
+        email: replyToEmail
+      }
     }
 
     const response = await fetch(BREVO_API_URL, {
@@ -627,22 +638,23 @@ async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: bool
     })
 
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`[Email] Brevo API Failed: ${response.status}`, errorText)
-      throw new Error(`Brevo API Error: ${response.status} ${errorText}`)
+      const error = await response.text()
+      throw new Error(`Brevo API error: ${error}`)
     }
 
-    const data: BrevoResponse = await response.json()
-    console.log(`[Email] ✓ Brevo sent successfully. ID: ${data.messageId}`)
+    const result = await response.json()
+    const messageId = result?.messageId || 'unknown'
+
+    console.log(`[Email] ✓ Sent: '${payload.subject}' (ID: ${messageId})`)
 
     if (payload.userId) {
-      await logEmail(payload, "sent", data.messageId)
+      await logEmail(payload, "sent", messageId)
     }
 
-    return { success: true, messageId: data.messageId, provider: 'brevo' }
+    return { success: true, messageId, provider: 'brevo' }
 
   } catch (error: any) {
-    console.error("[Email] Brevo send failed:", error)
+    console.error("[Email] Failed to send:", error.message)
 
     if (payload.userId) {
       await logEmail(payload, "failed", undefined, error.message)
@@ -672,12 +684,22 @@ async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boo
 
     const textContent = payload.textContent || payload.htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
-    const emailData = {
+    // Fetch support email for reply-to
+    const { data: settings } = await supabase
+      .from('support_settings')
+      .select('support_email')
+      .single()
+
+    const replyToEmail = settings?.support_email || SENDER_EMAIL
+    console.log(`[Resend] Reply-To: ${replyToEmail}`)
+
+    const emailData: any = {
       from: `${SENDER_NAME} <${SENDER_EMAIL}>`,
       to: payload.to.map(r => r.email),
       subject: payload.subject,
       html: payload.htmlContent,
       text: textContent,
+      reply_to: replyToEmail
     }
 
     console.log(`[Resend] 📧 About to call resendClient.emails.send()...`)
