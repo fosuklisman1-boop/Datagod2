@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { createClient } from '@supabase/supabase-js'
+import { notifyAdmins as sendAdminEmail } from './email-service'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -11,6 +12,11 @@ const BREVO_API_KEY = process.env.BREVO_API_KEY
 const BREVO_SMS_SENDER = process.env.BREVO_SMS_SENDER || process.env.EMAIL_SENDER_NAME || 'DATAGOD'
 const MOOLRE_API_KEY = process.env.MOOLRE_API_KEY
 const MOOLRE_SENDER_ID = process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
+
+// State for SMS exhaustion fallback
+let isSmsExhausted = false
+let lastExhaustionCheck = 0
+const EXHAUSTION_CACHE_MS = 60 * 60 * 1000 // 1 hour
 
 interface SMSPayload {
   phone: string
@@ -194,10 +200,19 @@ async function sendSMSViaBrevo(payload: SMSPayload): Promise<SendSMSResponse> {
     let errorMessage = 'Failed to send SMS via Brevo'
     if (axios.isAxiosError(error)) {
       errorMessage = error.response?.data?.message || error.message
+      const status = error.response?.status
+
       console.error('[SMS] Brevo API Error:', {
-        status: error.response?.status,
+        status,
         data: error.response?.data,
       })
+
+      // Handle insufficient credits (402)
+      if (status === 402 || errorMessage.toLowerCase().includes('credit') || errorMessage.toLowerCase().includes('balance')) {
+        console.warn('[SMS] 🚨 SMS Credits Exhausted (402). Setting exhaustion flag.')
+        isSmsExhausted = true
+        lastExhaustionCheck = Date.now()
+      }
     }
 
     // Log failed SMS
@@ -430,28 +445,50 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
  * Used for critical alerts like fulfillment failures
  */
 export async function notifyAdmins(message: string, type: string, reference?: string): Promise<void> {
+  // Check if SMS is known to be exhausted
+  const now = Date.now()
+  if (isSmsExhausted && (now - lastExhaustionCheck < EXHAUSTION_CACHE_MS)) {
+    console.warn('[SMS] SMS is exhausted. Falling back to Email for admin notification.')
+    await sendAdminEmail(`[SMS FALLBACK] ${type}`, message)
+    return
+  }
+
   const adminPhones = await getAdminPhoneNumbers()
 
   if (adminPhones.length === 0) {
-    console.warn('[SMS] No admin phone numbers configured for notifications')
+    console.warn('[SMS] No admin phone numbers configured. Using Email fallback.')
+    await sendAdminEmail(`[ALERT] ${type}`, message)
     return
   }
 
   console.log(`[SMS] Notifying ${adminPhones.length} admin(s): ${type}`)
 
-  // Send to all admins in parallel (non-blocking)
+  // Track if we need to fallback because of a 402 during this attempt
+  let fallbackNeeded = false
+
+  // Send to all admins in parallel
   const sendPromises = adminPhones.map(phone =>
     sendSMS({
       phone,
       message,
       type,
       reference,
+    }).then(result => {
+      if (!result.success && result.provider === 'brevo' && result.error?.includes('credit')) {
+        fallbackNeeded = true
+      }
     }).catch(err => {
       console.error(`[SMS] Failed to notify admin ${phone}:`, err)
     })
   )
 
   await Promise.allSettled(sendPromises)
+
+  // If we hit a 402 during the send, trigger email fallback immediately for this alert
+  if (fallbackNeeded) {
+    console.warn('[SMS] 402 Detected during notifyAdmins. Triggering Email fallback.')
+    await sendAdminEmail(`[SMS FALLBACK] ${type}`, message)
+  }
 }
 
 /**
