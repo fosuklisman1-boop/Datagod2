@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: shopOrdersData, error: shopError } = await shopOrdersQuery
+      .eq("payment_status", "completed")
       .range(0, 9999)
 
     if (shopError) {
@@ -133,6 +134,7 @@ export async function GET(request: NextRequest) {
         shop_id,
         order_id
       `)
+      .eq("status", "completed")
       .order("created_at", { ascending: false })
 
     if (searchQuery) {

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, Loader2, Search, Edit, Zap } from "lucide-react"
+import { AlertCircle, Loader2, Search, Edit, Zap, Download } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -61,6 +61,7 @@ export default function OrderPaymentStatusPage() {
   const [bulkNetwork, setBulkNetwork] = useState("")
   const [bulkStatus, setBulkStatus] = useState("")
   const [bulkUpdating, setBulkUpdating] = useState(false)
+  const [bulkDownloading, setBulkDownloading] = useState(false)
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -385,6 +386,100 @@ export default function OrderPaymentStatusPage() {
     }
   }
 
+  const handleBulkDownload = async () => {
+    if (!bulkDate) {
+      toast.error("Please select a date")
+      return
+    }
+
+    try {
+      setBulkDownloading(true)
+
+      // Filter orders based on criteria (same as bulk update)
+      const filteredOrders = allOrders.filter(order => {
+        const orderDate = new Date(order.created_at)
+        const selectedDate = new Date(bulkDate)
+
+        // Check if same day
+        const isSameDay = orderDate.toDateString() === selectedDate.toDateString()
+        if (!isSameDay) return false
+
+        // Check time range if provided
+        if (bulkStartTime || bulkEndTime) {
+          const orderTime = orderDate.getHours() * 60 + orderDate.getMinutes()
+
+          if (bulkStartTime) {
+            const [startHour, startMin] = bulkStartTime.split(':').map(Number)
+            const startTimeMin = startHour * 60 + startMin
+            if (orderTime < startTimeMin) return false
+          }
+
+          if (bulkEndTime) {
+            const [endHour, endMin] = bulkEndTime.split(':').map(Number)
+            const endTimeMin = endHour * 60 + endMin
+            if (orderTime > endTimeMin) return false
+          }
+        }
+
+        // Check network if provided
+        if (bulkNetwork && order.network !== bulkNetwork) return false
+
+        // Only include shop and bulk orders (not wallet top-ups) for fulfillment download
+        if (order.type !== "shop" && order.type !== "bulk") return false
+
+        return true
+      })
+
+      if (filteredOrders.length === 0) {
+        toast.error("No orders match the selected criteria")
+        return
+      }
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      // Call the download API with the filtered order IDs
+      const response = await fetch("/api/admin/orders/download", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          orderIds: filteredOrders.map(o => o.id)
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to download orders")
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const element = document.createElement("a")
+      element.setAttribute("href", url)
+      const dateTime = new Date().toISOString().replace(/[:.]/g, '-').split('Z')[0]
+      element.setAttribute("download", `bulk-orders-${bulkDate}-${dateTime}.xlsx`)
+      element.style.display = "none"
+      document.body.appendChild(element)
+      element.click()
+      document.body.removeChild(element)
+      window.URL.revokeObjectURL(url)
+
+      toast.success(`Downloaded ${filteredOrders.length} order(s)`)
+
+    } catch (error) {
+      console.error("Error bulk downloading orders:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to download orders")
+    } finally {
+      setBulkDownloading(false)
+    }
+  }
+
   if (adminLoading) {
     return (
       <DashboardLayout>
@@ -531,23 +626,44 @@ export default function OrderPaymentStatusPage() {
                   </select>
                 </div>
 
-                <Button
-                  onClick={handleBulkStatusUpdate}
-                  disabled={bulkUpdating || !bulkDate || !bulkStatus}
-                  className="px-6"
-                >
-                  {bulkUpdating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Updating...
-                    </>
-                  ) : (
-                    <>
-                      <Edit className="w-4 h-4 mr-2" />
-                      Update Orders
-                    </>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleBulkStatusUpdate}
+                    disabled={bulkUpdating || !bulkDate || !bulkStatus}
+                    className="flex-1"
+                  >
+                    {bulkUpdating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Updating...
+                      </>
+                    ) : (
+                      <>
+                        <Edit className="w-4 h-4 mr-2" />
+                        Update Status
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={handleBulkDownload}
+                    disabled={bulkDownloading || !bulkDate}
+                    className="flex-1 border-blue-400 text-blue-700 hover:bg-blue-100"
+                  >
+                    {bulkDownloading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Preparing...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Download XLSX
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
 
               <Alert>
