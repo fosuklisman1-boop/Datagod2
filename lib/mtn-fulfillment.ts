@@ -855,14 +855,22 @@ export async function retryMTNOrder(
 
     console.log(`[MTN] Automatic retry ${tracking.retry_count + 1}/${maxAttempts} for tracking ${trackingId} using ${providerName}`)
 
-    // Update status to processing BEFORE the API call to prevent race conditions/multiple retries
-    await supabase
+    // ATOMIC LOCK: Update status to processing BEFORE the API call
+    // Use an atomic check to ensure no other process has claimed this tracking record
+    const { data: lockData, error: lockError } = await supabase
       .from("mtn_fulfillment_tracking")
       .update({
         status: "processing",
         updated_at: new Date().toISOString()
       })
       .eq("id", trackingId)
+      .in("status", ["failed", "retrying", "error"]) // Only pull from retryable statuses
+      .select("id")
+
+    if (lockError || !lockData || lockData.length === 0) {
+      console.warn(`[MTN] Tracking ${trackingId} already processing or claimed by another worker. Skipping retry.`)
+      return false
+    }
 
     // Retry the order
     const order: MTNOrderRequest = {

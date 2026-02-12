@@ -182,21 +182,42 @@ export async function POST(request: NextRequest) {
 
       console.log(`[MANUAL-FULFILL] Detected previous tracking for order ${shop_order_id}. Automatic provider: ${finalProvider}.`)
 
-      // Update the EXISTING tracking record to "processing" status to indicate active handling
-      await supabase
+      // ATOMIC LOCK on tracking record
+      const { data: trackingLock, error: trackingLockError } = await supabase
         .from("mtn_fulfillment_tracking")
         .update({
           status: "processing",
           updated_at: new Date().toISOString()
         })
         .eq("id", lastTracking.id)
+        .in("status", ["pending_download", "failed", "retrying", "error"]) // Manual fulfill can retry these
+        .select("id")
+
+      if (trackingLockError || !trackingLock || trackingLock.length === 0) {
+        console.warn(`[MANUAL-FULFILL] Tracking ${lastTracking.id} already processing/claimed.`)
+      }
     }
 
-    // Update the master order status to "processing" immediately
-    if (order_type === "bulk") {
-      await supabase.from("orders").update({ status: "processing" }).eq("id", shop_order_id)
-    } else {
-      await supabase.from("shop_orders").update({ order_status: "processing" }).eq("id", shop_order_id)
+    // ATOMIC LOCK on master order record
+    const targetTable = order_type === "bulk" ? "orders" : "shop_orders"
+    const targetStatusCol = order_type === "bulk" ? "status" : "order_status"
+
+    const { data: orderLock, error: orderLockError } = await supabase
+      .from(targetTable)
+      .update({
+        [targetStatusCol]: "processing",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", shop_order_id)
+      .in(targetStatusCol, ["pending", "pending_download", "failed"]) // Prevent double-pushing if already processing/completed
+      .select("id")
+
+    if (orderLockError || !orderLock || orderLock.length === 0) {
+      console.warn(`[MANUAL-FULFILL] Order ${shop_order_id} already processing or completed. Aborting manual push.`)
+      return NextResponse.json(
+        { error: "Order is already being processed or has been fulfilled." },
+        { status: 400 }
+      )
     }
 
     // Create MTN order

@@ -144,6 +144,27 @@ async function handleMTNAutoFulfillment(
       size_gb: volumeGb,
     }
 
+    // ATOMIC LOCK: Claim the order before hitting the API
+    // This prevents the background Pusher from picking it up simultaneously
+    const { data: lockData, error: lockError } = await supabase
+      .from("shop_orders")
+      .update({
+        order_status: "processing",
+        fulfillment_method: "auto_mtn",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", shopOrderId)
+      .in("order_status", ["pending", "pending_download"]) // Must still be in an available status
+      .select("id")
+
+    if (lockError || !lockData || lockData.length === 0) {
+      console.warn(`[FULFILLMENT] Order ${shopOrderId} already claimed or processing. Skipping.`)
+      return NextResponse.json({
+        success: true,
+        message: "Order is already being processed",
+      })
+    }
+
     // Call MTN API
     const mtnResponse = await createMTNOrder(orderRequest)
 
@@ -242,12 +263,11 @@ async function handleMTNAutoFulfillment(
       console.error("[FULFILLMENT] Failed to save tracking record")
     }
 
-    // Update shop_orders - set to "pending" so cron job can sync actual status from Sykes
+    // Update shop_orders - status is already set to "processing" by the lock above
+    // We just update the external_order_id now
     const { error: updateError } = await supabase
       .from("shop_orders")
       .update({
-        order_status: "pending",
-        fulfillment_method: "auto_mtn",
         external_order_id: mtnResponse.order_id?.toString(),
         updated_at: new Date().toISOString(),
       })
