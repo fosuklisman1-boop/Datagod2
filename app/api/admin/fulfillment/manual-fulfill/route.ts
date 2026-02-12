@@ -301,8 +301,8 @@ export async function POST(request: NextRequest) {
 
     // Update order in appropriate table
     const updateData = order_type === "bulk"
-      ? { status: "processing", external_order_id: mtnResponse.order_id, updated_at: new Date().toISOString() }
-      : { order_status: "processing", external_order_id: mtnResponse.order_id, updated_at: new Date().toISOString() }
+      ? { status: "processing", external_order_id: mtnResponse.order_id?.toString(), updated_at: new Date().toISOString() }
+      : { order_status: "processing", external_order_id: mtnResponse.order_id?.toString(), updated_at: new Date().toISOString() }
 
     const { error: updateError } = await supabase
       .from(tableName)

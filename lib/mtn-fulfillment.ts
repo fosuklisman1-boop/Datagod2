@@ -799,7 +799,7 @@ export async function updateMTNOrderFromWebhook(
         order_type: tracking.order_type || "shop",
         status: newStatus,
         external_api: "MTN",
-        external_order_id: mtnOrderId,
+        external_order_id: mtnOrderId?.toString(),
         external_response: webhook.order,
         notes: webhook.order.message,
       })
