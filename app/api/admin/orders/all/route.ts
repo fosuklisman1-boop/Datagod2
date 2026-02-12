@@ -48,17 +48,32 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Apply range limit (pagination)
-    bulkOrdersQuery = bulkOrdersQuery.range(0, 9999)
+    // Helper function to fetch in batches to bypass Supabase/PostgREST 1000-row limit
+    async function fetchInBatches(queryBuilder: any, maxRows = 5000) {
+      let results: any[] = []
+      let from = 0
+      const step = 1000
 
-    const { data: bulkOrders, error: bulkError } = await bulkOrdersQuery
-
-    if (bulkError) {
-      console.error("Supabase error fetching bulk orders:", bulkError)
-      throw new Error(`Failed to fetch orders: ${bulkError.message}`)
+      while (from < maxRows) {
+        const { data, error } = await queryBuilder.range(from, from + step - 1)
+        if (error) throw error
+        if (!data || data.length === 0) break
+        results = [...results, ...data]
+        if (data.length < step) break
+        from += step
+      }
+      return results
     }
 
-    console.log(`Found ${bulkOrders?.length || 0} bulk orders`)
+    // Fetch bulk orders
+    let bulkOrders: any[] = []
+    try {
+      bulkOrders = await fetchInBatches(bulkOrdersQuery)
+      console.log(`Found ${bulkOrders.length} bulk orders`)
+    } catch (err: any) {
+      console.error("Error fetching bulk orders:", err)
+      throw new Error(`Failed to fetch bulk orders: ${err.message}`)
+    }
 
     // Fetch all shop orders (any status) with pagination
     let shopOrdersQuery = supabase
@@ -94,13 +109,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data: shopOrdersData, error: shopError } = await shopOrdersQuery
-      .eq("payment_status", "completed")
-      .range(0, 9999)
+    // Use eq filter and then batch fetch
+    shopOrdersQuery = shopOrdersQuery.eq("payment_status", "completed")
 
-    if (shopError) {
-      console.error("Supabase error fetching shop orders:", shopError)
-      throw new Error(`Failed to fetch shop orders: ${shopError.message}`)
+    let shopOrdersData: any[] = []
+    try {
+      shopOrdersData = await fetchInBatches(shopOrdersQuery)
+      console.log(`Found ${shopOrdersData.length} shop orders`)
+    } catch (err: any) {
+      console.error("Error fetching shop orders:", err)
+      throw new Error(`Failed to fetch shop orders: ${err.message}`)
     }
 
     // Get shop owner emails from auth.users table
@@ -117,8 +135,6 @@ export async function GET(request: NextRequest) {
         )
       }
     }
-
-    console.log(`Found ${shopOrdersData?.length || 0} shop orders`)
 
     // Fetch wallet payments to get Paystack references with pagination
     let walletQuery = supabase
@@ -146,12 +162,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data: walletPayments, error: walletPaymentsError } = await walletQuery
-      .range(0, 9999)
-
-    if (walletPaymentsError) {
-      console.error("Supabase error fetching wallet payments:", walletPaymentsError)
-      // Don't throw - wallet payments are optional for search
+    let walletPayments: any[] = []
+    try {
+      walletPayments = await fetchInBatches(walletQuery)
+      console.log(`Found ${walletPayments.length} wallet payments`)
+    } catch (err: any) {
+      console.error("Error fetching wallet payments:", err)
+      // Wallet payments are usually less critical, but we log the error
     }
 
     // Format bulk orders
