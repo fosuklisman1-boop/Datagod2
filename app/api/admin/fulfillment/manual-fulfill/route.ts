@@ -319,7 +319,7 @@ export async function POST(request: NextRequest) {
         order_type: order_type,
         status: "pending",
         external_api: "MTN",
-        external_order_id: mtnResponse.order_id,
+        external_order_id: mtnResponse.order_id?.toString(),
         external_response: mtnResponse,
         notes: "Manually fulfilled by admin via MTN API",
       })

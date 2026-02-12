@@ -232,7 +232,7 @@ async function handleMTNAutoFulfillment(
       .update({
         order_status: "pending",
         fulfillment_method: "auto_mtn",
-        external_order_id: mtnResponse.order_id,
+        external_order_id: mtnResponse.order_id?.toString(),
         updated_at: new Date().toISOString(),
       })
       .eq("id", shopOrderId)
@@ -248,7 +248,7 @@ async function handleMTNAutoFulfillment(
         order_type: "shop",
         status: "pending",
         external_api: "MTN",
-        external_order_id: mtnResponse.order_id,
+        external_order_id: mtnResponse.order_id?.toString(),
         external_response: mtnResponse,
         notes: "Order sent to MTN API - awaiting status sync",
       })
