@@ -244,10 +244,10 @@ export async function checkMTNBalance(): Promise<number | null> {
 
 /**
  * Get the next provider in the sequence based on retry count
- * Sequence: DK (0) -> DK (1) -> Sykes (2) -> DK (3)
+ * Sequence: DK (Initial) -> DK (Retry 0) -> Sykes (Retry 1) -> DK (Retry 2)
  */
 export function getNextMTNProvider(retryCount: number): "datakazina" | "sykes" {
-  if (retryCount === 2) return "sykes"
+  if (retryCount === 1) return "sykes"
   return "datakazina"
 }
 
