@@ -270,8 +270,8 @@ export async function GET(request: NextRequest) {
           await supabase.from("shop_orders").update({ order_status: "processing" }).eq("id", shopOrder.id)
 
           const mtnResponse = await createMTNOrder(mtnRequest)
-          if (mtnResponse.success) {
-            const trackingId = await saveMTNTracking(shopOrder.id, mtnResponse.order_id, mtnRequest, mtnResponse, "shop", mtnResponse.provider)
+          if (mtnResponse.success && mtnResponse.order_id) {
+            const trackingId = await saveMTNTracking(shopOrder.id, mtnResponse.order_id!, mtnRequest, mtnResponse, "shop", mtnResponse.provider || "datakazina")
             if (trackingId) {
               await supabase.from("mtn_fulfillment_tracking").update({ status: "processing" }).eq("id", trackingId)
             }
@@ -315,8 +315,8 @@ export async function GET(request: NextRequest) {
 
           await supabase.from("orders").update({ status: "processing" }).eq("id", bulkOrder.id)
           const mtnResponse = await createMTNOrder(mtnRequest)
-          if (mtnResponse.success) {
-            const trackingId = await saveMTNTracking(bulkOrder.id, mtnResponse.order_id, mtnRequest, mtnResponse, "bulk", mtnResponse.provider)
+          if (mtnResponse.success && mtnResponse.order_id) {
+            const trackingId = await saveMTNTracking(bulkOrder.id, mtnResponse.order_id!, mtnRequest, mtnResponse, "bulk", mtnResponse.provider || "datakazina")
             if (trackingId) {
               await supabase.from("mtn_fulfillment_tracking").update({ status: "processing" }).eq("id", trackingId)
             }
