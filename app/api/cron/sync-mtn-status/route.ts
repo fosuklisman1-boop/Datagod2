@@ -238,6 +238,103 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    // Pusher: Automatically fulfill stranded orders (pending/pending_download with no tracking)
+    try {
+      const { data: strandedShopOrders } = await supabase
+        .from("shop_orders")
+        .select("id, customer_phone, volume_gb, network")
+        .in("order_status", ["pending", "pending_download"])
+        .limit(20)
+
+      const { createMTNOrder, saveMTNTracking } = await import("@/lib/mtn-fulfillment")
+
+      for (const shopOrder of strandedShopOrders || []) {
+        // Verify no tracking record exists
+        const { count } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .select("*", { count: 'exact', head: true })
+          .eq("shop_order_id", shopOrder.id)
+
+        if (count === 0) {
+          console.log(`[CRON-PUSHER] Auto-fulfilling stranded shop order ${shopOrder.id}`)
+
+          // Prepare fulfillment request (DK is always attempt 0)
+          const mtnRequest = {
+            recipient_phone: shopOrder.customer_phone,
+            network: shopOrder.network as any,
+            size_gb: parseFloat(shopOrder.volume_gb),
+            provider: "datakazina" as const
+          }
+
+          // Start fulfillment and update status to processing immediately
+          await supabase.from("shop_orders").update({ order_status: "processing" }).eq("id", shopOrder.id)
+
+          const mtnResponse = await createMTNOrder(mtnRequest)
+          if (mtnResponse.success) {
+            const trackingId = await saveMTNTracking(shopOrder.id, mtnResponse.order_id, mtnRequest, mtnResponse, "shop", mtnResponse.provider)
+            if (trackingId) {
+              await supabase.from("mtn_fulfillment_tracking").update({ status: "processing" }).eq("id", trackingId)
+            }
+          } else {
+            // If initial push fails, it will be caught by the retry logic in the next cycle if a tracking record existed,
+            // but since it didn't, we should create a failed tracking record to trigger the retry cycle
+            const trackingId = await saveMTNTracking(shopOrder.id, "FAILED_" + Date.now(), mtnRequest, mtnResponse, "shop", "datakazina")
+            if (trackingId) {
+              await supabase.from("mtn_fulfillment_tracking").update({
+                status: "failed",
+                external_message: mtnResponse.message
+              }).eq("id", trackingId)
+              // The NEXT cron cycle will see this failed tracking record and trigger retryMTNOrder
+            }
+          }
+        }
+      }
+
+      // Similar pusher for bulk orders
+      const { data: strandedBulkOrders } = await supabase
+        .from("orders")
+        .select("id, phone_number, size, network")
+        .in("status", ["pending", "pending_download"])
+        .limit(20)
+
+      for (const bulkOrder of strandedBulkOrders || []) {
+        const { count } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .select("*", { count: 'exact', head: true })
+          .eq("order_id", bulkOrder.id)
+
+        if (count === 0) {
+          console.log(`[CRON-PUSHER] Auto-fulfilling stranded bulk order ${bulkOrder.id}`)
+          const sizeGb = parseFloat(bulkOrder.size.replace(/[^0-9.]/g, ""))
+          const mtnRequest = {
+            recipient_phone: bulkOrder.phone_number,
+            network: bulkOrder.network as any,
+            size_gb: sizeGb,
+            provider: "datakazina" as const
+          }
+
+          await supabase.from("orders").update({ status: "processing" }).eq("id", bulkOrder.id)
+          const mtnResponse = await createMTNOrder(mtnRequest)
+          if (mtnResponse.success) {
+            const trackingId = await saveMTNTracking(bulkOrder.id, mtnResponse.order_id, mtnRequest, mtnResponse, "bulk", mtnResponse.provider)
+            if (trackingId) {
+              await supabase.from("mtn_fulfillment_tracking").update({ status: "processing" }).eq("id", trackingId)
+            }
+          } else {
+            const trackingId = await saveMTNTracking(bulkOrder.id, "FAILED_" + Date.now(), mtnRequest, mtnResponse, "bulk", "datakazina")
+            if (trackingId) {
+              await supabase.from("mtn_fulfillment_tracking").update({
+                status: "failed",
+                external_message: mtnResponse.message
+              }).eq("id", trackingId)
+            }
+          }
+        }
+      }
+    } catch (pusherError) {
+      console.error("[CRON-PUSHER] Error in pusher sequence:", pusherError)
+    }
+
     // Step 1: Fetch orders from BOTH provider APIs in parallel
     const [sykesResult, datakazinaResult] = await Promise.all([
       fetchAllSykesOrders(),
@@ -269,14 +366,14 @@ export async function GET(request: NextRequest) {
 
     console.log(`[CRON] Created lookup maps: ${sykesOrderMap.size} Sykes, ${datakazinaOrderMap.size} DataKazina orders`)
 
-    // Step 2: Get all pending and processing orders from our database (WITH PROVIDER)
-    const { data: pendingOrders, error: fetchError } = await supabase
+    // Step 2: Get all pending, processing, and failed/retrying orders from our database
+    const { data: ordersToSync, error: fetchError } = await supabase
       .from("mtn_fulfillment_tracking")
-      .select("id, mtn_order_id, status, shop_order_id, order_id, order_type, provider")
-      .in("status", ["pending", "processing"])
+      .select("id, mtn_order_id, status, shop_order_id, order_id, order_type, provider, retry_count")
+      .in("status", ["pending", "processing", "failed", "retrying", "error"])
       .not("mtn_order_id", "is", null)
-      .order("created_at", { ascending: true })
-      .limit(100) // Can process more since we're batching by provider
+      .order("updated_at", { ascending: true })
+      .limit(100)
 
     if (fetchError) {
       console.error("[CRON] Error fetching pending orders:", fetchError)
@@ -284,7 +381,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter out orders from blacklisted numbers - don't process them
-    let ordersToProcess = pendingOrders || []
+    let ordersToProcess = (ordersToSync as any[]) || []
     if (ordersToProcess.length > 0) {
       // Get all shop_order and order IDs to check if their phones are in blacklist
       const shopOrderIds = ordersToProcess
@@ -339,7 +436,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    console.log(`[CRON] Found ${ordersToProcess.length} orders to sync (${pendingOrders?.length || 0} total, ${(pendingOrders?.length || 0) - ordersToProcess.length} blacklisted) against ${sykesResult.orders.length} Sykes orders`)
+    console.log(`[CRON] Found ${ordersToProcess.length} orders to sync (${ordersToSync?.length || 0} total, ${(ordersToSync?.length || 0) - ordersToProcess.length} blacklisted) against ${sykesResult.orders.length} Sykes orders`)
 
     let synced = 0
     let failed = 0
@@ -504,6 +601,13 @@ export async function GET(request: NextRequest) {
             }
           }
 
+          // AUTOMATIC RETRY TRIGGER: If status is failed and we have retries left, trigger retry
+          if (normalizedStatus === "failed") {
+            const { retryMTNOrder } = await import("@/lib/mtn-fulfillment")
+            console.log(`[CRON-RETRY] Triggering automatic retry for ${order.mtn_order_id}`)
+            await retryMTNOrder(order.id)
+          }
+
           console.log(`[CRON] ✅ Updated order ${order.mtn_order_id}: ${order.status} -> ${normalizedStatus}`)
           results.push({
             id: order.id,
@@ -513,7 +617,9 @@ export async function GET(request: NextRequest) {
           })
           synced++
         } else {
-          // Status unchanged
+          // If already failed/error but not terminal, and some time has passed, we might want to re-try
+          // But for now, let's keep it simple: retry only on status changes to "failed"
+
           results.push({
             id: order.id,
             mtn_order_id: order.mtn_order_id,
@@ -534,17 +640,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`[CRON] Sync complete: ${synced} updated, ${failed} failed, ${notFound} not found, ${pendingOrders.length - synced - failed - notFound} unchanged`)
+    console.log(`[CRON] Sync complete: ${synced} updated, ${failed} failed, ${notFound} not found, ${ordersToSync?.length ? ordersToSync.length - synced - failed - notFound : 0} unchanged`)
 
     return NextResponse.json({
       success: true,
-      message: `Synced ${pendingOrders.length} orders`,
-      total: pendingOrders.length,
+      message: `Synced ${ordersToSync.length} orders`,
+      total: ordersToSync.length,
       sykesOrderCount: sykesResult.orders.length,
       synced,
       failed,
       notFound,
-      unchanged: pendingOrders.length - synced - failed - notFound,
+      unchanged: ordersToSync.length - synced - failed - notFound,
       results,
     })
   } catch (error) {

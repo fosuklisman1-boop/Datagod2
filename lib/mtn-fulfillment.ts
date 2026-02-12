@@ -243,6 +243,29 @@ export async function checkMTNBalance(): Promise<number | null> {
 }
 
 /**
+ * Get the next provider in the sequence based on retry count
+ * Sequence: DK (0) -> DK (1) -> Sykes (2) -> DK (3)
+ */
+export function getNextMTNProvider(retryCount: number): "datakazina" | "sykes" {
+  if (retryCount === 2) return "sykes"
+  return "datakazina"
+}
+
+/**
+ * Check if the error message indicates insufficient funds
+ */
+export function isInsufficientFundsError(message: string): boolean {
+  const msg = message.toLowerCase()
+  return (
+    msg.includes("insufficient") ||
+    msg.includes("balance") ||
+    msg.includes("credit") ||
+    msg.includes("funds") ||
+    msg.includes("low")
+  )
+}
+
+/**
  * Create order via MTN API (Production-ready with provider abstraction)
  * 
  * This function now uses the provider factory to select between Sykes and DataKazina
@@ -818,11 +841,35 @@ export async function retryMTNOrder(
       return false
     }
 
+    // Determine the next provider based on current retry count
+    // Logic: DK (0) -> DK (1) -> Sykes (2) -> DK (3)
+    let providerName = getNextMTNProvider(tracking.retry_count)
+
+    // Safety check: if we're retrying after a balance error, we should jump to the alternative provider
+    // if the previous provider was the one with the error.
+    if (tracking.status === "failed" && tracking.external_message && isInsufficientFundsError(tracking.external_message)) {
+      console.log(`[MTN] Detected previous balance error with ${tracking.provider}. Skipping ahead in sequence.`)
+      // If DK had balance error, force Sykes. If Sykes had balance error, force DK.
+      providerName = tracking.provider === "datakazina" ? "sykes" : "datakazina"
+    }
+
+    console.log(`[MTN] Automatic retry ${tracking.retry_count + 1}/${maxAttempts} for tracking ${trackingId} using ${providerName}`)
+
+    // Update status to processing BEFORE the API call to prevent race conditions/multiple retries
+    await supabase
+      .from("mtn_fulfillment_tracking")
+      .update({
+        status: "processing",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", trackingId)
+
     // Retry the order
     const order: MTNOrderRequest = {
       recipient_phone: tracking.recipient_phone,
       network: tracking.network,
       size_gb: tracking.size_gb,
+      provider: providerName,
     }
 
     const result = await createMTNOrder(order)
@@ -833,27 +880,48 @@ export async function retryMTNOrder(
         .from("mtn_fulfillment_tracking")
         .update({
           mtn_order_id: result.order_id,
-          status: "pending",
+          status: "pending", // Now waiting for external status
+          provider: providerName,
           retry_count: tracking.retry_count + 1,
           last_retry_at: new Date().toISOString(),
           api_response_payload: result,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", trackingId)
 
       if (error) throw error
       return true
     } else {
-      // Update with error status
+      // If we failed, check if we hit max attempts
+      const nextRetryCount = tracking.retry_count + 1
+      const isFinalFailure = nextRetryCount >= maxAttempts
+
+      // If failed, we STAY in pending/retrying so the cron can try again later, 
+      // UNLESS it's the final failure, then we revert to pending_download for manual intervention
+      const finalStatus = isFinalFailure ? "failed" : "retrying"
+
       const { error } = await supabase
         .from("mtn_fulfillment_tracking")
         .update({
-          status: "retrying",
-          retry_count: tracking.retry_count + 1,
+          status: finalStatus,
+          retry_count: nextRetryCount,
           last_retry_at: new Date().toISOString(),
+          external_message: result.message,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", trackingId)
 
       if (error) throw error
+
+      // If it's the final failure, also update the master order back to pending_download
+      if (isFinalFailure) {
+        if (tracking.shop_order_id) {
+          await supabase.from("shop_orders").update({ order_status: "pending_download" }).eq("id", tracking.shop_order_id)
+        } else if (tracking.order_id) {
+          await supabase.from("orders").update({ status: "pending_download" }).eq("id", tracking.order_id)
+        }
+      }
+
       return false
     }
   } catch (error) {

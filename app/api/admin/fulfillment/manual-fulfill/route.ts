@@ -119,8 +119,8 @@ export async function POST(request: NextRequest) {
 
     // Check mtn_fulfillment_tracking to see if already tracked
     const trackingQuery = order_type === "bulk"
-      ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("order_id", shop_order_id.trim())
-      : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status").eq("shop_order_id", shop_order_id.trim())
+      ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count").eq("order_id", shop_order_id.trim())
+      : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count").eq("shop_order_id", shop_order_id.trim())
 
     const { data: existingTracking, error: trackingError } = await trackingQuery
       .order("created_at", { ascending: false })
@@ -169,6 +169,36 @@ export async function POST(request: NextRequest) {
       // Continue if blacklist check fails
     }
 
+    // Check for Sykes fallback: if previously failed with DataKazina, force Sykes
+    // Using the NEW automatic sequential logic from lib/mtn-fulfillment
+    const { getNextMTNProvider } = await import("@/lib/mtn-fulfillment")
+    let finalProvider = provider
+
+    if (existingTracking && existingTracking.length > 0) {
+      const lastTracking = existingTracking[0]
+      // Determine next provider based on current attempts
+      // Note: retry_count is 0-indexed count of retries (1st manual retry usually brings it to 1)
+      finalProvider = getNextMTNProvider(lastTracking.retry_count || 0)
+
+      console.log(`[MANUAL-FULFILL] Detected previous tracking for order ${shop_order_id}. Automatic provider: ${finalProvider}.`)
+
+      // Update the EXISTING tracking record to "processing" status to indicate active handling
+      await supabase
+        .from("mtn_fulfillment_tracking")
+        .update({
+          status: "processing",
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", lastTracking.id)
+    }
+
+    // Update the master order status to "processing" immediately
+    if (order_type === "bulk") {
+      await supabase.from("orders").update({ status: "processing" }).eq("id", shop_order_id)
+    } else {
+      await supabase.from("shop_orders").update({ order_status: "processing" }).eq("id", shop_order_id)
+    }
+
     // Create MTN order
     // Use parseFloat to preserve decimal values, then round for API
     const volumeGb = parseFloat(orderData.volume_gb?.toString() || "0")
@@ -176,7 +206,7 @@ export async function POST(request: NextRequest) {
       recipient_phone: phone,
       network: "MTN",
       size_gb: volumeGb, // createMTNOrder will round to integer
-      provider, // Optional provider override
+      provider: finalProvider, // Use fallback provider if detected
     }
 
     const mtnResponse = await createMTNOrder(mtnRequest)
@@ -184,10 +214,11 @@ export async function POST(request: NextRequest) {
     if (!mtnResponse.success || !mtnResponse.order_id) {
       console.error("[MANUAL-FULFILL] MTN API failed:", mtnResponse.message)
 
-      // Update order status
+      // Update order status back to pending_download instead of failed
+      // This ensures the manual retry button remains visible and the cron can potentially push it
       const failureUpdateData = order_type === "bulk"
-        ? { status: "failed", updated_at: new Date().toISOString() }
-        : { order_status: "failed", updated_at: new Date().toISOString() }
+        ? { status: "pending_download", updated_at: new Date().toISOString() }
+        : { order_status: "pending_download", updated_at: new Date().toISOString() }
 
       await supabase
         .from(tableName)
