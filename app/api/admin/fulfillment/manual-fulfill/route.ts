@@ -225,6 +225,36 @@ export async function POST(request: NextRequest) {
         .update(failureUpdateData)
         .eq("id", shop_order_id)
 
+      // [NEW] Create or update tracking record on failure
+      // This ensures the retry_count is incremented so the next attempt switches providers
+      const { saveMTNTracking } = await import("@/lib/mtn-fulfillment")
+
+      if (existingTracking && existingTracking.length > 0) {
+        // Update existing record
+        const lastTracking = existingTracking[0]
+        await supabase
+          .from("mtn_fulfillment_tracking")
+          .update({
+            status: "failed",
+            retry_count: (lastTracking.retry_count || 0) + 1,
+            last_retry_at: new Date().toISOString(),
+            external_message: mtnResponse.message,
+            api_response_payload: mtnResponse,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", lastTracking.id)
+      } else {
+        // Create new shell tracking record
+        await saveMTNTracking(
+          shop_order_id,
+          "FAILED_INIT_" + Date.now(),
+          mtnRequest,
+          mtnResponse,
+          order_type as "shop" | "bulk",
+          finalProvider || "datakazina"
+        )
+      }
+
       // Send error SMS
       try {
         await sendSMS({

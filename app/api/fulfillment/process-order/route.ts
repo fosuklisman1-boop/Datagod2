@@ -150,15 +150,31 @@ async function handleMTNAutoFulfillment(
     if (!mtnResponse.success || !mtnResponse.order_id) {
       console.error("[FULFILLMENT] MTN API failed:", mtnResponse.message)
 
-      // Update shop_orders with error status
+      // Update shop_orders with pending_download status instead of failed
+      // This ensures the order remains in the automated retry loop
       await supabase
         .from("shop_orders")
         .update({
-          order_status: "failed",
+          order_status: "pending_download",
           fulfillment_method: "auto_mtn",
           updated_at: new Date().toISOString(),
         })
         .eq("id", shopOrderId)
+
+      // [NEW] Create initial tracking record even on API failure
+      // This ensures the sequential retry logic can proceed on the next attempt
+      try {
+        await saveMTNTracking(
+          shopOrderId,
+          "FAILED_INIT_" + Date.now(),
+          orderRequest,
+          mtnResponse,
+          "shop",
+          mtnResponse.provider || "datakazina"
+        )
+      } catch (trackError) {
+        console.error("[FULFILLMENT] Failed to save initial failure tracking:", trackError)
+      }
 
       // Send error SMS to customer
       try {

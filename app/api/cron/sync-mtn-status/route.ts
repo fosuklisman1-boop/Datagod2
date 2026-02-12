@@ -471,6 +471,14 @@ export async function GET(request: NextRequest) {
 
         if (!providerOrder) {
           console.log(`[CRON] Order ${order.mtn_order_id} (${orderProvider}) still not found after individual check`)
+
+          // [NEW] If it's a "failed" shell record (e.g., initial API failure), trigger retry
+          if (order.status === "failed" || String(order.mtn_order_id).startsWith("FAILED_")) {
+            const { retryMTNOrder } = await import("@/lib/mtn-fulfillment")
+            console.log(`[CRON-RETRY] Triggering automatic retry for shell record ${order.mtn_order_id}`)
+            await retryMTNOrder(order.id)
+          }
+
           results.push({
             id: order.id,
             mtn_order_id: order.mtn_order_id,
