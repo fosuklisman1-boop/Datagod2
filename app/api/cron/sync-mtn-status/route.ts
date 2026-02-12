@@ -238,142 +238,6 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Pusher: Automatically fulfill stranded orders (pending/pending_download with no tracking)
-    try {
-      // Build cutoff time for 5-minute delay
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-
-      const { data: strandedShopOrders } = await supabase
-        .from("shop_orders")
-        .select("id, customer_phone, volume_gb, network, updated_at")
-        .in("order_status", ["pending", "pending_download"])
-        .eq("payment_status", "paid")
-        .lt("updated_at", fiveMinutesAgo) // Only pick up orders older than 5 minutes
-        .limit(20)
-
-      const { createMTNOrder, saveMTNTracking } = await import("@/lib/mtn-fulfillment")
-
-      for (const shopOrder of strandedShopOrders || []) {
-        // ATOMIC LOCK: Try to set to 'processing' only if it hasn't been changed by another process
-        const { data: lockData, error: lockError } = await supabase
-          .from("shop_orders")
-          .update({
-            order_status: "processing",
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", shopOrder.id)
-          .in("order_status", ["pending", "pending_download"]) // Re-verify status for atomicity
-          .select("id")
-
-        if (lockError || !lockData || lockData.length === 0) {
-          console.log(`[CRON-PUSHER] Order ${shopOrder.id} already claimed or status changed. Skipping.`)
-          continue
-        }
-
-        // Verify no tracking record exists
-        const { count } = await supabase
-          .from("mtn_fulfillment_tracking")
-          .select("*", { count: 'exact', head: true })
-          .eq("shop_order_id", shopOrder.id)
-
-        if (count === 0) {
-          console.log(`[CRON-PUSHER] ✅ Atomic lock acquired for stranded shop order ${shopOrder.id}`)
-
-          // Prepare fulfillment request (DK is always attempt 0)
-          const mtnRequest = {
-            recipient_phone: shopOrder.customer_phone,
-            network: shopOrder.network as any,
-            size_gb: parseFloat(shopOrder.volume_gb),
-            provider: "datakazina" as const
-          }
-
-          // Start fulfillment - status is already set to processing by the atomic lock above
-
-          const mtnResponse = await createMTNOrder(mtnRequest)
-          if (mtnResponse.success && mtnResponse.order_id) {
-            const trackingId = await saveMTNTracking(shopOrder.id, mtnResponse.order_id!, mtnRequest, mtnResponse, "shop", mtnResponse.provider || "datakazina")
-            if (trackingId) {
-              await supabase.from("mtn_fulfillment_tracking").update({ status: "processing" }).eq("id", trackingId)
-            }
-          } else {
-            // If initial push fails, it will be caught by the retry logic in the next cycle if a tracking record existed,
-            // but since it didn't, we should create a failed tracking record to trigger the retry cycle
-            const trackingId = await saveMTNTracking(shopOrder.id, "FAILED_" + Date.now(), mtnRequest, mtnResponse, "shop", "datakazina")
-            if (trackingId) {
-              await supabase.from("mtn_fulfillment_tracking").update({
-                status: "failed",
-                external_message: mtnResponse.message
-              }).eq("id", trackingId)
-              // The NEXT cron cycle will see this failed tracking record and trigger retryMTNOrder
-            }
-          }
-        }
-      }
-
-      // Similar pusher for bulk orders
-      const { data: strandedBulkOrders } = await supabase
-        .from("orders")
-        .select("id, phone_number, size, network, updated_at")
-        .in("status", ["pending", "pending_download"])
-        .eq("payment_status", "paid")
-        .lt("updated_at", fiveMinutesAgo)
-        .limit(20)
-
-      for (const bulkOrder of strandedBulkOrders || []) {
-        // ATOMIC LOCK
-        // ATOMIC LOCK
-        const { data: bulkLockData, error: bulkLockError } = await supabase
-          .from("orders")
-          .update({
-            status: "processing",
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", bulkOrder.id)
-          .in("status", ["pending", "pending_download"])
-          .select("id")
-
-        if (bulkLockError || !bulkLockData || bulkLockData.length === 0) {
-          console.log(`[CRON-PUSHER] Bulk order ${bulkOrder.id} already claimed. Skipping.`)
-          continue
-        }
-
-        // Verify no tracking record exists
-        const { count } = await supabase
-          .from("mtn_fulfillment_tracking")
-          .select("*", { count: 'exact', head: true })
-          .eq("order_id", bulkOrder.id)
-
-        if (count === 0) {
-          console.log(`[CRON-PUSHER] ✅ Atomic lock acquired for stranded bulk order ${bulkOrder.id}`)
-          const sizeGb = parseFloat(bulkOrder.size.replace(/[^0-9.]/g, ""))
-          const mtnRequest = {
-            recipient_phone: bulkOrder.phone_number,
-            network: bulkOrder.network as any,
-            size_gb: sizeGb,
-            provider: "datakazina" as const
-          }
-
-          const mtnResponse = await createMTNOrder(mtnRequest)
-          if (mtnResponse.success && mtnResponse.order_id) {
-            const trackingId = await saveMTNTracking(bulkOrder.id, mtnResponse.order_id!, mtnRequest, mtnResponse, "bulk", mtnResponse.provider || "datakazina")
-            if (trackingId) {
-              await supabase.from("mtn_fulfillment_tracking").update({ status: "processing" }).eq("id", trackingId)
-            }
-          } else {
-            const trackingId = await saveMTNTracking(bulkOrder.id, "FAILED_" + Date.now(), mtnRequest, mtnResponse, "bulk", "datakazina")
-            if (trackingId) {
-              await supabase.from("mtn_fulfillment_tracking").update({
-                status: "failed",
-                external_message: mtnResponse.message
-              }).eq("id", trackingId)
-            }
-          }
-        }
-      }
-    } catch (pusherError) {
-      console.error("[CRON] Pusher encountered an error:", pusherError)
-    }
-
     // Step 1: Fetch orders from BOTH provider APIs in parallel
     const [sykesResult, datakazinaResult] = await Promise.all([
       fetchAllSykesOrders(),
@@ -511,13 +375,6 @@ export async function GET(request: NextRequest) {
         if (!providerOrder) {
           console.log(`[CRON] Order ${order.mtn_order_id} (${orderProvider}) still not found after individual check`)
 
-          // [NEW] If it's a "failed" shell record (e.g., initial API failure), trigger retry
-          if (order.status === "failed" || String(order.mtn_order_id).startsWith("FAILED_")) {
-            const { retryMTNOrder } = await import("@/lib/mtn-fulfillment")
-            console.log(`[CRON-RETRY] Triggering automatic retry for shell record ${order.mtn_order_id}`)
-            await retryMTNOrder(order.id)
-          }
-
           results.push({
             id: order.id,
             mtn_order_id: order.mtn_order_id,
@@ -646,13 +503,6 @@ export async function GET(request: NextRequest) {
             } else {
               console.log(`[CRON] 🔔 Notification sent to user ${userId} for order ${order.mtn_order_id} (${normalizedStatus})`)
             }
-          }
-
-          // AUTOMATIC RETRY TRIGGER: If status is failed and we have retries left, trigger retry
-          if (normalizedStatus === "failed") {
-            const { retryMTNOrder } = await import("@/lib/mtn-fulfillment")
-            console.log(`[CRON-RETRY] Triggering automatic retry for ${order.mtn_order_id}`)
-            await retryMTNOrder(order.id)
           }
 
           console.log(`[CRON] ✅ Updated order ${order.mtn_order_id}: ${order.status} -> ${normalizedStatus}`)
