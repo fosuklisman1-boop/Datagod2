@@ -25,7 +25,23 @@ export async function POST(request: NextRequest) {
     const startTime = Date.now()
 
     try {
-        const payload: DataKazinaWebhookPayload = await request.json()
+        const contentType = request.headers.get("content-type") || ""
+        let payload: DataKazinaWebhookPayload
+
+        if (!contentType.includes("application/json")) {
+            const text = await request.text()
+            log("info", "Webhook.DataKazina", "Received non-JSON webhook", { traceId, text: text.slice(0, 500) })
+            // Return 200 for non-JSON pings (common for validation)
+            return NextResponse.json({ success: true, message: "Ping received", traceId })
+        }
+
+        try {
+            payload = await request.json()
+        } catch (jsonError) {
+            log("warn", "Webhook.DataKazina", "Failed to parse JSON body", { traceId })
+            // Return 200 for empty or invalid JSON pings
+            return NextResponse.json({ success: true, message: "Validation ping received", traceId })
+        }
 
         log("info", "Webhook.DataKazina", "Received DataKazina webhook", {
             traceId,
@@ -36,8 +52,8 @@ export async function POST(request: NextRequest) {
         // Validate payload
         const mtnOrderId = payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref
         if (!mtnOrderId) {
-            log("error", "Webhook.DataKazina", "Missing transaction ID", { traceId, payload })
-            return NextResponse.json({ error: "Missing transaction ID", traceId }, { status: 400 })
+            log("info", "Webhook.DataKazina", "Webhook missing ID - likely a test ping", { traceId, payload })
+            return NextResponse.json({ success: true, message: "Test received", traceId })
         }
 
         // Update order status in database
