@@ -180,18 +180,18 @@ export default function MessagingHistoryPage() {
                                             <div className="flex justify-between items-start">
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <Badge variant="outline" className="bg-white">{log.status}</Badge>
+                                                        <Badge variant="outline" className="bg-white px-3 py-1">{log.status}</Badge>
                                                         {((log.results?.email?.failed > 0) || (log.results?.sms?.failed > 0)) && (
                                                             <Button
                                                                 variant="destructive"
                                                                 size="sm"
-                                                                className="h-6 text-xs"
+                                                                className="h-7 text-xs font-bold px-3 shadow-sm animate-pulse"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation()
                                                                     handleRetry(log.id)
                                                                 }}
                                                             >
-                                                                Retry Failed ({(log.results?.email?.failed || 0) + (log.results?.sms?.failed || 0)})
+                                                                Retry {(log.results?.email?.failed || 0) + (log.results?.sms?.failed || 0)} Failed
                                                             </Button>
                                                         )}
                                                     </div>
@@ -224,7 +224,20 @@ export default function MessagingHistoryPage() {
                                                             <div className="text-right">
                                                                 <span className="text-xs text-blue-400 block">Sent Sukses</span>
                                                                 {log.results?.email?.failed > 0 && (
-                                                                    <span className="text-xs text-red-500 font-bold block">{log.results?.email?.failed} Failed</span>
+                                                                    <div className="flex items-center justify-end gap-1 mt-1">
+                                                                        <span className="text-xs text-red-500 font-bold">{log.results?.email?.failed} Failed</span>
+                                                                        <Button
+                                                                            variant="link"
+                                                                            size="sm"
+                                                                            className="h-auto p-0 text-[10px] text-red-600 underline"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation()
+                                                                                handleRetry(log.id)
+                                                                            }}
+                                                                        >
+                                                                            Retry
+                                                                        </Button>
+                                                                    </div>
                                                                 )}
                                                             </div>
                                                         </div>
@@ -236,7 +249,20 @@ export default function MessagingHistoryPage() {
                                                             <div className="text-right">
                                                                 <span className="text-xs text-emerald-400 block">Delivered</span>
                                                                 {log.results?.sms?.failed > 0 && (
-                                                                    <span className="text-xs text-red-500 font-bold block">{log.results?.sms?.failed} Failed</span>
+                                                                    <div className="flex items-center justify-end gap-1 mt-1">
+                                                                        <span className="text-xs text-red-500 font-bold">{log.results?.sms?.failed} Failed</span>
+                                                                        <Button
+                                                                            variant="link"
+                                                                            size="sm"
+                                                                            className="h-auto p-0 text-[10px] text-red-600 underline"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation()
+                                                                                handleRetry(log.id)
+                                                                            }}
+                                                                        >
+                                                                            Retry
+                                                                        </Button>
+                                                                    </div>
                                                                 )}
                                                             </div>
                                                         </div>
