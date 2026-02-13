@@ -24,6 +24,7 @@ interface SMSPayload {
   type: string
   reference?: string
   userId?: string
+  skipLogging?: boolean // NEW: Prevent duplicate logs during retries
 }
 
 interface SendSMSResponse {
@@ -173,7 +174,7 @@ async function sendSMSViaBrevo(payload: SMSPayload): Promise<SendSMSResponse> {
     console.log('[SMS] ✓ Brevo Success - Message ID:', messageId)
 
     // Log to database
-    if (payload.userId) {
+    if (payload.userId && !payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
           user_id: payload.userId,
@@ -216,7 +217,7 @@ async function sendSMSViaBrevo(payload: SMSPayload): Promise<SendSMSResponse> {
     }
 
     // Log failed SMS
-    if (payload.userId) {
+    if (payload.userId && !payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
           user_id: payload.userId,
@@ -279,7 +280,7 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
     console.log('[SMS] ✓ Moolre Success - Message ID:', messageId)
 
     // Log to database
-    if (payload.userId) {
+    if (payload.userId && !payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
           user_id: payload.userId,
@@ -309,7 +310,7 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
     }
 
     // Log failed SMS
-    if (payload.userId) {
+    if (payload.userId && !payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
           user_id: payload.userId,

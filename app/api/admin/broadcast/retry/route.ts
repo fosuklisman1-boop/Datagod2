@@ -143,7 +143,8 @@ export async function POST(req: NextRequest) {
                             htmlContent: emailData.html,
                             userId: userId,
                             type: "broadcast",
-                            referenceId: broadcastId
+                            referenceId: broadcastId,
+                            skipLogging: true
                         })
 
                         if (res.success) {
@@ -197,7 +198,8 @@ export async function POST(req: NextRequest) {
                                 message: broadcastLog.message,
                                 type: "broadcast",
                                 userId: log.user.id,
-                                reference: broadcastId
+                                reference: broadcastId,
+                                skipLogging: true
                             })
 
                             if (res.success) {

@@ -34,6 +34,7 @@ export interface EmailPayload {
   userId?: string // For logging
   referenceId?: string // For logging
   type?: string // For logging (e.g., 'order_confirmation')
+  skipLogging?: boolean // NEW: Prevent duplicate logs during retries
 }
 
 export interface BatchEmailPayload {
@@ -673,7 +674,7 @@ async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: bool
 
     console.log(`[Email] ✓ Sent: '${payload.subject}' (ID: ${messageId})`)
 
-    if (payload.userId) {
+    if (payload.userId && !payload.skipLogging) {
       await logEmail(payload, "sent", messageId)
     }
 
@@ -682,7 +683,7 @@ async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: bool
   } catch (error: any) {
     console.error("[Email] Failed to send:", error.message)
 
-    if (payload.userId) {
+    if (payload.userId && !payload.skipLogging) {
       await logEmail(payload, "failed", undefined, error.message)
     }
 
@@ -772,7 +773,7 @@ async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boo
     console.log(`[Resend] ✅ Sent successfully. ID: ${messageId}`)
     console.log(`[Resend] ============================================`)
 
-    if (payload.userId) {
+    if (payload.userId && !payload.skipLogging) {
       await logEmail(payload, "sent", messageId)
     }
 
@@ -783,7 +784,7 @@ async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boo
     console.error("[Resend] Error message:", error.message)
     console.error("[Resend] Error stack:", error.stack)
 
-    if (payload.userId) {
+    if (payload.userId && !payload.skipLogging) {
       await logEmail(payload, "failed", undefined, error.message)
     }
 
