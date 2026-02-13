@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loader2, MessageSquare, Settings, Search, Banknote, Crown } from "lucide-react"
+import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loader2, MessageSquare, Settings, Search, Banknote, Crown, Send } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { adminDashboardService } from "@/lib/admin-service"
 import { toast } from "sonner"
@@ -595,6 +595,35 @@ export default function AdminDashboardPage() {
                   </>
                 ) : (
                   "Go to AFA Settings"
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Broadcast Messaging */}
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-pink-50/60 to-rose-50/40 backdrop-blur-xl border border-pink-200/40 hover:border-pink-300/60">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-gradient-to-br from-pink-400/30 to-rose-400/20 backdrop-blur p-2 rounded-lg border border-pink-300/60">
+                  <Send className="h-5 w-5 text-pink-600" />
+                </div>
+                <CardTitle>Broadcast Messaging</CardTitle>
+              </div>
+              <CardDescription>Send bulk SMS and Emails to users</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => handleNavigate("/admin/broadcast")}
+                disabled={navigating !== null}
+                className="w-full bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-white font-semibold"
+              >
+                {navigating === "/admin/broadcast" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Go to Messaging"
                 )}
               </Button>
             </CardContent>
