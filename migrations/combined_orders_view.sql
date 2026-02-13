@@ -57,25 +57,4 @@ SELECT
 FROM shop_orders so
 LEFT JOIN user_shops us ON so.shop_id = us.id
 LEFT JOIN users u ON us.user_id = u.id
-WHERE so.payment_status = 'completed'
-
-UNION ALL
-
--- 3. Wallet Top-ups
-SELECT 
-    wp.id::text as id,
-    wp.created_at as created_at,
-    '-' as phone_number,
-    wp.amount as price,
-    'Wallet Top-up' as network,
-    wp.status as status,
-    'completed' as payment_status,
-    COALESCE(wp.reference, '-') as payment_reference,
-    '0' as volume_gb,
-    'wallet_payment' as type,
-    NULL as customer_email,
-    NULL as store_name,
-    NULL as shop_owner_id,
-    NULL as shop_owner_email
-FROM wallet_payments wp
-WHERE wp.status = 'completed';
+WHERE so.payment_status = 'completed';
