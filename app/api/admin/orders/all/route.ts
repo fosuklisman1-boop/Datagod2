@@ -49,12 +49,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Helper function to fetch in batches to bypass Supabase/PostgREST 1000-row limit
-    async function fetchInBatches(queryBuilder: any, maxRows = 5000) {
+    async function fetchInBatches(queryBuilder: any) {
       let results: any[] = []
       let from = 0
       const step = 1000
 
-      while (from < maxRows) {
+      while (true) {
         const { data, error } = await queryBuilder.range(from, from + step - 1)
         if (error) throw error
         if (!data || data.length === 0) break
