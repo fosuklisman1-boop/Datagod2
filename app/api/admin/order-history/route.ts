@@ -86,11 +86,26 @@ export async function GET(request: NextRequest) {
             return results
         }
 
-        // Execute Queries in Parallel
-        console.log('[ORDER-HISTORY] Executing queries...')
-        console.log('[ORDER-HISTORY] Date range:', dateFrom, 'to', dateTo)
-        console.log('[ORDER-HISTORY] Network filter:', network)
+        // Calculate Stats using RPC for performance and accuracy
+        const { data: stats, error: statsError } = await supabase.rpc("get_order_history_stats", {
+            p_date_from: dateFrom,
+            p_date_to: dateTo,
+            p_network_filter: network || "all"
+        })
 
+        if (statsError) {
+            console.error('[ORDER-HISTORY] Stats RPC error:', statsError)
+            throw statsError
+        }
+
+        const totalOrders = stats.totalOrders
+        const totalVolume = stats.totalVolume
+        const totalRevenue = stats.totalRevenue
+
+        // Execute List Queries - fetching just what's needed for the current display
+        // We still fetch "all" for combine/sort logic, but we could eventually paginate this at DB level too.
+        // For now, keeping the list fetching logic but using the RPC for the heavy summation.
+        console.log('[ORDER-HISTORY] Executing list queries...')
         const [bulkOrders, shopOrders] = await Promise.all([
             fetchAll(bulkQuery.order("created_at", { ascending: false })),
             fetchAll(shopQuery.order("created_at", { ascending: false }))
@@ -119,11 +134,6 @@ export async function GET(request: NextRequest) {
                 status: o.order_status
             }))
         ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-
-        // Calculate Stats
-        const totalOrders = allOrders.length
-        const totalVolume = allOrders.reduce((acc, curr) => acc + (Number(curr.size) || 0), 0)
-        const totalRevenue = allOrders.reduce((acc, curr) => acc + (Number(curr.price) || 0), 0)
 
         // Pagination for the list response
         const paginatedOrders = allOrders.slice(offset, offset + limit)

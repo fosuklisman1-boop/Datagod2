@@ -243,51 +243,25 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Calculate stats recursively to ensure all profits are counted
-    const allProfits = await fetchAll(
-      supabase.from("shop_profits").select("profit_amount, status")
-    )
-
-    let totalProfit = 0
-    let pendingProfit = 0
-    let creditedProfit = 0
-    let withdrawnProfit = 0
-    let pendingCount = 0
-    let creditedCount = 0
-    let withdrawnCount = 0
-
-    allProfits.forEach((p: any) => {
-      const amount = p.profit_amount || 0
-      totalProfit += amount
-
-      if (p.status === "pending") {
-        pendingProfit += amount
-        pendingCount++
-      } else if (p.status === "credited") {
-        creditedProfit += amount
-        creditedCount++
-      } else if (p.status === "withdrawn") {
-        withdrawnProfit += amount
-        withdrawnCount++
-      }
+    // Calculate stats using RPC for performance and accuracy
+    const { data: stats, error: statsError } = await supabase.rpc("get_profits_history_stats", {
+      p_shop_id: shopId || null,
+      p_status: status || "",
+      p_start_date: startDate || null,
+      p_end_date: endDate || null
     })
 
+    if (statsError) {
+      console.error("[ADMIN-PROFITS] Stats RPC error:", statsError)
+      throw statsError
+    }
     const totalCount = search ? totalFilteredCount : (count || 0)
 
-    console.log("[ADMIN-PROFITS] Returning", flattenedProfits.length, "profits, total:", totalCount, "stats from", allProfits.length, "records")
+    console.log("[ADMIN-PROFITS] Returning", flattenedProfits.length, "profits, total:", totalCount)
 
     return NextResponse.json({
       profits: flattenedProfits,
-      stats: {
-        totalProfit,
-        pendingProfit,
-        creditedProfit,
-        withdrawnProfit,
-        pendingCount,
-        creditedCount,
-        withdrawnCount,
-        totalRecords: allProfits.length,
-      },
+      stats: stats,
       pagination: {
         page,
         limit,

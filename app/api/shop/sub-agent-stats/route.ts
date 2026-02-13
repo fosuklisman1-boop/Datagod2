@@ -57,99 +57,46 @@ export async function GET(request: NextRequest) {
 
     const subAgentShopIds = subAgentShops.map(sa => sa.id)
 
-    // Helper function to fetch ALL records in batches
-    async function fetchAll(queryBuilder: any) {
-      let results: any[] = []
-      let from = 0
-      const step = 1000
-      while (true) {
-        const { data, error } = await queryBuilder.range(from, from + step - 1)
-        if (error) throw error
-        if (!data || data.length === 0) break
-        results = [...results, ...data]
-        if (data.length < step) break
-        from += step
-      }
-      return results
+    // Use RPC for fast, accurate statistics calculation
+    console.log("[SUB-AGENT-STATS] Calling RPC for earnings stats...")
+    const { data: rpcData, error: rpcError } = await supabase.rpc("get_sub_agent_earnings_stats", {
+      p_parent_shop_id: shop.id
+    })
+
+    if (rpcError) {
+      console.error("[SUB-AGENT-STATS] RPC Error:", rpcError)
+      throw rpcError
     }
 
-    // Get ALL orders related to sub-agents:
-    // 1. Orders where parent_shop_id = this shop (buy-stock or storefront with parent chain)
-    // 2. Orders where shop_id is a sub-agent shop (storefront orders)
-    // Then dedupe by order ID to avoid double-counting
+    const { totalEarnings, totalOrders: totalOrdersGlobal, breakdown } = rpcData
 
-    console.log("[SUB-AGENT-STATS] Fetching related orders...")
-
-    // Fetch parent chain orders recursively
-    const parentChainOrders = await fetchAll(
-      supabase
-        .from("shop_orders")
-        .select("id, shop_id, total_price, parent_profit_amount")
-        .eq("parent_shop_id", shop.id)
-        .eq("payment_status", "completed")
-    )
-
-    // Fetch sub-agent shop orders recursively
-    const subAgentShopOrders = await fetchAll(
-      supabase
-        .from("shop_orders")
-        .select("id, shop_id, total_price, parent_profit_amount")
-        .in("shop_id", subAgentShopIds)
-        .eq("payment_status", "completed")
-    )
-
-    // Combine and dedupe by order ID
-    const allOrdersMap = new Map<string, any>()
-
-    parentChainOrders?.forEach((order: any) => {
-      allOrdersMap.set(order.id, order)
+    // Create a lookup map from the breakdown
+    const breakdownMap = new Map<string, any>()
+    breakdown?.forEach((item: any) => {
+      breakdownMap.set(item.shop_id, item)
     })
 
-    subAgentShopOrders?.forEach((order: any) => {
-      allOrdersMap.set(order.id, order)
-    })
-
-    const uniqueOrders = Array.from(allOrdersMap.values())
-    console.log("[SUB-AGENT-STATS] Unique orders after dedup:", uniqueOrders.length)
-
-    // Create maps for each sub-agent's stats
-    const subAgentOrdersMap = new Map<string, number>()
-    const subAgentSalesMap = new Map<string, number>()
-    const subAgentProfitMap = new Map<string, number>()
-
-    // Process unique orders - key by shop_id which is the sub-agent's shop
-    uniqueOrders.forEach((order: any) => {
-      const shopId = order.shop_id
-      // Only count if shop_id is one of our sub-agents
-      if (subAgentShopIds.includes(shopId)) {
-        subAgentOrdersMap.set(shopId, (subAgentOrdersMap.get(shopId) || 0) + 1)
-        subAgentSalesMap.set(shopId, (subAgentSalesMap.get(shopId) || 0) + (order.total_price || 0))
-        subAgentProfitMap.set(shopId, (subAgentProfitMap.get(shopId) || 0) + (order.parent_profit_amount || 0))
+    // Build sub-agent response by matching shops with their stats
+    const subAgentsWithStats = subAgentShops.map((sa: any) => {
+      const stats = breakdownMap.get(sa.id) || {}
+      return {
+        id: sa.id,
+        shop_name: sa.shop_name,
+        shop_slug: sa.shop_slug,
+        is_active: sa.is_active,
+        created_at: sa.created_at,
+        tier_level: sa.tier_level,
+        total_orders: stats.total_orders || 0,
+        total_sales: stats.total_sales || 0,
+        your_earnings: stats.your_earnings || 0,
       }
     })
 
-    console.log("[SUB-AGENT-STATS] Orders map:", Object.fromEntries(subAgentOrdersMap))
-    console.log("[SUB-AGENT-STATS] Sales map:", Object.fromEntries(subAgentSalesMap))
-    console.log("[SUB-AGENT-STATS] Profit map:", Object.fromEntries(subAgentProfitMap))
-
-    // Build sub-agent response with stats
-    const subAgentsWithStats = subAgentShops.map((sa: any) => ({
-      id: sa.id,
-      shop_name: sa.shop_name,
-      shop_slug: sa.shop_slug,
-      is_active: sa.is_active,
-      created_at: sa.created_at,
-      tier_level: sa.tier_level,
-      total_orders: subAgentOrdersMap.get(sa.id) || 0,
-      total_sales: subAgentSalesMap.get(sa.id) || 0,
-      your_earnings: subAgentProfitMap.get(sa.id) || 0,
-    }))
-
-    // Calculate totals
+    // Prepare global stats
     const stats = {
       totalSubAgents: subAgentsWithStats.length,
       activeSubAgents: subAgentsWithStats.filter((sa: any) => sa.is_active).length,
-      totalEarningsFromSubAgents: subAgentsWithStats.reduce((sum: number, sa: any) => sum + sa.your_earnings, 0),
+      totalEarningsFromSubAgents: totalEarnings || 0,
     }
 
     return NextResponse.json({ subAgents: subAgentsWithStats, stats })
