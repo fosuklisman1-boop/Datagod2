@@ -13,6 +13,7 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY
 const SENDER_NAME = process.env.EMAIL_SENDER_NAME || "DataGod"
 const SENDER_EMAIL = process.env.EMAIL_SENDER_ADDRESS || "noreply@datagod.com"
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://datagod.store"
+const PHYSICAL_ADDRESS = process.env.EMAIL_PHYSICAL_ADDRESS || "DataGod Solutions, Accra, Ghana"
 
 // Initialize Resend client (only if configured)
 let resendClient: Resend | null = null
@@ -141,8 +142,15 @@ function wrapHtml(content: string, title: string, showHero: boolean = false): st
               <a href="mailto:${SENDER_EMAIL}" class="footer-contact">${SENDER_EMAIL}</a>
             </p>
             <p class="footer-text">
+              ${PHYSICAL_ADDRESS}
+            </p>
+            <p class="footer-text">
               &copy; ${new Date().getFullYear()} ${SENDER_NAME}. All rights reserved.<br>
               Premium Data Reseller Platform
+            </p>
+            <p class="footer-text" style="margin-top: 20px; border-top: 1px solid #e5e7eb; padding-top: 20px;">
+              You received this because you are a registered user of ${SENDER_NAME}.<br>
+              <a href="${APP_URL}/dashboard/settings" style="color: #6b7280; text-decoration: underline;">Unsubscribe</a> or manage your <a href="${APP_URL}/dashboard/notifications" style="color: #6b7280; text-decoration: underline;">notification preferences</a>.
             </p>
           </div>
         </div>
@@ -761,7 +769,20 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
 
 async function logEmail(payload: EmailPayload, status: "sent" | "failed", messageId?: string, errorMessage?: string) {
   try {
-    console.log(`[Email] Logging to DB skipped (table not created yet). Status: ${status}`)
+    const recipients = payload.to.map(r => r.email).join(', ')
+
+    await supabase.from('email_logs').insert({
+      user_id: payload.userId,
+      email: recipients,
+      subject: payload.subject,
+      message_type: payload.type || 'transactional',
+      reference_id: payload.referenceId,
+      status: status,
+      error_message: errorMessage,
+      sent_at: new Date().toISOString()
+    })
+
+    console.log(`[Email] Logged to DB. Status: ${status}`)
   } catch (e) {
     console.error("[Email] Failed to log email:", e)
   }

@@ -19,7 +19,9 @@ import {
     CheckCircle2,
     AlertCircle,
     Search,
-    X
+    X,
+    History,
+    ChevronLeft
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -198,16 +200,26 @@ export default function BroadcastPage() {
     return (
         <DashboardLayout>
             <div className="max-w-4xl mx-auto space-y-6">
-                <header>
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-gradient-to-br from-pink-500 to-rose-600 rounded-lg text-white">
-                            <Send className="w-6 h-6" />
+                <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-gradient-to-br from-pink-500 to-rose-600 rounded-lg text-white">
+                                <Send className="w-6 h-6" />
+                            </div>
+                            <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
+                                Broadcast Messaging
+                            </h1>
                         </div>
-                        <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
-                            Broadcast Messaging
-                        </h1>
+                        <p className="text-gray-500">Reach your users via SMS or Email broadcasts</p>
                     </div>
-                    <p className="text-gray-500">Reach your users via SMS or Email broadcasts</p>
+                    <Button
+                        variant="outline"
+                        onClick={() => router.push("/admin/broadcast/history")}
+                        className="border-pink-200 hover:bg-pink-50 text-pink-700 font-semibold"
+                    >
+                        <History className="w-4 h-4 mr-2" />
+                        View History
+                    </Button>
                 </header>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

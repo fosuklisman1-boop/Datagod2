@@ -62,6 +62,26 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "No recipients found" }, { status: 404 })
         }
 
+        // Create initial broadcast log
+        const { data: broadcastLog, error: logError } = await supabase
+            .from("broadcast_logs")
+            .insert({
+                admin_id: caller.id,
+                channels: channels,
+                target_type: recipients.type,
+                target_group: recipients.type === "roles" ? recipients.roles : null,
+                subject: subject,
+                message: message,
+                status: "processing"
+            })
+            .select()
+            .single()
+
+        if (logError) {
+            console.error("[BROADCAST-API] Log creation error:", logError)
+            // Continue even if logging fails, but we won't have the ID for following logs
+        }
+
         const results = {
             total: targetUsers.length,
             sms: { sent: 0, failed: 0 },
@@ -80,7 +100,8 @@ export async function POST(req: NextRequest) {
                             phone: user.phone_number,
                             message: message,
                             type: "broadcast",
-                            userId: user.id
+                            userId: user.id,
+                            reference: broadcastLog?.id
                         })
                         if (res.success) results.sms.sent++
                         else results.sms.failed++
@@ -96,7 +117,8 @@ export async function POST(req: NextRequest) {
                             subject: subject || "Notification from DataGod",
                             htmlContent: message.replace(/\n/g, "<br>"),
                             userId: user.id,
-                            type: "broadcast"
+                            type: "broadcast",
+                            referenceId: broadcastLog?.id
                         })
                         if (res.success) results.email.sent++
                         else results.email.failed++
@@ -105,6 +127,17 @@ export async function POST(req: NextRequest) {
                     }
                 }
             }))
+        }
+
+        // Update broadcast log with results
+        if (broadcastLog) {
+            await supabase
+                .from("broadcast_logs")
+                .update({
+                    results: results,
+                    status: "completed"
+                })
+                .eq("id", broadcastLog.id)
         }
 
         return NextResponse.json({ success: true, results })

@@ -581,3 +581,47 @@ export const adminOrderService = {
     return stats
   },
 }
+
+// Admin Messaging Management
+export const adminMessagingService = {
+  async getBroadcastLogs() {
+    const { data, error } = await supabase
+      .from("broadcast_logs")
+      .select(`
+        *,
+        admin:admin_id(id, first_name, email)
+      `)
+      .order("created_at", { ascending: false })
+
+    if (error) throw error
+    return data
+  },
+
+  async getEmailLogs(limit = 100) {
+    const { data, error } = await supabase
+      .from("email_logs")
+      .select(`
+        *,
+        user:user_id(id, first_name, phone_number)
+      `)
+      .order("created_at", { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  },
+
+  async getSMSLogs(limit = 100) {
+    const { data, error } = await supabase
+      .from("sms_logs")
+      .select(`
+        *,
+        user:user_id(id, first_name, email)
+      `)
+      .order("created_at", { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  }
+}
