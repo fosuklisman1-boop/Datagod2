@@ -134,8 +134,24 @@ export async function POST(request: NextRequest) {
         } else {
           console.log(`[BULK-UPDATE] ✓ Updated MTN tracking records for bulk orders`)
         }
+
+        // AUTO-FIX: Also update fulfillment_logs for these orders
+        const { error: logsUpdateError } = await supabase
+          .from("fulfillment_logs")
+          .update({
+            status: status === 'completed' ? 'success' : status, // Map 'completed' to 'success' for logs if needed, or keep same
+            updated_at: new Date().toISOString()
+          })
+          .in("order_id", bulkOrderIds)
+
+        if (logsUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating fulfillment_logs:", logsUpdateError)
+        } else {
+          console.log(`[BULK-UPDATE] ✓ Updated fulfillment_logs for bulk orders`)
+        }
+
       } catch (mtnError) {
-        console.warn("[BULK-UPDATE] Error updating MTN tracking for bulk orders:", mtnError)
+        console.warn("[BULK-UPDATE] Error updating tracking/logs for bulk orders:", mtnError)
       }
 
       // Send notifications for completed or failed bulk orders
