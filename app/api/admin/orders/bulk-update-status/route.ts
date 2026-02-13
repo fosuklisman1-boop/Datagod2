@@ -47,13 +47,18 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      console.log(`[BULK-UPDATE] Status filter: ["pending", "processing"]`)
       // Usually global updates target pending/processing orders
       if (filters.onlyPending) {
         query = query.in("status", ["pending", "processing"])
       }
 
+      console.log(`[BULK-UPDATE] Executing ID fetch query...`)
       const { data, error } = await query
-      if (error) throw error
+      if (error) {
+        console.error(`[BULK-UPDATE] ID fetch error:`, error)
+        throw error
+      }
       orderIds = data?.map(o => o.id) || []
       console.log(`[BULK-UPDATE] Globally found ${orderIds.length} orders matching filters`)
     }

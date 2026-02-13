@@ -69,6 +69,7 @@ export async function GET(request: NextRequest) {
         endStr = `${filterDate}T${endTime}:59Z`
       }
 
+      console.log(`[ALL-ORDERS] Filtering by date range: ${startStr} to ${endStr}`)
       query = query.gte("created_at", startStr)
       query = query.lte("created_at", endStr)
     }
@@ -78,6 +79,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (filterStatus && filterStatus !== "all" && filterStatus !== "") {
+      console.log(`[ALL-ORDERS] Filtering by status: ${filterStatus}`)
       if (filterStatus.includes(",")) {
         const statusList = filterStatus.split(",").map(s => s.trim())
         query = query.in("status", statusList)

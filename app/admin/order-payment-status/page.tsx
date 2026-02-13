@@ -78,7 +78,7 @@ export default function OrderPaymentStatusPage() {
       setOffset(0)
       loadAllOrders(0, false)
     }
-  }, [searchQuery, searchType, isAdmin, adminLoading])
+  }, [searchQuery, searchType, isAdmin, adminLoading, bulkDate, bulkNetwork, bulkStartTime, bulkEndTime])
 
   // Fetch global count for bulk operations when filters change
   useEffect(() => {
@@ -168,6 +168,17 @@ export default function OrderPaymentStatusPage() {
       }
       params.append("limit", PAGE_SIZE.toString())
       params.append("offset", currentOffset.toString())
+
+      // Apply bulk filters to main table if active
+      if (showBulkUpdate) {
+        if (bulkDate) params.append("date", bulkDate)
+        if (bulkNetwork && bulkNetwork !== "all") params.append("network", bulkNetwork)
+        if (bulkStartTime) params.append("startTime", bulkStartTime)
+        if (bulkEndTime) params.append("endTime", bulkEndTime)
+        // Note: For the main table, we might NOT want to restrict status to pending/processing 
+        // just yet, so the user can see everything. But if they ARE using the bulk tool,
+        // it's helpful to show what they're targeting.
+      }
 
       const response = await fetch(`/api/admin/orders/all?${params.toString()}`)
 
