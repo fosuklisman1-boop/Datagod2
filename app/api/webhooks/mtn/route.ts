@@ -262,10 +262,6 @@ async function handleOrderCompleted(
       log("warn", "Webhook", "Failed to send success Email", { traceId, error: String(emailError) });
     }
 
-    // Update profit tracking for shop orders
-    if (tracking.shop_order_id && tracking.order_type !== "bulk") {
-      await updateProfitOnCompletion(tracking.shop_order_id)
-    }
   }
 
   log("info", "Webhook", "Order completed successfully", { traceId, mtnOrderId: order.id })
@@ -405,109 +401,6 @@ async function handleOrderProcessing(
 /**
  * Update profit tracking on order completion
  */
-async function updateProfitOnCompletion(shopOrderId: string): Promise<void> {
-  try {
-    // Get the pending profit records for this order
-    const { data: profitRecords, error: profitFetchError } = await supabase
-      .from("shop_profits")
-      .select("id, shop_id, profit_amount")
-      .eq("shop_order_id", shopOrderId)
-      .eq("status", "pending")
-
-    if (profitFetchError) {
-      log("error", "Webhook", "Error fetching profit records", { shopOrderId, error: profitFetchError.message })
-      return
-    }
-
-    if (!profitRecords || profitRecords.length === 0) {
-      log("debug", "Webhook", "No pending profit records found for order", { shopOrderId })
-      return
-    }
-
-    // Update profit records to "credited"
-    const profitIds = profitRecords.map(p => p.id)
-    const { error: profitUpdateError } = await supabase
-      .from("shop_profits")
-      .update({
-        status: "credited",
-        updated_at: new Date().toISOString()
-      })
-      .in("id", profitIds)
-
-    if (profitUpdateError) {
-      log("error", "Webhook", "Error updating profit records", { shopOrderId, error: profitUpdateError.message })
-      return
-    }
-
-    log("info", "Webhook", `✓ Credited ${profitRecords.length} profit records for order ${shopOrderId}`)
-
-    // Sync available balance for each shop involved
-    const shopIds = [...new Set(profitRecords.map(p => p.shop_id))]
-
-    for (const shopId of shopIds) {
-      try {
-        // Fetch all profits and withdrawals for this shop
-        const [profitsResult, withdrawalsResult] = await Promise.all([
-          supabase
-            .from("shop_profits")
-            .select("profit_amount, status")
-            .eq("shop_id", shopId),
-          supabase
-            .from("withdrawal_requests")
-            .select("amount")
-            .eq("shop_id", shopId)
-            .eq("status", "approved")
-        ])
-
-        if (profitsResult.data) {
-          const breakdown = {
-            totalProfit: 0,
-            creditedProfit: 0,
-            withdrawnProfit: 0,
-          }
-
-          profitsResult.data.forEach((p: any) => {
-            const amount = p.profit_amount || 0
-            breakdown.totalProfit += amount
-            if (p.status === "credited") {
-              breakdown.creditedProfit += amount
-            } else if (p.status === "withdrawn") {
-              breakdown.withdrawnProfit += amount
-            }
-          })
-
-          const totalApprovedWithdrawals = withdrawalsResult.data?.reduce((sum, w) => sum + (w.amount || 0), 0) || 0
-          const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
-
-          // Update available balance record
-          await supabase
-            .from("shop_available_balance")
-            .delete()
-            .eq("shop_id", shopId)
-
-          await supabase
-            .from("shop_available_balance")
-            .insert([{
-              shop_id: shopId,
-              available_balance: availableBalance,
-              total_profit: breakdown.totalProfit,
-              withdrawn_amount: breakdown.withdrawnProfit,
-              credited_profit: breakdown.creditedProfit,
-              withdrawn_profit: breakdown.withdrawnProfit,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            }])
-
-          log("info", "Webhook", `✓ Synced balance for shop ${shopId}: GHS ${availableBalance.toFixed(2)}`)
-        }
-      } catch (syncError) {
-        log("warn", "Webhook", `Warning: Could not sync balance for shop ${shopId}`, { error: String(syncError) })
-      }
-    }
-  } catch (error) {
-    log("warn", "Webhook", "Failed to update profit tracking", { error: String(error) })
-  }
-}
 
 /**
  * GET /api/webhooks/mtn

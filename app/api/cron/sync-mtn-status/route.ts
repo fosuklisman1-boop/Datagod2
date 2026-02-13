@@ -97,69 +97,6 @@ async function fetchAllSykesOrders(): Promise<{ success: boolean; orders: any[];
   }
 }
 
-/**
- * Fetch ALL orders from DataKazina API
- */
-async function fetchAllDataKazinaOrders(): Promise<{ success: boolean; orders: any[]; message?: string }> {
-  try {
-    console.log("[CRON] Fetching all orders from DataKazina API...")
-
-    const response = await fetch(`${DATAKAZINA_API_URL}/orders`, {
-      method: "GET",
-      headers: {
-        "x-api-key": DATAKAZINA_API_KEY,
-        "Content-Type": "application/json",
-      },
-    })
-
-    const responseText = await response.text()
-    console.log(`[CRON] DataKazina API response status: ${response.status}`)
-
-    if (!response.ok) {
-      return {
-        success: false,
-        orders: [],
-        message: `API error: ${response.status} - ${responseText.slice(0, 200)}`,
-      }
-    }
-
-    let data
-    try {
-      data = JSON.parse(responseText)
-    } catch {
-      return {
-        success: false,
-        orders: [],
-        message: `Invalid JSON response: ${responseText.slice(0, 100)}`,
-      }
-    }
-
-    // Handle DataKazina response format
-    let orders: any[] = []
-    if (data.status === "success" && Array.isArray(data.data)) {
-      orders = data.data
-    } else if (Array.isArray(data)) {
-      orders = data
-    } else if (data.orders && Array.isArray(data.orders)) {
-      orders = data.orders
-    }
-
-    console.log(`[CRON] ✅ Fetched ${orders.length} orders from DataKazina API`)
-
-    if (orders.length > 0) {
-      console.log(`[CRON] Sample DataKazina order:`, JSON.stringify(orders[0]).slice(0, 300))
-    }
-
-    return { success: true, orders }
-  } catch (error) {
-    console.error("[CRON] Error fetching DataKazina orders:", error)
-    return {
-      success: false,
-      orders: [],
-      message: error instanceof Error ? error.message : "Unknown error",
-    }
-  }
-}
 
 /**
  * Normalize Sykes API status to our expected values
@@ -238,36 +175,27 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Step 1: Fetch orders from BOTH provider APIs in parallel
-    const [sykesResult, datakazinaResult] = await Promise.all([
-      fetchAllSykesOrders(),
-      fetchAllDataKazinaOrders()
-    ])
+    // Step 1: Fetch orders from Sykes provider API
+    // DataKazina sync is removed to reduce rate limits as requested
+    const sykesResult = await fetchAllSykesOrders()
 
-    if (!sykesResult.success && !datakazinaResult.success) {
-      console.error("[CRON] Failed to fetch from both providers")
+    if (!sykesResult.success) {
+      console.error("[CRON] Failed to fetch from Sykes provider")
       return NextResponse.json({
-        error: "Failed to fetch orders from any provider",
-        sykes: sykesResult.message,
-        datakazina: datakazinaResult.message
+        error: "Failed to fetch orders from Sykes provider",
+        sykes: sykesResult.message
       }, { status: 500 })
     }
 
-    // Create lookup maps for each provider
+    // Create lookup map for Sykes provider
     const sykesOrderMap = new Map<string, any>()
-    const datakazinaOrderMap = new Map<string, any>()
 
     for (const order of sykesResult.orders) {
       const orderId = String(order.id || order.order_id)
       sykesOrderMap.set(orderId, order)
     }
 
-    for (const order of datakazinaResult.orders) {
-      const orderId = String(order.id || order.order_id || order.transaction_id)
-      datakazinaOrderMap.set(orderId, order)
-    }
-
-    console.log(`[CRON] Created lookup maps: ${sykesOrderMap.size} Sykes, ${datakazinaOrderMap.size} DataKazina orders`)
+    console.log(`[CRON] Created lookup map: ${sykesOrderMap.size} Sykes orders`)
 
     // Step 2: Get all pending, processing, and failed/retrying orders from our database
     const { data: ordersToSync, error: fetchError } = await supabase
@@ -351,9 +279,16 @@ export async function GET(request: NextRequest) {
       try {
         // Determine which provider this order used (default to sykes for backward compatibility)
         const orderProvider = order.provider || "sykes"
-        const providerMap = orderProvider === "datakazina" ? datakazinaOrderMap : sykesOrderMap
 
-        // Look up this order in the appropriate provider's map
+        // Skip DataKazina sync to reduce rate limits as requested. 
+        // DataKazina relies on webhooks or manual status checks.
+        if (orderProvider === "datakazina") {
+          continue
+        }
+
+        const providerMap = sykesOrderMap
+
+        // Look up this order in the Sykes provider's map
         const mtnOrderIdStr = String(order.mtn_order_id)
         let providerOrder = providerMap.get(mtnOrderIdStr)
 

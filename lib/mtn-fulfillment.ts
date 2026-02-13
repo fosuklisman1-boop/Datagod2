@@ -30,6 +30,18 @@ export interface MTNOrderResponse {
   provider?: string // Which provider was used: "sykes" or "datakazina"
 }
 
+export interface DataKazinaWebhookPayload {
+  status: string
+  transaction_id?: string
+  id?: string
+  reference?: string
+  message?: string
+  recipient_msisdn?: string
+  amount?: string
+  incoming_api_ref?: string
+  timestamp?: string
+}
+
 export interface MTNWebhookPayload {
   event: string
   timestamp: string
@@ -814,6 +826,104 @@ export async function updateMTNOrderFromWebhook(
 }
 
 /**
+ * Update DataKazina order status from webhook payload
+ */
+export async function updateDataKazinaOrderFromPayload(
+  payload: DataKazinaWebhookPayload
+): Promise<boolean> {
+  try {
+    const mtnOrderId = payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref
+
+    if (!mtnOrderId) {
+      console.error("[MTN] DataKazina webhook missing transaction ID", payload)
+      return false
+    }
+
+    // Map API status to our status
+    const apiStatus = String(payload.status || "").toLowerCase().trim()
+    let newStatus: "pending" | "processing" | "completed" | "failed" = "pending"
+
+    if (["completed", "success", "successful", "delivered", "done"].includes(apiStatus)) {
+      newStatus = "completed"
+    } else if (["failed", "error", "cancelled", "rejected"].includes(apiStatus)) {
+      newStatus = "failed"
+    } else if (["processing", "in_progress", "queued", "pending_delivery"].includes(apiStatus)) {
+      newStatus = "processing"
+    }
+
+    // Update tracking table
+    const { error: trackingError } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .update({
+        status: newStatus,
+        external_status: payload.status,
+        external_message: payload.message || `Status: ${payload.status}`,
+        webhook_payload: payload,
+        webhook_received_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("mtn_order_id", String(mtnOrderId))
+
+    if (trackingError) throw trackingError
+
+    // Get the tracking record to update the corresponding order table
+    const { data: tracking } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("shop_order_id, order_id, order_type")
+      .eq("mtn_order_id", String(mtnOrderId))
+      .single()
+
+    if (!tracking) {
+      console.warn(`[MTN] No tracking record found for DataKazina MTN order ${mtnOrderId}`)
+      return false
+    }
+
+    // Update the corresponding order table based on order_type
+    if (tracking.order_type === "bulk" && tracking.order_id) {
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tracking.order_id)
+
+      if (orderError) console.error("[MTN] Error updating bulk order:", orderError)
+    } else if (tracking.shop_order_id) {
+      const { error: shopError } = await supabase
+        .from("shop_orders")
+        .update({
+          order_status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tracking.shop_order_id)
+
+      if (shopError) console.error("[MTN] Error updating shop order:", shopError)
+    }
+
+    // Add fulfillment log
+    const { error: logError } = await supabase
+      .from("fulfillment_logs")
+      .insert({
+        order_id: tracking.shop_order_id || tracking.order_id,
+        order_type: tracking.order_type || "shop",
+        status: newStatus,
+        external_api: "DataKazina",
+        external_order_id: String(mtnOrderId),
+        external_response: payload,
+        notes: payload.message || `Webhook status: ${payload.status}`,
+      })
+
+    if (logError) console.error("[MTN] Error creating fulfillment log:", logError)
+
+    return true
+  } catch (error) {
+    console.error("[MTN] Error updating DataKazina order from webhook:", error)
+    return false
+  }
+}
+
+/**
  * Retry failed MTN order (with exponential backoff)
  */
 export async function retryMTNOrder(
@@ -937,6 +1047,7 @@ export async function retryMTNOrder(
     return false
   }
 }
+
 
 /**
  * Get retry backoff time in milliseconds based on attempt number
