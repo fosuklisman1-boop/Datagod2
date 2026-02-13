@@ -70,30 +70,31 @@ export async function GET(request: NextRequest) {
             shopQuery = shopQuery.ilike("network", `%${network}%`)
         }
 
+        // Helper function to fetch ALL records in batches
+        async function fetchAll(queryBuilder: any) {
+            let results: any[] = []
+            let from = 0
+            const step = 1000
+            while (true) {
+                const { data, error } = await queryBuilder.range(from, from + step - 1)
+                if (error) throw error
+                if (!data || data.length === 0) break
+                results = [...results, ...data]
+                if (data.length < step) break
+                from += step
+            }
+            return results
+        }
+
         // Execute Queries in Parallel
         console.log('[ORDER-HISTORY] Executing queries...')
         console.log('[ORDER-HISTORY] Date range:', dateFrom, 'to', dateTo)
         console.log('[ORDER-HISTORY] Network filter:', network)
 
-        const [bulkRes, shopRes] = await Promise.all([
-            bulkQuery.order("created_at", { ascending: false }).limit(5000),
-            shopQuery.order("created_at", { ascending: false }).limit(5000)
+        const [bulkOrders, shopOrders] = await Promise.all([
+            fetchAll(bulkQuery.order("created_at", { ascending: false })),
+            fetchAll(shopQuery.order("created_at", { ascending: false }))
         ])
-
-        console.log('[ORDER-HISTORY] Bulk query result:', bulkRes.error ? 'ERROR' : `${bulkRes.data?.length || 0} rows`)
-        console.log('[ORDER-HISTORY] Shop query result:', shopRes.error ? 'ERROR' : `${shopRes.data?.length || 0} rows`)
-
-        if (bulkRes.error) {
-            console.error('[ORDER-HISTORY] Bulk orders query error:', bulkRes.error)
-            throw new Error(`Bulk orders query failed: ${bulkRes.error.message}`)
-        }
-        if (shopRes.error) {
-            console.error('[ORDER-HISTORY] Shop orders query error:', shopRes.error)
-            throw new Error(`Shop orders query failed: ${shopRes.error.message}`)
-        }
-
-        const bulkOrders = bulkRes.data || []
-        const shopOrders = shopRes.data || []
 
         // Combine and Normalize
         const allOrders = [

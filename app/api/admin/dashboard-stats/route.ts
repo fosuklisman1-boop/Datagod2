@@ -15,25 +15,32 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY || ""
     )
 
+    // Helper function to fetch ALL records in batches
+    async function fetchAll(queryBuilder: any) {
+      let results: any[] = []
+      let from = 0
+      const step = 1000
+      while (true) {
+        const { data, error } = await queryBuilder.range(from, from + step - 1)
+        if (error) throw error
+        if (!data || data.length === 0) break
+        results = [...results, ...data]
+        if (data.length < step) break
+        from += step
+      }
+      return results
+    }
+
     // Get total users count
     const { count: totalUsers, error: usersError } = await supabase
       .from("users")
       .select("id", { count: "exact", head: true })
 
-    // Get all users with wallet and profit balances
-    const { data: usersData, error: usersBalanceError } = await supabase
-      .from("users")
-      .select("id")
+    // Get all wallet balances using recursive fetch
+    const wallets = await fetchAll(supabase.from("wallets").select("user_id, balance"))
 
-    // Get wallet balances
-    const { data: wallets, error: walletsError } = await supabase
-      .from("wallets")
-      .select("user_id, balance")
-
-    // Get shop available balances (profit balances)
-    const { data: shopBalances, error: shopBalancesError } = await supabase
-      .from("shop_available_balance")
-      .select("shop_id, available_balance")
+    // Get all shop available balances using recursive fetch
+    const shopBalances = await fetchAll(supabase.from("shop_available_balance").select("shop_id, available_balance"))
 
     // Calculate total wallet balance
     let totalWalletBalance = 0
@@ -44,10 +51,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get shop owners to calculate profit balance per user
-    const { data: shops, error: shopsDataError } = await supabase
-      .from("user_shops")
-      .select("id, user_id")
+    // Get all shops to calculate profit balance per user using recursive fetch
+    const shops = await fetchAll(supabase.from("user_shops").select("id, user_id"))
 
     // Calculate total profit balance (sum of available_balance from shop_available_balance)
     let totalProfitBalance = 0

@@ -16,11 +16,11 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.replace("Bearer ", "")
-    
+
     // Verify token and get user
     const userSupabase = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
     const { data: { user }, error: authError } = await userSupabase.auth.getUser(token)
-    
+
     if (authError || !user) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 })
     }
@@ -57,38 +57,54 @@ export async function GET(request: NextRequest) {
 
     const subAgentShopIds = subAgentShops.map(sa => sa.id)
 
+    // Helper function to fetch ALL records in batches
+    async function fetchAll(queryBuilder: any) {
+      let results: any[] = []
+      let from = 0
+      const step = 1000
+      while (true) {
+        const { data, error } = await queryBuilder.range(from, from + step - 1)
+        if (error) throw error
+        if (!data || data.length === 0) break
+        results = [...results, ...data]
+        if (data.length < step) break
+        from += step
+      }
+      return results
+    }
+
     // Get ALL orders related to sub-agents:
     // 1. Orders where parent_shop_id = this shop (buy-stock or storefront with parent chain)
     // 2. Orders where shop_id is a sub-agent shop (storefront orders)
     // Then dedupe by order ID to avoid double-counting
 
-    const { data: parentChainOrders, error: parentChainError } = await supabase
-      .from("shop_orders")
-      .select("id, shop_id, total_price, parent_profit_amount")
-      .eq("parent_shop_id", shop.id)
-      .eq("payment_status", "completed")
+    console.log("[SUB-AGENT-STATS] Fetching related orders...")
 
-    if (parentChainError) {
-      console.error("[SUB-AGENT-STATS] Error fetching parent chain orders:", parentChainError)
-    }
+    // Fetch parent chain orders recursively
+    const parentChainOrders = await fetchAll(
+      supabase
+        .from("shop_orders")
+        .select("id, shop_id, total_price, parent_profit_amount")
+        .eq("parent_shop_id", shop.id)
+        .eq("payment_status", "completed")
+    )
 
-    const { data: subAgentShopOrders, error: subAgentShopError } = await supabase
-      .from("shop_orders")
-      .select("id, shop_id, total_price, parent_profit_amount")
-      .in("shop_id", subAgentShopIds)
-      .eq("payment_status", "completed")
-
-    if (subAgentShopError) {
-      console.error("[SUB-AGENT-STATS] Error fetching sub-agent shop orders:", subAgentShopError)
-    }
+    // Fetch sub-agent shop orders recursively
+    const subAgentShopOrders = await fetchAll(
+      supabase
+        .from("shop_orders")
+        .select("id, shop_id, total_price, parent_profit_amount")
+        .in("shop_id", subAgentShopIds)
+        .eq("payment_status", "completed")
+    )
 
     // Combine and dedupe by order ID
     const allOrdersMap = new Map<string, any>()
-    
+
     parentChainOrders?.forEach((order: any) => {
       allOrdersMap.set(order.id, order)
     })
-    
+
     subAgentShopOrders?.forEach((order: any) => {
       allOrdersMap.set(order.id, order)
     })

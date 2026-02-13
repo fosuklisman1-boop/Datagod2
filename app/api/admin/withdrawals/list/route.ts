@@ -10,27 +10,38 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const status = searchParams.get("status") || "pending"
 
-    let query = supabase
+    // Helper function to fetch ALL records in batches
+    async function fetchAll(queryBuilder: any) {
+      let results: any[] = []
+      let from = 0
+      const step = 1000
+      while (true) {
+        const { data, error } = await queryBuilder.range(from, from + step - 1)
+        if (error) throw error
+        if (!data || data.length === 0) break
+        results = [...results, ...data]
+        if (data.length < step) break
+        from += step
+      }
+      return results
+    }
+
+    let baseQuery = supabase
       .from("withdrawal_requests")
       .select("id, shop_id, user_id, amount, fee_amount, net_amount, status, created_at, updated_at, account_details, withdrawal_method, reference_code, rejection_reason")
 
     if (status !== "all") {
-      query = query.eq("status", status)
+      baseQuery = baseQuery.eq("status", status)
     }
 
-    const { data, error } = await query.order("created_at", { ascending: false }).range(0, 9999) // Paginate instead of unlimited
-
-    if (error) {
-      console.error("[WITHDRAWALS-API] Error:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    const data = await fetchAll(baseQuery.order("created_at", { ascending: false }))
 
     console.log(`[WITHDRAWALS-API] Status: ${status}, Count: ${data?.length || 0}`)
 
     // Fetch shop details and available balance for each withdrawal
     if (data && data.length > 0) {
       const shopIds = [...new Set(data.map((w: any) => w.shop_id))]
-      
+
       // Fetch shop details
       const { data: shops, error: shopsError } = await supabase
         .from("user_shops")

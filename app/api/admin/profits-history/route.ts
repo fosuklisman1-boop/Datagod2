@@ -88,14 +88,26 @@ export async function GET(request: NextRequest) {
     let error: any = null
     let count: number | null = null
 
-    if (search) {
-      // Fetch all records in batches for search (to search across all data)
-      let searchOffset = 0
-      const searchLimit = 1000
-      let hasMore = true
+    // Helper function to fetch ALL records in batches
+    async function fetchAll(queryBuilder: any) {
+      let results: any[] = []
+      let from = 0
+      const step = 1000
+      while (true) {
+        const { data, error } = await queryBuilder.range(from, from + step - 1)
+        if (error) throw error
+        if (!data || data.length === 0) break
+        results = [...results, ...data]
+        if (data.length < step) break
+        from += step
+      }
+      return results
+    }
 
-      while (hasMore) {
-        const { data: batchData, error: batchError } = await supabase
+    if (search) {
+      // Fetch all records recursively for search
+      profits = await fetchAll(
+        supabase
           .from("shop_profits")
           .select(`
             id,
@@ -129,23 +141,7 @@ export async function GET(request: NextRequest) {
             )
           `)
           .order("created_at", { ascending: false })
-          .range(searchOffset, searchOffset + searchLimit - 1)
-
-        if (batchError) {
-          error = batchError
-          break
-        }
-
-        if (batchData && batchData.length > 0) {
-          allProfitsForSearch = allProfitsForSearch.concat(batchData)
-          searchOffset += searchLimit
-          hasMore = batchData.length === searchLimit
-        } else {
-          hasMore = false
-        }
-      }
-
-      profits = allProfitsForSearch
+      )
     } else {
       // Apply pagination at database level when not searching
       query = query.range(offset, offset + limit - 1)
@@ -247,33 +243,10 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Calculate stats using aggregate queries to avoid 1000 row limit
-    // Total profit (all statuses)
-    const { data: totalData } = await supabase
-      .from("shop_profits")
-      .select("profit_amount")
-
-    // We need to paginate through all records for accurate stats
-    // Use RPC function or calculate from multiple queries
-    let allProfits: any[] = []
-    let statsOffset = 0
-    const statsLimit = 1000
-    let hasMore = true
-
-    while (hasMore) {
-      const { data: batchData } = await supabase
-        .from("shop_profits")
-        .select("profit_amount, status")
-        .range(statsOffset, statsOffset + statsLimit - 1)
-
-      if (batchData && batchData.length > 0) {
-        allProfits = allProfits.concat(batchData)
-        statsOffset += statsLimit
-        hasMore = batchData.length === statsLimit
-      } else {
-        hasMore = false
-      }
-    }
+    // Calculate stats recursively to ensure all profits are counted
+    const allProfits = await fetchAll(
+      supabase.from("shop_profits").select("profit_amount, status")
+    )
 
     let totalProfit = 0
     let pendingProfit = 0

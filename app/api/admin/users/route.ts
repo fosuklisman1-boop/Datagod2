@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
     // Check if caller is admin - check both user_metadata and the users table
     let isAdmin = callerUser.user_metadata?.role === "admin"
-    
+
     if (!isAdmin) {
       // Also check the users table as a fallback
       const { data: userData, error: userError } = await supabaseClient
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
         .select("role")
         .eq("id", callerUser.id)
         .single()
-      
+
       if (!userError && userData?.role === "admin") {
         isAdmin = true
       }
@@ -76,14 +76,11 @@ export async function GET(req: NextRequest) {
 
     const users = allUsers
 
-    // Get shops info
-    const { data: shops, error: shopsError } = await adminClient
-      .from("user_shops")
-      .select("id, user_id, shop_name, created_at")
-      .order("created_at", { ascending: false })
-      .range(0, 9999) // Paginate instead of unlimited
-
-    if (shopsError) {
+    // Get shops info - paginated
+    let shops: any[] = []
+    try {
+      shops = await fetchAllRecords("user_shops", "id, user_id, shop_name, created_at", (q) => q.order("created_at", { ascending: false }))
+    } catch (shopsError: any) {
       console.error("Error fetching shops:", shopsError)
       return NextResponse.json({ error: shopsError.message }, { status: 400 })
     }
@@ -94,21 +91,21 @@ export async function GET(req: NextRequest) {
       let offset = 0
       const batchSize = 1000
       let hasMore = true
-      
+
       while (hasMore) {
         let query = adminClient
           .from(table)
           .select(selectFields)
           .range(offset, offset + batchSize - 1)
-        
+
         if (additionalFilters) {
           query = additionalFilters(query)
         }
-        
+
         const { data, error } = await query
-        
+
         if (error) throw error
-        
+
         if (data && data.length > 0) {
           allRecords = allRecords.concat(data)
           offset += batchSize
@@ -117,7 +114,7 @@ export async function GET(req: NextRequest) {
           hasMore = false
         }
       }
-      
+
       return allRecords
     }
 
@@ -149,33 +146,7 @@ export async function GET(req: NextRequest) {
     // Get sub-agent counts per parent shop - paginated
     let subAgentCounts: any[] = []
     try {
-      // Fetch all user_shops and filter by parent_shop_id not null
-      let allShopsForSubAgents: any[] = []
-      let subOffset = 0
-      const subBatchSize = 1000
-      let hasMoreSubs = true
-      
-      while (hasMoreSubs) {
-        const { data: batchData, error: batchError } = await adminClient
-          .from("user_shops")
-          .select("parent_shop_id, id")
-          .not("parent_shop_id", "is", null)
-          .range(subOffset, subOffset + subBatchSize - 1)
-        
-        if (batchError) {
-          console.error("Error fetching sub-agent counts:", batchError)
-          break
-        }
-        
-        if (batchData && batchData.length > 0) {
-          allShopsForSubAgents = allShopsForSubAgents.concat(batchData)
-          subOffset += subBatchSize
-          hasMoreSubs = batchData.length === subBatchSize
-        } else {
-          hasMoreSubs = false
-        }
-      }
-      subAgentCounts = allShopsForSubAgents
+      subAgentCounts = await fetchAllRecords("user_shops", "parent_shop_id, id", (q) => q.not("parent_shop_id", "is", null))
     } catch (subAgentError: any) {
       console.error("Error fetching sub-agent counts:", subAgentError)
       // Don't fail - just continue without sub-agent counts
