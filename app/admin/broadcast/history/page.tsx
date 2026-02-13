@@ -98,29 +98,48 @@ export default function MessagingHistoryPage() {
 
             if (!session?.access_token) {
                 toast.error("Unauthorized: Please log in again")
+                setLoading(false)
                 return
             }
 
-            const response = await fetch("/api/admin/broadcast/retry", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${session.access_token}`
-                },
-                body: JSON.stringify({ broadcastId })
-            })
+            let hasMore = true
+            let totalRetried = 0
 
-            const result = await response.json()
+            while (hasMore) {
+                const response = await fetch("/api/admin/broadcast/retry", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({ broadcastId, limit: 20 })
+                })
 
-            if (!response.ok) {
-                toast.error(result.error || "Retry failed")
-            } else {
-                toast.success(`Retried ${result.retriedCount} messages`)
-                loadData()
+                const result = await response.json()
+
+                if (!response.ok) {
+                    toast.error(result.error || "Retry failed")
+                    hasMore = false
+                } else {
+                    totalRetried += result.retriedCount
+                    hasMore = result.hasMore
+
+                    if (hasMore) {
+                        toast.loading(`Processing... ${totalRetried} sent, ${result.remainingCount} remaining`, { id: 'retry-toast' })
+                        // Wait a bit before next chunk
+                        await new Promise(r => setTimeout(r, 500))
+                    } else {
+                        toast.success(`Successfully retried ${totalRetried} messages`, { id: 'retry-toast' })
+                    }
+                }
             }
+
+            // Only reload if we actually did something
+            if (totalRetried > 0) loadData()
+
         } catch (error) {
             console.error("Retry error:", error)
-            toast.error("Failed to improved broadcast")
+            toast.error("Failed to execute retry")
         } finally {
             setLoading(false)
         }

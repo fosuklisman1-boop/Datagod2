@@ -594,7 +594,48 @@ export const adminMessagingService = {
       .order("created_at", { ascending: false })
 
     if (error) throw error
-    return data
+
+    // Fetch dynamic counts for robustness (in case initial send crashed)
+    const enrichedData = await Promise.all(data.map(async (log) => {
+      // Only fetch counts if we suspect data might be stale or missing, 
+      // OR just do it for all to be safe. Let's do it for all to ensure accuracy.
+      // Optimization: Could do this in one big query if we had a view, but loop is fine for < 100 logs.
+
+      const [emailStats, smsStats] = await Promise.all([
+        supabase.from("email_logs")
+          .select("status", { count: 'exact', head: false })
+          .eq("reference_id", log.id),
+        supabase.from("sms_logs")
+          .select("status", { count: 'exact', head: false })
+          .eq("reference_id", log.id)
+      ])
+
+      // Calculate counts from raw logs
+      const emailSent = emailStats.data?.filter(l => l.status === 'sent').length || 0
+      const emailFailed = emailStats.data?.filter(l => l.status === 'failed').length || 0
+      const smsSent = smsStats.data?.filter(l => l.status === 'sent').length || 0
+      const smsFailed = smsStats.data?.filter(l => l.status === 'failed').length || 0
+
+      // Use dynamic counts if they exist (and are different/better), or fallback/merge
+      // Actually, let's trust the logs table as the source of truth if it has data
+      const hasLogs = (emailSent + emailFailed + smsSent + smsFailed) > 0
+
+      if (hasLogs) {
+        return {
+          ...log,
+          results: {
+            ...log.results,
+            email: { sent: emailSent, failed: emailFailed },
+            sms: { sent: smsSent, failed: smsFailed },
+            total: emailSent + emailFailed + smsSent + smsFailed
+          }
+        }
+      }
+
+      return log
+    }))
+
+    return enrichedData
   },
 
   async getEmailLogs(limit = 100) {
