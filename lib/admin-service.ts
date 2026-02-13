@@ -589,7 +589,7 @@ export const adminMessagingService = {
       .from("broadcast_logs")
       .select(`
         *,
-        admin:admin_id(id, first_name, email)
+        admin:users!admin_id(id, first_name, email)
       `)
       .order("created_at", { ascending: false })
 
@@ -602,7 +602,7 @@ export const adminMessagingService = {
       .from("email_logs")
       .select(`
         *,
-        user:user_id(id, first_name, phone_number)
+        user:users!user_id(id, first_name, phone_number)
       `)
       .order("created_at", { ascending: false })
       .limit(limit)
@@ -616,7 +616,7 @@ export const adminMessagingService = {
       .from("sms_logs")
       .select(`
         *,
-        user:user_id(id, first_name, email)
+        user:users!user_id(id, first_name, email)
       `)
       .order("created_at", { ascending: false })
       .limit(limit)

@@ -597,6 +597,24 @@ export const EmailTemplates = {
        <a href="${APP_URL}/dashboard/subscription" class="button-primary">Renew Now</a>
     `, "Subscription Alert", true),
   }),
+
+  // Broadcast Message Template
+  broadcastMessage: (subject: string, message: string) => ({
+    subject: subject,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">📢</span>
+        <h2>${subject}</h2>
+        <span class="badge badge-warning">Announcement</span>
+      </div>
+
+      <div class="info-card">
+        <div style="font-size: 15px; color: #374151; white-space: pre-wrap;">${message.replace(/\n\n/g, '<br><br>')}</div>
+      </div>
+
+      <a href="${APP_URL}/dashboard" class="button-primary">Go to Dashboard</a>
+    `, "Official Announcement", true),
+  }),
 }
 
 /**

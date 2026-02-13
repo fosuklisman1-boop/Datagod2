@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
-import { sendEmail } from "@/lib/email-service"
+import { sendEmail, EmailTemplates } from "@/lib/email-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -112,10 +112,12 @@ export async function POST(req: NextRequest) {
 
                 if (channels.includes("email") && user.email) {
                     try {
+                        const emailData = EmailTemplates.broadcastMessage(subject || "Notification from DataGod", message)
+
                         const res = await sendEmail({
                             to: [{ email: user.email, name: user.first_name || "User" }],
-                            subject: subject || "Notification from DataGod",
-                            htmlContent: message.replace(/\n/g, "<br>"),
+                            subject: emailData.subject,
+                            htmlContent: emailData.html,
                             userId: user.id,
                             type: "broadcast",
                             referenceId: broadcastLog?.id
