@@ -91,6 +91,31 @@ export default function MessagingHistoryPage() {
         }
     }
 
+    const handleRetry = async (broadcastId: string) => {
+        try {
+            setLoading(true)
+            const response = await fetch("/api/admin/broadcast/retry", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ broadcastId })
+            })
+
+            const result = await response.json()
+
+            if (!response.ok) {
+                toast.error(result.error || "Retry failed")
+            } else {
+                toast.success(`Retried ${result.retriedCount} messages`)
+                loadData()
+            }
+        } catch (error) {
+            console.error("Retry error:", error)
+            toast.error("Failed to improved broadcast")
+        } finally {
+            setLoading(false)
+        }
+    }
+
     if (loading) {
         return (
             <DashboardLayout>
@@ -154,7 +179,22 @@ export default function MessagingHistoryPage() {
                                         <CardHeader className="bg-gradient-to-r from-pink-50 to-white pb-3">
                                             <div className="flex justify-between items-start">
                                                 <div>
-                                                    <Badge variant="outline" className="mb-2 bg-white">{log.status}</Badge>
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <Badge variant="outline" className="bg-white">{log.status}</Badge>
+                                                        {((log.results?.email?.failed > 0) || (log.results?.sms?.failed > 0)) && (
+                                                            <Button
+                                                                variant="destructive"
+                                                                size="sm"
+                                                                className="h-6 text-xs"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    handleRetry(log.id)
+                                                                }}
+                                                            >
+                                                                Retry Failed ({(log.results?.email?.failed || 0) + (log.results?.sms?.failed || 0)})
+                                                            </Button>
+                                                        )}
+                                                    </div>
                                                     <CardTitle className="text-lg">{log.subject || 'System Notification'}</CardTitle>
                                                     <CardDescription className="flex items-center gap-2 mt-1">
                                                         <Clock className="w-3 h-3" />
@@ -181,14 +221,24 @@ export default function MessagingHistoryPage() {
                                                         <p className="text-[10px] text-blue-600 font-bold uppercase mb-1">Email Delivery</p>
                                                         <div className="flex justify-between items-end">
                                                             <span className="text-xl font-bold text-blue-700">{log.results?.email?.sent || 0}</span>
-                                                            <span className="text-xs text-blue-400">Sent Sukses</span>
+                                                            <div className="text-right">
+                                                                <span className="text-xs text-blue-400 block">Sent Sukses</span>
+                                                                {log.results?.email?.failed > 0 && (
+                                                                    <span className="text-xs text-red-500 font-bold block">{log.results?.email?.failed} Failed</span>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div className="p-3 bg-emerald-50/50 rounded-lg border border-emerald-100">
                                                         <p className="text-[10px] text-emerald-600 font-bold uppercase mb-1">SMS Delivery</p>
                                                         <div className="flex justify-between items-end">
                                                             <span className="text-xl font-bold text-emerald-700">{log.results?.sms?.sent || 0}</span>
-                                                            <span className="text-xs text-emerald-400">Delivered</span>
+                                                            <div className="text-right">
+                                                                <span className="text-xs text-emerald-400 block">Delivered</span>
+                                                                {log.results?.sms?.failed > 0 && (
+                                                                    <span className="text-xs text-red-500 font-bold block">{log.results?.sms?.failed} Failed</span>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>

@@ -729,7 +729,37 @@ async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boo
     }
 
     console.log(`[Resend] 📧 About to call resendClient.emails.send()...`)
-    const { data, error } = await resendClient.emails.send(emailData)
+
+    let attempts = 0
+    const maxRetries = 3
+    let data: any = null
+    let error: any = null
+
+    while (attempts < maxRetries) {
+      try {
+        const res = await resendClient.emails.send(emailData)
+        data = res.data
+        error = res.error
+
+        if (error && error.statusCode === 429) {
+          console.warn(`[Resend] 429 Rate Limit Hit. Retrying in ${(attempts + 1) * 1000}ms...`)
+          await new Promise(resolve => setTimeout(resolve, (attempts + 1) * 1000))
+          attempts++
+          continue
+        }
+
+        break // Success or non-429 error
+      } catch (e: any) {
+        if (e.statusCode === 429 || e.message?.includes('429')) {
+          console.warn(`[Resend] 429 Rate Limit Hit (Exception). Retrying...`)
+          await new Promise(resolve => setTimeout(resolve, (attempts + 1) * 1000))
+          attempts++
+        } else {
+          throw e // Re-throw other errors
+        }
+      }
+    }
+
     console.log(`[Resend] API Response - data:`, data)
     console.log(`[Resend] API Response - error:`, error)
 

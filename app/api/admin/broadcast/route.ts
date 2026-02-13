@@ -89,9 +89,14 @@ export async function POST(req: NextRequest) {
         }
 
         // Process in small batches to avoid timeouts and rate limits
-        const batchSize = 10
+        const batchSize = 5
         for (let i = 0; i < targetUsers.length; i += batchSize) {
             const batch = targetUsers.slice(i, i + batchSize)
+
+            // Add delay between batches to respect rate limits (e.g. Resend varies but 5-10/sec is safe max)
+            if (i > 0) {
+                await new Promise(resolve => setTimeout(resolve, 1000))
+            }
 
             await Promise.all(batch.map(async (user) => {
                 if (channels.includes("sms") && user.phone_number) {
