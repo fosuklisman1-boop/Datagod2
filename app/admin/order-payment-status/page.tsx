@@ -53,6 +53,12 @@ export default function OrderPaymentStatusPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [searchType, setSearchType] = useState<"all" | "reference" | "phone">("all")
 
+  // Pagination state
+  const [offset, setOffset] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [totalOrdersCount, setTotalOrdersCount] = useState(0)
+  const PAGE_SIZE = 50
+
   // Bulk update state
   const [showBulkUpdate, setShowBulkUpdate] = useState(false)
   const [bulkDate, setBulkDate] = useState("")
@@ -66,15 +72,11 @@ export default function OrderPaymentStatusPage() {
   useEffect(() => {
     if (isAdmin && !adminLoading) {
       loadAutoFulfillmentSetting()
-      loadAllOrders()
+      // Initial load or search reset
+      setOffset(0)
+      loadAllOrders(0, false)
     }
-  }, [isAdmin, adminLoading])
-
-  useEffect(() => {
-    if (isAdmin) {
-      loadAllOrders()
-    }
-  }, [searchQuery, searchType, isAdmin])
+  }, [searchQuery, searchType, isAdmin, adminLoading])
 
   const loadAutoFulfillmentSetting = async () => {
     try {
@@ -106,16 +108,18 @@ export default function OrderPaymentStatusPage() {
     }
   }
 
-  const loadAllOrders = async () => {
+  const loadAllOrders = async (currentOffset: number = 0, isLoadMore: boolean = false) => {
     try {
       setLoadingAllOrders(true)
-      console.log("Fetching all orders with search...")
+      console.log(`[PAYMENT-STATUS] Fetching orders. Offset: ${currentOffset}, LoadMore: ${isLoadMore}`)
 
       const params = new URLSearchParams()
       if (searchQuery) {
         params.append("search", searchQuery)
         params.append("searchType", searchType)
       }
+      params.append("limit", PAGE_SIZE.toString())
+      params.append("offset", currentOffset.toString())
 
       const response = await fetch(`/api/admin/orders/all?${params.toString()}`)
 
@@ -125,8 +129,16 @@ export default function OrderPaymentStatusPage() {
       }
 
       const result = await response.json()
-      console.log("Fetched all orders:", result.count)
-      setAllOrders(result.data || [])
+      console.log("[PAYMENT-STATUS] Fetched orders items:", result.data?.length, "Total:", result.count)
+
+      if (isLoadMore) {
+        setAllOrders(prev => [...prev, ...(result.data || [])])
+      } else {
+        setAllOrders(result.data || [])
+      }
+
+      setTotalOrdersCount(result.count || 0)
+      setHasMore(result.pagination?.hasMore || false)
     } catch (error) {
       console.error("Error loading all orders:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load all orders"
@@ -134,6 +146,12 @@ export default function OrderPaymentStatusPage() {
     } finally {
       setLoadingAllOrders(false)
     }
+  }
+
+  const handleLoadMore = () => {
+    const nextOffset = offset + PAGE_SIZE
+    setOffset(nextOffset)
+    loadAllOrders(nextOffset, true)
   }
 
   const handleStatusUpdate = async (orderId: string, orderType: string, newStatus: string) => {
@@ -699,7 +717,7 @@ export default function OrderPaymentStatusPage() {
             <CardHeader>
               <CardTitle>Order Results</CardTitle>
               <CardDescription>
-                Showing {allOrders.length} order{allOrders.length !== 1 ? "s" : ""}
+                Showing {allOrders.length} of {totalOrdersCount} order{totalOrdersCount !== 1 ? "s" : ""}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -772,7 +790,9 @@ export default function OrderPaymentStatusPage() {
                                 ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                                 : order.status === "processing"
                                   ? "bg-blue-100 text-blue-800 border-blue-200"
-                                  : "bg-red-100 text-red-800 border-red-200"
+                                  : order.status === "failed"
+                                    ? "bg-red-100 text-red-800 border-red-200"
+                                    : "bg-gray-100 text-gray-800 border-gray-200"
                               }`}
                           >
                             {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
@@ -830,6 +850,36 @@ export default function OrderPaymentStatusPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Load More Button */}
+              {hasMore && (
+                <div className="mt-6 flex justify-center pb-8">
+                  <Button
+                    variant="outline"
+                    onClick={handleLoadMore}
+                    disabled={loadingAllOrders}
+                    className="w-full max-w-xs border-blue-200 hover:bg-blue-50 text-blue-700 font-semibold"
+                  >
+                    {loadingAllOrders ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Loading more...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 mr-2" />
+                        Load More Orders
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {!hasMore && allOrders.length > 0 && (
+                <p className="text-center text-gray-400 text-xs mt-6 pb-8">
+                  No more orders to display
+                </p>
+              )}
             </CardContent>
           </Card>
         )}

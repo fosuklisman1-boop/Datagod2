@@ -26,216 +26,58 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const searchQuery = searchParams.get("search") || ""
     const searchType = searchParams.get("searchType") || "all" // "all", "reference", "phone"
+    const limit = parseInt(searchParams.get("limit") || "50")
+    const offset = parseInt(searchParams.get("offset") || "0")
 
-    console.log(`Fetching all orders with search: "${searchQuery}" (type: ${searchType})`)
+    console.log(`[ALL-ORDERS] Fetching orders. Search: "${searchQuery}" (type: ${searchType}), Limit: ${limit}, Offset: ${offset}`)
 
-    // Fetch all bulk orders (any status) with pagination
-    let bulkOrdersQuery = supabase
-      .from("orders")
-      .select("id, created_at, phone_number, price, status, size, network, transaction_code, order_code")
+    // Use the unified view for high-performance pagination and search
+    let query = supabase
+      .from("combined_orders_view")
+      .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
 
     // Apply search filter to DB query if present
     if (searchQuery) {
       const q = searchQuery.trim()
       if (searchType === "phone") {
-        bulkOrdersQuery = bulkOrdersQuery.ilike("phone_number", `%${q}%`)
+        query = query.ilike("phone_number", `%${q}%`)
       } else if (searchType === "reference") {
-        bulkOrdersQuery = bulkOrdersQuery.or(`transaction_code.ilike.%${q}%,order_code.ilike.%${q}%`)
+        query = query.ilike("payment_reference", `%${q}%`)
       } else {
         // all
-        bulkOrdersQuery = bulkOrdersQuery.or(`phone_number.ilike.%${q}%,transaction_code.ilike.%${q}%,order_code.ilike.%${q}%`)
+        query = query.or(`phone_number.ilike.%${q}%,payment_reference.ilike.%${q}%,customer_email.ilike.%${q}%,store_name.ilike.%${q}%`)
       }
     }
 
-    // Helper function to fetch in batches to bypass Supabase/PostgREST 1000-row limit
-    async function fetchInBatches(queryBuilder: any) {
-      let results: any[] = []
-      let from = 0
-      const step = 1000
+    // Apply pagination
+    const { data, error, count } = await query.range(offset, offset + limit - 1)
 
-      while (true) {
-        const { data, error } = await queryBuilder.range(from, from + step - 1)
-        if (error) throw error
-        if (!data || data.length === 0) break
-        results = [...results, ...data]
-        if (data.length < step) break
-        from += step
-      }
-      return results
+    if (error) {
+      console.error("[ALL-ORDERS] Query Error:", error)
+      throw error
     }
 
-    // Fetch bulk orders
-    let bulkOrders: any[] = []
-    try {
-      bulkOrders = await fetchInBatches(bulkOrdersQuery)
-      console.log(`Found ${bulkOrders.length} bulk orders`)
-    } catch (err: any) {
-      console.error("Error fetching bulk orders:", err)
-      throw new Error(`Failed to fetch bulk orders: ${err.message}`)
-    }
+    const totalCount = count || 0
+    const hasMore = offset + limit < totalCount
 
-    // Fetch all shop orders (any status) with pagination
-    let shopOrdersQuery = supabase
-      .from("shop_orders")
-      .select(`
-        id,
-        created_at,
-        customer_phone,
-        customer_email,
-        total_price,
-        order_status,
-        volume_gb,
-        network,
-        reference_code,
-        payment_status,
-        transaction_id,
-        shop_id,
-        user_shops!shop_id (
-          shop_name,
-          user_id
-        )
-      `)
-      .order("created_at", { ascending: false })
-
-    if (searchQuery) {
-      const q = searchQuery.trim()
-      if (searchType === "phone") {
-        shopOrdersQuery = shopOrdersQuery.ilike("customer_phone", `%${q}%`)
-      } else if (searchType === "reference") {
-        shopOrdersQuery = shopOrdersQuery.or(`transaction_id.ilike.%${q}%,reference_code.ilike.%${q}%`)
-      } else {
-        shopOrdersQuery = shopOrdersQuery.or(`customer_phone.ilike.%${q}%,transaction_id.ilike.%${q}%,reference_code.ilike.%${q}%`)
-      }
-    }
-
-    // Use eq filter and then batch fetch
-    shopOrdersQuery = shopOrdersQuery.eq("payment_status", "completed")
-
-    let shopOrdersData: any[] = []
-    try {
-      shopOrdersData = await fetchInBatches(shopOrdersQuery)
-      console.log(`Found ${shopOrdersData.length} shop orders`)
-    } catch (err: any) {
-      console.error("Error fetching shop orders:", err)
-      throw new Error(`Failed to fetch shop orders: ${err.message}`)
-    }
-
-    // Get shop owner emails from auth.users table
-    const userIds = [...new Set((shopOrdersData || []).map((o: any) => o.user_shops?.user_id).filter(Boolean))]
-    let userEmails: { [key: string]: string } = {}
-
-    if (userIds.length > 0) {
-      const { data: authUsers } = await supabase.auth.admin.listUsers()
-      if (authUsers?.users) {
-        userEmails = Object.fromEntries(
-          authUsers.users
-            .filter(u => userIds.includes(u.id))
-            .map(u => [u.id, u.email || "-"])
-        )
-      }
-    }
-
-    // Fetch wallet payments to get Paystack references with pagination
-    let walletQuery = supabase
-      .from("wallet_payments")
-      .select(`
-        id,
-        reference,
-        user_id,
-        created_at,
-        status,
-        amount,
-        fee,
-        shop_id,
-        order_id
-      `)
-      .eq("status", "completed")
-      .order("created_at", { ascending: false })
-
-    if (searchQuery) {
-      const q = searchQuery.trim()
-      if (searchType === "reference" || searchType === "all") {
-        walletQuery = walletQuery.ilike("reference", `%${q}%`)
-      } else if (searchType === "phone") {
-        walletQuery = walletQuery.eq("id", -1)
-      }
-    }
-
-    let walletPayments: any[] = []
-    try {
-      walletPayments = await fetchInBatches(walletQuery)
-      console.log(`Found ${walletPayments.length} wallet payments`)
-    } catch (err: any) {
-      console.error("Error fetching wallet payments:", err)
-      // Wallet payments are usually less critical, but we log the error
-    }
-
-    // Format bulk orders
-    const formattedBulkOrders = (bulkOrders || []).map((order: any) => ({
-      id: order.id,
-      type: "bulk",
-      phone_number: order.phone_number,
-      network: normalizeNetwork(order.network),
-      volume_gb: order.size,
-      price: order.price,
-      status: order.status,
-      payment_status: "completed", // Bulk orders are paid via wallet balance at order creation
-      payment_reference: order.transaction_code || order.order_code || "-",
-      created_at: order.created_at,
-    }))
-
-    // Format shop orders
-    const formattedShopOrders = (shopOrdersData || []).map((order: any) => ({
-      id: order.id,
-      type: "shop",
-      phone_number: order.customer_phone || "-",
-      customer_email: order.customer_email || "-",
-      shop_owner_email: userEmails[order.user_shops?.user_id] || "-",
-      store_name: order.user_shops?.shop_name || "-",
-      network: normalizeNetwork(order.network),
-      volume_gb: order.volume_gb,
-      price: order.total_price,
-      status: order.order_status,
-      payment_status: order.payment_status,
-      payment_reference: order.transaction_id || order.reference_code || "-",
-      created_at: order.created_at,
-    }))
-
-    // Format wallet payments (for tracking Paystack payments)
-    const formattedWalletPayments = (walletPayments || []).map((payment: any) => ({
-      id: payment.id,
-      type: "wallet_payment",
-      phone_number: "-", // Wallet payments don't have direct phone reference
-      network: "Wallet Top-up",
-      volume_gb: 0,
-      price: payment.amount,
-      status: payment.status,
-      payment_status: "completed", // Wallet orders are always completed instantly
-      payment_reference: payment.reference || "-",
-      created_at: payment.created_at,
-    }))
-
-    // Combine all orders and sort by created_at (newest first)
-    let allOrders = [...formattedBulkOrders, ...formattedShopOrders, ...formattedWalletPayments]
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-
-    // Apply search filter
-    // Note: Search filtering is now done at the database level for performance and accuracy across the entire dataset.
-    // The previous in-memory filtering code has been removed.
-
-    console.log(`Returning ${allOrders.length} filtered orders`)
+    console.log(`[ALL-ORDERS] Returning ${data?.length} orders from view. Total: ${totalCount}`)
 
     return NextResponse.json({
       success: true,
-      count: allOrders.length,
-      data: allOrders,
+      data: data || [],
+      count: totalCount,
+      pagination: {
+        total: totalCount,
+        limit,
+        offset,
+        hasMore
+      }
     })
   } catch (error) {
     console.error("Error in GET /api/admin/orders/all:", error)
-    const errorMessage = "Failed to load orders. Please try again."
     return NextResponse.json(
-      { error: errorMessage },
+      { error: "Failed to load orders. Please try again." },
       { status: 500 }
     )
   }
