@@ -32,10 +32,56 @@ export async function GET(request: NextRequest) {
     console.log(`[ALL-ORDERS] Fetching orders. Search: "${searchQuery}" (type: ${searchType}), Limit: ${limit}, Offset: ${offset}`)
 
     // Use the unified view for high-performance pagination and search
+    // Explicitly select columns to ensure consistency across view versions
     let query = supabase
       .from("combined_orders_view")
-      .select("*", { count: "exact" })
-      .order("created_at", { ascending: false })
+      .select(`
+        id,
+        created_at,
+        phone_number,
+        price,
+        network,
+        status,
+        payment_status,
+        payment_reference,
+        volume_gb,
+        type,
+        customer_email,
+        store_name,
+        shop_owner_id,
+        shop_owner_email
+      `, { count: "exact" })
+
+    const filterDate = searchParams.get("date")
+    const filterNetwork = searchParams.get("network")
+    const filterStatus = searchParams.get("status")
+    const startTime = searchParams.get("startTime")
+    const endTime = searchParams.get("endTime")
+
+    if (filterDate) {
+      let startStr = `${filterDate}T00:00:00Z`
+      let endStr = `${filterDate}T23:59:59Z`
+
+      if (startTime) {
+        startStr = `${filterDate}T${startTime}:00Z`
+      }
+      if (endTime) {
+        endStr = `${filterDate}T${endTime}:59Z`
+      }
+
+      query = query.gte("created_at", startStr)
+      query = query.lte("created_at", endStr)
+    }
+
+    if (filterNetwork && filterNetwork !== "all" && filterNetwork !== "") {
+      query = query.eq("network", filterNetwork)
+    }
+
+    if (filterStatus && filterStatus !== "all" && filterStatus !== "") {
+      query = query.eq("status", filterStatus)
+    }
+
+    query = query.order("created_at", { ascending: false })
 
     // Apply search filter to DB query if present
     if (searchQuery) {

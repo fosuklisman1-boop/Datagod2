@@ -9,18 +9,58 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
-    const { orderIds, status, orderType } = await request.json()
-
-    if (!orderIds || orderIds.length === 0) {
-      return NextResponse.json(
-        { error: "No order IDs provided" },
-        { status: 400 }
-      )
-    }
+    const { orderIds: providedIds, status, orderType, filters } = await request.json()
+    let orderIds = providedIds || []
 
     if (!status) {
       return NextResponse.json(
         { error: "Status is required" },
+        { status: 400 }
+      )
+    }
+
+    // If filters are provided, fetch IDs from the database (Global Update)
+    if (filters && orderIds.length === 0) {
+      console.log(`[BULK-UPDATE] Fetching IDs from filters:`, filters)
+      let query = supabase
+        .from("combined_orders_view")
+        .select("id")
+
+      if (filters.date) {
+        const date = filters.date // YYYY-MM-DD
+        query = query.gte("created_at", `${date}T00:00:00Z`)
+        query = query.lte("created_at", `${date}T23:59:59Z`)
+      }
+
+      if (filters.network && filters.network !== "all") {
+        query = query.eq("network", filters.network)
+      }
+
+      // Time range filtering if provided
+      if (filters.startTime || filters.endTime) {
+        const date = filters.date || new Date().toISOString().split('T')[0]
+        if (filters.startTime) {
+          query = query.gte("created_at", `${date}T${filters.startTime}:00Z`)
+        }
+        if (filters.endTime) {
+          query = query.lte("created_at", `${date}T${filters.endTime}:59Z`)
+        }
+      }
+
+      // Usually global updates target pending/processing orders
+      if (filters.onlyPending) {
+        query = query.eq("status", "pending")
+      }
+
+      const { data, error } = await query
+      if (error) throw error
+      orderIds = data?.map(o => o.id) || []
+      console.log(`[BULK-UPDATE] Globally found ${orderIds.length} orders matching filters`)
+    }
+
+    if (!orderIds || orderIds.length === 0) {
+      return NextResponse.json(
+        { error: "No orders found matching criteria" },
         { status: 400 }
       )
     }
@@ -78,9 +118,9 @@ export async function POST(request: NextRequest) {
       try {
         const { error: mtnUpdateError } = await supabase
           .from("mtn_fulfillment_tracking")
-          .update({ 
-            status: status, 
-            updated_at: new Date().toISOString() 
+          .update({
+            status: status,
+            updated_at: new Date().toISOString()
           })
           .in("order_id", bulkOrderIds)
 
@@ -149,7 +189,7 @@ export async function POST(request: NextRequest) {
     if (shopOrderIds.length > 0) {
       console.log(`[BULK-UPDATE] Updating ${shopOrderIds.length} shop orders in shop_orders table...`)
       console.log(`[BULK-UPDATE] Setting order_status = "${status}" for IDs:`, shopOrderIds.slice(0, 3).join(", "))
-      
+
       // Before update - verify orders exist
       const { data: beforeUpdate, error: beforeError } = await supabase
         .from("shop_orders")
@@ -206,9 +246,9 @@ export async function POST(request: NextRequest) {
       try {
         const { error: mtnUpdateError } = await supabase
           .from("mtn_fulfillment_tracking")
-          .update({ 
-            status: status, 
-            updated_at: new Date().toISOString() 
+          .update({
+            status: status,
+            updated_at: new Date().toISOString()
           })
           .in("shop_order_id", shopOrderIds)
 
@@ -293,11 +333,11 @@ export async function POST(request: NextRequest) {
         if (profitRecords && profitRecords.length > 0) {
           // Update profit records to "credited"
           const profitIds = profitRecords.map(p => p.id)
-          
+
           // Try to update with updated_at, if column doesn't exist, just update status
           const updatePayload: any = { status: "credited" }
           let profitUpdateError = null
-          
+
           try {
             const result = await supabase
               .from("shop_profits")
@@ -323,7 +363,7 @@ export async function POST(request: NextRequest) {
 
           // Sync available balance for each shop
           const shopIds = [...new Set(profitRecords.map(p => p.shop_id))]
-          
+
           // Batch fetch all profits and withdrawals for all shops at once
           const [profitsResult, withdrawalsResult] = await Promise.all([
             supabase
@@ -378,7 +418,7 @@ export async function POST(request: NextRequest) {
                     .from("shop_available_balance")
                     .delete()
                     .eq("shop_id", shopId)
-                  
+
                   if (deleteResult.error) {
                     console.warn(`[BULK-UPDATE] Warning deleting old balance:`, deleteResult.error)
                   }

@@ -68,6 +68,8 @@ export default function OrderPaymentStatusPage() {
   const [bulkStatus, setBulkStatus] = useState("")
   const [bulkUpdating, setBulkUpdating] = useState(false)
   const [bulkDownloading, setBulkDownloading] = useState(false)
+  const [globalBulkCount, setGlobalBulkCount] = useState<number | null>(null)
+  const [loadingBulkCount, setLoadingBulkCount] = useState(false)
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -77,6 +79,52 @@ export default function OrderPaymentStatusPage() {
       loadAllOrders(0, false)
     }
   }, [searchQuery, searchType, isAdmin, adminLoading])
+
+  // Fetch global count for bulk operations when filters change
+  useEffect(() => {
+    if (showBulkUpdate && bulkDate) {
+      fetchGlobalBulkCount()
+    } else {
+      setGlobalBulkCount(null)
+    }
+  }, [showBulkUpdate, bulkDate, bulkStartTime, bulkEndTime, bulkNetwork])
+
+  const fetchGlobalBulkCount = async () => {
+    if (!bulkDate) return
+
+    try {
+      setLoadingBulkCount(true)
+      const params = new URLSearchParams()
+      params.append("limit", "1")
+      params.append("offset", "0")
+      params.append("date", bulkDate)
+
+      if (bulkNetwork && bulkNetwork !== "all") {
+        params.append("network", bulkNetwork)
+      }
+
+      if (bulkStartTime) {
+        params.append("startTime", bulkStartTime)
+      }
+
+      if (bulkEndTime) {
+        params.append("endTime", bulkEndTime)
+      }
+
+      // Bulk operations typically target pending/processing orders
+      params.append("status", "pending")
+
+      const response = await fetch(`/api/admin/orders/all?${params.toString()}`)
+      if (response.ok) {
+        const result = await response.json()
+        setGlobalBulkCount(result.count || 0)
+      }
+    } catch (error) {
+      console.error("Error fetching bulk count:", error)
+    } finally {
+      setLoadingBulkCount(false)
+    }
+  }
 
   const loadAutoFulfillmentSetting = async () => {
     try {
@@ -129,12 +177,19 @@ export default function OrderPaymentStatusPage() {
       }
 
       const result = await response.json()
-      console.log("[PAYMENT-STATUS] Fetched orders items:", result.data?.length, "Total:", result.count)
+      console.log("[PAYMENT-STATUS] API Response Data Sample:", result.data?.[0])
+
+      // Map data to ensure consistency with different View versions
+      const mappedData = (result.data || []).map((order: any) => ({
+        ...order,
+        status: order.status || order.order_status || "pending",
+        payment_status: order.payment_status || "completed"
+      }))
 
       if (isLoadMore) {
-        setAllOrders(prev => [...prev, ...(result.data || [])])
+        setAllOrders(prev => [...prev, ...mappedData])
       } else {
-        setAllOrders(result.data || [])
+        setAllOrders(mappedData)
       }
 
       setTotalOrdersCount(result.count || 0)
@@ -278,127 +333,52 @@ export default function OrderPaymentStatusPage() {
     try {
       setBulkUpdating(true)
 
-      // Filter orders based on criteria
-      const filteredOrders = allOrders.filter(order => {
-        const orderDate = new Date(order.created_at)
-        const selectedDate = new Date(bulkDate)
-
-        // Check if same day
-        const isSameDay = orderDate.toDateString() === selectedDate.toDateString()
-        if (!isSameDay) return false
-
-        // Check time range if provided
-        if (bulkStartTime || bulkEndTime) {
-          const orderTime = orderDate.getHours() * 60 + orderDate.getMinutes()
-
-          if (bulkStartTime) {
-            const [startHour, startMin] = bulkStartTime.split(':').map(Number)
-            const startTimeMin = startHour * 60 + startMin
-            if (orderTime < startTimeMin) return false
-          }
-
-          if (bulkEndTime) {
-            const [endHour, endMin] = bulkEndTime.split(':').map(Number)
-            const endTimeMin = endHour * 60 + endMin
-            if (orderTime > endTimeMin) return false
-          }
-        }
-
-        // Check network if provided
-        if (bulkNetwork && order.network !== bulkNetwork) return false
-
-        return true
-      })
-
-      if (filteredOrders.length === 0) {
-        toast.error("No orders match the selected criteria")
-        return
-      }
-
-      // Confirm before updating
-      const confirmed = window.confirm(
-        `Update ${filteredOrders.length} order(s) to status "${bulkStatus}"?\n\n` +
-        `Date: ${bulkDate}\n` +
-        `${bulkStartTime || bulkEndTime ? `Time: ${bulkStartTime || '00:00'} - ${bulkEndTime || '23:59'}\n` : ''}` +
-        `${bulkNetwork ? `Network: ${bulkNetwork}\n` : ''}` +
-        `\nThis action cannot be undone.`
-      )
-
-      if (!confirmed) return
-
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
-        toast.error("Authentication required")
+        toast.error("You must be logged in to perform this action")
         return
       }
 
-      // Group by order type
-      const shopOrders = filteredOrders.filter(o => o.type === "shop")
-      const bulkOrders = filteredOrders.filter(o => o.type === "bulk")
+      console.log(`[PAYMENT-STATUS] Triggering Global Bulk Update...`)
 
-      let updatedCount = 0
-
-      // Update shop orders
-      if (shopOrders.length > 0) {
-        const response = await fetch("/api/admin/orders/bulk-update-status", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            orderIds: shopOrders.map(o => o.id),
-            status: bulkStatus,
-            orderType: "shop"
-          })
-        })
-
-        if (response.ok) {
-          updatedCount += shopOrders.length
+      const payload = {
+        status: bulkStatus,
+        filters: {
+          date: bulkDate,
+          startTime: bulkStartTime,
+          endTime: bulkEndTime,
+          network: bulkNetwork,
+          onlyPending: true // Matches the expected flow for manual fulfillment/processing
         }
       }
 
-      // Update bulk orders
-      if (bulkOrders.length > 0) {
-        const response = await fetch("/api/admin/orders/bulk-update-status", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            orderIds: bulkOrders.map(o => o.id),
-            status: bulkStatus,
-            orderType: "bulk"
-          })
-        })
+      const response = await fetch("/api/admin/orders/bulk-update-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(payload)
+      })
 
-        if (response.ok) {
-          updatedCount += bulkOrders.length
-        }
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update orders")
       }
 
-      toast.success(`Successfully updated ${updatedCount} order(s)`)
+      const result = await response.json()
+      toast.success(`Successfully updated ${result.count} orders to ${bulkStatus}`)
 
-      // Update local state
-      setAllOrders(prev => prev.map(order => {
-        if (filteredOrders.some(fo => fo.id === order.id)) {
-          return { ...order, status: bulkStatus }
-        }
-        return order
-      }))
-
-      // Reset bulk update form
-      setBulkDate("")
-      setBulkStartTime("")
-      setBulkEndTime("")
-      setBulkNetwork("")
-      setBulkStatus("")
+      // Refresh data
+      setOffset(0)
+      loadAllOrders(0, false)
       setShowBulkUpdate(false)
 
+      // Reset form
+      setBulkStatus("")
     } catch (error) {
-      console.error("Error bulk updating orders:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to bulk update orders")
+      console.error("[PAYMENT-STATUS] Bulk update error:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update orders")
     } finally {
       setBulkUpdating(false)
     }
@@ -413,85 +393,64 @@ export default function OrderPaymentStatusPage() {
     try {
       setBulkDownloading(true)
 
-      // Filter orders based on criteria (same as bulk update)
-      const filteredOrders = allOrders.filter(order => {
-        const orderDate = new Date(order.created_at)
-        const selectedDate = new Date(bulkDate)
-
-        // Check if same day
-        const isSameDay = orderDate.toDateString() === selectedDate.toDateString()
-        if (!isSameDay) return false
-
-        // Check time range if provided
-        if (bulkStartTime || bulkEndTime) {
-          const orderTime = orderDate.getHours() * 60 + orderDate.getMinutes()
-
-          if (bulkStartTime) {
-            const [startHour, startMin] = bulkStartTime.split(':').map(Number)
-            const startTimeMin = startHour * 60 + startMin
-            if (orderTime < startTimeMin) return false
-          }
-
-          if (bulkEndTime) {
-            const [endHour, endMin] = bulkEndTime.split(':').map(Number)
-            const endTimeMin = endHour * 60 + endMin
-            if (orderTime > endTimeMin) return false
-          }
-        }
-
-        // Check network if provided
-        if (bulkNetwork && order.network !== bulkNetwork) return false
-
-        // Only include shop and bulk orders (not wallet top-ups) for fulfillment download
-        if (order.type !== "shop" && order.type !== "bulk") return false
-
-        return true
-      })
-
-      if (filteredOrders.length === 0) {
-        toast.error("No orders match the selected criteria")
-        return
-      }
-
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
-        toast.error("Authentication required")
+        toast.error("You must be logged in to perform this action")
         return
       }
 
-      // Call the download API with the filtered order IDs
+      console.log(`[PAYMENT-STATUS] Triggering Global Bulk Download...`)
+
+      const payload = {
+        orderType: "all",
+        isRedownload: false,
+        filters: {
+          date: bulkDate,
+          startTime: bulkStartTime,
+          endTime: bulkEndTime,
+          network: bulkNetwork,
+          onlyPending: true
+        }
+      }
+
       const response = await fetch("/api/admin/orders/download", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          "Authorization": `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({
-          orderIds: filteredOrders.map(o => o.id)
-        })
+        body: JSON.stringify(payload)
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to download orders")
+        if (response.status === 409) {
+          toast.error("Some orders in this range were already downloaded by another admin")
+        } else {
+          const errorData = await response.json()
+          throw new Error(errorData.error || "Failed to download orders")
+        }
+        return
       }
 
+      // Download the blob
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
-      const element = document.createElement("a")
-      element.setAttribute("href", url)
-      const dateTime = new Date().toISOString().replace(/[:.]/g, '-').split('Z')[0]
-      element.setAttribute("download", `bulk-orders-${bulkDate}-${dateTime}.xlsx`)
-      element.style.display = "none"
-      document.body.appendChild(element)
-      element.click()
-      document.body.removeChild(element)
+      const a = document.createElement('a')
+      a.href = url
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      a.download = `orders-${bulkNetwork || 'all'}-${bulkDate}-${timestamp}.xlsx`
+      document.body.appendChild(a)
+      a.click()
       window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
 
-      toast.success(`Downloaded ${filteredOrders.length} order(s)`)
+      toast.success("Download started successfully")
 
+      // Refresh data
+      setOffset(0)
+      loadAllOrders(0, false)
     } catch (error) {
-      console.error("Error bulk downloading orders:", error)
+      console.error("[PAYMENT-STATUS] Bulk download error:", error)
       toast.error(error instanceof Error ? error.message : "Failed to download orders")
     } finally {
       setBulkDownloading(false)
@@ -648,7 +607,7 @@ export default function OrderPaymentStatusPage() {
                   <Button
                     onClick={handleBulkStatusUpdate}
                     disabled={bulkUpdating || !bulkDate || !bulkStatus}
-                    className="flex-1"
+                    className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]"
                   >
                     {bulkUpdating ? (
                       <>
@@ -657,8 +616,8 @@ export default function OrderPaymentStatusPage() {
                       </>
                     ) : (
                       <>
-                        <Edit className="w-4 h-4 mr-2" />
-                        Update Status
+                        <Zap className="w-4 h-4 mr-2" />
+                        Update {globalBulkCount !== null ? `${globalBulkCount} ` : ""}Orders
                       </>
                     )}
                   </Button>
@@ -667,7 +626,7 @@ export default function OrderPaymentStatusPage() {
                     variant="outline"
                     onClick={handleBulkDownload}
                     disabled={bulkDownloading || !bulkDate}
-                    className="flex-1 border-blue-400 text-blue-700 hover:bg-blue-100"
+                    className="border-green-200 hover:bg-green-50 text-green-700 font-semibold"
                   >
                     {bulkDownloading ? (
                       <>
@@ -677,17 +636,23 @@ export default function OrderPaymentStatusPage() {
                     ) : (
                       <>
                         <Download className="w-4 h-4 mr-2" />
-                        Download XLSX
+                        Download {globalBulkCount !== null ? `${globalBulkCount} ` : ""}Orders
                       </>
                     )}
                   </Button>
                 </div>
               </div>
 
+              {globalBulkCount !== null && (
+                <p className="text-xs text-blue-600 font-medium pt-1">
+                  💡 Found {globalBulkCount} pending orders matching filters in the entire database.
+                </p>
+              )}
+
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription className="text-xs">
-                  This will update ALL orders matching the criteria. Date is required. Time range and network are optional filters.
+                  This will update/download ALL orders matching the criteria in the entire database. Date is required.
                 </AlertDescription>
               </Alert>
             </CardContent>
@@ -695,195 +660,197 @@ export default function OrderPaymentStatusPage() {
         </Card>
 
         {/* Orders Results */}
-        {loadingAllOrders ? (
-          <Card>
-            <CardContent className="pt-6 flex justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-            </CardContent>
-          </Card>
-        ) : allOrders.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6">
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  {searchQuery ? "No orders found matching your search criteria" : "No orders available"}
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Order Results</CardTitle>
-              <CardDescription>
-                Showing {allOrders.length} of {totalOrdersCount} order{totalOrdersCount !== 1 ? "s" : ""}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Type</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Store</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Shop Owner Email</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Reference</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Customer Email</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Volume</th>
-                      <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
-                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Payment Status</th>
-                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Order Status</th>
-                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Date</th>
-                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {allOrders.map((order) => (
-                      <tr key={order.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <Badge variant="outline" className="text-xs">
-                            {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : "Wallet"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
-                          {order.type === "shop" ? (order.store_name || "-") : "-"}
-                        </td>
-                        <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.shop_owner_email || "-"}>
-                          {order.type === "shop" ? (order.shop_owner_email || "-") : "-"}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs max-w-xs truncate" title={order.payment_reference}>
-                          {order.payment_reference}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs">{order.phone_number}</td>
-                        <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.customer_email || "-"}>
-                          {order.type === "shop" ? (order.customer_email || "-") : "-"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge className={`${getNetworkColor(order.network)} border`}>
-                            {order.network}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">{order.volume_gb}GB</td>
-                        <td className="px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
-                        <td className="px-4 py-3 text-center">
-                          <Badge
-                            className={`text-xs border ${order.payment_status === "completed"
-                              ? "bg-green-100 text-green-800 border-green-200"
-                              : order.payment_status === "pending"
-                                ? "bg-yellow-100 text-yellow-800 border-yellow-200"
-                                : order.payment_status === "failed"
-                                  ? "bg-red-100 text-red-800 border-red-200"
-                                  : "bg-gray-100 text-gray-800 border-gray-200"
-                              }`}
-                          >
-                            {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1) || "Unknown"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <Badge
-                            className={`text-xs border ${order.status === "completed"
-                              ? "bg-green-100 text-green-800 border-green-200"
-                              : order.status === "pending"
-                                ? "bg-yellow-100 text-yellow-800 border-yellow-200"
-                                : order.status === "processing"
-                                  ? "bg-blue-100 text-blue-800 border-blue-200"
-                                  : order.status === "failed"
+        {
+          loadingAllOrders ? (
+            <Card>
+              <CardContent className="pt-6 flex justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+              </CardContent>
+            </Card>
+          ) : allOrders.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    {searchQuery ? "No orders found matching your search criteria" : "No orders available"}
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Order Results</CardTitle>
+                <CardDescription>
+                  Showing {allOrders.length} of {totalOrdersCount} order{totalOrdersCount !== 1 ? "s" : ""}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Type</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Store</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Shop Owner Email</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Reference</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Customer Email</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Volume</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
+                        <th className="px-4 py-2 text-center font-semibold text-gray-700">Payment Status</th>
+                        <th className="px-4 py-2 text-center font-semibold text-gray-700">Order Status</th>
+                        <th className="px-4 py-2 text-center font-semibold text-gray-700">Date</th>
+                        <th className="px-4 py-2 text-center font-semibold text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {allOrders.map((order) => (
+                        <tr key={order.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <Badge variant="outline" className="text-xs">
+                              {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : "Wallet"}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
+                            {order.type === "shop" ? (order.store_name || "-") : "-"}
+                          </td>
+                          <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.shop_owner_email || "-"}>
+                            {order.type === "shop" ? (order.shop_owner_email || "-") : "-"}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs max-w-xs truncate" title={order.payment_reference}>
+                            {order.payment_reference}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs">{order.phone_number}</td>
+                          <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.customer_email || "-"}>
+                            {order.type === "shop" ? (order.customer_email || "-") : "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge className={`${getNetworkColor(order.network)} border`}>
+                              {order.network}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">{order.volume_gb}GB</td>
+                          <td className="px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-center">
+                            <Badge
+                              className={`text-xs border ${order.payment_status === "completed"
+                                ? "bg-green-100 text-green-800 border-green-200"
+                                : order.payment_status === "pending"
+                                  ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                  : order.payment_status === "failed"
                                     ? "bg-red-100 text-red-800 border-red-200"
                                     : "bg-gray-100 text-gray-800 border-gray-200"
-                              }`}
-                          >
-                            {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-center text-xs text-gray-500">
-                          <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                          <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <div className="flex flex-col gap-2">
-                            <select
-                              className="px-2 py-1 text-xs border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                              onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
-                              disabled={updatingOrderId === order.id}
-                              defaultValue=""
-                              aria-label="Update order status"
+                                }`}
                             >
-                              <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
-                              <option value="pending">Pending</option>
-                              <option value="processing">Processing</option>
-                              <option value="completed">Completed</option>
-                              <option value="failed">Failed</option>
-                            </select>
-                            {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network === "MTN" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-xs h-7 gap-1"
-                                onClick={() => handleManualFulfill(order.id, order.type)}
-                                disabled={fulfillingOrderId === order.id}
-                                title={`Auto-fulfillment enabled: ${autoFulfillmentEnabled}, Status: ${order.status}, Payment: ${order.payment_status}, Type: ${order.type}, Network: ${order.network}`}
+                              {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1) || "Unknown"}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <Badge
+                              className={`text-xs border ${order.status === "completed"
+                                ? "bg-green-100 text-green-800 border-green-200"
+                                : order.status === "pending"
+                                  ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                  : order.status === "processing"
+                                    ? "bg-blue-100 text-blue-800 border-blue-200"
+                                    : order.status === "failed"
+                                      ? "bg-red-100 text-red-800 border-red-200"
+                                      : "bg-gray-100 text-gray-800 border-gray-200"
+                                }`}
+                            >
+                              {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-center text-xs text-gray-500">
+                            <div>{new Date(order.created_at).toLocaleDateString()}</div>
+                            <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex flex-col gap-2">
+                              <select
+                                className="px-2 py-1 text-xs border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                                onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
+                                disabled={updatingOrderId === order.id}
+                                defaultValue=""
+                                aria-label="Update order status"
                               >
-                                {fulfillingOrderId === order.id ? (
-                                  <>
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                    Fulfilling...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Zap className="w-3 h-3" />
-                                    Fulfill
-                                  </>
-                                )}
-                              </Button>
-                            )}
-                            {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
-                              <div className="text-xs text-gray-400">{order.network} (no auto-fulfill)</div>
-                            )}
-                            {!autoFulfillmentEnabled && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Load More Button */}
-              {hasMore && (
-                <div className="mt-6 flex justify-center pb-8">
-                  <Button
-                    variant="outline"
-                    onClick={handleLoadMore}
-                    disabled={loadingAllOrders}
-                    className="w-full max-w-xs border-blue-200 hover:bg-blue-50 text-blue-700 font-semibold"
-                  >
-                    {loadingAllOrders ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Loading more...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-4 h-4 mr-2" />
-                        Load More Orders
-                      </>
-                    )}
-                  </Button>
+                                <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
+                                <option value="pending">Pending</option>
+                                <option value="processing">Processing</option>
+                                <option value="completed">Completed</option>
+                                <option value="failed">Failed</option>
+                              </select>
+                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network === "MTN" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs h-7 gap-1"
+                                  onClick={() => handleManualFulfill(order.id, order.type)}
+                                  disabled={fulfillingOrderId === order.id}
+                                  title={`Auto-fulfillment enabled: ${autoFulfillmentEnabled}, Status: ${order.status}, Payment: ${order.payment_status}, Type: ${order.type}, Network: ${order.network}`}
+                                >
+                                  {fulfillingOrderId === order.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      Fulfilling...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Zap className="w-3 h-3" />
+                                      Fulfill
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
+                                <div className="text-xs text-gray-400">{order.network} (no auto-fulfill)</div>
+                              )}
+                              {!autoFulfillmentEnabled && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              )}
 
-              {!hasMore && allOrders.length > 0 && (
-                <p className="text-center text-gray-400 text-xs mt-6 pb-8">
-                  No more orders to display
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </DashboardLayout>
+                {/* Load More Button */}
+                {hasMore && (
+                  <div className="mt-6 flex justify-center pb-8">
+                    <Button
+                      variant="outline"
+                      onClick={handleLoadMore}
+                      disabled={loadingAllOrders}
+                      className="w-full max-w-xs border-blue-200 hover:bg-blue-50 text-blue-700 font-semibold"
+                    >
+                      {loadingAllOrders ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Loading more...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4 mr-2" />
+                          Load More Orders
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+
+                {!hasMore && allOrders.length > 0 && (
+                  <p className="text-center text-gray-400 text-xs mt-6 pb-8">
+                    No more orders to display
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )
+        }
+      </div >
+    </DashboardLayout >
   )
 }
