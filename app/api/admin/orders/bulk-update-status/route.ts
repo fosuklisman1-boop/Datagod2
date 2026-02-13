@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
       // Usually global updates target pending/processing orders
       if (filters.onlyPending) {
-        query = query.eq("status", "pending")
+        query = query.in("status", ["pending", "processing"])
       }
 
       const { data, error } = await query

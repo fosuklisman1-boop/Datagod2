@@ -78,7 +78,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (filterStatus && filterStatus !== "all" && filterStatus !== "") {
-      query = query.eq("status", filterStatus)
+      if (filterStatus.includes(",")) {
+        const statusList = filterStatus.split(",").map(s => s.trim())
+        query = query.in("status", statusList)
+      } else {
+        query = query.eq("status", filterStatus)
+      }
     }
 
     query = query.order("created_at", { ascending: false })

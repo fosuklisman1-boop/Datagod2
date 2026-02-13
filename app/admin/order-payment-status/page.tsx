@@ -112,7 +112,7 @@ export default function OrderPaymentStatusPage() {
       }
 
       // Bulk operations typically target pending/processing orders
-      params.append("status", "pending")
+      params.append("status", "pending,processing")
 
       const response = await fetch(`/api/admin/orders/all?${params.toString()}`)
       if (response.ok) {
@@ -645,7 +645,7 @@ export default function OrderPaymentStatusPage() {
 
               {globalBulkCount !== null && (
                 <p className="text-xs text-blue-600 font-medium pt-1">
-                  💡 Found {globalBulkCount} pending orders matching filters in the entire database.
+                  💡 Found {globalBulkCount} pending/processing orders matching filters in the entire database.
                 </p>
               )}
 
