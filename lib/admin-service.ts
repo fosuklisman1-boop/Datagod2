@@ -692,30 +692,30 @@ export const adminMessagingService = {
     return data
   },
 
-  // Fetch ALL users for broadcast (lightweight, recursive)
+  // Fetch ALL users for broadcast (via API to bypass RLS)
   async getBroadcastRecipients() {
-    let allUsers: any[] = []
-    let page = 0
-    const pageSize = 1000
-    let hasMore = true
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
 
-    while (hasMore) {
-      const { data, error } = await supabase
-        .from("users")
-        .select("id, email, phone_number, first_name, role")
-        .range(page * pageSize, (page + 1) * pageSize - 1)
-
-      if (error) throw error
-
-      if (data && data.length > 0) {
-        allUsers = [...allUsers, ...data]
-        if (data.length < pageSize) hasMore = false
-        page++
-      } else {
-        hasMore = false
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
       }
-    }
 
-    return allUsers
+      const response = await fetch("/api/admin/broadcast/recipients", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to fetch broadcast recipients")
+      }
+
+      return await response.json()
+    } catch (error: any) {
+      console.error("Error fetching broadcast recipients:", error)
+      throw error
+    }
   }
 }
