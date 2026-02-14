@@ -690,5 +690,32 @@ export const adminMessagingService = {
 
     if (error) throw error
     return data
+  },
+
+  // Fetch ALL users for broadcast (lightweight, recursive)
+  async getBroadcastRecipients() {
+    let allUsers: any[] = []
+    let page = 0
+    const pageSize = 1000
+    let hasMore = true
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, email, phone_number, first_name, role")
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+
+      if (error) throw error
+
+      if (data && data.length > 0) {
+        allUsers = [...allUsers, ...data]
+        if (data.length < pageSize) hasMore = false
+        page++
+      } else {
+        hasMore = false
+      }
+    }
+
+    return allUsers
   }
 }

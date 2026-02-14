@@ -25,13 +25,14 @@ import {
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { adminUserService } from "@/lib/admin-service"
+import { adminUserService, adminMessagingService } from "@/lib/admin-service"
 
 export default function BroadcastPage() {
     const router = useRouter()
     const [isAdmin, setIsAdmin] = useState(false)
     const [loading, setLoading] = useState(true)
     const [sending, setSending] = useState(false)
+    const [progress, setProgress] = useState({ sent: 0, total: 0, percentage: 0 })
 
     // Recipients
     const [targetType, setTargetType] = useState<"roles" | "specific">("roles")
@@ -39,6 +40,9 @@ export default function BroadcastPage() {
     const [selectedUsers, setSelectedUsers] = useState<any[]>([])
     const [searchTerm, setSearchTerm] = useState("")
     const [allUsers, setAllUsers] = useState<any[]>([])
+
+    // Derived state for recipient count
+    const [recipientCount, setRecipientCount] = useState(0)
 
     // Message
     const [channels, setChannels] = useState<string[]>(["email"])
@@ -51,6 +55,21 @@ export default function BroadcastPage() {
     useEffect(() => {
         checkAdminAccess()
     }, [])
+
+    // Update recipient count when selections change
+    useEffect(() => {
+        if (targetType === "specific") {
+            setRecipientCount(selectedUsers.length)
+        } else {
+            // Filter allUsers based on selected roles
+            if (selectedRoles.length === 0) {
+                setRecipientCount(0)
+            } else {
+                const count = allUsers.filter(u => selectedRoles.includes(u.role)).length
+                setRecipientCount(count)
+            }
+        }
+    }, [targetType, selectedRoles, selectedUsers, allUsers])
 
     const checkAdminAccess = async () => {
         try {
@@ -83,10 +102,12 @@ export default function BroadcastPage() {
 
     const loadUsers = async () => {
         try {
-            const data = await adminUserService.getAllUsers()
+            // Use the new lightweight recursive fetch
+            const data = await adminMessagingService.getBroadcastRecipients()
             setAllUsers(data || [])
         } catch (error) {
             console.error("Error loading users:", error)
+            toast.error("Failed to load user list")
         }
     }
 
@@ -94,6 +115,14 @@ export default function BroadcastPage() {
         setSelectedRoles(prev =>
             prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]
         )
+    }
+
+    const handleSelectAllRoles = () => {
+        if (selectedRoles.length === 4) {
+            setSelectedRoles([])
+        } else {
+            setSelectedRoles(["admin", "shop_owner", "sub_agent", "user"])
+        }
     }
 
     const handleAddUser = (user: any) => {
@@ -123,6 +152,11 @@ export default function BroadcastPage() {
             return
         }
 
+        if (recipientCount === 0) {
+            toast.error("No recipients found for the selected criteria")
+            return
+        }
+
         if (!message.trim()) {
             toast.error("Message content cannot be empty")
             return
@@ -133,56 +167,112 @@ export default function BroadcastPage() {
             return
         }
 
-        if (!confirm("Are you sure you want to send this broadcast?")) return
+        if (!confirm(`Are you sure you want to send this broadcast to ${recipientCount} users?`)) return
 
         setSending(true)
         setResults(null)
+        setProgress({ sent: 0, total: recipientCount, percentage: 0 })
 
         try {
             const { data: { session } } = await supabase.auth.getSession()
+            const token = session?.access_token
 
-            const response = await fetch("/api/admin/broadcast", {
+            // 1. Identify Target Users (Client-side filtering)
+            let targetList: any[] = []
+            if (targetType === "specific") {
+                targetList = selectedUsers
+            } else {
+                targetList = allUsers.filter(u => selectedRoles.includes(u.role))
+            }
+
+            // 2. INIT Broadcast
+            const initRes = await fetch("/api/admin/broadcast", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${session?.access_token}`
-                },
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                 body: JSON.stringify({
+                    action: "init",
                     channels,
-                    recipients: {
-                        type: targetType,
-                        roles: selectedRoles,
-                        userIds: selectedUsers.map(u => u.id)
-                    },
+                    recipients: { type: targetType, roles: selectedRoles }, // Just for logging metadata
                     subject,
-                    message
+                    message,
+                    estimatedCount: targetList.length
                 })
             })
 
-            const data = await response.json()
+            const initData = await initRes.json()
+            if (!initRes.ok) throw new Error(initData.error || "Failed to initialize broadcast")
 
-            if (!response.ok) {
-                throw new Error(data.error || "Failed to send broadcast")
+            const broadcastId = initData.broadcastId
+
+            // 3. SEND BATCHES
+            const batchSize = 20 // Smaller batch size for better UI feedback
+            let sentCount = 0
+
+            for (let i = 0; i < targetList.length; i += batchSize) {
+                const batch = targetList.slice(i, i + batchSize)
+
+                // Map to minimal user object for API
+                const recipientsPayload = batch.map(u => ({
+                    id: u.id,
+                    email: u.email,
+                    phone: u.phone_number,
+                    name: u.first_name
+                }))
+
+                await fetch("/api/admin/broadcast", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify({
+                        action: "batch",
+                        broadcastId,
+                        recipients: recipientsPayload,
+                        channels,
+                        subject,
+                        message
+                    })
+                })
+
+                sentCount += batch.length
+                setProgress({
+                    sent: Math.min(sentCount, targetList.length),
+                    total: targetList.length,
+                    percentage: Math.round((Math.min(sentCount, targetList.length) / targetList.length) * 100)
+                })
             }
 
-            setResults(data.results)
+            // 4. FINALIZE
+            const finalizeRes = await fetch("/api/admin/broadcast", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                body: JSON.stringify({
+                    action: "finalize",
+                    broadcastId
+                })
+            })
+
+            const finalData = await finalizeRes.json()
+            setResults(finalData.results)
             toast.success("Broadcast sent successfully!")
+
+            // Clear form
             setMessage("")
             setSubject("")
             setSelectedUsers([])
-            setSelectedRoles([])
+            // Keep roles/channels as they might be reused
+
         } catch (error: any) {
             console.error("Broadcast error:", error)
             toast.error(error.message || "An error occurred during broadcast")
         } finally {
             setSending(false)
+            setProgress({ sent: 0, total: 0, percentage: 0 })
         }
     }
 
     const filteredSearch = searchTerm.trim()
         ? allUsers.filter(u =>
             u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            u.phoneNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            u.phone_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             u.first_name?.toLowerCase().includes(searchTerm.toLowerCase())
         ).slice(0, 10)
         : []
@@ -227,9 +317,14 @@ export default function BroadcastPage() {
                     <div className="space-y-6">
                         <Card className="border-emerald-100/40 bg-white/50 backdrop-blur-sm">
                             <CardHeader>
-                                <CardTitle className="text-lg flex items-center gap-2">
-                                    <Users className="w-5 h-5 text-emerald-600" />
-                                    Recipients
+                                <CardTitle className="text-lg flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <Users className="w-5 h-5 text-emerald-600" />
+                                        Recipients
+                                    </div>
+                                    <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
+                                        {recipientCount} Users
+                                    </Badge>
                                 </CardTitle>
                                 <CardDescription>Who should receive this message?</CardDescription>
                             </CardHeader>
@@ -250,16 +345,26 @@ export default function BroadcastPage() {
                                 </div>
 
                                 {targetType === "roles" ? (
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {["admin", "shop_owner", "sub_agent", "user"].map(role => (
-                                            <label key={role} className={`flex items-center gap-2 p-2 border rounded-lg cursor-pointer transition-all ${selectedRoles.includes(role) ? "bg-emerald-50 border-emerald-500" : "hover:bg-gray-50"}`}>
-                                                <Checkbox
-                                                    checked={selectedRoles.includes(role)}
-                                                    onCheckedChange={() => handleToggleRole(role)}
-                                                />
-                                                <span className="text-sm capitalize">{role.replace("_", " ")}s</span>
-                                            </label>
-                                        ))}
+                                    <div className="space-y-3">
+                                        <div className="flex justify-end">
+                                            <button
+                                                onClick={handleSelectAllRoles}
+                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                                            >
+                                                {selectedRoles.length === 4 ? "Deselect All" : "Select All"}
+                                            </button>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {["admin", "shop_owner", "sub_agent", "user"].map(role => (
+                                                <label key={role} className={`flex items-center gap-2 p-2 border rounded-lg cursor-pointer transition-all ${selectedRoles.includes(role) ? "bg-emerald-50 border-emerald-500" : "hover:bg-gray-50"}`}>
+                                                    <Checkbox
+                                                        checked={selectedRoles.includes(role)}
+                                                        onCheckedChange={() => handleToggleRole(role)}
+                                                    />
+                                                    <span className="text-sm capitalize">{role.replace("_", " ")}s</span>
+                                                </label>
+                                            ))}
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="space-y-3">
@@ -279,7 +384,7 @@ export default function BroadcastPage() {
                                                             onClick={() => handleAddUser(user)}
                                                             className="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm flex justify-between items-center"
                                                         >
-                                                            <span>{user.email || user.phoneNumber}</span>
+                                                            <span>{user.email || user.phone_number}</span>
                                                             <Badge variant="outline" className="text-[10px]">{user.role}</Badge>
                                                         </button>
                                                     ))}
@@ -289,7 +394,7 @@ export default function BroadcastPage() {
                                         <div className="flex flex-wrap gap-2">
                                             {selectedUsers.map(user => (
                                                 <Badge key={user.id} className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-none px-2 py-1 flex items-center gap-1">
-                                                    {user.email || user.phoneNumber}
+                                                    {user.email || user.phone_number}
                                                     <X className="w-3 h-3 cursor-pointer" onClick={() => handleRemoveUser(user.id)} />
                                                 </Badge>
                                             ))}
@@ -357,23 +462,29 @@ export default function BroadcastPage() {
                                     </p>
                                 </div>
 
-                                <Button
-                                    onClick={handleSend}
-                                    disabled={sending}
-                                    className="w-full bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 h-12 text-lg font-bold"
-                                >
-                                    {sending ? (
-                                        <>
-                                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                                            Sending Broadcast...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Send className="w-5 h-5 mr-2" />
-                                            Send Now
-                                        </>
-                                    )}
-                                </Button>
+                                {sending ? (
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between text-sm text-gray-600">
+                                            <span>Sending Broadcast...</span>
+                                            <span>{progress.percentage}% ({progress.sent}/{progress.total})</span>
+                                        </div>
+                                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-gradient-to-r from-pink-500 to-rose-600 transition-all duration-300"
+                                                style={{ width: `${progress.percentage}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <Button
+                                        onClick={handleSend}
+                                        disabled={loading || recipientCount === 0}
+                                        className="w-full bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 h-12 text-lg font-bold"
+                                    >
+                                        <Send className="w-5 h-5 mr-2" />
+                                        Send to {recipientCount} Users
+                                    </Button>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -409,3 +520,5 @@ export default function BroadcastPage() {
         </DashboardLayout>
     )
 }
+
+

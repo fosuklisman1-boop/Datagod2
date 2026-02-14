@@ -6,6 +6,8 @@ import { sendEmail, EmailTemplates } from "@/lib/email-service"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+// ... (imports remain)
+
 export async function POST(req: NextRequest) {
     try {
         const authHeader = req.headers.get("Authorization")
@@ -32,122 +34,129 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 })
         }
 
-        const { channels, recipients, message, subject } = await req.json()
+        const body = await req.json()
+        const { action = "legacy" } = body
 
-        if (!channels || !recipients || !message) {
-            return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+        // --- ACTION: INIT (Start a new broadcast) ---
+        if (action === "init") {
+            const { channels, recipients, subject, message, targetDescription } = body
+
+            const { data: broadcastLog, error: logError } = await supabase
+                .from("broadcast_logs")
+                .insert({
+                    admin_id: caller.id,
+                    channels: channels,
+                    target_type: recipients.type,
+                    target_group: recipients.roles || ["specific"],
+                    subject: subject,
+                    message: message,
+                    status: "processing",
+                    results: {
+                        total: body.estimatedCount || 0,
+                        sms: { sent: 0, failed: 0, pending: 0 },
+                        email: { sent: 0, failed: 0, pending: 0 }
+                    }
+                })
+                .select()
+                .single()
+
+            if (logError) throw logError
+
+            return NextResponse.json({ success: true, broadcastId: broadcastLog.id })
         }
 
-        let targetUsers: any[] = []
+        // --- ACTION: BATCH (Send a chunk of messages) ---
+        if (action === "batch") {
+            const { broadcastId, recipients, channels, subject, message } = body
+            // recipients: array of { id, email, phone, name }
 
-        if (recipients.type === "roles") {
-            const { data, error } = await supabase
-                .from("users")
-                .select("id, email, phone_number, first_name")
-                .in("role", recipients.roles)
-
-            if (error) throw error
-            targetUsers = data || []
-        } else if (recipients.type === "specific") {
-            const { data, error } = await supabase
-                .from("users")
-                .select("id, email, phone_number, first_name")
-                .in("id", recipients.userIds)
-
-            if (error) throw error
-            targetUsers = data || []
-        }
-
-        if (targetUsers.length === 0) {
-            return NextResponse.json({ error: "No recipients found" }, { status: 404 })
-        }
-
-        // Create initial broadcast log
-        const { data: broadcastLog, error: logError } = await supabase
-            .from("broadcast_logs")
-            .insert({
-                admin_id: caller.id,
-                channels: channels,
-                target_type: recipients.type,
-                target_group: recipients.type === "roles" ? recipients.roles : null,
-                subject: subject,
-                message: message,
-                status: "processing"
-            })
-            .select()
-            .single()
-
-        if (logError) {
-            console.error("[BROADCAST-API] Log creation error:", logError)
-            // Continue even if logging fails, but we won't have the ID for following logs
-        }
-
-        const results = {
-            total: targetUsers.length,
-            sms: { sent: 0, failed: 0 },
-            email: { sent: 0, failed: 0 }
-        }
-
-        // Process in small batches to avoid timeouts and rate limits
-        const batchSize = 5
-        for (let i = 0; i < targetUsers.length; i += batchSize) {
-            const batch = targetUsers.slice(i, i + batchSize)
-
-            // Add delay between batches to respect rate limits (e.g. Resend varies but 5-10/sec is safe max)
-            if (i > 0) {
-                await new Promise(resolve => setTimeout(resolve, 1000))
+            const batchResults = {
+                sms: { sent: 0, failed: 0 },
+                email: { sent: 0, failed: 0 }
             }
 
-            await Promise.all(batch.map(async (user) => {
-                if (channels.includes("sms") && user.phone_number) {
+            await Promise.all(recipients.map(async (user: any) => {
+                // SMS
+                if (channels.includes("sms") && user.phone) {
                     try {
                         const res = await sendSMS({
-                            phone: user.phone_number,
+                            phone: user.phone,
                             message: message,
                             type: "broadcast",
                             userId: user.id,
-                            reference: broadcastLog?.id
+                            reference: broadcastId
                         })
-                        if (res.success) results.sms.sent++
-                        else results.sms.failed++
+                        if (res.success) batchResults.sms.sent++
+                        else batchResults.sms.failed++
                     } catch (e) {
-                        results.sms.failed++
+                        batchResults.sms.failed++
                     }
                 }
 
+                // Email
                 if (channels.includes("email") && user.email) {
                     try {
-                        const emailData = EmailTemplates.broadcastMessage(subject || "Notification from DataGod", message)
-
+                        const emailData = EmailTemplates.broadcastMessage(subject || "Notification", message)
                         const res = await sendEmail({
-                            to: [{ email: user.email, name: user.first_name || "User" }],
+                            to: [{ email: user.email, name: user.name || "User" }],
                             subject: emailData.subject,
                             htmlContent: emailData.html,
                             userId: user.id,
                             type: "broadcast",
-                            referenceId: broadcastLog?.id
+                            referenceId: broadcastId
                         })
-                        if (res.success) results.email.sent++
-                        else results.email.failed++
+                        if (res.success) batchResults.email.sent++
+                        else batchResults.email.failed++
                     } catch (e) {
-                        results.email.failed++
+                        batchResults.email.failed++
                     }
                 }
             }))
+
+            return NextResponse.json({ success: true, results: batchResults })
         }
 
-        // Update broadcast log with results
-        if (broadcastLog) {
+        // --- ACTION: FINALIZE (Update final stats) ---
+        if (action === "finalize") {
+            const { broadcastId } = body
+
+            // Aggregate actual logs to get truth
+            const [emailSent, emailFailed, emailPending, smsSent, smsFailed, smsPending] = await Promise.all([
+                supabase.from("email_logs").select("id", { count: 'exact', head: true }).eq("reference_id", broadcastId).or('status.eq.sent,status.eq.delivered'),
+                supabase.from("email_logs").select("id", { count: 'exact', head: true }).eq("reference_id", broadcastId).eq("status", "failed"),
+                supabase.from("email_logs").select("id", { count: 'exact', head: true }).eq("reference_id", broadcastId).eq("status", "pending"),
+                supabase.from("sms_logs").select("id", { count: 'exact', head: true }).eq("reference_id", broadcastId).or('status.eq.sent,status.eq.delivered'),
+                supabase.from("sms_logs").select("id", { count: 'exact', head: true }).eq("reference_id", broadcastId).eq("status", "failed"),
+                supabase.from("sms_logs").select("id", { count: 'exact', head: true }).eq("reference_id", broadcastId).eq("status", "pending")
+            ])
+
+            const finalResults = {
+                total: (emailSent.count || 0) + (emailFailed.count || 0) + (emailPending.count || 0) + (smsSent.count || 0) + (smsFailed.count || 0) + (smsPending.count || 0), // Approx
+                email: {
+                    sent: emailSent.count || 0,
+                    failed: emailFailed.count || 0,
+                    pending: emailPending.count || 0
+                },
+                sms: {
+                    sent: smsSent.count || 0,
+                    failed: smsFailed.count || 0,
+                    pending: smsPending.count || 0
+                }
+            }
+
             await supabase
                 .from("broadcast_logs")
                 .update({
-                    results: results,
+                    results: finalResults,
                     status: "completed"
                 })
-                .eq("id", broadcastLog.id)
+                .eq("id", broadcastId)
+
+            return NextResponse.json({ success: true, results: finalResults })
         }
 
-        return NextResponse.json({ success: true, results })
+        // --- LEGACY FALLBACK (Keep for backward compatibility during deploy) ---
+        return NextResponse.json({ error: "Invalid action. Please refresh the page." }, { status: 400 })
 
     } catch (error: any) {
         console.error("[BROADCAST-API] Error:", error)

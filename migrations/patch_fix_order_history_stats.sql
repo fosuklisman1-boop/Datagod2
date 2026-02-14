@@ -1,4 +1,7 @@
--- Migration to add RPCs for heavy admin calculations
+
+-- ROBUST FIX FOR ALL STATS FUNCTIONS
+-- This script re-defines all stats functions with explicit CAST(column AS NUMERIC)
+-- to prevent "function sum(character varying) does not exist" errors.
 
 -- 1. Admin Dashboard Stats
 CREATE OR REPLACE FUNCTION get_admin_dashboard_stats()
@@ -11,11 +14,11 @@ BEGIN
         'totalShops', (SELECT COUNT(*) FROM user_shops),
         'totalSubAgents', (SELECT COUNT(*) FROM user_shops WHERE parent_shop_id IS NOT NULL),
         'totalOrders', (SELECT COUNT(*) FROM shop_orders),
-        'totalRevenue', (SELECT COALESCE(SUM(total_price), 0) FROM shop_orders),
+        'totalRevenue', (SELECT COALESCE(SUM(CAST(total_price AS NUMERIC)), 0) FROM shop_orders),
         'pendingShops', (SELECT COUNT(*) FROM user_shops WHERE is_active = false),
         'completedOrders', (SELECT COUNT(*) FROM shop_orders WHERE order_status = 'completed'),
-        'totalWalletBalance', (SELECT COALESCE(SUM(balance), 0) FROM wallets),
-        'totalProfitBalance', (SELECT COALESCE(SUM(available_balance), 0) FROM shop_available_balance)
+        'totalWalletBalance', (SELECT COALESCE(SUM(CAST(balance AS NUMERIC)), 0) FROM wallets),
+        'totalProfitBalance', (SELECT COALESCE(SUM(CAST(available_balance AS NUMERIC)), 0) FROM shop_available_balance)
     ) INTO result;
     RETURN result;
 END;
@@ -87,10 +90,10 @@ RETURNS JSON AS $$
 BEGIN
     RETURN (
         SELECT json_build_object(
-            'totalProfit', COALESCE(SUM(profit_amount), 0),
-            'pendingProfit', COALESCE(SUM(CASE WHEN status = 'pending' THEN profit_amount ELSE 0 END), 0),
-            'creditedProfit', COALESCE(SUM(CASE WHEN status = 'credited' THEN profit_amount ELSE 0 END), 0),
-            'withdrawnProfit', COALESCE(SUM(CASE WHEN status = 'withdrawn' THEN profit_amount ELSE 0 END), 0),
+            'totalProfit', COALESCE(SUM(CAST(profit_amount AS NUMERIC)), 0),
+            'pendingProfit', COALESCE(SUM(CASE WHEN status = 'pending' THEN CAST(profit_amount AS NUMERIC) ELSE 0 END), 0),
+            'creditedProfit', COALESCE(SUM(CASE WHEN status = 'credited' THEN CAST(profit_amount AS NUMERIC) ELSE 0 END), 0),
+            'withdrawnProfit', COALESCE(SUM(CASE WHEN status = 'withdrawn' THEN CAST(profit_amount AS NUMERIC) ELSE 0 END), 0),
             'pendingCount', COUNT(*) FILTER (WHERE status = 'pending'),
             'creditedCount', COUNT(*) FILTER (WHERE status = 'credited'),
             'withdrawnCount', COUNT(*) FILTER (WHERE status = 'withdrawn'),
@@ -106,7 +109,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 4. Sub-Agent Earnings for Parent (Global & Breakdown)
+-- 4. Sub-Agent Earnings for Parent
 CREATE OR REPLACE FUNCTION get_sub_agent_earnings_stats(p_parent_shop_id UUID)
 RETURNS JSON AS $$
 DECLARE
@@ -115,7 +118,7 @@ DECLARE
     v_breakdown JSON;
 BEGIN
     SELECT 
-        COALESCE(SUM(parent_profit_amount), 0),
+        COALESCE(SUM(CAST(parent_profit_amount AS NUMERIC)), 0),
         COUNT(*)
     INTO v_total_earnings, v_total_orders
     FROM shop_orders
@@ -127,8 +130,8 @@ BEGIN
         SELECT 
             shop_id,
             COUNT(*) as total_orders,
-            COALESCE(SUM(total_price), 0) as total_sales,
-            COALESCE(SUM(parent_profit_amount), 0) as your_earnings
+            COALESCE(SUM(CAST(total_price AS NUMERIC)), 0) as total_sales,
+            COALESCE(SUM(CAST(parent_profit_amount AS NUMERIC)), 0) as your_earnings
         FROM shop_orders
         WHERE (shop_id IN (SELECT id FROM user_shops WHERE parent_shop_id = p_parent_shop_id) 
                OR parent_shop_id = p_parent_shop_id)
