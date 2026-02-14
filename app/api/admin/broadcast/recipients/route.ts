@@ -1,41 +1,46 @@
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
-import { cookies } from "next/headers"
-import { NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
+import { NextRequest, NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(request: Request) {
-    try {
-        const supabase = createRouteHandlerClient({ cookies })
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-        // 1. Auth Check
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+export async function GET(req: NextRequest) {
+    try {
+        // 1. Auth Check (Manual verification since auth-helpers is not installed)
+        const authHeader = req.headers.get("Authorization")
+        if (!authHeader?.startsWith("Bearer ")) {
+            return NextResponse.json({ error: "Unauthorized: Missing auth token" }, { status: 401 })
+        }
+
+        const token = authHeader.slice(7)
+        const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
+        const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token)
+
+        if (authError || !user) {
+            return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
         }
 
         // Check if admin
-        const { data: userRole } = await supabase
-            .from("users")
-            .select("role")
-            .eq("id", session.user.id)
-            .single()
+        let isAdmin = user.user_metadata?.role === "admin"
+        if (!isAdmin) {
+            // Fallback check in users table
+            const { data: userData } = await supabaseClient
+                .from("users")
+                .select("role")
+                .eq("id", user.id)
+                .single()
 
-        if (userRole?.role !== "admin") {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+            if (userData?.role === "admin") isAdmin = true
+        }
+
+        if (!isAdmin) {
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
         }
 
         // 2. Initialize Admin Client to bypass RLS
-        // We need to use the service role key to fetch ALL users
-        const adminUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-        const adminKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-        if (!adminUrl || !adminKey) {
-            return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
-        }
-
-        const { createClient } = await import("@supabase/supabase-js")
-        const adminClient = createClient(adminUrl, adminKey, {
+        const adminClient = createClient(supabaseUrl, serviceRoleKey, {
             auth: {
                 autoRefreshToken: false,
                 persistSession: false
@@ -49,6 +54,8 @@ export async function GET(request: Request) {
         let hasMore = true
 
         while (hasMore) {
+            // Use listUsers for auth users or select from public schema?
+            // usage in lib/admin-service.ts was querying 'users' table, so we stick to that.
             const { data, error } = await adminClient
                 .from("users")
                 .select("id, email, phone_number, first_name, role")
