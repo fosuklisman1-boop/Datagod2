@@ -205,7 +205,7 @@ export default function BroadcastPage() {
             const broadcastId = initData.broadcastId
 
             // 3. SEND BATCHES
-            const batchSize = 20 // Smaller batch size for better UI feedback
+            const batchSize = 2 // Process 2 users at a time (same as retries)
             let sentCount = 0
 
             for (let i = 0; i < targetList.length; i += batchSize) {
