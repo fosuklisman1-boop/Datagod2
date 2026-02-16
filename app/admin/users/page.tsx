@@ -110,6 +110,16 @@ export default function AdminUsersPage() {
   const [statsLoading, setStatsLoading] = useState(false)
   const [downloadRoleFilter, setDownloadRoleFilter] = useState<string>("all")
   const [isUpdatingBalance, setIsUpdatingBalance] = useState(false)
+  const [isUpdatingUser, setIsUpdatingUser] = useState(false)
+  const [editEmail, setEditEmail] = useState("")
+  const [editPhone, setEditPhone] = useState("")
+
+  useEffect(() => {
+    if (selectedUser) {
+      setEditEmail(selectedUser.email)
+      setEditPhone(selectedUser.phoneNumber || "")
+    }
+  }, [selectedUser])
 
   useEffect(() => {
     checkAdminAccess()
@@ -196,6 +206,30 @@ export default function AdminUsersPage() {
       toast.error("Failed to load user statistics")
     } finally {
       setStatsLoading(false)
+    }
+  }
+
+  const handleUpdateUserDetails = async () => {
+    if (!selectedUser) return
+    if (!editEmail.trim()) {
+      toast.error("Email is required")
+      return
+    }
+
+    setIsUpdatingUser(true)
+    try {
+      await adminUserService.updateUserDetails(selectedUser.id, {
+        email: editEmail,
+        phoneNumber: editPhone
+      })
+      toast.success("User details updated successfully")
+      await loadUsers()
+      setShowDetailsDialog(false)
+    } catch (error: any) {
+      console.error("Error updating user details:", error)
+      toast.error(error.message || "Failed to update user details")
+    } finally {
+      setIsUpdatingUser(false)
     }
   }
 
@@ -576,16 +610,47 @@ export default function AdminUsersPage() {
             {selectedUser && (
               <ScrollArea className="max-h-[70vh] pr-4">
                 <div className="space-y-6">
-                  {/* User Info Header */}
-                  <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
-                    <div>
-                      <p className="font-semibold text-lg">{selectedUser.email}</p>
-                      <p className="text-sm text-gray-600">{selectedUser.phoneNumber || "No phone"}</p>
-                      <p className="text-xs text-gray-500">Joined: {new Date(selectedUser.created_at).toLocaleDateString()}</p>
+                  {/* User Info Header with EDIT capability */}
+                  <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1 w-full max-w-[300px]">
+                        <Label htmlFor="edit-email">Email Address</Label>
+                        <Input
+                          id="edit-email"
+                          value={editEmail}
+                          onChange={(e) => setEditEmail(e.target.value)}
+                          className="bg-white"
+                        />
+                      </div>
+                      <Badge className={`${selectedUser.role === "admin" ? "bg-red-600" : "bg-blue-600"}`}>
+                        {selectedUser.role.toUpperCase()}
+                      </Badge>
                     </div>
-                    <Badge className={`${selectedUser.role === "admin" ? "bg-red-600" : "bg-blue-600"}`}>
-                      {selectedUser.role.toUpperCase()}
-                    </Badge>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-phone">Phone Number</Label>
+                        <Input
+                          id="edit-phone"
+                          value={editPhone}
+                          onChange={(e) => setEditPhone(e.target.value)}
+                          className="bg-white"
+                          placeholder="No phone number"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          onClick={handleUpdateUserDetails}
+                          disabled={isUpdatingUser}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 gap-2"
+                        >
+                          {isUpdatingUser ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                          Update Email / Phone
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 italic">
+                      Note: Changing the email will update both Supabase Auth and the database profile simultaneously.
+                    </p>
                   </div>
 
                   {statsLoading ? (

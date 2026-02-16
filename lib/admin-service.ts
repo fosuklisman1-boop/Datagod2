@@ -274,29 +274,42 @@ export const adminUserService = {
   },
 
   // Change user password (admin only)
+  // Update user profile details (email, phone, names, password)
+  async updateUserDetails(userId: string, details: {
+    email?: string,
+    phoneNumber?: string,
+    firstName?: string,
+    lastName?: string,
+    password?: string
+  }) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("No authentication token available")
+
+      const response = await fetch("/api/admin/users/update-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId, ...details }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to update user details")
+      return data
+    } catch (error: any) {
+      console.error("Error updating user details:", error)
+      throw error
+    }
+  },
+  // Change user password (admin action)
   async changeUserPassword(
     userId: string,
     newPassword: string,
     session: any
   ) {
-    const response = await fetch("/api/admin/change-user-password", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        userId,
-        newPassword,
-      }),
-    })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Failed to change user password")
-    }
-
-    return await response.json()
+    return this.updateUserDetails(userId, { password: newPassword })
   },
 }
 

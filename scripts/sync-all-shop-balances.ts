@@ -135,19 +135,42 @@ async function syncShopBalance(shopId: string) {
     }
 }
 
+// Helper to fetch all shops with pagination
+async function fetchAllShops() {
+    let allRecords: any[] = []
+    let offset = 0
+    const batchSize = 1000
+    let hasMore = true
+
+    while (hasMore) {
+        const { data, error } = await supabase
+            .from("user_shops")
+            .select("id, shop_name, user_id")
+            .range(offset, offset + batchSize - 1)
+
+        if (error) {
+            console.error(`Error fetching shops:`, error)
+            break
+        }
+
+        if (data && data.length > 0) {
+            allRecords = allRecords.concat(data)
+            offset += batchSize
+            hasMore = data.length === batchSize
+        } else {
+            hasMore = false
+        }
+    }
+
+    return allRecords
+}
+
 async function main() {
     console.log("🔄 Starting shop balance sync...")
     console.log("")
 
-    // Get all shops
-    const { data: shops, error: shopsError } = await supabase
-        .from("user_shops")
-        .select("id, shop_name, user_id")
-
-    if (shopsError) {
-        console.error("❌ Error fetching shops:", shopsError)
-        process.exit(1)
-    }
+    // Get all shops with pagination
+    const shops = await fetchAllShops()
 
     if (!shops || shops.length === 0) {
         console.log("ℹ️  No shops found")

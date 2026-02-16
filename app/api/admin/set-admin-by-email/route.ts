@@ -40,15 +40,37 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Get user by email
-    const { data: users, error: getUserError } = await adminClient.auth.admin.listUsers()
+    // Get user by email with pagination
+    let user = null
+    let page = 1
+    let hasMore = true
 
-    if (getUserError) {
-      console.error("Error fetching users:", getUserError)
-      return NextResponse.json({ error: getUserError.message }, { status: 400 })
+    while (hasMore && !user) {
+      console.log(`[SET-ADMIN-BY-EMAIL] Fetching users page ${page}...`)
+      const { data: pageData, error: getUserError } = await adminClient.auth.admin.listUsers({
+        page,
+        perPage: 100,
+      })
+
+      if (getUserError) {
+        console.error(`Error fetching users on page ${page}:`, getUserError)
+        return NextResponse.json({ error: getUserError.message }, { status: 400 })
+      }
+
+      const users = pageData?.users || []
+      user = users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase())
+
+      if (user) {
+        console.log(`[SET-ADMIN-BY-EMAIL] Found user ${user.id} on page ${page}`)
+        break
+      }
+
+      if (users.length < 100) {
+        hasMore = false
+      } else {
+        page++
+      }
     }
-
-    const user = users.users.find((u) => u.email === email)
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
@@ -78,8 +100,8 @@ export async function POST(req: NextRequest) {
 
     console.log("[SET-ADMIN-BY-EMAIL] User", email, "has been granted admin role")
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       message: "Admin role granted",
       user: authData.user,
       updated: userData
