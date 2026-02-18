@@ -851,6 +851,29 @@ export async function updateDataKazinaOrderFromPayload(
       newStatus = "processing"
     }
 
+    // Prevent status regression: don't go from processing/completed back to pending
+    const statusPriority: Record<string, number> = {
+      "pending": 1,
+      "processing": 2,
+      "completed": 3,
+      "failed": 3,
+    }
+
+    // Get the tracking record to check current status
+    const { data: currentTracking } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("status, shop_order_id, order_id, order_type")
+      .eq("mtn_order_id", String(mtnOrderId))
+      .single()
+
+    const currentPriority = statusPriority[currentTracking?.status || "pending"] || 0
+    const newPriority = statusPriority[newStatus] || 0
+
+    if (newPriority < currentPriority) {
+      console.log(`[MTN-DK] Preventing status regression: ${currentTracking?.status} -> ${newStatus} (blocked)`)
+      return true // Still return true as it's a valid webhook, just not an update
+    }
+
     // Update tracking table
     const { error: trackingError } = await supabase
       .from("mtn_fulfillment_tracking")

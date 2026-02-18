@@ -10,6 +10,7 @@ import {
     recordMetrics,
 } from "@/lib/mtn-production-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { sendEmail, EmailTemplates } from "@/lib/email-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -55,6 +56,9 @@ export async function POST(request: NextRequest) {
             log("info", "Webhook.DataKazina", "Webhook missing ID - likely a test ping", { traceId, payload })
             return NextResponse.json({ success: true, message: "Test received", traceId })
         }
+
+        // Store webhook for audit
+        await storeWebhookEvent(traceId, payload, JSON.stringify(payload))
 
         // Update order status in database
         const updated = await updateDataKazinaOrderFromPayload(payload)
@@ -126,6 +130,40 @@ async function handleOrderCompleted(traceId: string, mtnOrderId: string, trackin
         log("warn", "Webhook.DataKazina", "Failed to send success SMS", { traceId, error: String(e) })
     }
 
+    // Send success Email
+    try {
+        let emailAddress: string | undefined;
+        let customerName: string | undefined;
+
+        if (tracking.shop_order_id) {
+            const { data: so } = await supabase.from('shop_orders').select('customer_email, customer_name').eq('id', tracking.shop_order_id).single();
+            if (so?.customer_email) { emailAddress = so.customer_email; customerName = so.customer_name; }
+        } else if (tracking.order_id) {
+            const { data: o } = await supabase.from('orders').select('user_id').eq('id', tracking.order_id).single();
+            if (o?.user_id) {
+                const { data: u } = await supabase.from('users').select('email, first_name').eq('id', o.user_id).single();
+                if (u?.email) { emailAddress = u.email; customerName = u.first_name; }
+            }
+        }
+
+        if (emailAddress) {
+            const payload = EmailTemplates.orderDelivered(
+                mtnOrderId,
+                "MTN",
+                tracking.size_gb?.toString() || "Unknown"
+            );
+            await sendEmail({
+                to: [{ email: emailAddress, name: customerName }],
+                subject: payload.subject,
+                htmlContent: (payload as any).htmlContent || payload.html,
+                referenceId: mtnOrderId,
+                type: 'order_delivered'
+            });
+            log("info", "Webhook.DataKazina", "Sent success Email", { traceId, email: emailAddress });
+        }
+    } catch (emailError) {
+        log("warn", "Webhook.DataKazina", "Failed to send success Email", { traceId, error: String(emailError) });
+    }
 }
 
 /**
@@ -148,6 +186,29 @@ async function handleOrderFailed(traceId: string, mtnOrderId: string, message: s
         })
     } catch (e) {
         log("warn", "Webhook.DataKazina", "Failed to send failure SMS", { traceId, error: String(e) })
+    }
+}
+
+/**
+ * Store webhook event for audit trail
+ */
+async function storeWebhookEvent(
+    traceId: string,
+    payload: DataKazinaWebhookPayload,
+    rawBody: string
+): Promise<void> {
+    try {
+        const mtnOrderId = payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref
+        await supabase.from("mtn_webhook_events").insert({
+            trace_id: traceId,
+            event_type: "datakazina.webhook",
+            mtn_order_id: mtnOrderId ? parseInt(String(mtnOrderId).replace(/\D/g, '')) || null : null,
+            payload: payload,
+            raw_body: rawBody,
+            received_at: new Date().toISOString(),
+        })
+    } catch (error) {
+        log("warn", "Webhook.DataKazina", "Failed to store webhook event", { traceId, error: String(error) })
     }
 }
 
