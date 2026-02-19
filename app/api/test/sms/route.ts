@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     // Check if admin (optional - for security)
     const authHeader = request.headers.get("Authorization")
     let isAdmin = false
-    
+
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7)
       const { data: { user } } = await supabase.auth.getUser(token)
@@ -33,10 +33,13 @@ export async function GET(request: NextRequest) {
     // Environment check
     const envCheck = {
       SMS_ENABLED: process.env.SMS_ENABLED,
+      SMS_PROVIDER: process.env.SMS_PROVIDER || 'moolre',
       hasMoolreApiKey: !!process.env.MOOLRE_API_KEY,
       moolreApiKeyLength: process.env.MOOLRE_API_KEY?.length || 0,
       hasMoolreSenderId: !!process.env.MOOLRE_SENDER_ID,
       moolreSenderId: process.env.MOOLRE_SENDER_ID || "not set",
+      hasMnotifyApiKey: !!process.env.MNOTIFY_API_KEY,
+      mnotifySenderId: process.env.MNOTIFY_SENDER_ID || "not set",
     }
 
     console.log("[SMS-TEST] Environment check:", envCheck)
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest) {
 
     const token = authHeader.slice(7)
     const { data: { user } } = await supabase.auth.getUser(token)
-    
+
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
@@ -106,9 +109,9 @@ export async function POST(request: NextRequest) {
       .select("role")
       .eq("id", user.id)
       .single()
-    
+
     const isAdmin = userData?.role === "admin" || user.user_metadata?.role === "admin"
-    
+
     if (!isAdmin) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }

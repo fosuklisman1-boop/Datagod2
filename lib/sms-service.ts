@@ -7,11 +7,13 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 // SMS Provider Configuration
-const SMS_PROVIDER = process.env.SMS_PROVIDER || 'moolre' // 'moolre' or 'brevo'
+const SMS_PROVIDER = process.env.SMS_PROVIDER || 'moolre' // 'moolre', 'brevo', or 'mnotify'
 const BREVO_API_KEY = process.env.BREVO_API_KEY
 const BREVO_SMS_SENDER = process.env.BREVO_SMS_SENDER || process.env.EMAIL_SENDER_NAME || 'DATAGOD'
 const MOOLRE_API_KEY = process.env.MOOLRE_API_KEY
 const MOOLRE_SENDER_ID = process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
+const MNOTIFY_API_KEY = process.env.MNOTIFY_API_KEY
+const MNOTIFY_SENDER_ID = process.env.MNOTIFY_SENDER_ID || 'MDATAGH'
 
 // State for SMS exhaustion fallback
 let isSmsExhausted = false
@@ -335,7 +337,133 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
 }
 
 /**
- * Send SMS using configured provider (Brevo or Moolre)
+ * Normalize phone number to local Ghana format for mNotify
+ * Accepts: +233XXXXXXXXX, 233XXXXXXXXX, 0XXXXXXXXX
+ * Returns: 0XXXXXXXXX
+ */
+function normalizePhoneForMNotify(phone: string): string {
+  phone = phone.replace(/[\s\-\(\)]/g, '')
+  if (phone.startsWith('+233')) {
+    phone = '0' + phone.substring(4)
+  } else if (phone.startsWith('233')) {
+    phone = '0' + phone.substring(3)
+  } else if (!phone.startsWith('0')) {
+    phone = '0' + phone
+  }
+  return phone
+}
+
+/**
+ * Send SMS via mNotify Quick Bulk SMS API
+ */
+async function sendSMSViaMNotify(payload: SMSPayload): Promise<SendSMSResponse> {
+  console.log('[SMS] Sending via mNotify to:', payload.phone)
+
+  if (!MNOTIFY_API_KEY) {
+    console.warn('[SMS] mNotify API key not configured')
+    return { success: false, error: 'mNotify API key not configured' }
+  }
+
+  try {
+    const localPhone = normalizePhoneForMNotify(payload.phone)
+
+    const requestBody = {
+      recipient: [localPhone],
+      sender: MNOTIFY_SENDER_ID.substring(0, 11), // Max 11 chars
+      message: payload.message,
+      is_schedule: false,
+      schedule_date: '',
+    }
+
+    const url = `https://api.mnotify.com/api/sms/quick?key=${MNOTIFY_API_KEY}`
+
+    console.log('[SMS] mNotify request:', {
+      sender: requestBody.sender,
+      recipient: localPhone.substring(0, 6) + '***',
+      messageLength: payload.message.length,
+    })
+
+    const response = await axios.post(url, requestBody, {
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    if (response.data.status !== 'success') {
+      throw new Error(`mNotify API Error: ${response.data.message || 'Unknown error'}`)
+    }
+
+    const messageId = response.data.summary?._id || 'unknown'
+    console.log('[SMS] ✓ mNotify Success - Campaign ID:', messageId)
+
+    // Log to database
+    if (payload.userId && !payload.skipLogging) {
+      try {
+        await supabase.from('sms_logs').insert({
+          user_id: payload.userId,
+          phone_number: payload.phone,
+          message: payload.message,
+          message_type: payload.type,
+          reference_id: payload.reference,
+          moolre_message_id: messageId, // Reuse column for mNotify campaign ID
+          status: 'sent',
+        })
+      } catch (logError) {
+        console.warn('[SMS] Failed to log SMS:', logError)
+      }
+    }
+
+    return {
+      success: true,
+      messageId,
+      provider: 'mnotify',
+    }
+  } catch (error) {
+    console.error('[SMS] mNotify Error:', error)
+
+    let errorMessage = 'Failed to send SMS via mNotify'
+    if (axios.isAxiosError(error)) {
+      errorMessage = error.response?.data?.message || error.message
+      const status = error.response?.status
+
+      console.error('[SMS] mNotify API Error:', {
+        status,
+        data: error.response?.data,
+      })
+
+      // Handle insufficient credits
+      if (status === 402 || errorMessage.toLowerCase().includes('credit') || errorMessage.toLowerCase().includes('balance')) {
+        console.warn('[SMS] 🚨 mNotify Credits Exhausted. Setting exhaustion flag.')
+        isSmsExhausted = true
+        lastExhaustionCheck = Date.now()
+      }
+    }
+
+    // Log failed SMS
+    if (payload.userId && !payload.skipLogging) {
+      try {
+        await supabase.from('sms_logs').insert({
+          user_id: payload.userId,
+          phone_number: payload.phone,
+          message: payload.message,
+          message_type: payload.type,
+          reference_id: payload.reference,
+          status: 'failed',
+          error_message: errorMessage,
+        })
+      } catch (logError) {
+        console.warn('[SMS] Failed to log failed SMS:', logError)
+      }
+    }
+
+    return {
+      success: false,
+      error: errorMessage,
+      provider: 'mnotify',
+    }
+  }
+}
+
+/**
+ * Send SMS using configured provider (Brevo, Moolre, or mNotify)
  */
 export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   console.log('[SMS] sendSMS called with:', { phone: payload.phone, type: payload.type, provider: SMS_PROVIDER })
@@ -348,6 +476,8 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   // Route to the appropriate provider
   if (SMS_PROVIDER === 'brevo') {
     return sendSMSViaBrevo(payload)
+  } else if (SMS_PROVIDER === 'mnotify') {
+    return sendSMSViaMNotify(payload)
   } else {
     return sendSMSViaMoolre(payload)
   }
