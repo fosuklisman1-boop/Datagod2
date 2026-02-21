@@ -181,7 +181,36 @@ export async function POST(request: NextRequest) {
       // Continue with default queue if blacklist check fails
     }
 
-    // Create order
+    // Atomic wallet deduction — prevents double-spend race condition
+    // If two requests race, only one can succeed; the other gets no rows back
+    const { data: deductResult, error: deductError } = await supabaseAdmin
+      .rpc('deduct_wallet', {
+        p_user_id: userId,
+        p_amount: validatedPrice,
+      })
+
+    if (deductError) {
+      console.error("[PURCHASE] Wallet deduction RPC error:", deductError)
+      return NextResponse.json(
+        { error: "Failed to process payment", details: deductError.message },
+        { status: 500 }
+      )
+    }
+
+    if (!deductResult || deductResult.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Insufficient balance",
+          required: validatedPrice,
+          available: wallet.balance,
+        },
+        { status: 402 }
+      )
+    }
+
+    const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
+
+    // Create order (wallet already deducted atomically)
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .insert([
@@ -201,27 +230,18 @@ export async function POST(request: NextRequest) {
       .select()
 
     if (orderError) {
+      // Refund: wallet was already deducted, so we need to reverse
+      console.error("[PURCHASE] Order creation failed, refunding wallet:", orderError)
+      await supabaseAdmin
+        .from("wallets")
+        .update({
+          balance: balanceBefore,
+          total_spent: deductResult[0].new_total_spent - validatedPrice,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
       return NextResponse.json(
         { error: "Failed to create order", details: orderError.message },
-        { status: 500 }
-      )
-    }
-
-    // Deduct from wallet (prevent negative balance)
-    const newBalance = Math.max(0, wallet.balance - validatedPrice)
-
-    const { error: updateWalletError } = await supabaseAdmin
-      .from("wallets")
-      .update({
-        balance: newBalance,
-        total_spent: (wallet.total_spent || 0) + validatedPrice,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", userId)
-
-    if (updateWalletError) {
-      return NextResponse.json(
-        { error: "Failed to update wallet", details: updateWalletError.message },
         { status: 500 }
       )
     }
@@ -234,8 +254,8 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           type: "debit",
           source: "data_purchase",
-          amount: price,
-          balance_before: wallet.balance,
+          amount: validatedPrice,
+          balance_before: balanceBefore,
           balance_after: newBalance,
           description: `Data purchase: ${network} ${size}`,
           reference_id: order[0].id,

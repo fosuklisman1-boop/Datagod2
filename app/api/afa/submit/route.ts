@@ -9,7 +9,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 export async function POST(request: NextRequest) {
   try {
     console.log("[AFA-SUBMIT] Request received")
-    
+
     // Get auth header
     const authHeader = request.headers.get("authorization")
     if (!authHeader?.startsWith("Bearer ")) {
@@ -51,31 +51,32 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get user's wallet
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("balance, total_spent")
-      .eq("user_id", user.id)
-      .single()
+    // Atomic wallet deduction — prevents double-spend race condition
+    console.log("[AFA-SUBMIT] Attempting atomic wallet deduction")
+    const { data: deductResult, error: deductError } = await supabase
+      .rpc('deduct_wallet', {
+        p_user_id: user.id,
+        p_amount: amount,
+      })
 
-    if (walletError || !wallet) {
-      console.log("[AFA-SUBMIT] Wallet not found:", walletError)
+    if (deductError) {
+      console.error("[AFA-SUBMIT] Wallet deduction RPC error:", deductError)
       return NextResponse.json(
-        { error: "Wallet not found" },
-        { status: 404 }
+        { error: "Failed to process payment", details: deductError.message },
+        { status: 500 }
       )
     }
 
-    console.log("[AFA-SUBMIT] Wallet found, balance:", wallet.balance)
-
-    // Check balance
-    if (wallet.balance < amount) {
+    if (!deductResult || deductResult.length === 0) {
       console.log("[AFA-SUBMIT] Insufficient balance")
       return NextResponse.json(
         { error: "Insufficient balance" },
         { status: 400 }
       )
     }
+
+    const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
+    console.log("[AFA-SUBMIT] Wallet deducted:", { balanceBefore, newBalance })
 
     // Generate order code and transaction code
     const orderCode = `AFA-${Date.now().toString().slice(-7)}`
@@ -104,7 +105,16 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (afaError) {
-      console.error("[AFA-SUBMIT] Error creating AFA order:", afaError)
+      console.error("[AFA-SUBMIT] Error creating AFA order, refunding wallet:", afaError)
+      // Refund: wallet was already deducted
+      await supabase
+        .from("wallets")
+        .update({
+          balance: balanceBefore,
+          total_spent: deductResult[0].new_total_spent - amount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", user.id)
       return NextResponse.json(
         { error: "Failed to create AFA order", details: afaError.message },
         { status: 500 }
@@ -112,30 +122,6 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[AFA-SUBMIT] AFA order created:", afaOrder.id)
-
-    // Deduct from wallet
-    console.log("[AFA-SUBMIT] Updating wallet")
-    const newBalance = wallet.balance - amount
-    const newTotalSpent = (wallet.total_spent || 0) + amount
-
-    const { error: updateError } = await supabase
-      .from("wallets")
-      .update({
-        balance: newBalance,
-        total_spent: newTotalSpent,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", user.id)
-
-    if (updateError) {
-      console.error("[AFA-SUBMIT] Error updating wallet:", updateError)
-      return NextResponse.json(
-        { error: "Failed to process payment", details: updateError.message },
-        { status: 500 }
-      )
-    }
-
-    console.log("[AFA-SUBMIT] Wallet updated")
 
     // Create transaction record
     console.log("[AFA-SUBMIT] Creating transaction record")
@@ -149,7 +135,7 @@ export async function POST(request: NextRequest) {
         reference_id: transactionCode,
         source: "afa_registration",
         status: "completed",
-        balance_before: wallet.balance,
+        balance_before: balanceBefore,
         balance_after: newBalance,
         created_at: new Date().toISOString(),
       })
