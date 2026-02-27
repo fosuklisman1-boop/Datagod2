@@ -333,9 +333,18 @@ export default function AdminOrdersPage() {
         return
       }
 
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Session expired. Please refresh the page.")
+        return
+      }
+
       const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({
           shop_order_id: orderId,
           network: order.network,
