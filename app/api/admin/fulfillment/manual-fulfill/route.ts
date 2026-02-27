@@ -132,12 +132,18 @@ export async function POST(request: NextRequest) {
 
     if (existingTracking && existingTracking.length > 0) {
       const lastTracking = existingTracking[0]
-      if (lastTracking.status === "pending" || lastTracking.status === "processing" || lastTracking.status === "completed") {
+      const isFailedId = lastTracking.mtn_order_id?.toString().startsWith("FAILED")
+      // Allow retry if mtn_order_id starts with "FAILED" (previous attempt never reached MTN)
+      // Block if it has a real MTN order ID and is pending/processing/completed
+      if (!isFailedId && (lastTracking.status === "pending" || lastTracking.status === "processing" || lastTracking.status === "completed")) {
         console.log(`[MANUAL-FULFILL] Order ${shop_order_id} already tracked in MTN with status: ${lastTracking.status}`)
         return NextResponse.json(
           { error: `Order already tracked with MTN (Order ID: ${lastTracking.mtn_order_id}, Status: ${lastTracking.status})` },
           { status: 400 }
         )
+      }
+      if (isFailedId) {
+        console.log(`[MANUAL-FULFILL] Previous tracking has FAILED ID (${lastTracking.mtn_order_id}) - allowing retry`)
       }
     }
 
