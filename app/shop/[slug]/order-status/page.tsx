@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, AlertCircle, CheckCircle, Clock, XCircle, Package, Loader2, Store } from "lucide-react"
+import { Search, AlertCircle, CheckCircle, Clock, XCircle, Package, Loader2, Store, CreditCard } from "lucide-react"
 import { shopService } from "@/lib/shop-service"
 import { toast } from "sonner"
 
@@ -42,6 +42,8 @@ export default function OrderStatusPage() {
   const [orders, setOrders] = useState<ShopOrder[]>([])
   const [searched, setSearched] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [referenceInputs, setReferenceInputs] = useState<Record<string, string>>({})
+  const [verifyingOrder, setVerifyingOrder] = useState<string | null>(null)
 
   useEffect(() => {
     loadShopData()
@@ -188,6 +190,54 @@ export default function OrderStatusPage() {
         return "bg-gray-50 border-gray-200"
     }
   }
+
+  const verifyPaymentReference = async (order: ShopOrder) => {
+    const ref = referenceInputs[order.id]?.trim()
+    if (!ref) {
+      toast.error("Please enter the payment reference from your Paystack email")
+      return
+    }
+
+    setVerifyingOrder(order.id)
+    try {
+      const response = await fetch("/api/payments/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference: ref }),
+      })
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || "Verification failed")
+      }
+
+      if (result.status === "success" || result.status === "completed") {
+        toast.success("Payment verified! Your order is being processed.")
+        // Update order in place
+        setOrders(prev => prev.map(o =>
+          o.id === order.id
+            ? { ...o, payment_status: "completed", order_status: o.order_status === "pending" ? "processing" : o.order_status }
+            : o
+        ))
+        // Clear the reference input
+        setReferenceInputs(prev => {
+          const copy = { ...prev }
+          delete copy[order.id]
+          return copy
+        })
+      } else if (result.status === "failed" || result.status === "abandoned") {
+        toast.error(`Payment ${result.status}. This reference was not paid on Paystack.`)
+      } else {
+        toast.info("Payment is still processing. Please try again in a few minutes.")
+      }
+    } catch (err) {
+      console.error("Error verifying payment:", err)
+      toast.error(err instanceof Error ? err.message : "Verification failed")
+    } finally {
+      setVerifyingOrder(null)
+    }
+  }
+
 
   if (loading) {
     return (
@@ -369,6 +419,41 @@ export default function OrderStatusPage() {
                           <p className="text-sm text-gray-900">{new Date(order.updated_at).toLocaleString()}</p>
                         </div>
                       </div>
+
+                      {/* Payment Verification for pending orders */}
+                      {(order.payment_status === "pending" || order.payment_status === "abandoned") && (
+                        <div className="pt-3 border-t bg-yellow-50 -mx-6 px-6 pb-1 rounded-b-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <CreditCard className="w-4 h-4 text-yellow-600" />
+                            <p className="text-sm font-semibold text-yellow-800">Payment not confirmed?</p>
+                          </div>
+                          <p className="text-xs text-yellow-700 mb-3">
+                            If you completed payment but it&apos;s still showing as pending, enter the payment reference from your Paystack email below.
+                          </p>
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Paystack reference (e.g. t6j8k2m9n4)"
+                              value={referenceInputs[order.id] || ""}
+                              onChange={(e) => setReferenceInputs(prev => ({ ...prev, [order.id]: e.target.value }))}
+                              disabled={verifyingOrder === order.id}
+                              className="flex-1 bg-white text-sm"
+                              onKeyDown={(e) => { if (e.key === "Enter") verifyPaymentReference(order) }}
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => verifyPaymentReference(order)}
+                              disabled={verifyingOrder === order.id || !referenceInputs[order.id]?.trim()}
+                              className="bg-yellow-600 hover:bg-yellow-700 text-white whitespace-nowrap"
+                            >
+                              {verifyingOrder === order.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                "Verify Payment"
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
