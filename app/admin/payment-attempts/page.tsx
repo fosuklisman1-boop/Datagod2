@@ -23,7 +23,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Search, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, Wallet, ShoppingCart, TrendingUp } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Search, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, Wallet, ShoppingCart, TrendingUp, MoreHorizontal, Check, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 // Safe format currency helper
@@ -82,6 +88,9 @@ export default function PaymentAttemptsPage() {
   const [attempts, setAttempts] = useState<PaymentAttempt[]>([])
   const [stats, setStats] = useState<Stats>(defaultStats)
   const [loading, setLoading] = useState(true)
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [referenceInput, setReferenceInput] = useState("")
+  const [referenceLoading, setReferenceLoading] = useState(false)
 
   // Filters
   const [search, setSearch] = useState("")
@@ -176,281 +185,388 @@ export default function PaymentAttemptsPage() {
     setEndDate("")
   }
 
+  const markAsCompleted = async (attemptId: string) => {
+    if (!confirm("Are you sure you want to mark this transaction as completed?")) return
+    setUpdatingId(attemptId)
+    try {
+      const response = await fetch("/api/admin/payment-attempts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: attemptId, status: "completed" }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update status")
+      }
+      toast.success("Transaction marked as completed")
+      fetchAttempts()
+    } catch (error) {
+      console.error("Error marking as completed:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update status")
+    } finally {
+      setUpdatingId(null)
+    }
+  }
+
+  const markAsCompletedByReference = async () => {
+    const ref = referenceInput.trim()
+    if (!ref) {
+      toast.error("Please enter a reference")
+      return
+    }
+    if (!confirm(`Are you sure you want to mark reference "${ref}" as completed? This will credit the wallet or trigger fulfillment.`)) return
+    setReferenceLoading(true)
+    try {
+      const response = await fetch("/api/admin/payment-attempts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference: ref, status: "completed" }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update status")
+      }
+      toast.success(data.message || "Transaction marked as completed")
+      setReferenceInput("")
+      fetchAttempts()
+    } catch (error) {
+      console.error("Error marking as completed by reference:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update status")
+    } finally {
+      setReferenceLoading(false)
+    }
+  }
+
   const conversionRate = stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(1) : "0.0"
 
   return (
     <DashboardLayout>
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Payment Attempts</h1>
-          <p className="text-muted-foreground">Track all payment attempts including pending and abandoned</p>
+      <div className="container mx-auto py-6 space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold">Payment Attempts</h1>
+            <p className="text-muted-foreground">Track all payment attempts including pending and abandoned</p>
+          </div>
+          <Button variant="outline" onClick={() => fetchAttempts()} disabled={loading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
         </div>
-        <Button variant="outline" onClick={() => fetchAttempts()} disabled={loading}>
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-6">
+        {/* Quick Complete by Reference */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Attempts</CardTitle>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Quick Complete by Reference</CardTitle>
+            <CardDescription>Paste the Paystack reference from the customer&apos;s email to mark the transaction as completed</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">{formatCurrency(stats.totalAmount)}</p>
+            <div className="flex gap-3">
+              <Input
+                placeholder="Enter Paystack reference (e.g. abc123def456)"
+                value={referenceInput}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setReferenceInput(e.target.value)}
+                className="flex-1"
+                onKeyDown={(e: React.KeyboardEvent) => {
+                  if (e.key === "Enter") markAsCompletedByReference()
+                }}
+              />
+              <Button
+                onClick={markAsCompletedByReference}
+                disabled={referenceLoading || !referenceInput.trim()}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {referenceLoading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                )}
+                Mark as Completed
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
+        {/* Stats Cards */}
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Attempts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.total}</div>
+              <p className="text-xs text-muted-foreground">{formatCurrency(stats.totalAmount)}</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Completed</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
+              <p className="text-xs text-muted-foreground">{formatCurrency(stats.completedAmount)}</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              <Clock className="h-4 w-4 text-yellow-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
+              <p className="text-xs text-muted-foreground">Awaiting payment</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Failed</CardTitle>
+              <XCircle className="h-4 w-4 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
+              <p className="text-xs text-muted-foreground">Payment failed</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Abandoned</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-gray-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-gray-600">{stats.abandoned}</div>
+              <p className="text-xs text-muted-foreground">Never completed</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Conversion</CardTitle>
+              <TrendingUp className="h-4 w-4 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">{conversionRate}%</div>
+              <p className="text-xs text-muted-foreground">Success rate</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filters */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-500" />
+          <CardHeader>
+            <CardTitle>Filters</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
-            <p className="text-xs text-muted-foreground">{formatCurrency(stats.completedAmount)}</p>
-          </CardContent>
-        </Card>
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+              <div className="lg:col-span-2">
+                <Label htmlFor="search">Search</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="search"
+                    placeholder="Email or reference..."
+                    value={search}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending</CardTitle>
-            <Clock className="h-4 w-4 text-yellow-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
-            <p className="text-xs text-muted-foreground">Awaiting payment</p>
-          </CardContent>
-        </Card>
+              <div>
+                <Label htmlFor="status">Status</Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger id="status">
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                    <SelectItem value="abandoned">Abandoned</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Failed</CardTitle>
-            <XCircle className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
-            <p className="text-xs text-muted-foreground">Payment failed</p>
-          </CardContent>
-        </Card>
+              <div>
+                <Label htmlFor="type">Type</Label>
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger id="type">
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="wallet_topup">Wallet Top-up</SelectItem>
+                    <SelectItem value="shop_order">Shop Order</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Abandoned</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-gray-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-gray-600">{stats.abandoned}</div>
-            <p className="text-xs text-muted-foreground">Never completed</p>
-          </CardContent>
-        </Card>
+              <div className="flex items-end">
+                <Button variant="ghost" onClick={clearFilters} className="w-full">
+                  Clear Filters
+                </Button>
+              </div>
+            </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Conversion</CardTitle>
-            <TrendingUp className="h-4 w-4 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{conversionRate}%</div>
-            <p className="text-xs text-muted-foreground">Success rate</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
-            <div className="lg:col-span-2">
-              <Label htmlFor="search">Search</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <div className="grid gap-4 md:grid-cols-2 mt-4">
+              <div>
+                <Label htmlFor="startDate">Start Date</Label>
                 <Input
-                  id="search"
-                  placeholder="Email or reference..."
-                  value={search}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-                  className="pl-9"
+                  id="startDate"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="endDate">End Date</Label>
+                <Input
+                  id="endDate"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
                 />
               </div>
             </div>
+          </CardContent>
+        </Card>
 
-            <div>
-              <Label htmlFor="status">Status</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger id="status">
-                  <SelectValue placeholder="All statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="failed">Failed</SelectItem>
-                  <SelectItem value="abandoned">Abandoned</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="type">Type</Label>
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger id="type">
-                  <SelectValue placeholder="All types" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="wallet_topup">Wallet Top-up</SelectItem>
-                  <SelectItem value="shop_order">Shop Order</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-end">
-              <Button variant="ghost" onClick={clearFilters} className="w-full">
-                Clear Filters
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 mt-4">
-            <div>
-              <Label htmlFor="startDate">Start Date</Label>
-              <Input
-                id="startDate"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="endDate">End Date</Label>
-              <Input
-                id="endDate"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Payment Attempts
-            <span className="ml-2 text-sm font-normal text-muted-foreground">
-              ({totalCount} total)
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex justify-center items-center h-64">
-              <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : attempts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-              <XCircle className="w-12 h-12 mb-4" />
-              <p>No payment attempts found</p>
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>User</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Reference</TableHead>
-                      <TableHead>Response</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {attempts.map((attempt) => (
-                      <TableRow key={attempt.id}>
-                        <TableCell className="whitespace-nowrap">
-                          <div className="flex flex-col">
-                            <span>{new Date(attempt.created_at).toLocaleDateString()}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(attempt.created_at).toLocaleTimeString()}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{attempt.user_email}</span>
-                            <span className="text-sm text-muted-foreground">
-                              {`${attempt.user_first_name || ""} ${attempt.user_last_name || ""}`.trim() || "No name"}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>{getTypeBadge(attempt.payment_type)}</TableCell>
-                        <TableCell className="font-medium">
-                          {formatCurrency(attempt.amount)}
-                          {attempt.fee && attempt.fee > 0 && (
-                            <div className="text-xs text-muted-foreground">
-                              Fee: {formatCurrency(attempt.fee)}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>{getStatusBadge(attempt.status)}</TableCell>
-                        <TableCell className="font-mono text-xs max-w-[150px] truncate" title={attempt.reference}>
-                          {attempt.reference}
-                        </TableCell>
-                        <TableCell className="max-w-[150px] truncate text-sm" title={attempt.gateway_response || ""}>
-                          {attempt.gateway_response || "-"}
-                        </TableCell>
+        {/* Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Payment Attempts
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({totalCount} total)
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex justify-center items-center h-64">
+                <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : attempts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                <XCircle className="w-12 h-12 mb-4" />
+                <p>No payment attempts found</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>User</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Reference</TableHead>
+                        <TableHead>Response</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Pagination */}
-              <div className="flex items-center justify-between mt-4">
-                <p className="text-sm text-muted-foreground">
-                  Showing {(page - 1) * limit + 1} to {Math.min(page * limit, totalCount)} of {totalCount}
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    Previous
-                  </Button>
-                  <span className="text-sm">
-                    Page {page} of {totalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                  >
-                    Next
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
+                    </TableHeader>
+                    <TableBody>
+                      {attempts.map((attempt) => (
+                        <TableRow key={attempt.id}>
+                          <TableCell className="whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span>{new Date(attempt.created_at).toLocaleDateString()}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(attempt.created_at).toLocaleTimeString()}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{attempt.user_email}</span>
+                              <span className="text-sm text-muted-foreground">
+                                {`${attempt.user_first_name || ""} ${attempt.user_last_name || ""}`.trim() || "No name"}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getTypeBadge(attempt.payment_type)}</TableCell>
+                          <TableCell className="font-medium">
+                            {formatCurrency(attempt.amount)}
+                            {attempt.fee && attempt.fee > 0 && (
+                              <div className="text-xs text-muted-foreground">
+                                Fee: {formatCurrency(attempt.fee)}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>{getStatusBadge(attempt.status)}</TableCell>
+                          <TableCell className="font-mono text-xs max-w-[150px] truncate" title={attempt.reference}>
+                            {attempt.reference}
+                          </TableCell>
+                          <TableCell className="max-w-[150px] truncate text-sm" title={attempt.gateway_response || ""}>
+                            {attempt.gateway_response || "-"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {attempt.status !== "completed" && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm" disabled={updatingId === attempt.id}>
+                                    {updatingId === attempt.id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <MoreHorizontal className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => markAsCompleted(attempt.id)}>
+                                    <Check className="w-4 h-4 mr-2 text-green-500" />
+                                    Mark as Completed
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+
+                {/* Pagination */}
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {(page - 1) * limit + 1} to {Math.min(page * limit, totalCount)} of {totalCount}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Previous
+                    </Button>
+                    <span className="text-sm">
+                      Page {page} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </DashboardLayout>
   )
 }
