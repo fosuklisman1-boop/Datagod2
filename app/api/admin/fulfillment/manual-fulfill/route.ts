@@ -89,10 +89,10 @@ export async function POST(request: NextRequest) {
     const currentStatus = order_type === "bulk" ? orderData.status : orderData.order_status
     const phone = order_type === "bulk" ? orderData.phone_number : orderData.customer_phone
 
-    // Check if already fulfilled
-    if (currentStatus === "completed" || currentStatus === "failed") {
+    // Check if already fulfilled (only block completed, allow failed to be retried)
+    if (currentStatus === "completed") {
       return NextResponse.json(
-        { error: `Order already ${currentStatus}` },
+        { error: `Order already completed` },
         { status: 400 }
       )
     }
@@ -108,10 +108,12 @@ export async function POST(request: NextRequest) {
 
     if (existingLogs && existingLogs.length > 0) {
       const lastLog = existingLogs[0]
-      if (lastLog.status === "pending" || lastLog.status === "completed") {
-        console.log(`[MANUAL-FULFILL] Order ${shop_order_id} already has fulfillment log with status: ${lastLog.status}`)
+      // Only block if there's a completed fulfillment log
+      // Allow retry if previous log was "pending" (could be stale from a failed API call)
+      if (lastLog.status === "completed") {
+        console.log(`[MANUAL-FULFILL] Order ${shop_order_id} already has completed fulfillment log`)
         return NextResponse.json(
-          { error: `Order already has a ${lastLog.status} fulfillment (ID: ${lastLog.external_order_id})` },
+          { error: `Order already has a completed fulfillment (ID: ${lastLog.external_order_id})` },
           { status: 400 }
         )
       }
