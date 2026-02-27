@@ -182,15 +182,20 @@ export async function POST(request: NextRequest) {
     // Check for Sykes fallback: if previously failed with DataKazina, force Sykes
     // Using the NEW automatic sequential logic from lib/mtn-fulfillment
     const { getNextMTNProvider } = await import("@/lib/mtn-fulfillment")
+    // Always respect admin's explicitly selected provider
+    // Only use auto-fallback if admin didn't select one
     let finalProvider = provider
 
     if (existingTracking && existingTracking.length > 0) {
       const lastTracking = existingTracking[0]
-      // Determine next provider based on current attempts
-      // Note: retry_count is 0-indexed count of retries (1st manual retry usually brings it to 1)
-      finalProvider = getNextMTNProvider(lastTracking.retry_count || 0)
 
-      console.log(`[MANUAL-FULFILL] Detected previous tracking for order ${shop_order_id}. Automatic provider: ${finalProvider}.`)
+      if (!provider) {
+        // No explicit provider from admin — use automatic fallback
+        finalProvider = getNextMTNProvider(lastTracking.retry_count || 0)
+        console.log(`[MANUAL-FULFILL] No provider selected, auto-selecting: ${finalProvider}`)
+      } else {
+        console.log(`[MANUAL-FULFILL] Admin explicitly selected provider: ${provider}`)
+      }
 
       // ATOMIC LOCK on tracking record
       const { data: trackingLock, error: trackingLockError } = await supabase
