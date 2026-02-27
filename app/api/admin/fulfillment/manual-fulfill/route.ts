@@ -108,15 +108,17 @@ export async function POST(request: NextRequest) {
 
     if (existingLogs && existingLogs.length > 0) {
       const lastLog = existingLogs[0]
-      // Only block if there's a completed fulfillment log
-      // Allow retry if previous log was "pending" (could be stale from a failed API call)
-      if (lastLog.status === "completed") {
-        console.log(`[MANUAL-FULFILL] Order ${shop_order_id} already has completed fulfillment log`)
+      // Allow retry only if the external_order_id starts with "FAILED" (indicating previous failure)
+      // Block all other cases (pending, completed, or any real external order ID)
+      const isFailed = lastLog.external_order_id?.toString().startsWith("FAILED")
+      if (!isFailed) {
+        console.log(`[MANUAL-FULFILL] Order ${shop_order_id} already has fulfillment log (ID: ${lastLog.external_order_id}, status: ${lastLog.status}) - blocking re-fulfillment`)
         return NextResponse.json(
-          { error: `Order already has a completed fulfillment (ID: ${lastLog.external_order_id})` },
+          { error: `Order already has a fulfillment (ID: ${lastLog.external_order_id}, Status: ${lastLog.status})` },
           { status: 400 }
         )
       }
+      console.log(`[MANUAL-FULFILL] Previous fulfillment failed (${lastLog.external_order_id}) - allowing retry`)
     }
 
     // Check mtn_fulfillment_tracking to see if already tracked
