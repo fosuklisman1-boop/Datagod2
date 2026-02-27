@@ -293,10 +293,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate Excel file
-    const excelData = orders.map((order: any) => ({
-      Phone: order.phone_number,
-      Size: order.size?.toString().replace(/[^0-9]/g, "") || order.size // Remove "GB" or any non-numeric characters
-    }))
+    const excelData = orders.map((order: any) => {
+      const cleanSizeStr = order.size?.toString().replace(/[^0-9.]/g, "");
+      const parsedSize = parseFloat(cleanSizeStr);
+      return {
+        Phone: order.phone_number,
+        Size: !isNaN(parsedSize) ? parsedSize : (order.size || "") // Remove "GB", format as number to drop trailing .00
+      };
+    })
 
     const worksheet = XLSX.utils.json_to_sheet(excelData)
     const workbook = XLSX.utils.book_new()
