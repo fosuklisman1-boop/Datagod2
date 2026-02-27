@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Wallet, Plus, Minus, TrendingUp, TrendingDown, AlertCircle, Loader2 } from "lucide-react"
+import { Wallet, Plus, Minus, TrendingUp, TrendingDown, AlertCircle, Loader2, RefreshCw, CheckCircle } from "lucide-react"
 import { WalletTopUp } from "@/components/wallet-top-up"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -30,6 +30,14 @@ interface Transaction {
   reference: string
 }
 
+interface PendingPayment {
+  id: string
+  reference: string
+  amount: number
+  created_at: string
+  status: string
+}
+
 export default function WalletPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -43,9 +51,11 @@ export default function WalletPage() {
     transactionCount: 0,
   })
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([])
   const [loading, setLoading] = useState(true)
   const [showTopUp, setShowTopUp] = useState(false)
   const [paymentVerifying, setPaymentVerifying] = useState(false)
+  const [verifyingId, setVerifyingId] = useState<string | null>(null)
 
   // Auth protection
   useEffect(() => {
@@ -80,6 +90,7 @@ export default function WalletPage() {
       await Promise.all([
         fetchWalletData(user.id),
         fetchTransactions(user.id),
+        fetchPendingPayments(user.id),
       ])
     } catch (error) {
       console.error("Error fetching user:", error)
@@ -174,6 +185,67 @@ export default function WalletPage() {
     }
   }
 
+  const fetchPendingPayments = async (uid: string) => {
+    try {
+      // Fetch pending wallet payments from the last 24 hours
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const { data, error } = await supabase
+        .from("wallet_payments")
+        .select("id, reference, amount, created_at, status")
+        .eq("user_id", uid)
+        .in("status", ["pending", "abandoned"])
+        .gte("created_at", twentyFourHoursAgo)
+        .order("created_at", { ascending: false })
+        .limit(10)
+
+      if (!error && data) {
+        setPendingPayments(data)
+      }
+    } catch (err) {
+      console.error("[WALLET] Error fetching pending payments:", err)
+    }
+  }
+
+  const verifyPendingPayment = async (payment: PendingPayment) => {
+    setVerifyingId(payment.id)
+    try {
+      const response = await fetch("/api/payments/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference: payment.reference }),
+      })
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || "Verification failed")
+      }
+
+      if (result.status === "success" || result.status === "completed") {
+        toast.success("Payment verified! Your wallet has been credited.")
+        // Remove from pending list
+        setPendingPayments(prev => prev.filter(p => p.id !== payment.id))
+      } else if (result.status === "failed" || result.status === "abandoned") {
+        toast.error(`Payment ${result.status}. This payment was not completed on Paystack.`)
+        setPendingPayments(prev => prev.filter(p => p.id !== payment.id))
+      } else {
+        toast.info("Payment is still processing. Please try again in a few minutes.")
+      }
+
+      // Refresh wallet data
+      if (userId) {
+        await Promise.all([
+          fetchWalletData(userId),
+          fetchTransactions(userId),
+        ])
+      }
+    } catch (error) {
+      console.error("[WALLET] Error verifying payment:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to verify payment")
+    } finally {
+      setVerifyingId(null)
+    }
+  }
+
   const verifyPaymentAndRefresh = async (reference: string) => {
     try {
       setPaymentVerifying(true)
@@ -207,6 +279,7 @@ export default function WalletPage() {
         await Promise.all([
           fetchWalletData(userId),
           fetchTransactions(userId),
+          fetchPendingPayments(userId),
         ])
       }
     } catch (error) {
@@ -229,6 +302,7 @@ export default function WalletPage() {
       await Promise.all([
         fetchWalletData(userId),
         fetchTransactions(userId),
+        fetchPendingPayments(userId),
       ])
       console.log("[WALLET-PAGE] Wallet data refreshed")
     }
@@ -286,6 +360,56 @@ export default function WalletPage() {
           <div className="animate-in fade-in slide-in-from-top-2">
             <WalletTopUp onSuccess={handleTopUpSuccess} />
           </div>
+        )}
+
+        {/* Pending Payments Alert */}
+        {pendingPayments.length > 0 && (
+          <Card className="border-yellow-300 bg-yellow-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2 text-yellow-800">
+                <AlertCircle className="w-5 h-5" />
+                Pending Payments ({pendingPayments.length})
+              </CardTitle>
+              <CardDescription className="text-yellow-700">
+                These payments are still processing. If you completed payment on Paystack, click &quot;Verify&quot; to credit your wallet.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {pendingPayments.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-white border border-yellow-200"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-gray-900">
+                        GHS {(payment.amount || 0).toFixed(2)}
+                      </span>
+                      <Badge className="bg-yellow-100 text-yellow-800 text-xs">
+                        {payment.status}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {new Date(payment.created_at).toLocaleString()} · Ref: {payment.reference?.slice(-10) || "—"}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => verifyPendingPayment(payment)}
+                    disabled={verifyingId === payment.id}
+                    className="bg-yellow-600 hover:bg-yellow-700 text-white w-full sm:w-auto"
+                  >
+                    {verifyingId === payment.id ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                    )}
+                    Verify Payment
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         )}
 
         {/* Stats Cards */}

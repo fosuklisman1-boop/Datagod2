@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[PAYMENT-VERIFY] ✓ Record found - User:", paymentData.user_id)
-    
+
     // Safety check: if already completed, don't verify again
     if (paymentData.status === "completed") {
       console.log("[PAYMENT-VERIFY] ℹ Payment already completed - skipping re-verification")
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     if (verificationResult.status === "success" && Math.abs(paidAmount - expectedAmount) > tolerance) {
       console.error(`[PAYMENT-VERIFY] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmount}, Expected: ${expectedAmount}, Reference: ${reference}`)
-      
+
       // Update payment as failed due to amount mismatch
       await supabase
         .from("wallet_payments")
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", paymentData.id)
-      
+
       // If there's an order, mark it as failed too
       if (paymentData.order_id) {
         await supabase
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
           })
           .eq("id", paymentData.order_id)
       }
-      
+
       return NextResponse.json(
         { error: "Payment amount mismatch - payment rejected", success: false },
         { status: 400 }
@@ -118,19 +118,45 @@ export async function POST(request: NextRequest) {
       throw new Error("Failed to update payment status")
     }
 
-    // Credit wallet if successful
+    // Credit wallet / trigger fulfillment if Paystack confirms success
     if (verificationResult.status === "success") {
-      console.log("[PAYMENT-VERIFY] Payment verified as successful - Wallet will be credited by webhook")
-      console.log("[PAYMENT-VERIFY] Amount to credit:", verificationResult.amount)
+      console.log("[PAYMENT-VERIFY] Paystack confirmed success. Triggering completion via admin endpoint...")
 
-      // NOTE: Do NOT credit wallet here. The webhook will handle it.
-      // This prevents double-crediting if both verify and webhook execute.
-      // The webhook is the source of truth for wallet crediting.
+      // Call the admin PATCH endpoint which handles all completion logic:
+      // wallet credit, fulfillment, notifications, balance sync, etc.
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : "http://localhost:3000"
+
+        const completionResponse = await fetch(`${baseUrl}/api/admin/payment-attempts`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reference, status: "completed" }),
+        })
+
+        const completionResult = await completionResponse.json()
+
+        if (!completionResponse.ok) {
+          // If already completed, that's fine - not an error for the user
+          if (completionResult.error?.includes("already marked as completed")) {
+            console.log("[PAYMENT-VERIFY] Payment already completed")
+          } else {
+            console.error("[PAYMENT-VERIFY] Completion endpoint error:", completionResult)
+          }
+        } else {
+          console.log("[PAYMENT-VERIFY] ✓ Payment completed successfully via admin endpoint")
+        }
+      } catch (completionError) {
+        console.error("[PAYMENT-VERIFY] Error calling completion endpoint:", completionError)
+      }
 
       // If payment was for a shop order, update its payment status and create profit record
       if (paymentData.shop_id && paymentData.order_id) {
+
+
         console.log("[PAYMENT-VERIFY] Payment is for shop order. Updating shop order payment status...")
-        
+
         // Find shop order by order_id from payment record
         const { data: shopOrderData, error: shopOrderFetchError } = await supabase
           .from("shop_orders")
@@ -152,7 +178,7 @@ export async function POST(request: NextRequest) {
             console.error("[PAYMENT-VERIFY] Failed to update shop order payment status:", shopOrderUpdateError)
           } else {
             console.log("[PAYMENT-VERIFY] ✓ Shop order payment status updated to completed")
-            
+
             // Create profit record for shop owner
             console.log("[PAYMENT-VERIFY] Creating profit record for shop owner...")
             const profitAmount = shopOrderData.profit_amount || 0
@@ -183,12 +209,12 @@ export async function POST(request: NextRequest) {
 
             if (orderDetails && orderDetails.customer_phone) {
               console.log(`[PAYMENT-VERIFY] Shop order network: "${orderDetails.network}"`)
-              
+
               // Route to unified fulfillment endpoint
               try {
                 console.log(`[PAYMENT-VERIFY] Triggering unified fulfillment for order ${shopOrderData.id}`)
                 const sizeGb = parseInt(orderDetails.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
-                
+
                 const fulfillmentResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/fulfillment/process-order`, {
                   method: "POST",
                   headers: {
@@ -216,7 +242,7 @@ export async function POST(request: NextRequest) {
                 if (isBlacklisted) {
                   console.log(`[PAYMENT-VERIFY] ⚠️ Phone ${orderDetails.customer_phone} is blacklisted - sending blacklist notification`)
                   const blacklistSMS = `DATAGOD: Your payment has been confirmed for ${orderDetails.network} ${orderDetails.volume_gb}GB to ${orderDetails.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
-                  
+
                   await sendSMS({
                     phone: orderDetails.customer_phone,
                     message: blacklistSMS,
