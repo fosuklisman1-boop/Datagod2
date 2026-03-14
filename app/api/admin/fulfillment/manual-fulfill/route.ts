@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500)
     const offset = (page - 1) * limit
 
-    const statuses = ["pending", "pending_download", "failed"]
+    const statuses = ["pending", "pending_download"]
 
     // 1. Fetch from shop_orders
     const { data: shopOrders, count: shopCount, error: shopError } = await supabase

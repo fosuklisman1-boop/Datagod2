@@ -881,7 +881,7 @@ export default function OrderPaymentStatusPage() {
                                 <option value="completed">Completed</option>
                                 <option value="failed">Failed</option>
                               </select>
-                              {autoFulfillmentEnabled && (order.status === "pending" || order.status === "pending_download" || order.status === "failed") && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network === "MTN" && (
+                              {autoFulfillmentEnabled && (order.status === "pending" || order.status === "pending_download") && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network === "MTN" && (
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -898,7 +898,7 @@ export default function OrderPaymentStatusPage() {
                                   ) : (
                                     <>
                                       <Zap className="w-3 h-3" />
-                                      {order.status === "failed" ? "Retry" : "Fulfill"}
+                                      Fulfill
                                     </>
                                   )}
                                 </Button>
