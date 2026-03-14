@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Grid3x3, List, Search, Loader2 } from "lucide-react"
 import { PhoneNumberModal } from "@/components/phone-number-modal"
+import { SuccessModal } from "@/components/success-modal"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
@@ -41,6 +42,12 @@ export default function DataPackagesPage() {
   const [phoneModalOpen, setPhoneModalOpen] = useState(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
+  const [successModal, setSuccessModal] = useState<{
+    open: boolean
+    title: string
+    message: string
+    details: Array<{ label: string; value: string }>
+  }>({ open: false, title: "", message: "", details: [] })
 
   // Auth protection
   useEffect(() => {
@@ -245,7 +252,6 @@ export default function DataPackagesPage() {
 
     try {
       setPurchasing(selectedPackageForPurchase.id)
-      setPhoneModalOpen(false)
 
       // Get auth token
       const {
@@ -254,6 +260,8 @@ export default function DataPackagesPage() {
 
       if (!session?.access_token) {
         toast.error("Session expired, please login again")
+        setPurchasing(null)
+        setPhoneModalOpen(false)
         return
       }
 
@@ -284,10 +292,25 @@ export default function DataPackagesPage() {
 
       toast.success(`Successfully purchased ${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}!`)
 
-      // Optionally redirect to orders page
+      setPhoneModalOpen(false)
+
+      setTimeout(() => {
+        setSuccessModal({
+          open: true,
+          title: "Purchase Successful!",
+          message: "Your data package has been ordered and will be delivered shortly.",
+          details: [
+            { label: "Package", value: `${selectedPackageForPurchase?.network} ${selectedPackageForPurchase?.size}` },
+            { label: "Amount", value: `GHS ${(selectedPackageForPurchase?.price || 0).toFixed(2)}` },
+            { label: "New Balance", value: `GHS ${(data.newBalance || 0).toFixed(2)}` },
+          ],
+        })
+      }, 100)
+
+      // Optionally redirect to orders page after viewing the modal
       setTimeout(() => {
         router.push("/dashboard/my-orders")
-      }, 1500)
+      }, 3500)
     } catch (error) {
       console.error("Purchase error:", error)
       toast.error("An error occurred during purchase")
@@ -591,6 +614,17 @@ export default function DataPackagesPage() {
           onSubmit={handlePhoneNumberSubmit}
           isLoading={purchasing !== null}
           packageName={selectedPackageForPurchase ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}` : "Data Package"}
+        />
+
+        {/* Success Modal */}
+        <SuccessModal
+          open={successModal.open}
+          onClose={() => setSuccessModal({ ...successModal, open: false })}
+          title={successModal.title}
+          message={successModal.message}
+          details={successModal.details}
+          actionLabel="View Orders"
+          onAction={() => router.push("/dashboard/my-orders")}
         />
       </div>
     </DashboardLayout>
