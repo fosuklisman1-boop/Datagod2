@@ -1,4 +1,4 @@
-import fetch from 'node-fetch'
+// Native fetch is available in Next.js 15
 
 async function testMTNConnectivity() {
   const apiKey = process.env.MTN_API_KEY
@@ -11,7 +11,7 @@ async function testMTNConnectivity() {
   try {
     // Test 1: Basic connectivity
     const response = await fetch(`${baseUrl}/health`, {
-      headers: { 'X-API-KEY': apiKey }
+      headers: { 'X-API-KEY': apiKey } as Record<string, string>
     })
 
     console.log(`✅ Health Check: ${response.status}`)
@@ -19,7 +19,7 @@ async function testMTNConnectivity() {
     // Test 2: Authentication
     const authTest = await fetch(`${baseUrl}/orders`, {
       method: 'GET',
-      headers: { 'X-API-KEY': apiKey }
+      headers: { 'X-API-KEY': apiKey } as Record<string, string>
     })
 
     console.log(`✅ Authentication: ${authTest.status}`)
@@ -27,14 +27,14 @@ async function testMTNConnectivity() {
     // Test 3: Check balance
     const balanceTest = await fetch(`${baseUrl}/balance`, {
       method: 'GET',
-      headers: { 'X-API-KEY': apiKey }
+      headers: { 'X-API-KEY': apiKey } as Record<string, string>
     })
 
     const balance = await balanceTest.json()
     console.log(`✅ Balance: ${balance.amount} ${balance.currency}`)
 
     console.log('\n✅ All connectivity tests passed!')
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Connectivity test failed:')
     console.error(error)
     process.exit(1)

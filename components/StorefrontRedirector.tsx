@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
-export default function StorefrontRedirector() {
+function RedirectorCore() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isChecking, setIsChecking] = useState(true)
@@ -47,4 +47,12 @@ export default function StorefrontRedirector() {
   }
 
   return null
+}
+
+export default function StorefrontRedirector() {
+  return (
+    <Suspense fallback={null}>
+      <RedirectorCore />
+    </Suspense>
+  )
 }
