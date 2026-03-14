@@ -76,10 +76,10 @@ export async function POST(request: NextRequest) {
     console.log(`[BULK-UPDATE]   - Status: ${status}`)
     console.log(`[BULK-UPDATE]   - Order type hint: ${orderType || 'not specified'}`)
 
-    // Determine actual order types by checking both tables
+    // Determine actual order types and current statuses
     const { data: bulkOrders, error: bulkError } = await supabase
       .from("orders")
-      .select("id")
+      .select("id, status")
       .in("id", orderIds)
 
     if (bulkError) {
@@ -88,36 +88,44 @@ export async function POST(request: NextRequest) {
 
     const { data: shopOrders, error: shopError } = await supabase
       .from("shop_orders")
-      .select("id")
+      .select("id, order_status")
       .in("id", orderIds)
 
     if (shopError) {
       console.warn(`[BULK-UPDATE] Error checking shop_orders table:`, shopError.message)
     }
 
-    const bulkOrderIds = bulkOrders?.map(o => o.id) || []
-    const shopOrderIds = shopOrders?.map(o => o.id) || []
+    // Filter out restricted transitions: pending -> completed
+    let finalBulkOrderIds = bulkOrders?.map(o => o.id) || []
+    let finalShopOrderIds = shopOrders?.map(o => o.id) || []
+    let skippedPendingCount = 0
 
-    console.log(`[BULK-UPDATE] Detected: ${bulkOrderIds.length} bulk orders, ${shopOrderIds.length} shop orders`)
-    if (bulkOrderIds.length > 0) {
-      console.log(`[BULK-UPDATE] Bulk order IDs:`, bulkOrderIds.slice(0, 5).join(", ") + (bulkOrderIds.length > 5 ? "..." : ""))
+    if (status === "completed") {
+      const allowedBulk = bulkOrders?.filter(o => o.status !== "pending").map(o => o.id) || []
+      const allowedShop = shopOrders?.filter(o => o.order_status !== "pending").map(o => o.id) || []
+      
+      skippedPendingCount = (bulkOrders?.length || 0) + (shopOrders?.length || 0) - (allowedBulk.length + allowedShop.length)
+      
+      finalBulkOrderIds = allowedBulk
+      finalShopOrderIds = allowedShop
+      
+      console.log(`[BULK-UPDATE] Restricted transition filter applied. Allowed: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop. Skipped ${skippedPendingCount} pending orders.`)
     }
-    if (shopOrderIds.length > 0) {
-      console.log(`[BULK-UPDATE] Shop order IDs:`, shopOrderIds.slice(0, 5).join(", ") + (shopOrderIds.length > 5 ? "..." : ""))
-    }
+
+    console.log(`[BULK-UPDATE] Final targets: ${finalBulkOrderIds.length} bulk orders, ${finalShopOrderIds.length} shop orders`)
 
     // Update bulk orders
-    if (bulkOrderIds.length > 0) {
+    if (finalBulkOrderIds.length > 0) {
       const { error: updateError } = await supabase
         .from("orders")
         .update({ status })
-        .in("id", bulkOrderIds)
+        .in("id", finalBulkOrderIds)
 
       if (updateError) {
         throw new Error(`Failed to update bulk order status: ${updateError.message}`)
       }
 
-      console.log(`[BULK-UPDATE] ✓ Updated ${bulkOrderIds.length} bulk orders to status: ${status}`)
+      console.log(`[BULK-UPDATE] ✓ Updated ${finalBulkOrderIds.length} bulk orders to status: ${status}`)
 
       // Also update MTN fulfillment tracking records if they exist (by order_id for bulk)
       try {
@@ -127,7 +135,7 @@ export async function POST(request: NextRequest) {
             status: status,
             updated_at: new Date().toISOString()
           })
-          .in("order_id", bulkOrderIds)
+          .in("order_id", finalBulkOrderIds)
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for bulk orders:", mtnUpdateError)
@@ -142,7 +150,7 @@ export async function POST(request: NextRequest) {
             status: status === 'completed' ? 'success' : status, // Map 'completed' to 'success' for logs if needed, or keep same
             updated_at: new Date().toISOString()
           })
-          .in("order_id", bulkOrderIds)
+          .in("order_id", finalBulkOrderIds)
 
         if (logsUpdateError) {
           console.warn("[BULK-UPDATE] Error updating fulfillment_logs:", logsUpdateError)
@@ -161,7 +169,7 @@ export async function POST(request: NextRequest) {
           const { data: orders, error: ordersError } = await supabase
             .from("orders")
             .select("id, user_id, network, size, phone_number")
-            .in("id", bulkOrderIds)
+            .in("id", finalBulkOrderIds)
 
           if (!ordersError && orders && orders.length > 0) {
             // Batch insert all notifications at once
@@ -207,15 +215,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Update shop orders
-    if (shopOrderIds.length > 0) {
-      console.log(`[BULK-UPDATE] Updating ${shopOrderIds.length} shop orders in shop_orders table...`)
-      console.log(`[BULK-UPDATE] Setting order_status = "${status}" for IDs:`, shopOrderIds.slice(0, 3).join(", "))
+    if (finalShopOrderIds.length > 0) {
+      console.log(`[BULK-UPDATE] Updating ${finalShopOrderIds.length} shop orders in shop_orders table...`)
+      console.log(`[BULK-UPDATE] Setting order_status = "${status}" for IDs:`, finalShopOrderIds.slice(0, 3).join(", "))
 
       // Before update - verify orders exist
       const { data: beforeUpdate, error: beforeError } = await supabase
         .from("shop_orders")
         .select("id, order_status")
-        .in("id", shopOrderIds.slice(0, 3))
+        .in("id", finalShopOrderIds.slice(0, 3))
 
       if (!beforeError && beforeUpdate) {
         console.log(`[BULK-UPDATE] Before update - First 3 orders:`, beforeUpdate)
@@ -224,7 +232,7 @@ export async function POST(request: NextRequest) {
       const { data: updateData, error: updateError } = await supabase
         .from("shop_orders")
         .update({ order_status: status, updated_at: new Date().toISOString() })
-        .in("id", shopOrderIds)
+        .in("id", finalShopOrderIds)
         .select("id, order_status, updated_at")
 
       if (updateError) {
@@ -247,7 +255,7 @@ export async function POST(request: NextRequest) {
       const { data: verifyData, error: verifyError } = await supabase
         .from("shop_orders")
         .select("id, order_status")
-        .in("id", shopOrderIds.slice(0, 3))
+        .in("id", finalShopOrderIds.slice(0, 3))
 
       if (verifyError) {
         console.error("[BULK-UPDATE] Error during verification fetch:", verifyError)
@@ -271,7 +279,7 @@ export async function POST(request: NextRequest) {
             status: status,
             updated_at: new Date().toISOString()
           })
-          .in("shop_order_id", shopOrderIds)
+          .in("shop_order_id", finalShopOrderIds)
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for shop orders:", mtnUpdateError)
@@ -289,7 +297,7 @@ export async function POST(request: NextRequest) {
           const { data: shopOrderDetails, error: ordersError } = await supabase
             .from("shop_orders")
             .select("id, user_id, network, volume_gb, phone_number")
-            .in("id", shopOrderIds)
+            .in("id", finalShopOrderIds)
 
           if (!ordersError && shopOrderDetails && shopOrderDetails.length > 0) {
             // Batch insert all notifications at once
@@ -335,13 +343,13 @@ export async function POST(request: NextRequest) {
 
       // If status is "completed", credit the associated profits
       if (status === "completed") {
-        console.log(`[BULK-UPDATE] Crediting profits for ${shopOrderIds.length} completed orders...`)
+        console.log(`[BULK-UPDATE] Crediting profits for ${finalShopOrderIds.length} completed orders...`)
 
         // Get the profit records for these orders
         const { data: profitRecords, error: profitFetchError } = await supabase
           .from("shop_profits")
           .select("id, shop_id, profit_amount, status")
-          .in("shop_order_id", shopOrderIds)
+          .in("shop_order_id", finalShopOrderIds)
           .eq("status", "pending")
 
         if (profitFetchError) {
@@ -480,8 +488,9 @@ export async function POST(request: NextRequest) {
       success: true,
       count: orderIds.length,
       status,
-      bulkCount: bulkOrderIds.length,
-      shopCount: shopOrderIds.length
+      bulkCount: finalBulkOrderIds.length,
+      shopCount: finalShopOrderIds.length,
+      skippedPending: skippedPendingCount
     })
   } catch (error) {
     console.error("[BULK-UPDATE] Error in bulk update status:", error)

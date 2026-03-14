@@ -574,29 +574,75 @@ export default function AdminOrdersPage() {
         throw new Error(errorData.error || "Failed to update status")
       }
 
-      toast.success(`Updated ${batch.orders.length} orders to ${newStatus}`)
-
-      // Update the batch orders in state with new status immediately
-      const updatedBatch = {
-        ...batch,
-        orders: batch.orders.map(order => ({
-          ...order,
-          status: newStatus
-        }))
+      const result = await response.json()
+      
+      if (result.skippedPending > 0) {
+        toast.warning(`${result.skippedPending} pending order(s) skipped. Only processing orders can be marked as completed.`)
       }
 
-      setDownloadedOrders(prev => ({
-        ...prev,
-        [batchKey]: updatedBatch
-      }))
+      const updatedCount = batch.orders.length - (result.skippedPending || 0)
+      if (updatedCount > 0) {
+        toast.success(`Updated ${updatedCount} orders to ${newStatus}`)
+      }
 
-      // Reload pending orders to update counts
+      // Reload orders to get fresh state including statuses
+      await loadDownloadedOrders()
       await loadPendingOrders()
     } catch (error) {
       console.error("Error updating batch status:", error)
       toast.error(error instanceof Error ? error.message : "Failed to update status")
     } finally {
       setUpdatingBatch(null)
+    }
+  }
+
+  const handleBulkManualFulfill = async () => {
+    if (pendingMTNOrders.length === 0) {
+      toast.error("No pending MTN orders to fulfill")
+      return
+    }
+
+    try {
+      setLoadingMTNOrders(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        toast.error("Session expired. Please refresh.")
+        return
+      }
+
+      const orderIds = pendingMTNOrders.map(o => o.id)
+      
+      const response = await fetch("/api/admin/fulfillment/bulk-manual-fulfill", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          orderIds,
+          order_type: "shop", // Most pending MTN orders are shop orders
+          provider: "sykes" // Default
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Bulk fulfillment failed")
+      }
+
+      const result = await response.json()
+      
+      toast.success(result.message)
+      
+      // Reload lists
+      await loadPendingMTNOrders()
+      await loadPendingOrders()
+    } catch (error) {
+      console.error("Bulk fulfillment error:", error)
+      toast.error(error instanceof Error ? error.message : "Bulk fulfillment failed")
+    } finally {
+      setLoadingMTNOrders(false)
     }
   }
 
@@ -1280,6 +1326,21 @@ export default function AdminOrdersPage() {
                     <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1">
                       {formatCount(pendingMTNOrders.length)}
                     </Badge>
+                    {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
+                      <Button
+                        size="sm"
+                        onClick={handleBulkManualFulfill}
+                        disabled={loadingMTNOrders}
+                        className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold"
+                      >
+                        {loadingMTNOrders ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Zap className="h-4 w-4 mr-2" />
+                        )}
+                        Fulfill All Pending MTN ({pendingMTNOrders.length})
+                      </Button>
+                    )}
                     {loadingMTNOrders && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
                   </div>
                 </div>
