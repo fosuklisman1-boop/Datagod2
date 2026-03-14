@@ -13,6 +13,7 @@ import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Home, Info, Phone } from "lucide-react"
 import { toast } from "sonner"
+import { AnnouncementModal } from "@/components/announcement-modal"
 
 export default function ShopStorefront() {
   const params = useParams()
@@ -35,6 +36,9 @@ export default function ShopStorefront() {
   const [submitting, setSubmitting] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
 
+  const [showAnnouncement, setShowAnnouncement] = useState(false)
+  const [activeAnnouncement, setActiveAnnouncement] = useState<{title: string, message: string} | null>(null)
+
   const { settings: shopSettings } = useShopSettings(shop?.id)
 
   useEffect(() => {
@@ -49,6 +53,23 @@ export default function ShopStorefront() {
       const data = await response.json()
       if (data.ordering_enabled !== undefined) {
         setGlobalOrderingEnabled(data.ordering_enabled)
+      }
+
+      // Handle Announcement Logic
+      if (data.announcement) {
+        const { title, message } = data.announcement
+        
+        const contentString = `${shopSlug}:${title}:${message}`
+        const announcementHash = btoa(unescape(encodeURIComponent(contentString))).substring(0, 16)
+        const sessionKey = `storefront_announcement_${announcementHash}`
+
+        const hasSeen = sessionStorage.getItem(sessionKey)
+
+        if (!hasSeen) {
+          setActiveAnnouncement({ title, message })
+          setShowAnnouncement(true)
+          sessionStorage.setItem("current_storefront_announcement", sessionKey)
+        }
       }
     } catch (error) {
       console.error("Error loading global settings:", error)
@@ -97,6 +118,14 @@ export default function ShopStorefront() {
   const handleBuyNow = (pkg: any) => {
     setSelectedPackage(pkg)
     setCheckoutOpen(true)
+  }
+
+  const handleCloseAnnouncement = () => {
+    setShowAnnouncement(false)
+    const sessionKey = sessionStorage.getItem("current_storefront_announcement")
+    if (sessionKey) {
+      sessionStorage.setItem(sessionKey, "true")
+    }
   }
 
   const getNetworkLogo = (network: string): string => {
@@ -663,6 +692,14 @@ export default function ShopStorefront() {
           </Card>
         </div>
       )}
+
+      {/* Announcement Modal */}
+      <AnnouncementModal
+        isOpen={showAnnouncement}
+        onClose={handleCloseAnnouncement}
+        title={activeAnnouncement?.title || ""}
+        message={activeAnnouncement?.message || ""}
+      />
     </div>
   )
 }

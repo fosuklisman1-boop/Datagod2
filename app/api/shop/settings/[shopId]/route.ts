@@ -13,7 +13,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { data: settings, error } = await supabase
       .from("shop_settings")
-      .select("id, shop_id, whatsapp_link, created_at, updated_at")
+      .select("id, shop_id, whatsapp_link, announcement_enabled, announcement_title, announcement_message, created_at, updated_at")
       .eq("shop_id", shopId)
       .single()
 
@@ -26,6 +26,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         id: null,
         shop_id: shopId,
         whatsapp_link: "",
+        announcement_enabled: false,
+        announcement_title: "",
+        announcement_message: "",
         created_at: null,
         updated_at: null,
       })
@@ -91,17 +94,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const body = await request.json()
-    const { whatsapp_link } = body
+    const { 
+      whatsapp_link, 
+      announcement_enabled, 
+      announcement_title, 
+      announcement_message 
+    } = body
 
     console.log(`[SHOP-SETTINGS] Received whatsapp_link: ${whatsapp_link}`)
-
-    if (!whatsapp_link || whatsapp_link.trim() === "") {
-      console.log("[SHOP-SETTINGS] Empty whatsapp_link")
-      return NextResponse.json(
-        { error: "whatsapp_link is required" },
-        { status: 400 }
-      )
-    }
+    
+    // We don't make whatsapp_link strictly required anymore if they're just updating announcements,
+    // but we should ensure the payload has at least some fields.
 
     // Accept any format for WhatsApp link (phone number, URL, etc.)
     console.log("[SHOP-SETTINGS] WhatsApp link validated (any format accepted)")
@@ -109,7 +112,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     // Get existing settings
     const { data: existingSettings } = await supabase
       .from("shop_settings")
-      .select("id")
+      .select("*")
       .eq("shop_id", shopId)
       .single()
 
@@ -120,7 +123,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       const { data, error } = await supabase
         .from("shop_settings")
         .update({
-          whatsapp_link,
+          whatsapp_link: whatsapp_link !== undefined ? whatsapp_link : existingSettings?.whatsapp_link,
+          announcement_enabled: announcement_enabled !== undefined ? announcement_enabled : existingSettings?.announcement_enabled,
+          announcement_title: announcement_title !== undefined ? announcement_title : existingSettings?.announcement_title,
+          announcement_message: announcement_message !== undefined ? announcement_message : existingSettings?.announcement_message,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingSettings.id)
@@ -139,7 +145,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         .insert([
           {
             shop_id: shopId,
-            whatsapp_link,
+            whatsapp_link: whatsapp_link || "",
+            announcement_enabled: announcement_enabled || false,
+            announcement_title: announcement_title || "",
+            announcement_message: announcement_message || "",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },

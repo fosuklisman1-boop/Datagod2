@@ -41,7 +41,10 @@ export async function GET(request: NextRequest) {
           price_adjustment_mtn: 0,
           price_adjustment_telecel: 0,
           price_adjustment_at_ishare: 0,
-          price_adjustment_at_bigtime: 0
+          price_adjustment_at_bigtime: 0,
+          storefront_announcement_enabled: false,
+          storefront_announcement_title: "",
+          storefront_announcement_message: ""
         }])
         .select()
         .single()
@@ -59,6 +62,9 @@ export async function GET(request: NextRequest) {
           paystack_fee_percentage: 3.0,
           wallet_topup_fee_percentage: 0,
           withdrawal_fee_percentage: 0,
+          storefront_announcement_enabled: false,
+          storefront_announcement_title: "",
+          storefront_announcement_message: "",
           created_at: null,
           updated_at: null,
         })
@@ -72,6 +78,7 @@ export async function GET(request: NextRequest) {
       announcement_enabled: settings.announcement_enabled,
       announcement_title: settings.announcement_title,
       announcement_message: settings.announcement_message,
+      storefront_announcement_enabled: settings.storefront_announcement_enabled,
     })
     return NextResponse.json(settings)
   } catch (error) {
@@ -136,7 +143,10 @@ export async function PUT(request: NextRequest) {
       'price_adjustment_mtn',
       'price_adjustment_telecel',
       'price_adjustment_at_ishare',
-      'price_adjustment_at_bigtime'
+      'price_adjustment_at_bigtime',
+      'storefront_announcement_enabled',
+      'storefront_announcement_title',
+      'storefront_announcement_message'
     ]
 
     fields.forEach(field => {
@@ -229,6 +239,9 @@ export async function PUT(request: NextRequest) {
         price_adjustment_telecel: 0,
         price_adjustment_at_ishare: 0,
         price_adjustment_at_bigtime: 0,
+        storefront_announcement_enabled: false,
+        storefront_announcement_title: "",
+        storefront_announcement_message: "",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }

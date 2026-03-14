@@ -6,6 +6,9 @@ interface ShopSettings {
   shop_id?: string
   created_at?: string
   updated_at?: string
+  announcement_enabled?: boolean
+  announcement_title?: string
+  announcement_message?: string
 }
 
 export function useShopSettings(shopId: string | undefined) {

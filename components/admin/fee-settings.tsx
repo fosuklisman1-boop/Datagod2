@@ -15,6 +15,9 @@ interface FeeSettings {
   announcement_enabled: boolean
   announcement_title: string
   announcement_message: string
+  storefront_announcement_enabled: boolean
+  storefront_announcement_title: string
+  storefront_announcement_message: string
 }
 
 export function FeeSettings() {
@@ -33,6 +36,9 @@ export function FeeSettings() {
     announcement_enabled: false,
     announcement_title: "",
     announcement_message: "",
+    storefront_announcement_enabled: false,
+    storefront_announcement_title: "",
+    storefront_announcement_message: "",
   })
 
   useEffect(() => {
@@ -66,6 +72,9 @@ export function FeeSettings() {
         announcement_enabled: data.announcement_enabled || false,
         announcement_title: data.announcement_title || "",
         announcement_message: data.announcement_message || "",
+        storefront_announcement_enabled: data.storefront_announcement_enabled || false,
+        storefront_announcement_title: data.storefront_announcement_title || "",
+        storefront_announcement_message: data.storefront_announcement_message || "",
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings")
@@ -342,6 +351,71 @@ export function FeeSettings() {
                   placeholder="Type your announcement message here..."
                   rows={4}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Global Storefront Announcement Override */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Global Storefront Override</CardTitle>
+          <CardDescription>
+            Force all sub-agent and dealer storefronts to display this announcement. This overrides their individual shop announcements.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+            <input
+              type="checkbox"
+              id="storefront_announcement_enabled"
+              checked={formData.storefront_announcement_enabled}
+              onChange={(e) =>
+                handleInputChange("storefront_announcement_enabled", e.target.checked)
+              }
+              className="rounded"
+            />
+            <label htmlFor="storefront_announcement_enabled" className="text-sm font-medium text-gray-700">
+              Enable Global Storefront Override
+            </label>
+          </div>
+
+          {formData.storefront_announcement_enabled && (
+            <div className="space-y-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+              <div className="flex gap-2 p-3 bg-purple-100/50 text-purple-800 text-sm rounded-md items-start">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <p>When this is turned on, every customer visiting <strong>any storefront</strong> will see this announcement instead of the shop's personal announcement.</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Global Announcement Title
+                </label>
+                <Input
+                  type="text"
+                  value={formData.storefront_announcement_title}
+                  onChange={(e) =>
+                    handleInputChange("storefront_announcement_title", e.target.value)
+                  }
+                  placeholder="System Maintenance Notice"
+                  maxLength={255}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Global Announcement Message
+                </label>
+                <textarea
+                  value={formData.storefront_announcement_message}
+                  onChange={(e) =>
+                    handleInputChange("storefront_announcement_message", e.target.value)
+                  }
+                  placeholder="Type your global announcement here..."
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
             </div>

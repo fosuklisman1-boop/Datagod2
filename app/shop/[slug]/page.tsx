@@ -16,6 +16,7 @@ import { validatePhoneNumber } from "@/lib/phone-validation"
 import { redirectToPayment } from "@/lib/payment-redirect"
 import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft, AlignJustify } from "lucide-react"
 import { toast } from "sonner"
+import { AnnouncementModal } from "@/components/announcement-modal"
 
 export default function ShopStorefront() {
   const params = useParams()
@@ -39,6 +40,9 @@ export default function ShopStorefront() {
   const [submitting, setSubmitting] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   const packagesRef = useRef<HTMLDivElement>(null)
+
+  const [showAnnouncement, setShowAnnouncement] = useState(false)
+  const [activeAnnouncement, setActiveAnnouncement] = useState<{title: string, message: string} | null>(null)
 
   const { settings: shopSettings } = useShopSettings(shop?.id)
 
@@ -87,6 +91,26 @@ export default function ShopStorefront() {
           setPackages(data.packages)
         } else {
           setPackages([])
+        }
+
+        // Handle Announcement Logic
+        if (data.announcement) {
+          const { title, message } = data.announcement
+          
+          // Hash the content to know if we've seen *this exact* announcement
+          // We add the shopSlug to the hash so different shop announcements don't overlap
+          const contentString = `${shopSlug}:${title}:${message}`
+          const announcementHash = btoa(unescape(encodeURIComponent(contentString))).substring(0, 16)
+          const sessionKey = `storefront_announcement_${announcementHash}`
+
+          const hasSeen = sessionStorage.getItem(sessionKey)
+
+          if (!hasSeen) {
+            setActiveAnnouncement({ title, message })
+            setShowAnnouncement(true)
+            // Save the current hash so we can mark it as seen when closed
+            sessionStorage.setItem("current_storefront_announcement", sessionKey)
+          }
         }
       } catch (pkgError: any) {
         console.error("Error loading packages:", pkgError)
@@ -358,6 +382,15 @@ export default function ShopStorefront() {
     }
   }
 
+  const handleCloseAnnouncement = () => {
+    setShowAnnouncement(false)
+    const sessionKey = sessionStorage.getItem("current_storefront_announcement")
+    if (sessionKey) {
+      sessionStorage.setItem(sessionKey, "true")
+    }
+  }
+
+  // Early return while verifying shop
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
@@ -820,6 +853,14 @@ export default function ShopStorefront() {
           </a>
         )
       }
+
+      {/* Announcement Modal */}
+      <AnnouncementModal
+        isOpen={showAnnouncement}
+        onClose={handleCloseAnnouncement}
+        title={activeAnnouncement?.title || ""}
+        message={activeAnnouncement?.message || ""}
+      />
     </div >
   )
 }

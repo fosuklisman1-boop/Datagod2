@@ -6,9 +6,9 @@ import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, MessageCircle } from "lucide-react"
+import { Loader2, Save, MessageCircle, Megaphone } from "lucide-react"
 
 export default function ShopSettingsPage() {
   const { user, loading: authLoading } = useAuth()
@@ -20,6 +20,10 @@ export default function ShopSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [shopName, setShopName] = useState("")
+  
+  const [announcementEnabled, setAnnouncementEnabled] = useState(false)
+  const [announcementTitle, setAnnouncementTitle] = useState("")
+  const [announcementMessage, setAnnouncementMessage] = useState("")
 
   // Verify shop ownership and fetch settings
   useEffect(() => {
@@ -45,6 +49,11 @@ export default function ShopSettingsPage() {
 
         if (data.whatsapp_link) {
           setWhatsappLink(data.whatsapp_link)
+        }
+        if (data.announcement_enabled !== undefined) {
+          setAnnouncementEnabled(data.announcement_enabled)
+          setAnnouncementTitle(data.announcement_title || "")
+          setAnnouncementMessage(data.announcement_message || "")
         }
       } catch (error) {
         console.error("[SHOP-SETTINGS] Error fetching settings:", error)
@@ -92,6 +101,9 @@ export default function ShopSettingsPage() {
         },
         body: JSON.stringify({
           whatsapp_link: whatsappLink,
+          announcement_enabled: announcementEnabled,
+          announcement_title: announcementTitle,
+          announcement_message: announcementMessage,
         }),
       })
 
@@ -102,7 +114,7 @@ export default function ShopSettingsPage() {
         return
       }
 
-      toast.success("WhatsApp link saved successfully!")
+      toast.success("Settings saved successfully!")
     } catch (error) {
       console.error("[SHOP-SETTINGS] Error saving settings:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to save settings"
@@ -166,7 +178,7 @@ export default function ShopSettingsPage() {
             </div>
 
             {whatsappLink && (
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg mt-4">
                 <p className="text-sm text-green-700">
                   <span className="font-semibold">Preview:</span>{" "}
                   <a
@@ -180,28 +192,85 @@ export default function ShopSettingsPage() {
                 </p>
               </div>
             )}
-
-            <div className="flex gap-3 pt-4">
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Save Settings
-                  </>
-                )}
-              </Button>
-            </div>
           </CardContent>
         </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Megaphone className="w-5 h-5 text-violet-600" />
+              Storefront Announcement
+            </CardTitle>
+            <CardDescription>
+              Display a pop-up announcement to customers when they visit your storefront.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+              <input
+                type="checkbox"
+                id="announcement_enabled"
+                checked={announcementEnabled}
+                onChange={(e) => setAnnouncementEnabled(e.target.checked)}
+                className="rounded"
+              />
+              <label htmlFor="announcement_enabled" className="text-sm font-medium text-gray-700">
+                Enable Storefront Announcement
+              </label>
+            </div>
+
+            {announcementEnabled && (
+              <div className="space-y-4 p-4 bg-violet-50 border border-violet-100 rounded-lg">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Announcement Title
+                  </label>
+                  <Input
+                    type="text"
+                    value={announcementTitle}
+                    onChange={(e) => setAnnouncementTitle(e.target.value)}
+                    placeholder="e.g. Weekend Promo!"
+                    maxLength={255}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Announcement Message
+                  </label>
+                  <textarea
+                    value={announcementMessage}
+                    onChange={(e) => setAnnouncementMessage(e.target.value)}
+                    placeholder="Type your announcement here..."
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Action Buttons */}
+        <div className="mt-6 flex justify-end">
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 px-8 py-6 text-lg"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-5 h-5" />
+                Save All Settings
+              </>
+            )}
+          </Button>
+        </div>
 
         <Card className="mt-6">
           <CardHeader>

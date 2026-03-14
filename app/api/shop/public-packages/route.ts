@@ -312,10 +312,37 @@ export async function GET(request: NextRequest) {
     const orderingEnabled = settings?.ordering_enabled ?? true
     console.log("[PUBLIC-API] Resolved ordering_enabled:", orderingEnabled)
 
+    // Fetch shop settings for individual announcement
+    const { data: shopSettings } = await supabase
+      .from("shop_settings")
+      .select("announcement_enabled, announcement_title, announcement_message")
+      .eq("shop_id", shop.id)
+      .single()
+
+    // 1. Check Global Override First (from settings we already fetched)
+    let activeAnnouncement = null
+    
+    if (settings && settings.storefront_announcement_enabled) {
+      activeAnnouncement = {
+        title: settings.storefront_announcement_title || "",
+        message: settings.storefront_announcement_message || "",
+        is_global: true
+      }
+    } 
+    // 2. Fall back to Shop's specific announcement
+    else if (shopSettings?.announcement_enabled && shopSettings?.announcement_title && shopSettings?.announcement_message) {
+      activeAnnouncement = {
+        title: shopSettings.announcement_title,
+        message: shopSettings.announcement_message,
+        is_global: false
+      }
+    }
+
     return NextResponse.json({
       packages,
       is_sub_agent: !!shop.parent_shop_id,
-      ordering_enabled: orderingEnabled
+      ordering_enabled: orderingEnabled,
+      announcement: activeAnnouncement
     }, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
