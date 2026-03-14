@@ -191,7 +191,7 @@ export default function OrderPaymentStatusPage() {
         return
       }
 
-      const orderIds = pendingMTNOrders.map(o => o.id)
+      const orders = pendingMTNOrders.map(o => ({ id: o.id, type: o.type || 'shop' }))
       
       const response = await fetch("/api/admin/fulfillment/bulk-manual-fulfill", {
         method: "POST",
@@ -200,8 +200,7 @@ export default function OrderPaymentStatusPage() {
           "Authorization": `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          orderIds,
-          order_type: "shop",
+          orders,
           provider: "sykes"
         })
       })

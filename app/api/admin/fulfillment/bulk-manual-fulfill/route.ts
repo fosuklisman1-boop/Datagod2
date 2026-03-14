@@ -15,23 +15,22 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { orderIds, order_type = "shop", provider } = body
+    const { orders, provider } = body
 
-    if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
-      return NextResponse.json({ error: "orderIds array is required" }, { status: 400 })
+    if (!orders || !Array.isArray(orders) || orders.length === 0) {
+      return NextResponse.json({ error: "orders array (with id and type) is required" }, { status: 400 })
     }
 
-    console.log(`[BULK-MANUAL-FULFILL] Processing ${orderIds.length} orders...`)
+    console.log(`[BULK-MANUAL-FULFILL] Processing ${orders.length} orders...`)
 
     const results = []
     let successCount = 0
     let failureCount = 0
 
-    // Process orders sequentially to avoid overwhelming the provider or database
-    // and for better error tracking per order.
-    for (const orderId of orderIds) {
+    for (const orderInfo of orders) {
+      const { id, type } = orderInfo
       try {
-        const result = await processManualFulfillment(orderId, order_type as "shop" | "bulk", provider)
+        const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk", provider)
         results.push(result)
         if (result.success) {
           successCount++
@@ -39,21 +38,21 @@ export async function POST(request: NextRequest) {
           failureCount++
         }
       } catch (error) {
-        console.error(`[BULK-MANUAL-FULFILL] Uncaught error for order ${orderId}:`, error)
+        console.error(`[BULK-MANUAL-FULFILL] Uncaught error for order ${id}:`, error)
         failureCount++
         results.push({
           success: false,
           message: error instanceof Error ? error.message : "Internal error",
-          orderId
+          orderId: id
         })
       }
     }
 
     return NextResponse.json({
       success: true,
-      message: `Processed ${orderIds.length} orders: ${successCount} succeeded, ${failureCount} failed.`,
+      message: `Processed ${orders.length} orders: ${successCount} succeeded, ${failureCount} failed.`,
       summary: {
-        total: orderIds.length,
+        total: orders.length,
         success: successCount,
         failed: failureCount
       },

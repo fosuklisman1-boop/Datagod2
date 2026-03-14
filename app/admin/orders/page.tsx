@@ -42,6 +42,7 @@ interface ShopOrder {
   status: string
   order_status?: string
   created_at: string
+  type?: string
 }
 
 interface DownloadBatch {
@@ -611,7 +612,7 @@ export default function AdminOrdersPage() {
         return
       }
 
-      const orderIds = pendingMTNOrders.map(o => o.id)
+      const orders = pendingMTNOrders.map(o => ({ id: o.id, type: o.type || 'shop' }))
       
       const response = await fetch("/api/admin/fulfillment/bulk-manual-fulfill", {
         method: "POST",
@@ -620,8 +621,7 @@ export default function AdminOrdersPage() {
           "Authorization": `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          orderIds,
-          order_type: "shop", // Most pending MTN orders are shop orders
+          orders,
           provider: "sykes" // Default
         })
       })
