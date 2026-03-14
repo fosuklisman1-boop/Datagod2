@@ -30,6 +30,17 @@ const MTN_API_KEY = mtnConfig.apiKey
 const MTN_API_BASE_URL = mtnConfig.apiBaseUrl
 const REQUEST_TIMEOUT = mtnConfig.requestTimeout
 
+// Shared cache for bulk orders to avoid redundant fetches in the same request/process window
+let bulkCache: {
+    data: any[] | null;
+    timestamp: number;
+} = {
+    data: null,
+    timestamp: 0
+};
+
+const CACHE_DURATION = 30000; // 30 seconds
+
 export class SykesProvider implements MTNProvider {
     name = "sykes"
 
@@ -235,53 +246,68 @@ export class SykesProvider implements MTNProvider {
                 mtnOrderId,
             })
 
-            // The Sykes API GET /api/orders returns all orders, not a single one
-            // So we fetch all orders and filter for the one we need
-            const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
-                method: "GET",
-                headers: {
-                    "X-API-KEY": MTN_API_KEY,
-                    "Content-Type": "application/json",
-                },
-            })
-
-            const responseText = await response.text()
-            log("info", "StatusCheck", `API response: ${response.status}`, { traceId, responseText })
-
-            if (!response.ok) {
-                return {
-                    success: false,
-                    message: `API error: ${response.status} - ${responseText}`,
-                }
-            }
-
             let data
-            try {
-                data = JSON.parse(responseText)
-            } catch {
-                return {
-                    success: false,
-                    message: `Invalid JSON response: ${responseText.slice(0, 100)}`,
+
+            // Check if we have valid cached data
+            const now = Date.now()
+            if (bulkCache.data && (now - bulkCache.timestamp < CACHE_DURATION)) {
+                console.log(`[Sykes-STATUS] Using cached bulk data (${bulkCache.data.length} orders)`)
+                data = bulkCache.data
+            } else {
+                const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
+                    method: "GET",
+                    headers: {
+                        "X-API-KEY": MTN_API_KEY,
+                        "Content-Type": "application/json",
+                    },
+                })
+
+                const responseText = await response.text()
+                log("info", "StatusCheck", `API response: ${response.status}`, { traceId, responseText })
+
+                if (!response.ok) {
+                    return {
+                        success: false,
+                        message: `API error: ${response.status} - ${responseText}`,
+                    }
+                }
+
+                try {
+                    const parsed = JSON.parse(responseText)
+                    
+                    // Normalize the data format and store in cache
+                    let normalizedOrders: any[] = []
+                    if (Array.isArray(parsed)) {
+                        normalizedOrders = parsed
+                    } else if (parsed.data && Array.isArray(parsed.data)) {
+                        normalizedOrders = parsed.data
+                    } else if (parsed.orders && Array.isArray(parsed.orders)) {
+                        normalizedOrders = parsed.orders
+                    } else if (parsed.order) {
+                        normalizedOrders = [parsed.order]
+                    } else if (parsed.id) {
+                        normalizedOrders = [parsed]
+                    }
+                    
+                    bulkCache = {
+                        data: normalizedOrders,
+                        timestamp: now
+                    }
+                    data = normalizedOrders
+                    console.log(`[Sykes-STATUS] Fetched and cached ${normalizedOrders.length} orders`)
+                } catch {
+                    return {
+                        success: false,
+                        message: `Invalid JSON response: ${responseText.slice(0, 100)}`,
+                    }
                 }
             }
 
-            log("info", "StatusCheck", `Order status retrieved`, { traceId, data })
+            log("info", "StatusCheck", `Order status retrieved`, { traceId, orderCount: Array.isArray(data) ? data.length : 1 })
 
             // Handle various response formats
             let order
-            let allOrders: any[] = []
-
-            if (Array.isArray(data)) {
-                allOrders = data
-            } else if (data.order) {
-                order = data.order
-            } else if (data.data && Array.isArray(data.data)) {
-                allOrders = data.data
-            } else if (data.orders && Array.isArray(data.orders)) {
-                allOrders = data.orders
-            } else if (data.id) {
-                order = data
-            }
+            let allOrders: any[] = Array.isArray(data) ? data : []
 
             // Find the order by ID
             if (!order && allOrders.length > 0) {

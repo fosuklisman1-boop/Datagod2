@@ -164,15 +164,14 @@ export async function GET(request: NextRequest) {
   try {
     console.log("[CRON] Starting MTN status sync...")
 
-    // Check if MTN auto-fulfillment is enabled
-    const mtnEnabled = await isMTNAutoFulfillmentEnabled()
-    if (!mtnEnabled) {
-      console.log("[CRON] MTN auto-fulfillment is disabled. Skipping sync.")
-      return NextResponse.json({
-        success: true,
-        message: "MTN auto-fulfillment is disabled. Sync skipped.",
-        skipped: true,
-      })
+    // Check CRON_SECRET if configured to prevent unauthorized manual triggers
+    const authHeader = request.headers.get("authorization")
+    const searchParams = request.nextUrl.searchParams
+    const secret = searchParams.get("secret") || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null)
+
+    if (CRON_SECRET && secret !== CRON_SECRET) {
+      console.warn("[CRON] Unauthorized sync attempt blocked")
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     // Step 1: Fetch orders from Sykes provider API
@@ -204,7 +203,7 @@ export async function GET(request: NextRequest) {
       .in("status", ["pending", "processing", "failed", "retrying", "error"])
       .not("mtn_order_id", "is", null)
       .order("updated_at", { ascending: true })
-      .limit(100)
+      .limit(500)
 
     if (fetchError) {
       console.error("[CRON] Error fetching pending orders:", fetchError)
