@@ -269,21 +269,50 @@ export default function AdminSettingsPage() {
     }
   }
 
-  const handleSave = async () => {
-    if (!joinCommunityLink.trim()) {
-      toast.error("Please enter a join community link")
-      return
-    }
+  const handleStorefrontAnnouncementToggle = async (checked: boolean) => {
+    setStorefrontAnnouncementEnabled(checked)
 
-    if (!whatsappNumber.trim()) {
-      toast.error("Please enter a WhatsApp number")
-      return
-    }
-
-    // Validate URLs
     try {
-      new URL(joinCommunityLink)
-    } catch {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ storefront_announcement_enabled: checked }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update override status")
+      }
+
+      toast.success(checked ? "Global Override Enabled" : "Global Override Disabled")
+    } catch (error) {
+      console.error("Error toggling override:", error)
+      toast.error("Failed to update status")
+      setStorefrontAnnouncementEnabled(!checked) // Revert on failure
+    }
+  }
+
+  const handleSave = async () => {
+    // Relaxed validation: only warn if fields are actually touched but invalid
+    const isUrl = (url: string) => {
+      try {
+        new URL(url);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    if (joinCommunityLink && !isUrl(joinCommunityLink)) {
       toast.error("Please enter a valid community link URL")
       return
     }
@@ -416,7 +445,7 @@ export default function AdminSettingsPage() {
               </div>
               <Switch
                 checked={storefrontAnnouncementEnabled}
-                onCheckedChange={setStorefrontAnnouncementEnabled}
+                onCheckedChange={handleStorefrontAnnouncementToggle}
                 className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 scale-125"
               />
             </div>
