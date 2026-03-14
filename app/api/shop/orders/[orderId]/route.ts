@@ -46,21 +46,24 @@ export async function GET(
     try {
       const { data: shopData } = await supabase
         .from("user_shops")
-        .select("user_id, phone")
+        .select("user_id")
         .eq("id", order.shop_id)
         .single()
 
       if (shopData) {
-        // Get owner's email from users/auth table
+        // Get owner's phone from users table
         const { data: userData } = await supabase
           .from("users")
-          .select("email, phone")
+          .select("phone_number")
           .eq("id", shopData.user_id)
           .single()
 
+        // Get owner's email from Supabase auth
+        const { data: authData } = await supabase.auth.admin.getUserById(shopData.user_id)
+
         shopOwner = {
-          email: userData?.email || undefined,
-          phone: shopData.phone || userData?.phone || undefined,
+          email: authData?.user?.email || undefined,
+          phone: userData?.phone_number || undefined,
         }
       }
     } catch (ownerError) {
