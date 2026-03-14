@@ -205,17 +205,20 @@ export default function BuyStockPage() {
 
     try {
       setPurchasing(selectedPackageForPurchase.id)
-      setPhoneModalOpen(false)
 
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session?.access_token) {
         toast.error("Please log in")
+        setPurchasing(null)
+        setPhoneModalOpen(false)
         return
       }
 
       if (!shopId) {
         toast.error("Shop information not found")
+        setPurchasing(null)
+        setPhoneModalOpen(false)
         return
       }
 
@@ -281,17 +284,22 @@ export default function BuyStockPage() {
 
       toast.success(`Successfully purchased ${pkg.network} ${pkg.size}!`)
 
-      // Show success modal
-      setSuccessModal({
-        open: true,
-        title: "Purchase Successful!",
-        message: "Your data package has been ordered and will be delivered shortly.",
-        details: [
-          { label: "Package", value: `${pkg.network} ${pkg.size}` },
-          { label: "Amount", value: `GHS ${(pkg.parent_price || 0).toFixed(2)}` },
-          { label: "New Balance", value: `GHS ${(debitData.newBalance || 0).toFixed(2)}` },
-        ],
-      })
+      // Close phone modal specifically before opening success modal
+      setPhoneModalOpen(false)
+      
+      // Delay just slightly to avoid React state/z-index collision with closing modal 
+      setTimeout(() => {
+        setSuccessModal({
+          open: true,
+          title: "Purchase Successful!",
+          message: "Your data package has been ordered and will be delivered shortly.",
+          details: [
+            { label: "Package", value: `${pkg.network} ${pkg.size}` },
+            { label: "Amount", value: `GHS ${(pkg.parent_price || 0).toFixed(2)}` },
+            { label: "New Balance", value: `GHS ${(debitData.newBalance || 0).toFixed(2)}` },
+          ],
+        })
+      }, 100)
 
       // Reset state
       setSelectedPackageForPurchase(null)
@@ -480,6 +488,7 @@ export default function BuyStockPage() {
         open={phoneModalOpen}
         onOpenChange={setPhoneModalOpen}
         onSubmit={handlePhoneNumberSubmit}
+        isLoading={purchasing !== null}
         packageName={selectedPackageForPurchase
           ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size} (GHS ${(selectedPackageForPurchase.parent_price || 0).toFixed(2)})`
           : "Data Package"
