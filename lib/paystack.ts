@@ -58,7 +58,7 @@ export async function initializePayment(
       amount: Math.round(params.amount * 100), // Convert to smallest unit (kobo/pesewa)
       reference: params.reference,
       currency: "GHS", // Explicitly set currency
-      redirect_url: params.redirectUrl || undefined,
+      callback_url: params.redirectUrl || undefined,
       metadata: params.metadata || {},
       channels: params.channels || [
         "card",
