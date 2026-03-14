@@ -4,10 +4,12 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Package, Zap, Users, ArrowRight, Lock } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
+import StorefrontRedirector from "@/components/StorefrontRedirector"
 
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <StorefrontRedirector />
       {/* Organization + Website Schema */}
       <script
         type="application/ld+json"

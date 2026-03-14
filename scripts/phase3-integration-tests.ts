@@ -36,7 +36,7 @@ async function testPhoneValidation() {
           console.log(`❌ ${testCase.description} (${testCase.phone}): Expected ${testCase.expectedNetwork}, got ${result.network}`)
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.log(`❌ ${testCase.description}: ${error.message}`)
     }
   }
@@ -73,7 +73,7 @@ async function testWebhookSignature() {
     } else {
       console.log(`❌ Valid signature rejected: ${response.status}`)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.log(`❌ Webhook test failed: ${error.message}`)
   }
 
@@ -93,7 +93,7 @@ async function testWebhookSignature() {
     } else {
       console.log(`❌ Invalid signature should be rejected: ${response.status}`)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.log(`❌ Invalid signature test failed: ${error.message}`)
   }
 }
@@ -129,7 +129,7 @@ async function testFulfillmentRouter() {
     } else {
       console.log(`❌ Router error: ${result.error}`)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.log(`❌ Router test failed: ${error.message}`)
   }
 }
@@ -150,14 +150,14 @@ async function testAdminEndpoints() {
       console.log(`✅ Get pending orders: ${result.count} pending`)
       if (result.orders?.length > 0) {
         console.log(`   Orders in queue:`)
-        result.orders.slice(0, 3).forEach(order => {
+        result.orders.slice(0, 3).forEach((order: any) => {
           console.log(`   - ${order.id}: ${order.phone_number}`)
         })
       }
     } else {
       console.log(`❌ Failed to get pending orders: ${result.error}`)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.log(`❌ Get pending orders failed: ${error.message}`)
   }
 }
@@ -194,16 +194,16 @@ async function testSettingsToggle() {
     if (resetResponse.ok) {
       console.log(`✅ Reset to original state`)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.log(`❌ Settings toggle test failed: ${error.message}`)
   }
 }
 
 // Main test runner
 async function runAllTests() {
-  console.log('=' * 50)
+  console.log('='.repeat(50))
   console.log('MTN INTEGRATION TESTS - PHASE 3')
-  console.log('=' * 50)
+  console.log('='.repeat(50))
 
   await testPhoneValidation()
   await testWebhookSignature()
@@ -211,9 +211,9 @@ async function runAllTests() {
   await testAdminEndpoints()
   await testSettingsToggle()
 
-  console.log('\n' + '=' * 50)
+  console.log('\n' + '='.repeat(50))
   console.log('✅ Tests Complete')
-  console.log('=' * 50)
+  console.log('='.repeat(50))
 }
 
 // Run if executed directly

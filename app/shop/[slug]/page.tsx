@@ -45,6 +45,11 @@ export default function ShopStorefront() {
   useEffect(() => {
     loadShopData()
     loadNetworkLogos()
+    
+    // Save storefront slug to localStorage so users are redirected here from the main site
+    if (shopSlug && typeof window !== "undefined") {
+      localStorage.setItem("storefront_slug", shopSlug)
+    }
   }, [shopSlug])
 
   useEffect(() => {
