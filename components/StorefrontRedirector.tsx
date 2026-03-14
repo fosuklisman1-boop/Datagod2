@@ -9,25 +9,49 @@ function RedirectorCore() {
   const [isChecking, setIsChecking] = useState(true)
 
   useEffect(() => {
-    // Check if user is explicitly trying to clear their storefront association
-    const clearStorefront = searchParams.get("clear_storefront")
+    const checkAndRedirect = async () => {
+      // Check if user is explicitly trying to clear their storefront association
+      const clearStorefront = searchParams.get("clear_storefront")
 
-    if (clearStorefront === "true") {
-      localStorage.removeItem("storefront_slug")
-      setIsChecking(false)
-      return
+      if (clearStorefront === "true") {
+        localStorage.removeItem("storefront_slug")
+        setIsChecking(false)
+        return
+      }
+
+      // Skip redirection for authenticated users — they should be able to
+      // access the main site, login, and dashboard even after visiting a shop
+      try {
+        const { createClient } = await import("@supabase/supabase-js")
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+        )
+        const { data: { session } } = await supabase.auth.getSession()
+
+        if (session) {
+          // User is logged in, let them through
+          setIsChecking(false)
+          return
+        }
+      } catch (error) {
+        console.error("Error checking auth session:", error)
+        // If auth check fails, continue with normal redirect logic
+      }
+
+      // Check if user belongs to a storefront
+      const storefrontSlug = localStorage.getItem("storefront_slug")
+
+      if (storefrontSlug) {
+        // User is associated with a storefront, redirect them back
+        router.replace(`/shop/${storefrontSlug}`)
+      } else {
+        // User is not associated with a storefront, allow them to stay
+        setIsChecking(false)
+      }
     }
 
-    // Check if user belongs to a storefront
-    const storefrontSlug = localStorage.getItem("storefront_slug")
-
-    if (storefrontSlug) {
-      // User is associated with a storefront, redirect them back
-      router.replace(`/shop/${storefrontSlug}`)
-    } else {
-      // User is not associated with a storefront, allow them to stay
-      setIsChecking(false)
-    }
+    checkAndRedirect()
   }, [router, searchParams])
 
   // Optional: You could return a full-page loading state here if you want to completely 
