@@ -145,27 +145,6 @@ export default function OrderConfirmation() {
               </div>
             </div>
 
-            {/* Pricing Breakdown */}
-            <div className="border-t border-white/20 pt-4">
-              <h3 className="font-semibold mb-3">Pricing Breakdown</h3>
-              <div className="space-y-2 p-3 bg-white/50 rounded-lg">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Base Price:</span>
-                  <span>GHS {order.base_price.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Service Fee:</span>
-                  <span>GHS {order.profit_amount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between border-t border-white/20 pt-2 font-bold text-lg">
-                  <span>Total Amount:</span>
-                  <span className="bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                    GHS {order.total_price.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
             {/* Customer Info */}
             <div className="border-t border-white/20 pt-4">
               <h3 className="font-semibold mb-3">Delivery Information</h3>
@@ -190,9 +169,9 @@ export default function OrderConfirmation() {
               <AlertDescription className="text-blue-700 text-sm">
                 <strong>Next Steps:</strong>
                 <ul className="list-disc list-inside mt-2 space-y-1">
-                  <li>Complete payment to process your order</li>
-                  <li>You will receive the data within 30 minutes of payment</li>
-                  <li>Check your email for payment instructions</li>
+                  <li>Your order is being processed</li>
+                  <li>You will receive the data within 30 minutes</li>
+                  <li>Check your email for updates</li>
                 </ul>
               </AlertDescription>
             </Alert>
@@ -204,10 +183,6 @@ export default function OrderConfirmation() {
                   Continue Shopping
                 </Button>
               </Link>
-              <Button className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700">
-                Proceed to Payment
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
             </div>
           </CardContent>
         </Card>
