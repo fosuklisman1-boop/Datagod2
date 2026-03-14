@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { CheckCircle, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -11,6 +12,7 @@ interface SuccessModalProps {
   details?: Array<{ label: string; value: string }>
   actionLabel?: string
   onAction?: () => void
+  autoCloseSeconds?: number
 }
 
 export function SuccessModal({
@@ -21,7 +23,28 @@ export function SuccessModal({
   details,
   actionLabel,
   onAction,
+  autoCloseSeconds = 10,
 }: SuccessModalProps) {
+  const [timeLeft, setTimeLeft] = useState(autoCloseSeconds)
+
+  useEffect(() => {
+    if (!open) {
+      if (timeLeft !== autoCloseSeconds) setTimeLeft(autoCloseSeconds)
+      return
+    }
+
+    if (timeLeft <= 0) {
+      onClose()
+      return
+    }
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => prev - 1)
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [open, timeLeft, onClose, autoCloseSeconds])
+
   if (!open) return null
 
   return (
@@ -73,9 +96,14 @@ export function SuccessModal({
           <Button
             onClick={onClose}
             variant="outline"
-            className="w-full"
+            className="w-full relative overflow-hidden group"
           >
-            Close
+            <span className="relative z-10">Close ({timeLeft}s)</span>
+            {/* Progress bar background */}
+            <div 
+              className="absolute inset-0 bg-gray-100 origin-left transition-transform duration-1000 ease-linear"
+              style={{ transform: `scaleX(${timeLeft / autoCloseSeconds})` }}
+            />
           </Button>
         </div>
       </div>
