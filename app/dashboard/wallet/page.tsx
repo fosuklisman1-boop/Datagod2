@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Wallet, Plus, Minus, TrendingUp, TrendingDown, AlertCircle, Loader2, RefreshCw, CheckCircle } from "lucide-react"
 import { WalletTopUp } from "@/components/wallet-top-up"
+import { SuccessModal } from "@/components/success-modal"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -56,6 +57,12 @@ export default function WalletPage() {
   const [showTopUp, setShowTopUp] = useState(false)
   const [paymentVerifying, setPaymentVerifying] = useState(false)
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
+  const [successModal, setSuccessModal] = useState<{
+    open: boolean
+    title: string
+    message: string
+    details: Array<{ label: string; value: string }>
+  }>({ open: false, title: "", message: "", details: [] })
 
   // Auth protection
   useEffect(() => {
@@ -274,6 +281,16 @@ export default function WalletPage() {
       console.log("[WALLET] Payment verified successfully")
       toast.success("Payment verified! Your wallet will be updated shortly.")
 
+      // Show success modal
+      setSuccessModal({
+        open: true,
+        title: "Top-Up Successful!",
+        message: "Your payment has been verified and your wallet has been credited.",
+        details: [
+          { label: "Reference", value: reference.slice(-10) },
+        ],
+      })
+
       // Refresh wallet data
       if (userId) {
         await Promise.all([
@@ -292,8 +309,17 @@ export default function WalletPage() {
 
   const handleTopUpSuccess = async (amount: number) => {
     console.log("[WALLET-PAGE] Top up successful, amount:", amount)
-    toast.success(`Wallet topped up by GHS ${amount.toFixed(2)}`)
     setShowTopUp(false)
+
+    // Show success modal
+    setSuccessModal({
+      open: true,
+      title: "Top-Up Successful!",
+      message: "Your wallet has been credited successfully.",
+      details: [
+        { label: "Amount", value: `GHS ${amount.toFixed(2)}` },
+      ],
+    })
 
     if (userId) {
       console.log("[WALLET-PAGE] Refetching wallet data and transactions...")
@@ -511,6 +537,15 @@ export default function WalletPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Success Modal */}
+      <SuccessModal
+        open={successModal.open}
+        onClose={() => setSuccessModal(prev => ({ ...prev, open: false }))}
+        title={successModal.title}
+        message={successModal.message}
+        details={successModal.details}
+      />
     </DashboardLayout>
   )
 }

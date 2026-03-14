@@ -19,6 +19,7 @@ import {
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { PhoneNumberModal } from "@/components/phone-number-modal"
+import { SuccessModal } from "@/components/success-modal"
 
 interface WholesalePackage {
   id: string
@@ -44,6 +45,12 @@ export default function BuyStockPage() {
   const [phoneModalOpen, setPhoneModalOpen] = useState(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<WholesalePackage | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
+  const [successModal, setSuccessModal] = useState<{
+    open: boolean
+    title: string
+    message: string
+    details: Array<{ label: string; value: string }>
+  }>({ open: false, title: "", message: "", details: [] })
 
   useEffect(() => {
     loadData()
@@ -274,6 +281,18 @@ export default function BuyStockPage() {
 
       toast.success(`Successfully purchased ${pkg.network} ${pkg.size}!`)
 
+      // Show success modal
+      setSuccessModal({
+        open: true,
+        title: "Purchase Successful!",
+        message: "Your data package has been ordered and will be delivered shortly.",
+        details: [
+          { label: "Package", value: `${pkg.network} ${pkg.size}` },
+          { label: "Amount", value: `GHS ${(pkg.parent_price || 0).toFixed(2)}` },
+          { label: "New Balance", value: `GHS ${(debitData.newBalance || 0).toFixed(2)}` },
+        ],
+      })
+
       // Reset state
       setSelectedPackageForPurchase(null)
     } catch (error) {
@@ -466,6 +485,15 @@ export default function BuyStockPage() {
           : "Data Package"
         }
         network={selectedPackageForPurchase?.network}
+      />
+
+      {/* Success Modal */}
+      <SuccessModal
+        open={successModal.open}
+        onClose={() => setSuccessModal(prev => ({ ...prev, open: false }))}
+        title={successModal.title}
+        message={successModal.message}
+        details={successModal.details}
       />
     </DashboardLayout>
   )
