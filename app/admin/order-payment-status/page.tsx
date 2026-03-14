@@ -59,6 +59,10 @@ export default function OrderPaymentStatusPage() {
   const [totalOrdersCount, setTotalOrdersCount] = useState(0)
   const PAGE_SIZE = 50
 
+  // MTN Fulfillment state
+  const [pendingMTNOrders, setPendingMTNOrders] = useState<any[]>([])
+  const [loadingMTNOrders, setLoadingMTNOrders] = useState(false)
+
   // Bulk update state
   const [showBulkUpdate, setShowBulkUpdate] = useState(false)
   const [bulkDate, setBulkDate] = useState("")
@@ -74,6 +78,7 @@ export default function OrderPaymentStatusPage() {
   useEffect(() => {
     if (isAdmin && !adminLoading) {
       loadAutoFulfillmentSetting()
+      loadPendingMTNOrders()
       // Initial load or search reset
       setOffset(0)
       loadAllOrders(0, false)
@@ -153,6 +158,71 @@ export default function OrderPaymentStatusPage() {
       }
     } catch (error) {
       console.error("[PAYMENT-STATUS] Error loading auto-fulfillment setting:", error)
+    }
+  }
+
+  const loadPendingMTNOrders = async () => {
+    try {
+      setLoadingMTNOrders(true)
+      const response = await fetch("/api/admin/fulfillment/manual-fulfill")
+      if (response.ok) {
+        const data = await response.json()
+        setPendingMTNOrders(data.orders || [])
+      }
+    } catch (error) {
+      console.error("Error loading pending MTN orders:", error)
+    } finally {
+      setLoadingMTNOrders(false)
+    }
+  }
+
+  const handleBulkManualFulfill = async () => {
+    if (pendingMTNOrders.length === 0) {
+      toast.error("No pending MTN orders to fulfill")
+      return
+    }
+
+    try {
+      setLoadingMTNOrders(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        toast.error("Session expired. Please refresh.")
+        return
+      }
+
+      const orderIds = pendingMTNOrders.map(o => o.id)
+      
+      const response = await fetch("/api/admin/fulfillment/bulk-manual-fulfill", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          orderIds,
+          order_type: "shop",
+          provider: "sykes"
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Bulk fulfillment failed")
+      }
+
+      const result = await response.json()
+      toast.success(result.message)
+      
+      // Reload lists
+      loadPendingMTNOrders()
+      setOffset(0)
+      loadAllOrders(0, false)
+    } catch (error) {
+      console.error("Bulk fulfillment error:", error)
+      toast.error(error instanceof Error ? error.message : "Bulk fulfillment failed")
+    } finally {
+      setLoadingMTNOrders(false)
     }
   }
 
@@ -487,10 +557,28 @@ export default function OrderPaymentStatusPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-            Order Payment Status
-          </h1>
-          <p className="text-gray-500 mt-1 font-medium">View and search all orders by payment reference or phone number</p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+                Order Payment Status
+              </h1>
+              <p className="text-gray-500 mt-1 font-medium">View and search all orders by payment reference or phone number</p>
+            </div>
+            {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
+              <Button
+                onClick={handleBulkManualFulfill}
+                disabled={loadingMTNOrders}
+                className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold shadow-lg transform transition hover:scale-105"
+              >
+                {loadingMTNOrders ? (
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                ) : (
+                  <Zap className="h-5 w-5 mr-2" />
+                )}
+                Fulfill All Pending MTN ({pendingMTNOrders.length})
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Search Card */}
