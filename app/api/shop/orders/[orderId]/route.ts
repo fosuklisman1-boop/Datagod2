@@ -41,9 +41,36 @@ export async function GET(
 
     console.log(`[SHOP-ORDER-GET] ✓ Order found: ${order.reference_code}`)
 
+    // Fetch shop owner's contact info
+    let shopOwner: { email?: string; phone?: string } = {}
+    try {
+      const { data: shopData } = await supabase
+        .from("user_shops")
+        .select("user_id, phone")
+        .eq("id", order.shop_id)
+        .single()
+
+      if (shopData) {
+        // Get owner's email from users/auth table
+        const { data: userData } = await supabase
+          .from("users")
+          .select("email, phone")
+          .eq("id", shopData.user_id)
+          .single()
+
+        shopOwner = {
+          email: userData?.email || undefined,
+          phone: shopData.phone || userData?.phone || undefined,
+        }
+      }
+    } catch (ownerError) {
+      console.warn("[SHOP-ORDER-GET] Could not fetch shop owner info:", ownerError)
+    }
+
     return NextResponse.json({
       success: true,
       order,
+      shopOwner,
     })
   } catch (error) {
     console.error("[SHOP-ORDER-GET] ✗ Error:", error)

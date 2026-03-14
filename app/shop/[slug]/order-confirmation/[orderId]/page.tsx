@@ -18,6 +18,7 @@ export default function OrderConfirmation() {
   const orderId = params.orderId as string
 
   const [order, setOrder] = useState<any>(null)
+  const [shopOwner, setShopOwner] = useState<{ email?: string; phone?: string }>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -27,8 +28,9 @@ export default function OrderConfirmation() {
   const loadOrder = async () => {
     try {
       setLoading(true)
-      const orderData = await shopOrderService.getOrderById(orderId)
-      setOrder(orderData)
+      const result = await shopOrderService.getOrderById(orderId)
+      setOrder(result.order)
+      setShopOwner(result.shopOwner || {})
     } catch (error) {
       console.error("Error loading order:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load order details"
@@ -193,9 +195,16 @@ export default function OrderConfirmation() {
             <CardTitle className="text-base">Need Help?</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-gray-600">
-            <p>If you encounter any issues with your order, please contact our support team:</p>
-            <p className="mt-2 font-semibold">Email: support@datagod.com</p>
-            <p>WhatsApp: +233 XXX XXX XXXX</p>
+            <p>If you encounter any issues with your order, please contact the shop owner:</p>
+            {shopOwner.email && (
+              <p className="mt-2 font-semibold">Email: {shopOwner.email}</p>
+            )}
+            {shopOwner.phone && (
+              <p className={shopOwner.email ? "" : "mt-2"}>Phone: {shopOwner.phone}</p>
+            )}
+            {!shopOwner.email && !shopOwner.phone && (
+              <p className="mt-2 text-gray-500">Contact details not available.</p>
+            )}
           </CardContent>
         </Card>
       </div>
