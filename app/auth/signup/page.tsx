@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
-import StorefrontRedirector from "@/components/StorefrontRedirector"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -95,7 +94,6 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 p-4">
-      <StorefrontRedirector />
       <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
         <CardHeader className="space-y-2 text-center">
           <div className="flex justify-center mb-4">
