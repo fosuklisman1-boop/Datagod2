@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { shopService, shopPackageService, shopOrderService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
-import { AlertCircle, Check, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Search } from "lucide-react"
+import { AlertCircle, Check, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Search, Megaphone, Loader2, Save } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
 import { ComplaintModal } from "@/components/complaint-modal"
@@ -39,7 +39,10 @@ export default function MyShopPage() {
   const [dbError, setDbError] = useState<string | null>(null)
   const [selectedNetwork, setSelectedNetwork] = useState<string>("All")
   const [whatsappLink, setWhatsappLink] = useState("")
-  const [savingWhatsapp, setSavingWhatsapp] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [announcementEnabled, setAnnouncementEnabled] = useState(false)
+  const [announcementTitle, setAnnouncementTitle] = useState("")
+  const [announcementMessage, setAnnouncementMessage] = useState("")
   const [shopOrders, setShopOrders] = useState<any[]>([])
   const [updatingShop, setUpdatingShop] = useState(false)
   const [togglingPackageId, setTogglingPackageId] = useState<string | null>(null)
@@ -137,6 +140,11 @@ export default function MyShopPage() {
             const settingsData = await settingsResponse.json()
             if (settingsData.whatsapp_link) {
               setWhatsappLink(settingsData.whatsapp_link)
+            }
+            if (settingsData.announcement_enabled !== undefined) {
+              setAnnouncementEnabled(settingsData.announcement_enabled)
+              setAnnouncementTitle(settingsData.announcement_title || "")
+              setAnnouncementMessage(settingsData.announcement_message || "")
             }
           } else {
             console.error("Settings API returned:", settingsResponse.status)
@@ -270,14 +278,11 @@ export default function MyShopPage() {
     }
   }
 
-  const handleSaveWhatsappLink = async () => {
-    if (!shop || !whatsappLink.trim()) {
-      toast.error("Please enter a WhatsApp link")
-      return
-    }
+  const handleSaveStorefrontSettings = async () => {
+    if (!shop) return
 
     try {
-      setSavingWhatsapp(true)
+      setSavingSettings(true)
 
       // Get auth token from session
       const { data: { session } } = await supabase.auth.getSession()
@@ -296,23 +301,26 @@ export default function MyShopPage() {
         },
         body: JSON.stringify({
           whatsapp_link: whatsappLink,
+          announcement_enabled: announcementEnabled,
+          announcement_title: announcementTitle,
+          announcement_message: announcementMessage,
         }),
       })
 
       const result = await response.json()
 
       if (!response.ok) {
-        toast.error(result.error || "Failed to save WhatsApp link")
+        toast.error(result.error || "Failed to save settings")
         return
       }
 
-      toast.success("WhatsApp link saved successfully!")
+      toast.success("Storefront settings saved successfully!")
     } catch (error) {
-      console.error("Error saving WhatsApp link:", error)
-      const errorMessage = error instanceof Error ? error.message : "Failed to save WhatsApp link"
+      console.error("Error saving storefront settings:", error)
+      const errorMessage = error instanceof Error ? error.message : "Failed to save settings"
       toast.error(errorMessage)
     } finally {
-      setSavingWhatsapp(false)
+      setSavingSettings(false)
     }
   }
 
@@ -873,13 +881,77 @@ export default function MyShopPage() {
                 </p>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Storefront Announcement Card */}
+        <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40 hover:border-violet-300/60">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Megaphone className="w-5 h-5 text-violet-600" />
+              Storefront Announcement
+            </CardTitle>
+            <CardDescription>Display a pop-up message to customers on your store</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-3 bg-white/40 rounded-lg border border-white/20">
+              <div>
+                <Label htmlFor="announcement-enabled" className="text-sm font-medium text-gray-700">
+                  Enable Announcement
+                </Label>
+                <p className="text-xs text-gray-500">Show modal on page load</p>
+              </div>
+              <input
+                type="checkbox"
+                id="announcement-enabled"
+                checked={announcementEnabled}
+                onChange={(e) => setAnnouncementEnabled(e.target.checked)}
+                className="w-5 h-5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+              />
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="announcement-title">Announcement Title</Label>
+                <Input
+                  id="announcement-title"
+                  placeholder="e.g. Special Holiday Promo!"
+                  value={announcementTitle}
+                  onChange={(e) => setAnnouncementTitle(e.target.value)}
+                  disabled={!announcementEnabled}
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="announcement-message">Announcement Message</Label>
+                <Textarea
+                  id="announcement-message"
+                  placeholder="Enter your message here..."
+                  value={announcementMessage}
+                  onChange={(e) => setAnnouncementMessage(e.target.value)}
+                  disabled={!announcementEnabled}
+                  className="mt-1 min-h-[100px]"
+                />
+              </div>
+            </div>
 
             <Button
-              onClick={handleSaveWhatsappLink}
-              disabled={savingWhatsapp || !whatsappLink.trim()}
-              className="w-full bg-green-600 hover:bg-green-700"
+              onClick={handleSaveStorefrontSettings}
+              disabled={savingSettings}
+              className="w-full bg-violet-600 hover:bg-violet-700 font-semibold"
             >
-              {savingWhatsapp ? "Saving..." : "Save WhatsApp Link"}
+              {savingSettings ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Storefront Settings
+                </>
+              )}
             </Button>
           </CardContent>
         </Card>

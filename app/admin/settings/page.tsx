@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign, Power } from "lucide-react"
+import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign, Power, Megaphone } from "lucide-react"
 import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -38,6 +38,11 @@ export default function AdminSettingsPage() {
   const [announcementEnabled, setAnnouncementEnabled] = useState(false)
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementMessage, setAnnouncementMessage] = useState("")
+
+  // Global Storefront Override settings
+  const [storefrontAnnouncementEnabled, setStorefrontAnnouncementEnabled] = useState(false)
+  const [storefrontAnnouncementTitle, setStorefrontAnnouncementTitle] = useState("")
+  const [storefrontAnnouncementMessage, setStorefrontAnnouncementMessage] = useState("")
 
   // Fee settings
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
@@ -110,10 +115,21 @@ export default function AdminSettingsPage() {
           setAnnouncementEnabled(data.announcement_enabled)
         }
         if (data.announcement_title) {
-          setAnnouncementTitle(data.annotation_title)
+          setAnnouncementTitle(data.announcement_title)
         }
         if (data.announcement_message) {
           setAnnouncementMessage(data.announcement_message)
+        }
+
+        // Load storefront override settings
+        if (data.storefront_announcement_enabled !== undefined) {
+          setStorefrontAnnouncementEnabled(data.storefront_announcement_enabled)
+        }
+        if (data.storefront_announcement_title) {
+          setStorefrontAnnouncementTitle(data.storefront_announcement_title)
+        }
+        if (data.storefront_announcement_message) {
+          setStorefrontAnnouncementMessage(data.storefront_announcement_message)
         }
 
         // Load fee settings
@@ -295,6 +311,9 @@ export default function AdminSettingsPage() {
           announcement_enabled: announcementEnabled,
           announcement_title: announcementTitle,
           announcement_message: announcementMessage,
+          storefront_announcement_enabled: storefrontAnnouncementEnabled,
+          storefront_announcement_title: storefrontAnnouncementTitle,
+          storefront_announcement_message: storefrontAnnouncementMessage,
           paystack_fee_percentage: paystackFeePercentage,
           wallet_topup_fee_percentage: walletTopupFeePercentage,
           withdrawal_fee_percentage: withdrawalFeePercentage,
@@ -976,18 +995,94 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
+        <Card className="mt-6 border-violet-200 bg-violet-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-violet-700">
+              <Megaphone className="w-5 h-5" />
+              Global Storefront Announcement Override
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Toggling this ON will force an override announcement to appear on ALL storefronts across the entire platform. This takes priority over individual shop announcements.
+            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-white border border-violet-200 rounded-lg">
+              <div className="flex-1">
+                <p className="font-medium text-gray-900">Enable Global Override</p>
+                <p className="text-sm text-gray-600">Force override on all shops</p>
+              </div>
+              <Switch
+                checked={storefrontAnnouncementEnabled}
+                onCheckedChange={setStorefrontAnnouncementEnabled}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="storefrontAnnouncementTitle" className="text-sm font-medium">
+                Override Title
+              </Label>
+              <Input
+                id="storefrontAnnouncementTitle"
+                type="text"
+                placeholder="Platform Maintenance"
+                value={storefrontAnnouncementTitle}
+                onChange={(e) => setStorefrontAnnouncementTitle(e.target.value)}
+                className="w-full"
+                disabled={!storefrontAnnouncementEnabled}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="storefrontAnnouncementMessage" className="text-sm font-medium">
+                Override Message
+              </Label>
+              <Textarea
+                id="storefrontAnnouncementMessage"
+                placeholder="Enter the override message here..."
+                value={storefrontAnnouncementMessage}
+                onChange={(e) => setStorefrontAnnouncementMessage(e.target.value)}
+                className="w-full min-h-[100px] resize-y"
+                disabled={!storefrontAnnouncementEnabled}
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 pt-4">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save Override Settings
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5 text-blue-600" />
+            <CardTitle className="flex items-center gap-2 text-blue-600">
+              <Bell className="w-5 h-5" />
               Login Announcement
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              This announcement is shown only to users when they log into their dashboard.
+            </p>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="flex-1">
-                <p className="font-medium text-gray-900">Enable Announcement</p>
-                <p className="text-sm text-gray-600">Show a modal to users upon sign in</p>
+                <p className="font-medium text-gray-900">Enable Login Announcement</p>
+                <p className="text-sm text-gray-600">Show modal upon sign in</p>
               </div>
               <Switch
                 checked={announcementEnabled}
@@ -1036,7 +1131,7 @@ export default function AdminSettingsPage() {
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700"
               >
                 {saving ? (
                   <>
@@ -1046,7 +1141,7 @@ export default function AdminSettingsPage() {
                 ) : (
                   <>
                     <Save className="w-4 h-4" />
-                    Save Settings
+                    Save Login Announcement
                   </>
                 )}
               </Button>
