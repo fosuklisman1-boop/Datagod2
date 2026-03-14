@@ -254,14 +254,22 @@ export const shopOrderService = {
 
   // Get order by ID
   async getOrderById(orderId: string) {
-    const { data, error } = await supabase
-      .from("shop_orders")
-      .select("*")
-      .eq("id", orderId)
-      .single()
+    try {
+      const response = await fetch(`/api/shop/orders/${orderId}`, {
+        cache: "no-store",
+      })
 
-    if (error) throw error
-    return data
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `HTTP ${response.status}: Failed to fetch order`)
+      }
+
+      const data = await response.json()
+      return data.order
+    } catch (error) {
+      console.error("Error in getOrderById:", error)
+      throw error
+    }
   },
 
   // Update order status
