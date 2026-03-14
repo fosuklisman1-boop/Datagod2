@@ -397,6 +397,83 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Global Storefront Announcement Override - HIGH VISIBILITY */}
+        <Card className="mb-6 border-violet-300 bg-violet-50/50 shadow-md">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-violet-800">
+              <Megaphone className="w-5 h-5" />
+              Global Storefront Announcement Override
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-violet-900 font-medium bg-white/60 p-3 rounded-lg border border-violet-100">
+              ⚠️ Toggling this ON will force an override announcement to appear on ALL storefronts across the entire platform. This takes priority over individual shop announcements.
+            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-white border border-violet-200 rounded-lg shadow-sm">
+              <div className="flex-1">
+                <p className="font-bold text-gray-900">Enable Global Storefront Override</p>
+                <p className="text-sm text-gray-600">Force this notice to ALL shop customers</p>
+              </div>
+              <Switch
+                checked={storefrontAnnouncementEnabled}
+                onCheckedChange={setStorefrontAnnouncementEnabled}
+                className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 scale-125"
+              />
+            </div>
+
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="storefrontAnnouncementTitle" className="text-sm font-bold text-violet-900">
+                  Override Title
+                </Label>
+                <Input
+                  id="storefrontAnnouncementTitle"
+                  type="text"
+                  placeholder="e.g. Platform-wide Alert"
+                  value={storefrontAnnouncementTitle}
+                  onChange={(e) => setStorefrontAnnouncementTitle(e.target.value)}
+                  className="w-full bg-white border-violet-200 focus:ring-violet-500"
+                  disabled={!storefrontAnnouncementEnabled}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="storefrontAnnouncementMessage" className="text-sm font-bold text-violet-900">
+                  Override Message
+                </Label>
+                <Textarea
+                  id="storefrontAnnouncementMessage"
+                  placeholder="Enter the message customers will see on ALL shops..."
+                  value={storefrontAnnouncementMessage}
+                  onChange={(e) => setStorefrontAnnouncementMessage(e.target.value)}
+                  className="w-full min-h-[100px] resize-y bg-white border-violet-200 focus:ring-violet-500"
+                  disabled={!storefrontAnnouncementEnabled}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 shadow-lg shadow-violet-100"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save & Apply Override
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -995,78 +1072,7 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        <Card className="mt-6 border-violet-200 bg-violet-50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-violet-700">
-              <Megaphone className="w-5 h-5" />
-              Global Storefront Announcement Override
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Toggling this ON will force an override announcement to appear on ALL storefronts across the entire platform. This takes priority over individual shop announcements.
-            </p>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-white border border-violet-200 rounded-lg">
-              <div className="flex-1">
-                <p className="font-medium text-gray-900">Enable Global Override</p>
-                <p className="text-sm text-gray-600">Force override on all shops</p>
-              </div>
-              <Switch
-                checked={storefrontAnnouncementEnabled}
-                onCheckedChange={setStorefrontAnnouncementEnabled}
-              />
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="storefrontAnnouncementTitle" className="text-sm font-medium">
-                Override Title
-              </Label>
-              <Input
-                id="storefrontAnnouncementTitle"
-                type="text"
-                placeholder="Platform Maintenance"
-                value={storefrontAnnouncementTitle}
-                onChange={(e) => setStorefrontAnnouncementTitle(e.target.value)}
-                className="w-full"
-                disabled={!storefrontAnnouncementEnabled}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="storefrontAnnouncementMessage" className="text-sm font-medium">
-                Override Message
-              </Label>
-              <Textarea
-                id="storefrontAnnouncementMessage"
-                placeholder="Enter the override message here..."
-                value={storefrontAnnouncementMessage}
-                onChange={(e) => setStorefrontAnnouncementMessage(e.target.value)}
-                className="w-full min-h-[100px] resize-y"
-                disabled={!storefrontAnnouncementEnabled}
-              />
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 pt-4">
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Save Override Settings
-                  </>
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
 
         <Card className="mt-6">
           <CardHeader>
