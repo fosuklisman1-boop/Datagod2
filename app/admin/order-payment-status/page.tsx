@@ -850,7 +850,7 @@ export default function OrderPaymentStatusPage() {
                             <Badge
                               className={`text-xs border ${order.status === "completed"
                                 ? "bg-green-100 text-green-800 border-green-200"
-                                : order.status === "pending"
+                                : order.status === "pending" || order.status === "pending_download"
                                   ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                                   : order.status === "processing"
                                     ? "bg-blue-100 text-blue-800 border-blue-200"
@@ -859,7 +859,7 @@ export default function OrderPaymentStatusPage() {
                                       : "bg-gray-100 text-gray-800 border-gray-200"
                                 }`}
                             >
-                              {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
+                              {order.status === "pending_download" ? "Pending (DL)" : (order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown")}
                             </Badge>
                           </td>
                           <td className="px-4 py-3 text-center text-xs text-gray-500">
@@ -881,7 +881,7 @@ export default function OrderPaymentStatusPage() {
                                 <option value="completed">Completed</option>
                                 <option value="failed">Failed</option>
                               </select>
-                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network === "MTN" && (
+                              {autoFulfillmentEnabled && (order.status === "pending" || order.status === "pending_download" || order.status === "failed") && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network === "MTN" && (
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -898,7 +898,7 @@ export default function OrderPaymentStatusPage() {
                                   ) : (
                                     <>
                                       <Zap className="w-3 h-3" />
-                                      Fulfill
+                                      {order.status === "failed" ? "Retry" : "Fulfill"}
                                     </>
                                   )}
                                 </Button>
