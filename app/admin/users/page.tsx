@@ -259,13 +259,9 @@ export default function AdminUsersPage() {
 
     try {
       setIsUpdatingBalance(true)
-      if (!selectedUser.shop?.id) {
-        toast.error("User has no shop")
-        return
-      }
 
       await adminUserService.updateUserBalance(
-        selectedUser.shop.id,
+        selectedUser.id,
         parseFloat(balanceAmount),
         balanceAction
       )

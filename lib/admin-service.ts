@@ -178,7 +178,7 @@ export const adminUserService = {
   },
 
   // Update user balance (credit/debit)
-  async updateUserBalance(shopId: string, amount: number, type: "credit" | "debit") {
+  async updateUserBalance(userId: string, amount: number, type: "credit" | "debit") {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -192,7 +192,7 @@ export const adminUserService = {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ shopId, amount, type }),
+        body: JSON.stringify({ userId, amount, type }),
       })
 
       const data = await response.json()

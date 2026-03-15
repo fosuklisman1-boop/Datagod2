@@ -16,30 +16,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { shopId, amount, type } = await request.json()
+    const { userId, amount, type } = await request.json()
 
-    if (!shopId || amount === undefined || !type) {
+    if (!userId || amount === undefined || !type) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       )
     }
-
-    // Get the user_id from the shop
-    const { data: shop, error: shopError } = await supabase
-      .from("user_shops")
-      .select("user_id")
-      .eq("id", shopId)
-      .single()
-
-    if (shopError || !shop) {
-      return NextResponse.json(
-        { error: "Shop not found" },
-        { status: 404 }
-      )
-    }
-
-    const userId = shop.user_id
 
     // Get current wallet balance (select only needed columns)
     const { data: wallet, error: walletError } = await supabase
