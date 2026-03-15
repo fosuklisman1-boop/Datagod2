@@ -105,6 +105,7 @@ export default function AdminUsersPage() {
   const [newRole, setNewRole] = useState("")
   const [showActionDialog, setShowActionDialog] = useState(false)
   const [isProcessingAction, setIsProcessingAction] = useState(false)
+  const [suspensionReason, setSuspensionReason] = useState("")
   const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false)
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -345,9 +346,10 @@ export default function AdminUsersPage() {
     setIsProcessingAction(true)
     const action = currentStatus ? "unsuspend" : "suspend"
     try {
-      await adminUserService.toggleUserSuspension(userId, action)
+      await adminUserService.toggleUserSuspension(userId, action, suspensionReason)
       toast.success(`User successfully ${action}ed`)
       setShowActionDialog(false)
+      setSuspensionReason("")
       await loadUsers()
     } catch (error: any) {
       console.error(`Error ${action}ing user:`, error)
@@ -601,6 +603,7 @@ export default function AdminUsersPage() {
                             variant="outline"
                             onClick={() => {
                               setSelectedUser(user)
+                              setSuspensionReason("")
                               setShowActionDialog(true)
                             }}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
@@ -1093,6 +1096,20 @@ export default function AdminUsersPage() {
                       ? "Restores the user's ability to log in."
                       : "Bans the user from logging in without destroying their data or shop."}
                   </p>
+                  
+                  {!selectedUser.is_suspended && (
+                    <div className="mb-4">
+                      <Label className="text-xs text-orange-800 mb-1 block">Reason for Suspension (Optional)</Label>
+                      <textarea
+                        className="w-full text-sm p-2 border rounded bg-white"
+                        placeholder="e.g. Violation of terms, suspicious activity..."
+                        rows={2}
+                        value={suspensionReason}
+                        onChange={(e) => setSuspensionReason(e.target.value)}
+                      />
+                    </div>
+                  )}
+
                   <Button
                     onClick={() => handleToggleSuspension(selectedUser.id, selectedUser.is_suspended)}
                     disabled={isProcessingAction}

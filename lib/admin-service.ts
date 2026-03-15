@@ -209,7 +209,7 @@ export const adminUserService = {
   },
 
   // Toggle user suspension status
-  async toggleUserSuspension(userId: string, action: "suspend" | "unsuspend") {
+  async toggleUserSuspension(userId: string, action: "suspend" | "unsuspend", reason?: string) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -223,7 +223,7 @@ export const adminUserService = {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ userId, action }),
+        body: JSON.stringify({ userId, action, reason }),
       })
 
       const data = await response.json()

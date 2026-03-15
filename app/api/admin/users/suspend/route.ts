@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     const { isAdmin, errorResponse } = await verifyAdminAccess(req)
     if (!isAdmin) return errorResponse
 
-    const { userId, action } = await req.json()
+    const { userId, action, reason } = await req.json()
 
     if (!userId || !["suspend", "unsuspend"].includes(action)) {
       return NextResponse.json(
@@ -31,8 +31,19 @@ export async function POST(req: NextRequest) {
     const isSuspending = action === "suspend"
     console.log(`[ADMIN-SUSPEND-USER] Admin is attempting to ${action} user ${userId}...`)
 
+    // Fetch user details for notifications
+    const { data: userData, error: userError } = await adminClient
+      .from("users")
+      .select("email, phone_number, first_name")
+      .eq("id", userId)
+      .single()
+
+    if (userError || !userData) {
+      console.error("[ADMIN-SUSPEND-USER] Failed to fetch user data:", userError)
+      return NextResponse.json({ error: "User not found in profile table" }, { status: 404 })
+    }
+
     // 2. Update Supabase Auth (Ban or Unban)
-    // We use ban_duration to immediately invalidate tokens. 876000h = 100 years.
     const banDuration = isSuspending ? "876000h" : "none"
     const { error: authError } = await adminClient.auth.admin.updateUserById(userId, {
       ban_duration: banDuration,
@@ -56,18 +67,77 @@ export async function POST(req: NextRequest) {
 
     if (dbError) {
       console.error("[ADMIN-SUSPEND-USER] Database update error:", dbError)
-      // If DB fails but auth succeeds, we are out of sync, but Auth ban is the critical part
       return NextResponse.json({
         error: `Auth suspended, but database update failed: ${dbError.message}`
       }, { status: 500 })
     }
 
-    console.log(`[ADMIN-SUSPEND-USER] Successfully executed ${action} for user ${userId}`)
+    // 4. Send Notifications (Fire and forget or wait - let's wait to ensure user knows it's sent)
+    const notificationResults = { sms: false, email: false }
+
+    try {
+      if (isSuspending) {
+        // Send Suspension Notifications
+        if (userData.phone_number) {
+          const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
+          await sendSMS({
+            phone: userData.phone_number,
+            message: SMSTemplates.userSuspended(reason),
+            type: "user_suspension",
+            userId: userId
+          })
+          notificationResults.sms = true
+        }
+
+        if (userData.email) {
+          const { sendEmail, EmailTemplates } = await import("@/lib/email-service")
+          const payload = EmailTemplates.userSuspended(userData.email, reason)
+          await sendEmail({
+            to: [{ email: userData.email, name: userData.first_name || "User" }],
+            subject: payload.subject,
+            htmlContent: payload.html,
+            type: "user_suspension",
+            userId: userId
+          })
+          notificationResults.email = true
+        }
+      } else {
+        // Send Restoration Notifications
+        if (userData.phone_number) {
+          const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
+          await sendSMS({
+            phone: userData.phone_number,
+            message: SMSTemplates.userUnsuspended(),
+            type: "user_restoration",
+            userId: userId
+          })
+          notificationResults.sms = true
+        }
+
+        if (userData.email) {
+          const { sendEmail, EmailTemplates } = await import("@/lib/email-service")
+          const payload = EmailTemplates.userUnsuspended(userData.email)
+          await sendEmail({
+            to: [{ email: userData.email, name: userData.first_name || "User" }],
+            subject: payload.subject,
+            htmlContent: payload.html,
+            type: "user_restoration",
+            userId: userId
+          })
+          notificationResults.email = true
+        }
+      }
+    } catch (notifErr) {
+      console.warn("[ADMIN-SUSPEND-USER] Notification error (non-fatal):", notifErr)
+    }
+
+    console.log(`[ADMIN-SUSPEND-USER] Successfully executed ${action} for user ${userId}. Notifications:`, notificationResults)
 
     return NextResponse.json({
       success: true,
       message: `User successfully ${isSuspending ? "suspended" : "unsuspended"}`,
-      action
+      action,
+      notifications: notificationResults
     })
 
   } catch (error: any) {

@@ -616,6 +616,41 @@ export const EmailTemplates = {
       <a href="${APP_URL}/dashboard" class="button-primary">Go to Dashboard</a>
     `, "Official Announcement", true),
   }),
+
+  userSuspended: (email: string, reason?: string) => ({
+    subject: "Account Suspension Notice",
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">⚠️</span>
+        <h2 style="color: #dc2626;">Account Suspended</h2>
+        <p>Your account (<strong>${email}</strong>) has been suspended by an administrator.</p>
+      </div>
+      
+      <div class="info-card">
+        <h3 style="font-size: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 15px;">Suspension Details</h3>
+        <div class="info-row">
+          <span class="info-label">Reason</span>
+          <span class="info-value" style="color: #dc2626;">${reason || "Violation of platform policies"}</span>
+        </div>
+      </div>
+      
+      <p>While suspended, you will not be able to log in to your dashboard. If you believe this is an error, please contact our support team.</p>
+    `, "Account Status Update", true),
+  }),
+
+  userUnsuspended: (email: string) => ({
+    subject: "Account Restored",
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">✅</span>
+        <h2>Account Restored</h2>
+        <p>Your account (<strong>${email}</strong>) has been restored.</p>
+      </div>
+      
+      <p>You can now log in to your dashboard and resume operations.</p>
+      <a href="${APP_URL}/dashboard" class="button-primary">Go to Dashboard</a>
+    `, "Account Restored", true),
+  }),
 }
 
 /**

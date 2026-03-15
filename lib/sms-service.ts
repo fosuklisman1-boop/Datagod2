@@ -103,6 +103,12 @@ export const SMSTemplates = {
 
   subscriptionExpiry1Hour: (planName: string, endDate: string) =>
     `DATAGOD: 🚨 CRITICAL: Your ${planName} subscription expires in 1 hour (${endDate}). Renew immediately!`,
+
+  userSuspended: (reason?: string) =>
+    `DATAGOD: Your account has been suspended.${reason ? ` Reason: ${reason}` : ""} Contact support for inquiries.`,
+
+  userUnsuspended: () =>
+    `DATAGOD: ✓ Your account has been restored. You can now log in to your dashboard.`,
 }
 
 /**
