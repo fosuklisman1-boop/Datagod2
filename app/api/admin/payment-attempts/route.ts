@@ -266,8 +266,10 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
-    // Prevent re-completing an already completed attempt
-    if (attempt.status === status) {
+    // Prevent duplicate non-completed status changes (e.g. failed→failed, abandoned→abandoned)
+    // For 'completed': allow re-processing because the wallet credit may not have happened
+    // (the transaction idempotency check below will safely prevent any double-credit)
+    if (attempt.status === status && status !== "completed") {
       return NextResponse.json(
         { error: `This payment attempt is already marked as ${status}` },
         { status: 400 }

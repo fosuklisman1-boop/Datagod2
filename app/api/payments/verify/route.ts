@@ -125,9 +125,11 @@ export async function POST(request: NextRequest) {
       // Call the admin PATCH endpoint which handles all completion logic:
       // wallet credit, fulfillment, notifications, balance sync, etc.
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : "http://localhost:3000"
+        // FIX: correct operator precedence — NEXT_PUBLIC_APP_URL is checked first,
+        // then VERCEL_URL (prefixed with https://), then localhost as fallback.
+        const baseUrl =
+          process.env.NEXT_PUBLIC_APP_URL ||
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
         const completionResponse = await fetch(`${baseUrl}/api/admin/payment-attempts`, {
           method: "PATCH",

@@ -387,12 +387,149 @@ export async function POST(request: NextRequest) {
           else console.log("[WEBHOOK] ✓ payment_attempts updated to completed")
         })
 
-      // IMPORTANT: Check if payment was already processed to prevent double crediting
-      // If status was already "completed" before this webhook, skip crediting
+      // ===== WALLET TOP-UP: Credit the user's wallet directly from the webhook =====
+      // The webhook is the authoritative source of truth from Paystack.
+      // Doing it here means the wallet is credited even if the browser-redirect
+      // verify route never completes (tab closed, network drop, etc.).
+      if (!paymentData.order_id && !paymentData.shop_id && paymentData.user_id) {
+        const userId = paymentData.user_id
+        const totalAmountGHS = Number(paymentData.amount || 0)
+        const feeAmountGHS = Number(paymentData.fee || 0)
+        const creditAmount = totalAmountGHS - feeAmountGHS
+        const webhookReference = reference
+
+        console.log(`[WEBHOOK] Wallet top-up detected for user ${userId}`)
+        console.log(`  Total: GHS ${totalAmountGHS.toFixed(2)}, Fee: GHS ${feeAmountGHS.toFixed(2)}, Credit: GHS ${creditAmount.toFixed(2)}`)
+
+        // Idempotency: skip if this reference was already credited
+        const { data: existingTx } = await supabase
+          .from("transactions")
+          .select("id")
+          .eq("reference_id", webhookReference)
+          .eq("user_id", userId)
+          .eq("type", "credit")
+          .maybeSingle()
+
+        if (existingTx) {
+          console.log(`[WEBHOOK] ℹ️ Wallet already credited for reference ${webhookReference}. Skipping.`)
+        } else {
+          // Fetch current wallet balance
+          const { data: walletData, error: walletFetchError } = await supabase
+            .from("wallets")
+            .select("balance, total_credited")
+            .eq("user_id", userId)
+            .single()
+
+          if (walletFetchError) {
+            console.error("[WEBHOOK] ❌ Error fetching wallet for top-up:", walletFetchError)
+          } else {
+            const currentBalance = walletData?.balance || 0
+            const currentTotalCredited = walletData?.total_credited || 0
+            const newBalance = currentBalance + creditAmount
+            const newTotalCredited = currentTotalCredited + creditAmount
+
+            // Credit wallet
+            const { error: walletUpdateError } = await supabase
+              .from("wallets")
+              .upsert(
+                {
+                  user_id: userId,
+                  balance: newBalance,
+                  total_credited: newTotalCredited,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: "user_id" }
+              )
+
+            if (walletUpdateError) {
+              console.error("[WEBHOOK] ❌ Failed to credit wallet:", walletUpdateError)
+            } else {
+              console.log(`[WEBHOOK] ✓ Wallet credited: GHS ${creditAmount.toFixed(2)} → new balance: GHS ${newBalance.toFixed(2)}`)
+
+              // Create transaction record
+              const { error: txError } = await supabase
+                .from("transactions")
+                .insert([{
+                  user_id: userId,
+                  type: "credit",
+                  amount: creditAmount,
+                  reference_id: webhookReference,
+                  source: "wallet_topup",
+                  description: "Wallet top-up via Paystack",
+                  status: "completed",
+                  balance_before: currentBalance,
+                  balance_after: newBalance,
+                  created_at: new Date().toISOString(),
+                }])
+
+              if (txError && txError.code !== "23505") {
+                // 23505 = unique_violation (duplicate) — safe to ignore
+                console.error("[WEBHOOK] ❌ Failed to create transaction record:", txError)
+              } else {
+                console.log(`[WEBHOOK] ✓ Transaction record created for reference ${webhookReference}`)
+              }
+
+              // In-app notification (non-blocking)
+              supabase
+                .from("notifications")
+                .insert([{
+                  user_id: userId,
+                  title: "Wallet Topped Up",
+                  message: `GHS ${creditAmount.toFixed(2)} has been added to your wallet. New balance: GHS ${newBalance.toFixed(2)}.`,
+                  type: "balance_updated",
+                  reference_id: `WEBHOOK_${webhookReference}`,
+                  action_url: "/dashboard/wallet",
+                  read: false,
+                }])
+                .then(({ error }) => {
+                  if (error) console.warn("[WEBHOOK] Notification insert failed:", error.message)
+                  else console.log("[WEBHOOK] ✓ In-app notification created")
+                })
+
+              // SMS + Email (non-blocking)
+              supabase
+                .from("users")
+                .select("phone_number, first_name, email")
+                .eq("id", userId)
+                .single()
+                .then(({ data: userData }) => {
+                  if (userData?.phone_number) {
+                    sendSMS({
+                      phone: userData.phone_number,
+                      message: `Hi ${userData.first_name || "User"}, your wallet has been topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`,
+                      type: "wallet_topup_success",
+                      reference: webhookReference,
+                    }).catch(err => console.error("[WEBHOOK] Top-up SMS error:", err))
+                  }
+                  if (userData?.email) {
+                    import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+                      const payload = EmailTemplates.walletTopUpSuccess(
+                        creditAmount.toFixed(2),
+                        newBalance.toFixed(2),
+                        webhookReference
+                      )
+                      sendEmail({
+                        to: [{ email: userData.email, name: userData.first_name || "User" }],
+                        subject: payload.subject,
+                        htmlContent: payload.html,
+                        userId,
+                        referenceId: webhookReference,
+                        type: "wallet_topup_success",
+                      }).catch(err => console.error("[WEBHOOK] Top-up email error:", err))
+                    })
+                  }
+                })
+            }
+          }
+        }
+      }
+
+      // IMPORTANT: After processing top-ups (which have their own transaction idempotency),
+      // check if the payment was already processed to prevent double crediting shop orders
       const wasAlreadyCompleted = paymentData.status === "completed"
 
       if (wasAlreadyCompleted) {
-        console.log(`[WEBHOOK] ⚠️ Payment already processed (status was: ${paymentData.status}). Skipping duplicate credit.`)
+        console.log(`[WEBHOOK] ⚠️ Payment already processed (status was: ${paymentData.status}). Skipping duplicate shop order fulfillment.`)
         return NextResponse.json({ received: true, skipped: "already_processed" })
       }
 
