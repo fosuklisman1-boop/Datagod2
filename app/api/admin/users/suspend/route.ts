@@ -44,10 +44,16 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Update Supabase Auth (Ban or Unban)
-    const banDuration = isSuspending ? "876000h" : "none"
-    const { error: authError } = await adminClient.auth.admin.updateUserById(userId, {
-      ban_duration: banDuration,
-    })
+    // To lift a ban, ban_duration should be set to "none" or null.
+    // Based on community findings, null is the most effective in clearing banned_until.
+    const banDuration = isSuspending ? "876000h" : "none" as any // Try 'none' first as per some SDKs, or null
+    
+    // We'll try dynamic value based on action
+    const attributes: any = {
+      ban_duration: isSuspending ? "876000h" : null 
+    }
+
+    const { error: authError } = await adminClient.auth.admin.updateUserById(userId, attributes)
 
     if (authError) {
       console.error("[ADMIN-SUSPEND-USER] Auth update error:", authError)
@@ -68,80 +74,106 @@ export async function POST(req: NextRequest) {
     if (dbError) {
       console.error("[ADMIN-SUSPEND-USER] Database update error:", dbError)
       return NextResponse.json({
-        error: `Auth suspended, but database update failed: ${dbError.message}`
+        error: `Auth updated, but database flag failed: ${dbError.message}`
       }, { status: 500 })
     }
 
-    // 4. Send Notifications (Fire and forget or wait - let's wait to ensure user knows it's sent)
-    const notificationResults = { sms: false, email: false }
+    // 4. Send Notifications
+    const notificationResults: any = { sms: false, email: false, sms_error: null, email_error: null }
 
     try {
+      console.log(`[ADMIN-SUSPEND-USER] Sending notifications for ${action}...`)
       if (isSuspending) {
         // Send Suspension Notifications
         if (userData.phone_number) {
           const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
-          await sendSMS({
+          console.log(`[ADMIN-SUSPEND-USER] Attempting SMS to ${userData.phone_number}`)
+          const smsRes = await sendSMS({
             phone: userData.phone_number,
             message: SMSTemplates.userSuspended(reason),
             type: "user_suspension",
             userId: userId
           })
-          notificationResults.sms = true
+          notificationResults.sms = smsRes.success
+          if (!smsRes.success) {
+            notificationResults.sms_error = smsRes.error || "Unknown SMS error"
+            console.warn(`[ADMIN-SUSPEND-USER] SMS failed: ${smsRes.error}`)
+          } else {
+            console.log(`[ADMIN-SUSPEND-USER] SMS sent successfully`)
+          }
         }
 
         if (userData.email) {
           const { sendEmail, EmailTemplates } = await import("@/lib/email-service")
+          console.log(`[ADMIN-SUSPEND-USER] Attempting Email to ${userData.email}`)
           const payload = EmailTemplates.userSuspended(userData.email, reason)
-          await sendEmail({
+          const emailRes = await sendEmail({
             to: [{ email: userData.email, name: userData.first_name || "User" }],
             subject: payload.subject,
             htmlContent: payload.html,
             type: "user_suspension",
             userId: userId
           })
-          notificationResults.email = true
+          notificationResults.email = emailRes.success
+          if (!emailRes.success) {
+            notificationResults.email_error = emailRes.error || "Unknown Email error"
+            console.warn(`[ADMIN-SUSPEND-USER] Email failed: ${emailRes.error}`)
+          } else {
+            console.log(`[ADMIN-SUSPEND-USER] Email sent successfully`)
+          }
         }
       } else {
         // Send Restoration Notifications
         if (userData.phone_number) {
           const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
-          await sendSMS({
+          const smsRes = await sendSMS({
             phone: userData.phone_number,
             message: SMSTemplates.userUnsuspended(),
             type: "user_restoration",
             userId: userId
           })
-          notificationResults.sms = true
+          notificationResults.sms = smsRes.success
+          if (!smsRes.success) notificationResults.sms_error = smsRes.error || "Unknown SMS error"
         }
 
         if (userData.email) {
           const { sendEmail, EmailTemplates } = await import("@/lib/email-service")
           const payload = EmailTemplates.userUnsuspended(userData.email)
-          await sendEmail({
+          const emailRes = await sendEmail({
             to: [{ email: userData.email, name: userData.first_name || "User" }],
             subject: payload.subject,
             htmlContent: payload.html,
             type: "user_restoration",
             userId: userId
           })
-          notificationResults.email = true
+          notificationResults.email = emailRes.success
+          if (!emailRes.success) notificationResults.email_error = emailRes.error || "Unknown Email error"
         }
       }
-    } catch (notifErr) {
+    } catch (notifErr: any) {
       console.warn("[ADMIN-SUSPEND-USER] Notification error (non-fatal):", notifErr)
+      notificationResults.sms_error = notifErr.message
     }
 
-    console.log(`[ADMIN-SUSPEND-USER] Successfully executed ${action} for user ${userId}. Notifications:`, notificationResults)
+    const envDiagnostics = {
+      SMS_ENABLED: process.env.SMS_ENABLED === "true",
+      SMS_PROVIDER: process.env.SMS_PROVIDER || "moolre",
+      HAS_SENDER_ID: !!(process.env.MOOLRE_SENDER_ID || process.env.MNOTIFY_SENDER_ID || process.env.BREVO_SMS_SENDER),
+    }
 
     return NextResponse.json({
       success: true,
       message: `User successfully ${isSuspending ? "suspended" : "unsuspended"}`,
       action,
-      notifications: notificationResults
+      notifications: notificationResults,
+      diagnostics: envDiagnostics
     })
 
   } catch (error: any) {
     console.error("[ADMIN-SUSPEND-USER] Fatal error:", error)
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 })
+    return NextResponse.json({ 
+      error: error.message || "Internal server error" ,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined
+    }, { status: 500 })
   }
 }

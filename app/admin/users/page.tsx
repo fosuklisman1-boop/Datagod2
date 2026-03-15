@@ -346,8 +346,21 @@ export default function AdminUsersPage() {
     setIsProcessingAction(true)
     const action = currentStatus ? "unsuspend" : "suspend"
     try {
-      await adminUserService.toggleUserSuspension(userId, action, suspensionReason)
-      toast.success(`User successfully ${action}ed`)
+      const result = await adminUserService.toggleUserSuspension(userId, action, suspensionReason)
+      
+      const smsStatus = result.notifications?.sms 
+        ? "✓ SMS sent" 
+        : `✗ SMS ${result.diagnostics?.SMS_ENABLED ? "failed" : "disabled"}`
+      const emailStatus = result.notifications?.email ? "✓ Email sent" : "✗ Email skipped"
+      
+      toast.success(`User ${action}ed. Notifications: ${smsStatus}, ${emailStatus}`, {
+        duration: 5000
+      })
+      
+      if (result.notifications?.sms_error) {
+        console.warn("SMS Error:", result.notifications.sms_error)
+      }
+      
       setShowActionDialog(false)
       setSuspensionReason("")
       await loadUsers()
