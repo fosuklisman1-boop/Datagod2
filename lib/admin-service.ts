@@ -208,6 +208,37 @@ export const adminUserService = {
     }
   },
 
+  // Toggle user suspension status
+  async toggleUserSuspension(userId: string, action: "suspend" | "unsuspend") {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/users/suspend", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId, action }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to ${action} user`)
+      }
+
+      return data
+    } catch (error: any) {
+      console.error(`Error ${action}ing user:`, error)
+      throw error
+    }
+  },
+
   // Remove user
   async removeUser(userId: string) {
     try {

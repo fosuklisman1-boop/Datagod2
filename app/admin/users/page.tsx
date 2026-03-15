@@ -40,6 +40,7 @@ interface User {
   shop?: any
   customerCount?: number
   subAgentCount?: number
+  is_suspended?: boolean
 }
 
 interface UserStats {
@@ -102,6 +103,8 @@ export default function AdminUsersPage() {
   const [balanceAction, setBalanceAction] = useState<"credit" | "debit">("credit")
   const [balanceAmount, setBalanceAmount] = useState("")
   const [newRole, setNewRole] = useState("")
+  const [showActionDialog, setShowActionDialog] = useState(false)
+  const [isProcessingAction, setIsProcessingAction] = useState(false)
   const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false)
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -322,15 +325,35 @@ export default function AdminUsersPage() {
   }
 
   const handleRemoveUser = async (userId: string) => {
-    if (!confirm("Are you sure you want to permanently delete this user?")) return
+    if (!confirm("Are you sure you want to PERMANENTLY delete this user? This cannot be undone.")) return
 
+    setIsProcessingAction(true)
     try {
       await adminUserService.removeUser(userId)
       toast.success("User removed successfully")
+      setShowActionDialog(false)
       await loadUsers()
     } catch (error: any) {
       console.error("Error removing user:", error)
       toast.error(error.message || "Failed to remove user")
+    } finally {
+      setIsProcessingAction(false)
+    }
+  }
+
+  const handleToggleSuspension = async (userId: string, currentStatus: boolean | undefined) => {
+    setIsProcessingAction(true)
+    const action = currentStatus ? "unsuspend" : "suspend"
+    try {
+      await adminUserService.toggleUserSuspension(userId, action)
+      toast.success(`User successfully ${action}ed`)
+      setShowActionDialog(false)
+      await loadUsers()
+    } catch (error: any) {
+      console.error(`Error ${action}ing user:`, error)
+      toast.error(error.message || `Failed to ${action} user`)
+    } finally {
+      setIsProcessingAction(false)
     }
   }
 
@@ -524,10 +547,15 @@ export default function AdminUsersPage() {
                       <tr key={user.id} className="hover:bg-emerald-100/30 backdrop-blur transition-colors">
                         <td className="px-6 py-4 font-medium text-gray-900">{user.email}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{user.phoneNumber || "-"}</td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-4 flex flex-col gap-1">
                           <Badge className={user.role === "admin" ? "bg-red-600" : "bg-blue-600"}>
                             {user.role}
                           </Badge>
+                          {user.is_suspended && (
+                            <Badge className="bg-red-800 text-white mt-1">
+                              Suspended
+                            </Badge>
+                          )}
                         </td>
                         <td className="px-6 py-4 font-semibold text-blue-600">GHS {(user.walletBalance || 0).toFixed(2)}</td>
                         <td className="px-6 py-4 font-semibold text-emerald-600">GHS {(user.shopBalance || 0).toFixed(2)}</td>
@@ -571,10 +599,13 @@ export default function AdminUsersPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleRemoveUser(user.id)}
+                            onClick={() => {
+                              setSelectedUser(user)
+                              setShowActionDialog(true)
+                            }}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <AlertCircle className="w-4 h-4" />
                           </Button>
                         </td>
                       </tr>
@@ -1037,6 +1068,64 @@ export default function AdminUsersPage() {
             )}
           </DialogContent>
         </Dialog>
+        {/* Account Actions Dialog (Suspend/Delete) */}
+        <Dialog open={showActionDialog} onOpenChange={setShowActionDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-600">
+                <AlertCircle className="w-5 h-5" />
+                DANGER ZONE: Account Actions
+              </DialogTitle>
+              <DialogDescription>
+                Select an action for user: {selectedUser?.email}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedUser && (
+              <div className="space-y-6 pt-2">
+                
+                {/* Suspend Action */}
+                <div className="p-4 border rounded-lg bg-orange-50 border-orange-200">
+                  <h3 className="font-semibold text-orange-800 text-sm">
+                    {selectedUser.is_suspended ? "Unsuspend Account" : "Suspend Account (Temporary)"}
+                  </h3>
+                  <p className="text-xs text-orange-700 mt-1 mb-3">
+                    {selectedUser.is_suspended 
+                      ? "Restores the user's ability to log in."
+                      : "Bans the user from logging in without destroying their data or shop."}
+                  </p>
+                  <Button
+                    onClick={() => handleToggleSuspension(selectedUser.id, selectedUser.is_suspended)}
+                    disabled={isProcessingAction}
+                    variant="outline"
+                    className="w-full bg-white text-orange-700 border-orange-300 hover:bg-orange-100"
+                  >
+                    {isProcessingAction ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    {selectedUser.is_suspended ? "Unsuspend User" : "Suspend User"}
+                  </Button>
+                </div>
+
+                {/* Hard Delete Action */}
+                <div className="p-4 border rounded-lg bg-red-50 border-red-200">
+                  <h3 className="font-semibold text-red-800 text-sm">Permanently Delete Account</h3>
+                  <p className="text-xs text-red-700 mt-1 mb-3">
+                    Destroys all user data, wallet, shop records, and transactions forever. <strong>This cannot be undone.</strong>
+                  </p>
+                  <Button
+                    onClick={() => handleRemoveUser(selectedUser.id)}
+                    disabled={isProcessingAction}
+                    variant="destructive"
+                    className="w-full"
+                  >
+                    {isProcessingAction ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                    Permanently Delete
+                  </Button>
+                </div>
+
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
       </div>
     </DashboardLayout>
   )
