@@ -87,8 +87,14 @@ export default function AdminAirtimePage() {
     })
     if (res.status === 403) { router.push("/dashboard"); return }
     const data = await res.json()
-    setOrders(data.orders || [])
-    setStats(data.stats || null)
+    if (!res.ok) {
+      console.error("[ADMIN-AIRTIME] Fetch error:", data.error)
+      setOrders([])
+      setStats(null)
+    } else {
+      setOrders(data.orders || [])
+      setStats(data.stats || null)
+    }
     setLoading(false)
   }, [token, date, network, status, search, router])
 
@@ -195,7 +201,7 @@ export default function AdminAirtimePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {["Reference","Network","Phone","Airtime","Fee","Total","Status","Date","Actions"].map(h => (
+                {["Reference","Customer","Network","Phone","Airtime","Fee","Total","Status","Date","Actions"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -204,6 +210,11 @@ export default function AdminAirtimePage() {
               {orders.map((o) => (
                 <tr key={o.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-800">{o.reference_code}</td>
+                  <td className="px-4 py-3">
+                    <p className="text-xs font-medium text-gray-900 truncate max-w-[120px]" title={o.users?.email}>
+                      {o.users?.email || "Unknown"}
+                    </p>
+                  </td>
                   <td className="px-4 py-3 font-semibold text-gray-700">{o.network}</td>
                   <td className="px-4 py-3">
                     <button

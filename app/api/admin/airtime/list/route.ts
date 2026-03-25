@@ -31,14 +31,16 @@ export async function GET(request: NextRequest) {
     const limit      = parseInt(searchParams.get("limit") || "50")
     const offset     = (page - 1) * limit
 
-    // Build query
+    console.log(`[AIRTIME-LIST] Filters - Date: ${date}, Net: ${network}, Status: ${status}, Search: ${search}`)
+
+    // Build query - temporarily remove users join to check if it's the issue
     let query = supabase
       .from("airtime_orders")
       .select(`
         id, reference_code, network, beneficiary_phone,
         airtime_amount, fee_amount, total_paid, pay_separately,
-        status, notes, created_at, updated_at,
-        users(email, user_metadata)
+        status, notes, created_at, updated_at, user_id,
+        users:user_id(email)
       `, { count: "exact" })
 
     if (date && date !== "all") {
@@ -60,7 +62,12 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1)
 
-    if (error) throw error
+    if (error) {
+      console.error("[AIRTIME-LIST] Query Error:", error)
+      throw error
+    }
+
+    console.log(`[AIRTIME-LIST] Found ${orders?.length || 0} orders (Total: ${count})`)
 
     // Aggregate stats for filtered set (whole matching set, not just one page)
     let statsQuery = supabase
