@@ -37,6 +37,10 @@ export async function GET(request: NextRequest) {
     }
     if (status && status !== "all") {
       query = query.eq("status", status)
+      // Only show paid orders for pending/processing states
+      if (status === "pending" || status === "processing") {
+        query = query.eq("payment_status", "completed")
+      }
     }
     if (search) {
       query = query.or(`reference_code.ilike.%${search}%,beneficiary_phone.ilike.%${search}%`)
@@ -58,7 +62,7 @@ export async function GET(request: NextRequest) {
     // Aggregate stats for filtered set (whole matching set, not just one page)
     let statsQuery = supabase
       .from("airtime_orders")
-      .select("airtime_amount, fee_amount, total_paid, status, merchant_commission")
+      .select("airtime_amount, fee_amount, total_paid, status, merchant_commission, payment_status")
 
     if (date && date !== "all") {
       statsQuery = statsQuery
@@ -73,11 +77,19 @@ export async function GET(request: NextRequest) {
 
     const stats = (statsData || []).reduce(
       (acc, o) => {
+        // Aggregate totals for all orders (or we could also filter these by payment_status depending on requirement)
         acc.totalRevenue += Number(o.total_paid || 0)
         acc.totalProfit  += Number(o.fee_amount || 0)
         acc.totalMerchantPayout += Number(o.merchant_commission || 0)
         acc.totalVolume  += Number(o.airtime_amount || 0)
+        
         const s = o.status || 'pending'
+        // For stats counts, only count as pending/processing if actually paid
+        if ((s === "pending" || s === "processing") && o.payment_status !== "completed") {
+          // Skip counting unpaid orders in these categories
+          return acc
+        }
+        
         acc[s] = (acc[s] || 0) + 1
         return acc
       },

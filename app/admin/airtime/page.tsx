@@ -297,9 +297,9 @@ export default function AdminAirtimePage() {
           <TabsList className="grid w-full grid-cols-2 max-w-md">
             <TabsTrigger value="pending">
               Pending Orders
-              {orders.filter(o => o.status === 'pending' || o.status === 'processing').length > 0 && (
+              {stats && (stats.pending > 0 || stats.processing > 0) && (
                 <Badge variant="secondary" className="ml-2 bg-yellow-100 text-yellow-700">
-                  {orders.filter(o => o.status === 'pending' || o.status === 'processing').length}
+                  {stats.pending + stats.processing}
                 </Badge>
               )}
             </TabsTrigger>
