@@ -77,6 +77,9 @@ export default function AdminAirtimePage() {
   const [network, setNetwork]     = useState("all")
   const [status, setStatus]       = useState("pending")
   const [search, setSearch]       = useState("")
+  const [downloadedBatchFilter, setDownloadedBatchFilter] = useState("all")
+  const [downloadedBatchStatusFilter, setDownloadedBatchStatusFilter] = useState("all")
+  const [downloadedNetworkFilter, setDownloadedNetworkFilter] = useState("all")
 
   // Action modal
   const [actionModal, setActionModal] = useState<{ order: AirtimeOrder; action: "completed" | "failed" } | null>(null)
@@ -258,27 +261,55 @@ export default function AdminAirtimePage() {
       ]
     : []
 
+  const getFilteredBatches = () => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
+
+    return batches.filter((batch) => {
+      const batchDate = new Date(batch.batch_time)
+      const batchDateOnly = new Date(batchDate.getFullYear(), batchDate.getMonth(), batchDate.getDate())
+
+      // Network filter
+      if (downloadedNetworkFilter !== "all" && batch.network !== downloadedNetworkFilter) return false
+
+      // Date filter
+      if (downloadedBatchFilter !== "all") {
+        if (downloadedBatchFilter === "today" && batchDateOnly.getTime() !== today.getTime()) return false
+        if (downloadedBatchFilter === "yesterday" && batchDateOnly.getTime() !== yesterday.getTime()) return false
+        if (downloadedBatchFilter === "this-week" && batchDate < weekAgo) return false
+        if (downloadedBatchFilter === "this-month" && batchDate < monthAgo) return false
+      }
+
+      // Status filter
+      if (downloadedBatchStatusFilter !== "all") {
+        const statuses = batch.orders.map(o => o.status)
+        if (downloadedBatchStatusFilter === "completed" && !statuses.every(s => s === "completed")) return false
+        if (downloadedBatchStatusFilter === "failed" && !statuses.some(s => s === "failed")) return false
+        if (downloadedBatchStatusFilter === "processing" && !statuses.some(s => s === "processing" || s === "pending")) return false
+      }
+
+      return true
+    })
+  }
+
+  const filteredBatches = getFilteredBatches()
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Airtime Management</h1>
-            <p className="text-sm text-gray-500">Track and fulfill airtime orders</p>
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+              Airtime Management
+            </h1>
+            <p className="text-gray-500 mt-1 font-medium text-sm">Download and manage pending airtime orders</p>
           </div>
-          <div className="flex gap-2">
-            <Button onClick={() => loadOrders()} variant="outline" size="sm">
-              <RefreshCw className="w-4 h-4 mr-2" /> Refresh
-            </Button>
-            <Button onClick={handleDownload} disabled={downloading || orders.filter(o => o.status === 'pending').length === 0} size="sm" className="bg-indigo-600 hover:bg-indigo-700">
-              {downloading ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <Download className="w-4 h-4 mr-2" />
-              )}
-              Download Pending
-            </Button>
-          </div>
+          <Button onClick={() => loadOrders()} variant="outline" size="sm" className="w-fit">
+            <RefreshCw className="w-4 h-4 mr-2" /> Refresh Data
+          </Button>
         </div>
 
         {/* Stats */}
@@ -294,57 +325,85 @@ export default function AdminAirtimePage() {
         )}
 
         <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
-            <TabsTrigger value="pending" onClick={() => { if(status === 'all') setStatus('pending') }}>
-              Pending Orders
+          <TabsList className="grid w-full grid-cols-2 h-auto">
+            <TabsTrigger 
+              value="pending" 
+              className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm"
+              onClick={() => { if(status === 'all') setStatus('pending') }}
+            >
+              <Clock className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+              <span>Pending Orders</span>
               {stats && (stats.pending > 0 || stats.processing > 0) && (
-                <Badge variant="secondary" className="ml-2 bg-yellow-100 text-yellow-700">
+                <Badge variant="secondary" className="ml-1 bg-yellow-100 text-yellow-700 text-[10px] px-1.5 h-4">
                   {stats.pending + stats.processing}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="downloaded" onClick={() => setStatus('all')}>
-              Download Batches
+            <TabsTrigger 
+              value="downloaded" 
+              className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm"
+              onClick={() => setStatus('all')}
+            >
+              <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+              <span>Download Batches</span>
+              <Badge variant="secondary" className="ml-1 bg-indigo-100 text-indigo-700 text-[10px] px-1.5 h-4">
+                {batches.length}
+              </Badge>
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pending" className="space-y-6 pt-4">
             {/* Filters */}
-            <form onSubmit={handleSearch} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3 items-end">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Network</label>
-                <select value={network} onChange={e => setNetwork(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                  <option value="all">All</option>
-                  <option>MTN</option><option>Telecel</option><option>AT</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
-                <select value={status} onChange={e => setStatus(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                  <option value="all">All</option>
-                  <option>pending</option><option>processing</option><option>completed</option><option>failed</option>
-                </select>
-              </div>
-              <div className="flex-1 min-w-[180px]">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                    placeholder="Reference or Phone…"
-                    className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <div className="flex justify-between items-center gap-4">
+              <form onSubmit={handleSearch} className="flex-1 bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3 items-end">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+                  <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 </div>
-              </div>
-              <Button type="submit" variant="default" className="bg-indigo-600 hover:bg-indigo-700">
-                Search
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Network</label>
+                  <select value={network} onChange={e => setNetwork(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="all">All</option>
+                    <option>MTN</option><option>Telecel</option><option>AT</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                  <select value={status} onChange={e => setStatus(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="all">All</option>
+                    <option>pending</option><option>processing</option><option>completed</option><option>failed</option>
+                  </select>
+                </div>
+                <div className="flex-1 min-w-[180px]">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                      placeholder="Reference or Phone…"
+                      className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                </div>
+                <Button type="submit" variant="default" className="bg-indigo-600 hover:bg-indigo-700">
+                  Search
+                </Button>
+              </form>
+              
+              <Button 
+                onClick={handleDownload} 
+                disabled={downloading || orders.filter(o => o.status === 'pending').length === 0} 
+                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold h-[58px] px-6"
+              >
+                {downloading ? (
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                ) : (
+                  <Download className="w-5 h-5 mr-2" />
+                )}
+                Download All ({orders.filter(o => o.status === 'pending').length})
               </Button>
-            </form>
+            </div>
 
             {/* Orders Table */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -430,15 +489,73 @@ export default function AdminAirtimePage() {
           </TabsContent>
 
           <TabsContent value="downloaded" className="space-y-4 pt-4">
+            {/* Batch Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               <Card>
+                 <CardHeader className="py-3 px-4">
+                   <CardTitle className="text-sm font-semibold">Filter by Status</CardTitle>
+                 </CardHeader>
+                 <CardContent className="p-3 pt-0 flex flex-wrap gap-2">
+                    {["all", "completed", "processing", "failed"].map(s => (
+                      <Button 
+                        key={s} 
+                        variant={downloadedBatchStatusFilter === s ? "default" : "outline"} 
+                        size="sm" 
+                        onClick={() => setDownloadedBatchStatusFilter(s)}
+                        className="text-[10px] h-7 px-2"
+                      >
+                        {s.toUpperCase()}
+                      </Button>
+                    ))}
+                 </CardContent>
+               </Card>
+               <Card>
+                 <CardHeader className="py-3 px-4">
+                   <CardTitle className="text-sm font-semibold">Filter by Network</CardTitle>
+                 </CardHeader>
+                 <CardContent className="p-3 pt-0 flex flex-wrap gap-2">
+                    {["all", "MTN", "Telecel", "AT"].map(n => (
+                      <Button 
+                        key={n} 
+                        variant={downloadedNetworkFilter === n ? "default" : "outline"} 
+                        size="sm" 
+                        onClick={() => setDownloadedNetworkFilter(n)}
+                        className="text-[10px] h-7 px-2"
+                      >
+                        {n}
+                      </Button>
+                    ))}
+                 </CardContent>
+               </Card>
+               <Card>
+                 <CardHeader className="py-3 px-4">
+                   <CardTitle className="text-sm font-semibold">Filter by Date</CardTitle>
+                 </CardHeader>
+                 <CardContent className="p-3 pt-0 flex flex-wrap gap-2">
+                    {["all", "today", "yesterday", "this-week", "this-month"].map(d => (
+                      <Button 
+                        key={d} 
+                        variant={downloadedBatchFilter === d ? "default" : "outline"} 
+                        size="sm" 
+                        onClick={() => setDownloadedBatchFilter(d)}
+                        className="text-[10px] h-7 px-2"
+                      >
+                        {d.replace("-", " ").toUpperCase()}
+                      </Button>
+                    ))}
+                 </CardContent>
+               </Card>
+            </div>
+
             {loadingBatches ? (
               <div className="text-center py-12 text-gray-400">Loading batches...</div>
-            ) : batches.length === 0 ? (
+            ) : filteredBatches.length === 0 ? (
               <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
-                No download history found.
+                No batches match your filters.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {batches.map((batch) => (
+                {filteredBatches.map((batch) => (
                   <Card key={batch.id} className="overflow-hidden border-gray-200 shadow-sm">
                     <CardHeader className="bg-gray-50/50 py-4">
                       <div className="flex justify-between items-center">
