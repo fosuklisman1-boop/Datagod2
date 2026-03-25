@@ -35,7 +35,7 @@ async function getAdminSetting(key: string): Promise<any> {
 
 export async function POST(request: NextRequest) {
   try {
-    const { shopId, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail } = await request.json()
+    const { shopId, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately } = await request.json()
 
     if (!shopId || !beneficiaryPhone || (!airtimeAmount && !bodyAmount) || !customerEmail) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
@@ -85,12 +85,24 @@ export async function POST(request: NextRequest) {
     }
 
     const totalFeeRate = merchantBaseRate + customMarkupRate
+    const paySeparately = bodyPaySeparately !== undefined ? bodyPaySeparately : true
 
-    // Calculate Final Price (Markup is added on top of the amount)
-    // For public shop purchases, we always use the "Amount + Fee" model for clarity
-    const feeAmount = parseFloat((amount * totalFeeRate / 100).toFixed(2))
-    const totalPrice = parseFloat((amount + feeAmount).toFixed(2))
-    const merchantCommission = parseFloat((amount * customMarkupRate / 100).toFixed(2))
+    // Calculate Final Price and Delivery Amount
+    let feeAmount: number
+    let totalPrice: number
+    let airtimeToDeliver: number
+    
+    if (paySeparately) {
+      feeAmount = parseFloat((amount * totalFeeRate / 100).toFixed(2))
+      totalPrice = parseFloat((amount + feeAmount).toFixed(2))
+      airtimeToDeliver = amount
+    } else {
+      feeAmount = parseFloat((amount * totalFeeRate / (100 + totalFeeRate)).toFixed(2))
+      totalPrice = amount
+      airtimeToDeliver = parseFloat((amount - feeAmount).toFixed(2))
+    }
+
+    const merchantCommission = parseFloat((airtimeToDeliver * customMarkupRate / 100).toFixed(2))
 
     // Create Airtime Order (Pending Payment)
     const referenceCode = generateReference()
@@ -100,7 +112,7 @@ export async function POST(request: NextRequest) {
         reference_code: referenceCode,
         network,
         beneficiary_phone: cleanPhone,
-        airtime_amount: amount,
+        airtime_amount: airtimeToDeliver,
         fee_amount: feeAmount,
         total_paid: totalPrice,
         status: "pending_payment",
@@ -109,7 +121,7 @@ export async function POST(request: NextRequest) {
         merchant_commission: merchantCommission,
         customer_name: customerName || "Guest",
         customer_email: customerEmail,
-        pay_separately: true // Public orders always pay extra fee
+        pay_separately: paySeparately
       }])
       .select()
       .single()

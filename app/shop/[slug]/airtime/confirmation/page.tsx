@@ -111,7 +111,11 @@ export default function AirtimeConfirmationPage() {
                 <span className="font-bold">GHS {order?.total_paid?.toFixed(2) || "0.00"}</span>
               </div>
               <div className="flex justify-between items-center text-sm border-b pb-2">
-                <span className="text-gray-500 font-medium">Recipient</span>
+                <span className="text-gray-500 font-medium">Recipient Gets</span>
+                <span className="font-bold text-green-600">GHS {order?.airtime_amount?.toFixed(2) || "0.00"}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm border-b pb-2">
+                <span className="text-gray-500 font-medium">Recipient Number</span>
                 <span className="font-bold">{order?.beneficiary_phone}</span>
               </div>
               <div className="flex justify-between items-center text-sm">

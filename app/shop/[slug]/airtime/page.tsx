@@ -23,6 +23,7 @@ export default function ShopAirtimePage() {
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [constraints, setConstraints] = useState<any>(null)
+  const [paySeparately, setPaySeparately] = useState(true)
   
   const [formData, setFormData] = useState({
     customerName: "",
@@ -69,7 +70,7 @@ export default function ShopAirtimePage() {
 
   const loadConstraints = async () => {
     try {
-      const res = await fetch(`/api/shop/airtime/constraints?shopId=${shop.id}&network=${selectedNetwork}`)
+      const res = await fetch(`/api/shop/airtime/public-constraints?slug=${shopSlug}&network=${selectedNetwork}`)
       const data = await res.json()
       if (res.ok) {
         setConstraints(data)
@@ -87,7 +88,27 @@ export default function ShopAirtimePage() {
     const markupPercent = constraints.markupPercent || 0
     const totalFeePercent = baseFeePercent + markupPercent
 
-    return amount + (amount * (totalFeePercent / 100))
+    if (paySeparately) {
+      return amount + (amount * (totalFeePercent / 100))
+    } else {
+      return amount
+    }
+  }
+
+  const calculateRecipientGets = () => {
+    const amount = parseFloat(formData.amount || "0")
+    if (isNaN(amount) || !constraints) return amount
+
+    if (paySeparately) {
+      return amount
+    } else {
+      const baseFeePercent = constraints.baseFeePercent || 0
+      const markupPercent = constraints.markupPercent || 0
+      const totalFeePercent = baseFeePercent + markupPercent
+      
+      const feeAmount = (amount * totalFeePercent / (100 + totalFeePercent))
+      return amount - feeAmount
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -125,6 +146,7 @@ export default function ShopAirtimePage() {
           beneficiaryPhone: phoneVal.normalized,
           network: selectedNetwork,
           amount: formData.amount,
+          paySeparately: paySeparately,
           totalPrice: totalPrice,
           shopSlug: shopSlug
         })
@@ -337,18 +359,37 @@ export default function ShopAirtimePage() {
                 </div>
               </div>
 
+              {/* Fee Toggle */}
+              <div className="p-4 bg-violet-50 rounded-2xl border border-violet-100 flex items-start gap-3 transition-all">
+                <input
+                  id="pay-sep"
+                  type="checkbox"
+                  checked={paySeparately}
+                  onChange={(e) => setPaySeparately(e.target.checked)}
+                  className="mt-1 h-5 w-5 text-violet-600 border-gray-300 rounded focus:ring-violet-500 cursor-pointer"
+                />
+                <label htmlFor="pay-sep" className="flex-1 cursor-pointer">
+                  <span className="text-violet-900 font-bold text-sm block">Pay fee separately</span>
+                  <p className="text-violet-600 text-xs mt-1 leading-relaxed">
+                    {paySeparately 
+                      ? "Recipient gets the full amount; service fee is added to your total." 
+                      : "Service fee is deducted from the amount before delivery."}
+                  </p>
+                </label>
+              </div>
+
               {/* Price Summary */}
               <div className="group relative">
                 <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
                 <div className="relative p-6 bg-slate-50 rounded-2xl border border-slate-100">
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-slate-500 font-semibold">Base Amount:</span>
+                    <span className="text-slate-500 font-semibold">Amount to Send:</span>
                     <span className="text-slate-900 font-bold">GHS {parseFloat(formData.amount || "0").toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-200">
-                    <span className="text-slate-500 font-semibold">Service Fee:</span>
-                    <span className="text-violet-600 font-bold">
-                       + GHS {(calculateTotal() - parseFloat(formData.amount || "0")).toFixed(2)}
+                    <span className="text-slate-500 font-semibold">Recipient Gets:</span>
+                    <span className="text-green-600 font-black">
+                       GHS {calculateRecipientGets().toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -357,7 +398,7 @@ export default function ShopAirtimePage() {
                       <span className="text-3xl font-black bg-gradient-to-r from-violet-700 to-indigo-800 bg-clip-text text-transparent">
                         GHS {calculateTotal().toFixed(2)}
                       </span>
-                      <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">No Paystack Surcharge</p>
+                      <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">Includes Service Fee</p>
                     </div>
                   </div>
                 </div>

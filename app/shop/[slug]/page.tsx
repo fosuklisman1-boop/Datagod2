@@ -14,7 +14,25 @@ import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { redirectToPayment } from "@/lib/payment-redirect"
-import { AlertCircle, Store, ShoppingCart, ArrowRight, Zap, Package, Loader2, Search, MessageCircle, MapPin, Clock, Menu, X, ChevronLeft, AlignJustify } from "lucide-react"
+import { 
+  Store, 
+  ShoppingCart, 
+  Package, 
+  AlertCircle, 
+  AlignJustify, 
+  MessageCircle, 
+  Zap, 
+  ArrowRight,
+  CheckCircle2,
+  MapPin,
+  Clock,
+  Loader2,
+  Search,
+  Menu,
+  X,
+  ChevronLeft
+} from "lucide-react"
+import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 
@@ -418,9 +436,8 @@ export default function ShopStorefront() {
   }
 
   // Tab navigation items
-  const tabs: Array<{ id: "products" | "airtime" | "about" | "track-order", label: string, icon: React.ReactNode }> = [
-    { id: "products", label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" /> },
-    { id: "airtime", label: "Buy Airtime", icon: <Zap className="w-4 h-4" /> },
+  const tabs: Array<{ id: "products" | "about" | "track-order", label: string, icon: React.ReactNode }> = [
+    { id: "products", label: "Shop Products", icon: <ShoppingCart className="w-4 h-4" /> },
     { id: "track-order", label: "Track Order", icon: <Package className="w-4 h-4" /> },
     { id: "about", label: "About Shop", icon: <AlertCircle className="w-4 h-4" /> },
   ]
@@ -575,141 +592,165 @@ export default function ShopStorefront() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content */}
           <div className="flex-1 min-w-0">
-            {/* Airtime Tab */}
-            {activeTab === "airtime" && (
+            {/* Products Tab (Data & Airtime) */}
+            {(activeTab === "products" || activeTab === "airtime") && (
               <div className="space-y-8">
-                <Card className="border-0 shadow-lg bg-gradient-to-br from-violet-600 to-indigo-700 text-white overflow-hidden">
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <Zap className="w-8 h-8 text-yellow-300 fill-yellow-300" />
-                      <div>
-                        <CardTitle className="text-2xl">Buy Airtime</CardTitle>
-                        <CardDescription className="text-violet-100">Instantly top up any network with ease.</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pb-8">
-                    <p className="mb-6 text-violet-50">Support for MTN, Telecel, and AT networks. Fast delivery and secure payment.</p>
-                    <Button 
-                      onClick={() => router.push(`/shop/${shopSlug}/airtime`)}
-                      className="bg-white text-violet-700 hover:bg-violet-50 font-bold px-8 py-6 rounded-xl shadow-xl transition-all hover:scale-105"
-                    >
-                      Open Airtime Form
-                      <ArrowRight className="ml-2 w-5 h-5" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
+                {/* Sub-tab Switcher */}
+                <div className="flex p-1.5 bg-gray-100 rounded-2xl w-full sm:w-fit mx-auto sm:mx-0 shadow-inner">
+                  <button
+                    onClick={() => setActiveTab("products")}
+                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "products"
+                        ? "bg-white text-violet-700 shadow-md scale-[1.02]"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                      }`}
+                  >
+                    <ShoppingCart className="w-5 h-5" />
+                    Buy Data
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("airtime")}
+                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "airtime"
+                        ? "bg-white text-violet-700 shadow-md scale-[1.02]"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                      }`}
+                  >
+                    <Zap className="w-5 h-5" />
+                    Buy Airtime
+                  </button>
+                </div>
 
-            {/* Products Tab (Data Packages) */}
-            {activeTab === "products" && (
-              <div className="space-y-8">
-                {/* Network Selection Section */}
-                <div>
-                  <h2 className="text-2xl font-bold mb-6">Select a Network</h2>
+                {activeTab === "products" ? (
+                  /* Data Packages Section */
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div>
+                      <h2 className="text-2xl font-black mb-6 text-gray-900 border-l-4 border-violet-600 pl-4">Fast Data Packages</h2>
 
-                  {packages.length === 0 ? (
-                    <Card className="bg-white border-2 border-dashed border-gray-300">
-                      <CardContent className="pt-12 pb-12 text-center">
-                        <Store className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                        <p className="text-gray-600">No packages available at the moment</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
-                        {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
-                          const networkPackages = packages.filter(p => p.packages.network === network)
-                          const availableCount = networkPackages.filter(p => p.is_available).length
+                      {packages.length === 0 ? (
+                        <Card className="bg-white/50 border-2 border-dashed border-gray-200 backdrop-blur-sm">
+                          <CardContent className="pt-12 pb-12 text-center">
+                            <Store className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                            <p className="text-gray-500 font-medium">No packages available at the moment</p>
+                          </CardContent>
+                        </Card>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+                            {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
+                              const networkPackages = packages.filter(p => p.packages.network === network)
+                              const availableCount = networkPackages.filter(p => p.is_available).length
 
-                          return (
-                            <Card
-                              key={network}
-                              onClick={() => setSelectedNetwork(network as string)}
-                              className={`cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden ${selectedNetwork === network
-                                ? "ring-2 ring-violet-600"
-                                : "hover:shadow-lg"
-                                }`}
-                            >
-                              <div className="flex flex-col h-full relative">
-                                <div className="h-20 w-full flex items-center justify-center bg-gray-100 relative overflow-hidden">
-                                  <img
-                                    src={getNetworkLogo(network as string)}
-                                    alt={network}
-                                    className="h-16 w-16 object-contain"
-                                  />
-                                </div>
+                              return (
+                                <Card
+                                  key={network}
+                                  onClick={() => setSelectedNetwork(network as string)}
+                                  className={`group cursor-pointer hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 overflow-hidden border-0 ${selectedNetwork === network
+                                      ? "ring-4 ring-violet-600 shadow-xl"
+                                      : "shadow-md bg-white/80"
+                                    }`}
+                                >
+                                  <div className="flex flex-col h-full relative">
+                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-violet-50' : 'bg-slate-50 group-hover:bg-slate-100'}`}>
+                                      <img
+                                        src={getNetworkLogo(network as string)}
+                                        alt={network}
+                                        className={`h-16 w-16 sm:h-20 sm:w-20 object-contain transition-transform duration-500 ${selectedNetwork === network ? 'scale-110' : 'group-hover:scale-110'}`}
+                                      />
+                                    </div>
 
-                                <div className="flex-1 p-2 bg-white flex flex-col justify-between">
-                                  <div>
-                                    <h3 className="text-sm font-bold text-gray-900 uppercase">{network}</h3>
-                                    <p className="text-xs text-gray-600 mt-1">{availableCount} plans</p>
+                                    <div className="flex-1 p-3 text-center">
+                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-violet-700' : 'text-gray-900'}`}>{network}</h3>
+                                      <p className="text-[10px] sm:text-xs text-gray-500 font-bold mt-1 uppercase opacity-60">{availableCount} plans</p>
+                                    </div>
+                                    
+                                    {selectedNetwork === network && (
+                                      <div className="absolute top-2 right-2 bg-violet-600 text-white rounded-full p-1 shadow-lg">
+                                        <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                                      </div>
+                                    )}
                                   </div>
+                                </Card>
+                              )
+                            })}
+                          </div>
+
+                          {/* Packages Grid */}
+                          {selectedNetwork && (
+                            <div ref={packagesRef} className="py-10 border-t border-gray-100 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                              <div className="flex items-center gap-4 mb-8">
+                                <div className="p-3 bg-violet-100 rounded-2xl">
+                                  <img src={getNetworkLogo(selectedNetwork)} className="w-8 h-8 object-contain" alt={selectedNetwork} />
+                                </div>
+                                <div>
+                                  <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">{selectedNetwork} Offers</h2>
+                                  <p className="text-sm font-medium text-gray-500">Pick the perfect plan for your needs</p>
                                 </div>
                               </div>
-                            </Card>
-                          )
-                        })}
-                      </div>
 
-                      {selectedNetwork && (
-                        <div ref={packagesRef} className="py-8 border-t border-gray-200">
-                          <h2 className="text-2xl font-bold mb-6">{selectedNetwork} Packages</h2>
+                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                {packages
+                                  .filter(p => p.packages.network === selectedNetwork)
+                                  .map((shopPkg) => {
+                                    const pkg = shopPkg.packages
+                                    const totalPrice = pkg.price + shopPkg.profit_margin
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {packages
-                              .filter(p => p.packages.network === selectedNetwork)
-                              .sort((a, b) => {
-                                // Extract volume as number from size string (e.g., "1GB" -> 1)
-                                const sizeA = parseInt(a.packages.size.toString().replace(/[^0-9]/g, "")) || 0
-                                const sizeB = parseInt(b.packages.size.toString().replace(/[^0-9]/g, "")) || 0
-                                return sizeA - sizeB
-                              })
-                              .map((shopPkg) => {
-                                const pkg = shopPkg.packages
-                                // Use selling_price from API if available (for sub-agents), otherwise calculate
-                                const totalPrice = shopPkg.selling_price !== undefined ? shopPkg.selling_price : (pkg.price + shopPkg.profit_margin)
+                                    return (
+                                      <Card key={shopPkg.id} className="group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 border-0 shadow-lg bg-white overflow-hidden rounded-2xl">
+                                        <div className="h-2 bg-gradient-to-r from-violet-600 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                                        <CardHeader className="pb-2">
+                                          <div className="flex items-start justify-between">
+                                            <div className="flex-1">
+                                              <CardTitle className="text-2xl font-black text-gray-900 group-hover:text-violet-700 transition-colors">
+                                                {pkg.size}{pkg.size < 50 ? 'GB' : 'MB'}
+                                              </CardTitle>
+                                              <CardDescription className="text-sm font-medium text-gray-500 mt-1">{pkg.description}</CardDescription>
+                                            </div>
+                                            <Badge className={shopPkg.is_available ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200"}>
+                                              {shopPkg.is_available ? "Active" : "OOS"}
+                                            </Badge>
+                                          </div>
+                                        </CardHeader>
+                                        <CardContent className="space-y-6 pt-0">
+                                          <div className="flex justify-between items-end pt-4">
+                                            <div className="flex flex-col">
+                                              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Price</span>
+                                              <span className="text-3xl font-black text-gray-900">
+                                                GHS {totalPrice.toFixed(2)}
+                                              </span>
+                                            </div>
+                                            <div className="flex flex-col items-end">
+                                              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Status</span>
+                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-50 text-violet-700 rounded-lg text-xs font-bold ring-1 ring-violet-200/50">
+                                                <Zap className="w-3 h-3 fill-violet-700" />
+                                                Instant
+                                              </div>
+                                            </div>
+                                          </div>
 
-                                return (
-                                  <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
-                                    <CardHeader>
-                                      <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                          <CardTitle className="text-lg">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
-                                          <CardDescription className="text-sm">{pkg.description}</CardDescription>
-                                        </div>
-                                        <Badge className="bg-gradient-to-r from-violet-600 to-purple-600">
-                                          {shopPkg.is_available ? "Available" : "Unavailable"}
-                                        </Badge>
-                                      </div>
-                                    </CardHeader>
-                                    <CardContent className="space-y-4">
-                                      <div className="flex justify-between items-end pt-4 border-t border-white/20">
-                                        <span className="font-semibold text-gray-700">Price:</span>
-                                        <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
-                                          GHS {totalPrice.toFixed(2)}
-                                        </span>
-                                      </div>
-
-                                      <Button
-                                        onClick={() => handleBuyNow(shopPkg)}
-                                        disabled={!shopPkg.is_available || !globalOrderingEnabled}
-                                        className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        <ShoppingCart className="w-4 h-4 mr-2" />
-                                        {globalOrderingEnabled ? "Buy Now" : "Paused"}
-                                      </Button>
-                                    </CardContent>
-                                  </Card>
-                                )
-                              })}
-                          </div>
-                        </div>
+                                          <Button
+                                            onClick={() => handleBuyNow(shopPkg)}
+                                            disabled={!shopPkg.is_available || !globalOrderingEnabled}
+                                            className="w-full h-14 bg-slate-900 hover:bg-violet-700 text-white font-black rounded-xl shadow-xl transition-all duration-300 disabled:opacity-50 group-hover:scale-[1.02]"
+                                          >
+                                            <ShoppingCart className="w-5 h-5 mr-3" />
+                                            Order Now
+                                          </Button>
+                                        </CardContent>
+                                      </Card>
+                                    )
+                                  })}
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
-                    </>
-                  )}
-                </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Airtime Form Section */
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <AirtimeStorefrontForm shop={shop} shopSlug={shopSlug} />
+                  </div>
+                )}
               </div>
             )}
 
