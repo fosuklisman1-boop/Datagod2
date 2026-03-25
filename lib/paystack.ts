@@ -112,6 +112,7 @@ export async function verifyPayment(
   amount: number
   customer_email: string
   reference: string
+  transaction_id: string
   authorization: any
 }> {
   try {
@@ -149,6 +150,7 @@ export async function verifyPayment(
       amount: transaction.amount / 100, // Convert from smallest unit back to GHS
       customer_email: transaction.customer.email,
       reference: transaction.reference,
+      transaction_id: transaction.id.toString(),
       authorization: transaction.authorization,
     }
   } catch (error) {

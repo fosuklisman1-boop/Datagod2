@@ -188,6 +188,7 @@ export async function POST(request: NextRequest) {
                   status: "flagged",
                   is_flagged: true,
                   notes: (airtimeData.notes || "") + "[FLAGGED: Beneficiary Blacklisted]",
+                  transaction_id: verificationResult.transaction_id,
                   updated_at: new Date().toISOString(),
                 })
                 .eq("id", airtimeData.id)
@@ -200,6 +201,7 @@ export async function POST(request: NextRequest) {
                 .update({
                   payment_status: "completed",
                   status: "pending",
+                  transaction_id: verificationResult.transaction_id,
                   updated_at: new Date().toISOString(),
                 })
                 .eq("id", airtimeData.id)
