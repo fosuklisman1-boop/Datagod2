@@ -182,13 +182,27 @@ export async function POST(request: NextRequest) {
         let verifiedTotalPrice = 0;
 
         // Fetch the shop order and all relevant fields
-        const { data: shopOrder } = await supabase
-          .from("shop_orders")
-          .select("id, shop_id, shop_package_id, package_id, total_price")
-          .eq("id", paymentData.order_id)
-          .single();
+        const isAirtime = metadata?.orderType === "airtime"
+        
+        if (isAirtime) {
+          const { data: airtimeOrder } = await supabase
+            .from("airtime_orders")
+            .select("id, total_paid")
+            .eq("id", paymentData.order_id)
+            .single();
+          
+          if (airtimeOrder) {
+            verifiedTotalPrice = Number(airtimeOrder.total_paid) - feeAmount;
+            priceDebugInfo = { source: "airtime_orders", verifiedTotalPrice };
+          }
+        } else {
+          const { data: shopOrder } = await supabase
+            .from("shop_orders")
+            .select("id, shop_id, shop_package_id, package_id, total_price")
+            .eq("id", paymentData.order_id)
+            .single();
 
-        if (shopOrder) {
+          if (shopOrder) {
 
           // Check if this is a sub-agent shop
           const { data: shopData } = await supabase
@@ -1014,6 +1028,7 @@ export async function POST(request: NextRequest) {
             console.log(`[WEBHOOK] ⚠️ Parent shop exists (${shopOrderData.parent_shop_id}) but parent_profit_amount is ${shopOrderData.parent_profit_amount} - skipping parent profit record`);
           }
         }
+      }
 
         // 2. Try Airtime Orders if not found in Shop Orders
         const { data: airtimeData, error: airtimeFetchError } = await supabase

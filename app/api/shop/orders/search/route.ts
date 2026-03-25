@@ -19,30 +19,37 @@ export async function POST(request: NextRequest) {
 
     console.log(`[SHOP-ORDER-SEARCH] Searching for orders - phone: ${phone}, shop: ${shopId}`)
 
-    // Search for shop orders with matching phone and shop_id
-    const { data: orders, error } = await supabase
+    // Search for shop orders (data)
+    const { data: dataOrders } = await supabase
       .from("shop_orders")
-      .select(
-        `id, customer_name, customer_email, customer_phone, 
-         package_id, network, volume_gb, base_price, profit_amount, 
-         total_price, order_status, payment_status, reference_code, 
-         created_at, updated_at`
-      )
+      .select("*")
       .eq("shop_id", shopId)
       .eq("customer_phone", phone.trim())
       .order("created_at", { ascending: false })
 
-    if (error) {
-      console.error("[SHOP-ORDER-SEARCH] Error:", error)
-      throw new Error(`Failed to search orders: ${error.message}`)
-    }
+    // Search for airtime orders
+    const { data: airtimeOrders } = await supabase
+      .from("airtime_orders")
+      .select("*")
+      .eq("shop_id", shopId)
+      .eq("beneficiary_phone", phone.trim())
+      .order("created_at", { ascending: false })
 
-    console.log(`[SHOP-ORDER-SEARCH] Found ${orders?.length || 0} orders for this phone and shop`)
+    // Combine and format
+    const combinedOrders = [
+      ...(dataOrders || []).map(o => ({ ...o, type: 'data' })),
+      ...(airtimeOrders || []).map(o => ({ 
+        ...o, 
+        type: 'airtime',
+        volume_gb: o.airtime_amount, // For UI compatibility
+        customer_phone: o.beneficiary_phone
+      }))
+    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     return NextResponse.json({
       success: true,
-      orders: orders || [],
-      count: orders?.length || 0
+      orders: combinedOrders,
+      count: combinedOrders.length
     })
   } catch (error) {
     console.error("[SHOP-ORDER-SEARCH] Error searching orders:", error)

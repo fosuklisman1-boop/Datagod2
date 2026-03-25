@@ -35,9 +35,10 @@ export async function POST(request: NextRequest) {
       const table = orderType === "airtime" ? "airtime_orders" : "shop_orders"
       console.log(`[PAYMENT-INIT] ${orderType === "airtime" ? "Airtime" : "Shop"} Order detected (${orderId}). Verifying price from database...`)
 
+      const amountColumn = orderType === "airtime" ? "total_paid" : "total_price"
       const { data: orderData, error: orderError } = await supabase
         .from(table)
-        .select("total_price")
+        .select(amountColumn)
         .eq("id", orderId)
         .single()
 
@@ -51,10 +52,10 @@ export async function POST(request: NextRequest) {
 
       // Override client amount with server-verified amount
       // Ensure we treat it as a number
-      const verifiedAmount = Number(orderData.total_price)
+      const verifiedAmount = Number((orderData as any)[amountColumn])
 
       if (isNaN(verifiedAmount) || verifiedAmount <= 0) {
-        console.error("[PAYMENT-INIT] ❌ Invalid order price in DB:", orderData.total_price)
+        console.error("[PAYMENT-INIT] ❌ Invalid order price in DB:", (orderData as any)[amountColumn])
         return NextResponse.json(
           { error: "Invalid order configuration" },
           { status: 500 }
@@ -164,8 +165,10 @@ export async function POST(request: NextRequest) {
       metadata: {
         userId,
         shopId: shopId || null,
-        type: type || "wallet_topup",
+        type: type || (orderType === "airtime" ? "airtime_purchase" : "shop_order"),
         planId: planId || null,
+        orderId: orderId || null,
+        orderType: orderType || "data",
         originalAmount: finalAmount,
         paystackFee: paystackFee,
       },

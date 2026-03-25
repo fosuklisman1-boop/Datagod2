@@ -1101,8 +1101,10 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                       <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2">
                           <Package className="w-4 h-4 text-blue-600" />
-                          <CardTitle className="text-base">{order.network}</CardTitle>
-                          <Badge className="text-xs" variant="outline">{order.volume_gb}GB</Badge>
+                          <CardTitle className="text-base">{order.network} {order.type === 'airtime' ? 'Airtime' : 'Data'}</CardTitle>
+                          <Badge className="text-xs" variant="outline">
+                            {order.type === 'airtime' ? `GHS ${order.volume_gb}` : `${order.volume_gb}GB`}
+                          </Badge>
                         </div>
                         <CardDescription className="text-xs">
                           Order ID: <span className="font-mono">{order.reference_code}</span>
