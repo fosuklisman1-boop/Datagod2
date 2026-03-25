@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       .from("wallet_payments")
       .select("id, user_id, reference, status, shop_id, order_id, order_type")
       .eq("reference", reference)
-      .maybeSingle()
+      .single()
 
     if (fetchError || !paymentData) {
       console.warn("[PAYMENT-VERIFY] Payment not found:", reference)

@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
             .single();
           
           if (airtimeOrder) {
-            verifiedTotalPrice = Number(airtimeOrder.total_paid) - feeAmount;
+            verifiedTotalPrice = Number(airtimeOrder.total_paid);
             priceDebugInfo = { source: "airtime_orders", verifiedTotalPrice };
           }
         } else {
