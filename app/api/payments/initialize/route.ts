@@ -10,7 +10,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { amount, email, userId, shopId, orderId, shopSlug, type, planId } = body
+    const { amount, email, userId, shopId, orderId, shopSlug, type, planId, orderType } = body
 
     console.log("[PAYMENT-INIT] Request received:")
     console.log("  User:", userId)
@@ -32,10 +32,11 @@ export async function POST(request: NextRequest) {
 
     // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
     if (orderId) {
-      console.log(`[PAYMENT-INIT] Shop Order detected (${orderId}). Verifying price from database...`)
+      const table = orderType === "airtime" ? "airtime_orders" : "shop_orders"
+      console.log(`[PAYMENT-INIT] ${orderType === "airtime" ? "Airtime" : "Shop"} Order detected (${orderId}). Verifying price from database...`)
 
       const { data: orderData, error: orderError } = await supabase
-        .from("shop_orders")
+        .from(table)
         .select("total_price")
         .eq("id", orderId)
         .single()
@@ -103,7 +104,11 @@ export async function POST(request: NextRequest) {
       .select("paystack_fee_percentage")
       .single()
 
-    const paystackFeePercentage = (settings?.paystack_fee_percentage || 3.0) / 100
+    // For airtime orders, we remove the additional Paystack fee as requested
+    // The platform base fee is expected to absorb the payment processor cost.
+    const isAirtime = orderType === "airtime"
+    const paystackFeePercentage = isAirtime ? 0 : (settings?.paystack_fee_percentage || 3.0) / 100
+    
     // Use finalAmount (verified) for calculation
     const paystackFee = Math.round(finalAmount * paystackFeePercentage * 100) / 100
     const totalAmount = finalAmount + paystackFee
@@ -145,8 +150,9 @@ export async function POST(request: NextRequest) {
     // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
     // For shop orders, redirect to order confirmation; for wallet topup, redirect to wallet page with reference
+    const confirmationPath = orderType === "airtime" ? "airtime/confirmation" : `order-confirmation/${orderId}`
     const redirectUrl = shopId && orderId && shopSlug
-      ? `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/order-confirmation/${orderId}?reference=${reference}`
+      ? `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${orderType === "airtime" ? `&orderId=${orderId}` : ""}`
       : `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?reference=${reference}`
     console.log("[PAYMENT-INIT] Redirect URL:", redirectUrl)
 
@@ -178,7 +184,7 @@ export async function POST(request: NextRequest) {
         fee: paystackFee,
         email,
         status: "pending",
-        payment_type: shopId ? "shop_order" : "wallet_topup",
+        payment_type: orderType === "airtime" ? "shop_airtime" : (shopId ? "shop_order" : "wallet_topup"),
         shop_id: shopId || null,
         order_id: orderId || null,
         created_at: new Date().toISOString(),

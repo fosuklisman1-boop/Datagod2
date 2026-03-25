@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     // Build query - Restored join with disambiguation
     let query = supabase
       .from("airtime_orders")
-      .select("*, users!airtime_orders_user_id_fkey_public(email)", { count: "exact" })
+      .select("*, users!airtime_orders_user_id_fkey_public(email), user_shops(shop_name)", { count: "exact" })
 
     if (date && date !== "all") {
       query = query
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
     // Aggregate stats for filtered set (whole matching set, not just one page)
     let statsQuery = supabase
       .from("airtime_orders")
-      .select("airtime_amount, fee_amount, total_paid, status")
+      .select("airtime_amount, fee_amount, total_paid, status, merchant_commission")
 
     if (date && date !== "all") {
       statsQuery = statsQuery
@@ -75,12 +75,13 @@ export async function GET(request: NextRequest) {
       (acc, o) => {
         acc.totalRevenue += Number(o.total_paid || 0)
         acc.totalProfit  += Number(o.fee_amount || 0)
+        acc.totalMerchantPayout += Number(o.merchant_commission || 0)
         acc.totalVolume  += Number(o.airtime_amount || 0)
         const s = o.status || 'pending'
         acc[s] = (acc[s] || 0) + 1
         return acc
       },
-      { totalRevenue: 0, totalProfit: 0, totalVolume: 0, pending: 0, processing: 0, completed: 0, failed: 0 } as Record<string, number>
+      { totalRevenue: 0, totalProfit: 0, totalMerchantPayout: 0, totalVolume: 0, pending: 0, processing: 0, completed: 0, failed: 0 } as Record<string, number>
     )
 
     return NextResponse.json({

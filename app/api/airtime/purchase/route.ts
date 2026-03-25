@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Parse body
-    const { network, beneficiaryPhone, airtimeAmount, paySeparately = false } = await request.json()
+    const { network, beneficiaryPhone, airtimeAmount, paySeparately = false, shopId } = await request.json()
 
     // 3. Validate inputs
     if (!network || !beneficiaryPhone || !airtimeAmount) {
@@ -72,7 +72,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Airtime for ${network} is currently unavailable` }, { status: 503 })
     }
 
-    // 5. Enforce min/max limits
+    // 5. Determine Base Cost (Merchant's Role) & Custom Markup
+    let merchantRoleFeeRate = 5 // Default Standard Fee
+    let customMarkupRate = 0
+    let merchantUserId = null
+
+    if (shopId) {
+      // Find the merchant (shop owner)
+      const { data: shop } = await supabase
+        .from("user_shops")
+        .select("user_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at")
+        .eq("id", shopId)
+        .single()
+      
+      if (shop) {
+        merchantUserId = shop.user_id
+        
+        // Don't apply markup if buying from own shop
+        if (merchantUserId !== user.id) {
+          customMarkupRate = parseFloat(shop[`airtime_markup_${networkKey}` as keyof typeof shop] as string) || 0
+        }
+
+        // Get Merchant's Role to determine the platform base cost
+        const { data: merchantProfile } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", merchantUserId)
+          .single()
+        
+        const isMerchantDealer = merchantProfile?.role === "dealer"
+        const merchantFeeKey = isMerchantDealer ? `airtime_fee_${networkKey}_dealer` : `airtime_fee_${networkKey}_customer`
+        const merchantFeeSetting = await getAdminSetting(merchantFeeKey)
+        merchantRoleFeeRate = merchantFeeSetting?.rate ?? 5
+      }
+    } else {
+      // Buying direct (no shop)
+      const isUserDealer = user.user_metadata?.role === "dealer" || user.user_metadata?.role === "sub_agent"
+      const feeKey = isUserDealer ? `airtime_fee_${networkKey}_dealer` : `airtime_fee_${networkKey}_customer`
+      const feeSetting = await getAdminSetting(feeKey)
+      merchantRoleFeeRate = feeSetting?.rate ?? 5
+    }
+
+    const totalFeeRate = merchantRoleFeeRate + customMarkupRate
+
+    // 6. Enforce min/max limits
     const minSetting = await getAdminSetting("airtime_min_amount")
     const maxSetting = await getAdminSetting("airtime_max_amount")
     const minAmount = minSetting?.amount ?? 1
@@ -84,29 +127,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Maximum airtime amount is GHS ${maxAmount}` }, { status: 400 })
     }
 
-    // 6. Get user role for fee calculation
-    // Determine fee based on user role (Dealer/Sub-Agent vs Standard Customer)
-    const isDealer = user.user_metadata?.role === "dealer" || user.user_metadata?.role === "sub_agent"
-    const feeKey = isDealer ? `airtime_fee_${networkKey}_dealer` : `airtime_fee_${networkKey}_customer`
-    const feeSetting = await getAdminSetting(feeKey)
-    const feeRate: number = feeSetting?.rate ?? 5
-
     // 7. Calculate amounts
-    // Standard (default): recipient gets (amount - fee), user pays amount
-    // Premium (paySeparately = true): recipient gets amount, user pays (amount + fee)
     let airtimeToRecipient: number
-    let feeAmount: number
     let totalPaid: number
+    const merchantCommissionValue: number = 0 // Wallet purchases are profit-free as per request
 
     if (paySeparately) {
       airtimeToRecipient = amount
-      feeAmount = parseFloat((amount * feeRate / 100).toFixed(2))
-      totalPaid = parseFloat((amount + feeAmount).toFixed(2))
+      const totalFeeAmount = parseFloat((amount * totalFeeRate / 100).toFixed(2))
+      totalPaid = parseFloat((amount + totalFeeAmount).toFixed(2))
     } else {
       totalPaid = amount
-      feeAmount = parseFloat((amount * feeRate / (100 + feeRate)).toFixed(2))
-      airtimeToRecipient = parseFloat((totalPaid - feeAmount).toFixed(2))
+      const totalFeeAmount = parseFloat((amount * totalFeeRate / (100 + totalFeeRate)).toFixed(2))
+      airtimeToRecipient = parseFloat((totalPaid - totalFeeAmount).toFixed(2))
     }
+    
+    // Fee amount stored in DB should be the total fee charged
+    const feeAmount = parseFloat((totalPaid - airtimeToRecipient).toFixed(2))
 
     // 8. Idempotency guard — block same (user, phone, amount) within 30 seconds
     const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString()
@@ -157,6 +194,8 @@ export async function POST(request: NextRequest) {
         total_paid: totalPaid,
         pay_separately: paySeparately,
         status: "pending",
+        shop_id: shopId || null,
+        merchant_commission: merchantCommissionValue,
       }])
       .select()
       .single()

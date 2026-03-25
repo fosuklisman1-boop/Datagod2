@@ -106,10 +106,88 @@ export async function POST(request: NextRequest) {
           })
         }
       }).catch(e => console.warn("[AIRTIME-ACTION] Refund email error:", e))
+
+      // 3. Reverse Merchant Commission (if any was disbursed at payment time)
+      if (order.shop_id && order.merchant_commission > 0) {
+        console.log(`[AIRTIME-ACTION] Order ${order.reference_code} failed. Reversing merchant commission...`)
+        
+        // Mark the profit record as failed
+        const { error: revError } = await supabase
+          .from("shop_profits")
+          .update({ status: "failed", updated_at: new Date().toISOString() })
+          .eq("airtime_order_id", order.id)
+        
+        if (!revError) {
+          // Sync shop balance
+          try {
+            const { data: shop } = await supabase.from("user_shops").select("id").eq("id", order.shop_id).single()
+            if (shop) {
+              // Simple balance sync trigger
+              const { data: profits } = await supabase.from("shop_profits").select("profit_amount").eq("shop_id", order.shop_id).eq("status", "credited")
+              const { data: withdrawals } = await supabase.from("withdrawal_requests").select("amount").eq("shop_id", order.shop_id).eq("status", "approved")
+              
+              const totalProfits = profits?.reduce((sum, p) => sum + (p.profit_amount || 0), 0) || 0
+              const totalWithdrawals = withdrawals?.reduce((sum, w) => sum + (w.amount || 0), 0) || 0
+              const availableBalance = Math.max(0, totalProfits - totalWithdrawals)
+
+              await supabase.from("shop_available_balance").update({ 
+                available_balance: availableBalance, 
+                credited_profit: totalProfits, 
+                updated_at: new Date().toISOString() 
+              }).eq("shop_id", order.shop_id)
+              console.log(`[AIRTIME-ACTION] ✓ Shop balance resynced after commission reversal.`)
+            }
+          } catch (syncError) {
+            console.error("[AIRTIME-ACTION] Failed to sync balance after reversal:", syncError)
+          }
+        }
+      }
     }
 
-    // If COMPLETED → notify user of delivery
+    // If COMPLETED → notify user of delivery & pay merchant commission
     if (action === "completed") {
+      // 1. Profit Handling
+      // - If order was NOT flagged, profit was already handled at payment verification time (Guest Purchases)
+      // - If order WAS flagged, we disburse profit NOW (Manual Completion Override)
+      // - Wallet purchases are always profit-free
+      
+      if (order.is_flagged && order.shop_id && order.merchant_commission > 0) {
+        console.log(`[AIRTIME-ACTION] Flagged order ${order.reference_code} completed. Disbursing commission manually now...`)
+        
+        // 1. Create profit record
+        const { error: profitError } = await supabase
+          .from("shop_profits")
+          .insert([{
+            shop_id: order.shop_id,
+            airtime_order_id: order.id,
+            profit_amount: order.merchant_commission,
+            status: "credited",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }])
+        
+        if (!profitError) {
+          // 2. Sync shop balance
+          try {
+            const { data: profits } = await supabase.from("shop_profits").select("profit_amount").eq("shop_id", order.shop_id).eq("status", "credited")
+            const { data: withdrawals } = await supabase.from("withdrawal_requests").select("amount").eq("shop_id", order.shop_id).eq("status", "approved")
+            
+            const totalProfits = profits?.reduce((sum, p) => sum + (p.profit_amount || 0), 0) || 0
+            const totalWithdrawals = withdrawals?.reduce((sum, w) => sum + (w.amount || 0), 0) || 0
+            const availableBalance = Math.max(0, totalProfits - totalWithdrawals)
+
+            await supabase.from("shop_available_balance").update({ 
+              available_balance: availableBalance, 
+              credited_profit: totalProfits, 
+              updated_at: new Date().toISOString() 
+            }).eq("shop_id", order.shop_id)
+            console.log(`[AIRTIME-ACTION] ✓ Shop balance resynced after manual flagged order disbursement.`)
+          } catch (syncError) {
+            console.error("[AIRTIME-ACTION] Failed to sync balance after manual disbursement:", syncError)
+          }
+        }
+      }
+
       await supabase.from("notifications").insert([{
         user_id: order.user_id,
         title: "Airtime Delivered!",

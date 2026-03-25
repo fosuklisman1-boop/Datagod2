@@ -1,0 +1,1 @@
+ALTER TABLE airtime_orders ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false;

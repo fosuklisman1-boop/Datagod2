@@ -22,11 +22,16 @@ interface AirtimeOrder {
   notes: string | null
   created_at: string
   users?: { email: string }
+  user_shops?: { shop_name: string }
+  customer_name: string | null
+  customer_email: string | null
+  merchant_commission: number
 }
 
 interface Stats {
   totalRevenue: number
   totalProfit: number
+  totalMerchantPayout: number
   totalVolume: number
   pending: number
   processing: number
@@ -131,11 +136,11 @@ export default function AdminAirtimePage() {
   const statCards = stats
     ? [
         { label: "Revenue",   value: `GHS ${Number(stats.totalRevenue || 0).toFixed(2)}`,  color: "text-indigo-600" },
-        { label: "Profit",    value: `GHS ${Number(stats.totalProfit || 0).toFixed(2)}`,   color: "text-green-600" },
+        { label: "Net Profit", value: `GHS ${Number(stats.totalProfit || 0).toFixed(2)}`,   color: "text-green-600" },
+        { label: "Merchant Payout", value: `GHS ${Number(stats.totalMerchantPayout || 0).toFixed(2)}`, color: "text-orange-600" },
         { label: "Volume",    value: `GHS ${Number(stats.totalVolume || 0).toFixed(2)}`,   color: "text-blue-600" },
         { label: "Pending",   value: stats.pending,                            color: "text-yellow-600" },
         { label: "Completed", value: stats.completed,                          color: "text-emerald-600" },
-        { label: "Failed",    value: stats.failed,                             color: "text-red-600" },
       ]
     : []
 
@@ -201,7 +206,7 @@ export default function AdminAirtimePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {["Reference","Customer","Network","Phone","Airtime","Fee","Total","Status","Date","Actions"].map(h => (
+                {["Reference","Customer","Shop","Network","Phone","Airtime","Fee","Payout","Total","Status","Date","Actions"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -211,8 +216,13 @@ export default function AdminAirtimePage() {
                 <tr key={o.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-800">{o.reference_code}</td>
                   <td className="px-4 py-3">
-                    <p className="text-xs font-medium text-gray-900 truncate max-w-[120px]" title={o.users?.email}>
-                      {o.users?.email || "Unknown"}
+                    <p className="text-xs font-medium text-gray-900 truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
+                      {o.users?.email || o.customer_email || o.customer_name || "Guest"}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="text-xs text-gray-600 italic">
+                      {o.user_shops?.shop_name || "Direct"}
                     </p>
                   </td>
                   <td className="px-4 py-3 font-semibold text-gray-700">{o.network}</td>
@@ -227,6 +237,7 @@ export default function AdminAirtimePage() {
                   </td>
                   <td className="px-4 py-3 font-semibold text-gray-900">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-gray-500">GHS {Number(o.fee_amount || 0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-orange-600 font-medium">GHS {Number(o.merchant_commission || 0).toFixed(2)}</td>
                   <td className="px-4 py-3 font-semibold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-gray-100 text-gray-600"}`}>

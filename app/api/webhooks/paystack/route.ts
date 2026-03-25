@@ -1014,6 +1014,85 @@ export async function POST(request: NextRequest) {
             console.log(`[WEBHOOK] ⚠️ Parent shop exists (${shopOrderData.parent_shop_id}) but parent_profit_amount is ${shopOrderData.parent_profit_amount} - skipping parent profit record`);
           }
         }
+
+        // 2. Try Airtime Orders if not found in Shop Orders
+        const { data: airtimeData, error: airtimeFetchError } = await supabase
+          .from("airtime_orders")
+          .select("id, shop_id, merchant_commission, reference_code, network, airtime_amount, beneficiary_phone, notes, is_flagged")
+          .eq("id", paymentData.order_id)
+          .maybeSingle()
+
+        if (!airtimeFetchError && airtimeData) {
+          console.log(`[WEBHOOK] ✓ Airtime order found: ${airtimeData.id}. Checking for fraud...`)
+          const { isPhoneBlacklisted } = await import("@/lib/blacklist")
+          const isBlacklisted = await isPhoneBlacklisted(airtimeData.beneficiary_phone)
+
+          // Update airtime order status
+          await supabase
+            .from("airtime_orders")
+            .update({
+              payment_status: "completed",
+              status: isBlacklisted ? "flagged" : "pending",
+              is_flagged: isBlacklisted,
+              notes: isBlacklisted ? (airtimeData.notes || "") + "[FLAGGED: Beneficiary Blacklisted]" : airtimeData.notes,
+              transaction_id: event.data.id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", airtimeData.id)
+
+          // Create profit record for merchant ONLY if not flagged
+          if (!isBlacklisted && airtimeData.merchant_commission > 0 && airtimeData.shop_id) {
+            console.log(`[WEBHOOK] Crediting airtime profit: GHS ${airtimeData.merchant_commission}`)
+            
+            const { data: currentBalance } = await supabase
+              .from("shop_available_balance")
+              .select("available_balance")
+              .eq("shop_id", airtimeData.shop_id)
+              .single()
+
+            const balanceBefore = currentBalance?.available_balance || 0
+            const balanceAfter = balanceBefore + airtimeData.merchant_commission
+
+            const { error: profitError } = await supabase
+              .from("shop_profits")
+              .insert([{
+                shop_id: airtimeData.shop_id,
+                airtime_order_id: airtimeData.id,
+                profit_amount: airtimeData.merchant_commission,
+                profit_balance_before: balanceBefore,
+                profit_balance_after: balanceAfter,
+                status: "credited",
+                created_at: new Date().toISOString(),
+              }])
+
+            if (profitError) {
+              console.error("[WEBHOOK] Error creating airtime profit:", profitError)
+            } else {
+              const profits = await fetchAllProfits(airtimeData.shop_id)
+              const creditedProfit = profits.filter(p => p.status === "credited").reduce((sum, p) => sum + (p.profit_amount || 0), 0)
+              const approvedWithdrawals = await fetchAllWithdrawals(airtimeData.shop_id)
+              const totalWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+              const availableBalance = Math.max(0, creditedProfit - totalWithdrawals)
+
+              await supabase.from("shop_available_balance").delete().eq("shop_id", airtimeData.shop_id)
+              await supabase.from("shop_available_balance").insert([{
+                shop_id: airtimeData.shop_id,
+                available_balance: availableBalance,
+                credited_profit: creditedProfit,
+                updated_at: new Date().toISOString(),
+              }])
+              console.log(`[WEBHOOK] ✓ Airtime profit disbursed: Available GHS ${availableBalance.toFixed(2)}`)
+            }
+          }
+
+          const { notifyAdmins } = await import("@/lib/sms-service")
+          const alertPrefix = isBlacklisted ? "[FRAUD-ALERT] " : ""
+          await notifyAdmins(
+            `${alertPrefix}Paid Guest Order: ${airtimeData.reference_code} | ${airtimeData.network} GHS ${airtimeData.airtime_amount} → ${airtimeData.beneficiary_phone}`,
+            isBlacklisted ? "airtime_fraud_alert" : "airtime_new_order",
+            airtimeData.id
+          )
+        }
       }
 
       // Check for dealer upgrade in metadata

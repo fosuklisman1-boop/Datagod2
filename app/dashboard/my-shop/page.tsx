@@ -30,6 +30,9 @@ export default function MyShopPage() {
     shop_name: "",
     description: "",
     logo_url: "",
+    airtime_markup_mtn: "0",
+    airtime_markup_telecel: "0",
+    airtime_markup_at: "0",
   })
   const [addingPackage, setAddingPackage] = useState(false)
   const [selectedPackage, setSelectedPackage] = useState<string>("")
@@ -57,6 +60,7 @@ export default function MyShopPage() {
   const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
   const [showComplaintModal, setShowComplaintModal] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [maxMarkups, setMaxMarkups] = useState<Record<string, number>>({ mtn: 5, telecel: 5, at: 5 })
 
   useEffect(() => {
     if (!user) return
@@ -131,6 +135,9 @@ export default function MyShopPage() {
           shop_name: userShop.shop_name || "",
           description: userShop.description || "",
           logo_url: userShop.logo_url || "",
+          airtime_markup_mtn: userShop.airtime_markup_mtn?.toString() || "0",
+          airtime_markup_telecel: userShop.airtime_markup_telecel?.toString() || "0",
+          airtime_markup_at: userShop.airtime_markup_at?.toString() || "0",
         })
 
         // Load WhatsApp settings
@@ -153,7 +160,20 @@ export default function MyShopPage() {
           console.error("Error loading shop settings:", settingsError)
         }
 
-        // For sub-agents (shops with parent_shop_id), get packages from parent shop
+        // Load Airtime Constraints
+        try {
+          const constraintsResp = await fetch("/api/shop/airtime/constraints", {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          if (constraintsResp.ok) {
+            const cData = await constraintsResp.json()
+            if (cData.maxMarkups) {
+              setMaxMarkups(cData.maxMarkups)
+            }
+          }
+        } catch (cErr) {
+          console.error("Error loading airtime constraints:", cErr)
+        }
         // For regular shops, get all admin packages
         console.log("=== MY SHOP DEBUG ===")
         console.log("Shop ID:", userShop.id)
@@ -265,6 +285,9 @@ export default function MyShopPage() {
         shop_name: formData.shop_name,
         description: formData.description,
         logo_url: formData.logo_url,
+        airtime_markup_mtn: parseFloat(formData.airtime_markup_mtn || "0"),
+        airtime_markup_telecel: parseFloat(formData.airtime_markup_telecel || "0"),
+        airtime_markup_at: parseFloat(formData.airtime_markup_at || "0"),
       })
       setShop(updated)
       setEditingShop(false)
@@ -826,6 +849,106 @@ export default function MyShopPage() {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Airtime Profit Configuration Card */}
+        <Card className="bg-gradient-to-br from-blue-50/60 to-indigo-50/40 backdrop-blur-xl border border-blue-200/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Megaphone className="w-5 h-5 text-blue-600" />
+              Airtime Profit Markups
+            </CardTitle>
+            <CardDescription>Set your custom profit percentage for airtime sales</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="markup-mtn" className="flex justify-between">
+                  <span>MTN Markup (%)</span>
+                  <span className="text-[10px] text-blue-500 font-medium">Max: {maxMarkups.mtn}%</span>
+                </Label>
+                <Input
+                  id="markup-mtn"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max={maxMarkups.mtn}
+                  value={formData.airtime_markup_mtn}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 0
+                    if (val > maxMarkups.mtn) {
+                      toast.error(`MTN markup cannot exceed ${maxMarkups.mtn}%`)
+                      setFormData({ ...formData, airtime_markup_mtn: maxMarkups.mtn.toString() })
+                    } else {
+                      setFormData({ ...formData, airtime_markup_mtn: e.target.value })
+                    }
+                  }}
+                  placeholder="0.0"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="markup-telecel" className="flex justify-between">
+                  <span>Telecel Markup (%)</span>
+                  <span className="text-[10px] text-blue-500 font-medium">Max: {maxMarkups.telecel}%</span>
+                </Label>
+                <Input
+                  id="markup-telecel"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max={maxMarkups.telecel}
+                  value={formData.airtime_markup_telecel}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 0
+                    if (val > maxMarkups.telecel) {
+                      toast.error(`Telecel markup cannot exceed ${maxMarkups.telecel}%`)
+                      setFormData({ ...formData, airtime_markup_telecel: maxMarkups.telecel.toString() })
+                    } else {
+                      setFormData({ ...formData, airtime_markup_telecel: e.target.value })
+                    }
+                  }}
+                  placeholder="0.0"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="markup-at" className="flex justify-between">
+                  <span>AT Markup (%)</span>
+                  <span className="text-[10px] text-blue-500 font-medium">Max: {maxMarkups.at}%</span>
+                </Label>
+                <Input
+                  id="markup-at"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max={maxMarkups.at}
+                  value={formData.airtime_markup_at}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 0
+                    if (val > maxMarkups.at) {
+                      toast.error(`AT markup cannot exceed ${maxMarkups.at}%`)
+                      setFormData({ ...formData, airtime_markup_at: maxMarkups.at.toString() })
+                    } else {
+                      setFormData({ ...formData, airtime_markup_at: e.target.value })
+                    }
+                  }}
+                  placeholder="0.0"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-blue-500/80 bg-blue-50/50 p-2 rounded-lg border border-blue-100/50">
+              <span className="font-semibold text-blue-600">Dynamic Capping:</span> To protect customers, the total fee (Platform Fee + Your Markup) is limited to 10%. Your maximum markup is adjusted based on the current platform cost.
+            </p>
+            <Button
+              onClick={handleUpdateShop}
+              disabled={updatingShop}
+              className="w-full bg-blue-600 hover:bg-blue-700"
+            >
+              {updatingShop ? "Saving..." : "Save Airtime Markups"}
+            </Button>
           </CardContent>
         </Card>
 
