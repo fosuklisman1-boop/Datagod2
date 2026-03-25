@@ -1105,13 +1105,45 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          const { notifyAdmins } = await import("@/lib/sms-service")
-          const alertPrefix = isBlacklisted ? "[FRAUD-ALERT] " : ""
-          await notifyAdmins(
-            `${alertPrefix}Paid Guest Order: ${airtimeData.reference_code} | ${airtimeData.network} GHS ${airtimeData.airtime_amount} → ${airtimeData.beneficiary_phone}`,
-            isBlacklisted ? "airtime_fraud_alert" : "airtime_new_order",
-            airtimeData.id
-          )
+          // Send SMS to beneficiary and admin
+          try {
+            const { data: shopData } = airtimeData.shop_id 
+              ? await supabase.from("user_shops").select("shop_name").eq("id", airtimeData.shop_id).single()
+              : { data: null }
+            
+            const shopName = shopData?.shop_name || "Direct"
+            const beneficiarySms = SMSTemplates.airtimeBeneficiaryNotification(
+              shopName,
+              airtimeData.network,
+              airtimeData.airtime_amount.toString(),
+              airtimeData.beneficiary_phone,
+              airtimeData.reference_code
+            )
+
+            await sendSMS({
+              phone: airtimeData.beneficiary_phone,
+              message: beneficiarySms,
+              type: 'airtime_payment_confirmed',
+              reference: airtimeData.id,
+            }).catch(err => console.error("[WEBHOOK] Airtime Beneficiary SMS error:", err))
+
+            const adminSms = SMSTemplates.adminAirtimeOrderNotification(
+              shopName,
+              airtimeData.beneficiary_phone,
+              airtimeData.airtime_amount.toString(),
+              airtimeData.network
+            )
+
+            const { notifyAdmins } = await import("@/lib/sms-service")
+            const alertPrefix = isBlacklisted ? "[FRAUD-ALERT] " : ""
+            await notifyAdmins(
+              alertPrefix + adminSms,
+              isBlacklisted ? "airtime_fraud_alert" : "airtime_new_order",
+              airtimeData.id
+            )
+          } catch (smsError) {
+            console.warn("[WEBHOOK] Airtime SMS notification failed:", smsError)
+          }
         }
       }
 

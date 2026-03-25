@@ -109,6 +109,13 @@ export const SMSTemplates = {
 
   userUnsuspended: () =>
     `DATAGOD: ✓ Your account has been restored. You can now log in to your dashboard.`,
+
+  // Airtime specific notifications
+  airtimeBeneficiaryNotification: (shopName: string, network: string, amount: string, phone: string, ref: string) =>
+    `${shopName}: You have successfully purchased ${network} GHS ${amount} airtime to ${phone}. Reference;${ref}`,
+
+  adminAirtimeOrderNotification: (source: string, phone: string, amount: string, network: string) =>
+    `NEW AIRTIME ORDER:\nSource : ${source}\nReceiver : ${phone}\nAmount: GHS ${amount}\nNetwork: ${network}`,
 }
 
 /**

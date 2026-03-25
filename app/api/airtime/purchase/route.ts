@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notifyAdmins } from "@/lib/sms-service"
 
 const supabase = createClient(
@@ -236,32 +236,53 @@ export async function POST(request: NextRequest) {
     }])
 
     // 13. Non-blocking notifications
-    Promise.allSettled([
-      // SMS to the purchasing user (their own number via user lookup)
-      sendSMS({
-        phone: cleanPhone,
-        message: `Your airtime order of GHS ${airtimeToRecipient} (${network}) is pending. Ref: ${referenceCode}. You will be notified once delivered.`,
-        type: "airtime_order_created",
-        reference: order.id,
-      }),
-      // Admin alert
-      notifyAdmins(
-        `[AIRTIME] New order: ${referenceCode} | ${network} GHS ${airtimeToRecipient} → ${cleanPhone} | User: ${user.id.slice(0, 8)}`,
-        "airtime_new_order",
-        order.id
-      ),
-      // Admin email alert
-      import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-        const payload = EmailTemplates.airtimeAdminAlert(referenceCode, network, cleanPhone, airtimeToRecipient.toFixed(2), totalPaid.toFixed(2))
-        return sendEmail({
-          to: [],   // notifyAdmins in email-service auto-fetches admin emails
-          subject: payload.subject,
-          htmlContent: payload.html,
-          referenceId: order.id,
-          type: "airtime_admin_alert",
-        })
-      }).catch(e => console.warn("[AIRTIME] Admin email error:", e)),
-    ]).catch(e => console.warn("[AIRTIME] Non-blocking notification error:", e))
+    try {
+      const { data: shopData } = order.shop_id 
+        ? await supabase.from("user_shops").select("shop_name").eq("id", order.shop_id).single()
+        : { data: null }
+      
+      const shopName = shopData?.shop_name || "Direct"
+
+      Promise.allSettled([
+        // SMS to the beneficiary
+        sendSMS({
+          phone: cleanPhone,
+          message: SMSTemplates.airtimeBeneficiaryNotification(
+            shopName,
+            network,
+            airtimeToRecipient.toString(),
+            cleanPhone,
+            referenceCode
+          ),
+          type: "airtime_order_created",
+          reference: order.id,
+        }),
+        // Admin alert
+        notifyAdmins(
+          SMSTemplates.adminAirtimeOrderNotification(
+            shopName,
+            cleanPhone,
+            airtimeToRecipient.toString(),
+            network
+          ),
+          "airtime_new_order",
+          order.id
+        ),
+        // Admin email alert
+        import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+          const payload = EmailTemplates.airtimeAdminAlert(referenceCode, network, cleanPhone, airtimeToRecipient.toFixed(2), totalPaid.toFixed(2))
+          return sendEmail({
+            to: [],   // notifyAdmins in email-service auto-fetches admin emails
+            subject: payload.subject,
+            htmlContent: payload.html,
+            referenceId: order.id,
+            type: "airtime_admin_alert",
+          })
+        }).catch(e => console.warn("[AIRTIME] Admin email error:", e)),
+      ]).catch(e => console.warn("[AIRTIME] Non-blocking notification error:", e))
+    } catch (notifErr) {
+      console.warn("[AIRTIME] Notification preparation error:", notifErr)
+    }
 
     console.log(`[AIRTIME] ✓ Order created: ${referenceCode} | ${network} GHS ${airtimeToRecipient} → ${cleanPhone}`)
 
