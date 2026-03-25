@@ -75,7 +75,7 @@ export default function AdminAirtimePage() {
   // Filters
   const [date, setDate]           = useState("")
   const [network, setNetwork]     = useState("all")
-  const [status, setStatus]       = useState("all")
+  const [status, setStatus]       = useState("pending")
   const [search, setSearch]       = useState("")
 
   // Action modal
@@ -295,7 +295,7 @@ export default function AdminAirtimePage() {
 
         <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full">
           <TabsList className="grid w-full grid-cols-2 max-w-md">
-            <TabsTrigger value="pending">
+            <TabsTrigger value="pending" onClick={() => { if(status === 'all') setStatus('pending') }}>
               Pending Orders
               {stats && (stats.pending > 0 || stats.processing > 0) && (
                 <Badge variant="secondary" className="ml-2 bg-yellow-100 text-yellow-700">
@@ -303,7 +303,7 @@ export default function AdminAirtimePage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="downloaded">
+            <TabsTrigger value="downloaded" onClick={() => setStatus('all')}>
               Download Batches
             </TabsTrigger>
           </TabsList>

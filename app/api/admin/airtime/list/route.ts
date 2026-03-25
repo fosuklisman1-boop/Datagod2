@@ -77,16 +77,18 @@ export async function GET(request: NextRequest) {
 
     const stats = (statsData || []).reduce(
       (acc, o) => {
-        // Aggregate totals for all orders (or we could also filter these by payment_status depending on requirement)
-        acc.totalRevenue += Number(o.total_paid || 0)
-        acc.totalProfit  += Number(o.fee_amount || 0)
-        acc.totalMerchantPayout += Number(o.merchant_commission || 0)
-        acc.totalVolume  += Number(o.airtime_amount || 0)
+        // ONLY aggregate totals for PAID orders
+        if (o.payment_status === "completed") {
+          acc.totalRevenue += Number(o.total_paid || 0)
+          acc.totalProfit  += Number(o.fee_amount || 0)
+          acc.totalMerchantPayout += Number(o.merchant_commission || 0)
+          acc.totalVolume  += Number(o.airtime_amount || 0)
+        }
         
         const s = o.status || 'pending'
-        // For stats counts, only count as pending/processing if actually paid
+        // For status counts (Pending/Processing), ONLY count if paid
+        // Completed/Failed are counted regardless of payment status (though usually they would be paid)
         if ((s === "pending" || s === "processing") && o.payment_status !== "completed") {
-          // Skip counting unpaid orders in these categories
           return acc
         }
         
