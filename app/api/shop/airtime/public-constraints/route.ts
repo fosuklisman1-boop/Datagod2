@@ -59,16 +59,26 @@ export async function GET(request: NextRequest) {
       markupPercent = Math.max(0, 10 - baseFeePercent)
     }
 
-    // 5. Check Network Availability
-    const availabilitySetting = await getAdminSetting(`airtime_enabled_${networkKey}`)
-    const isAvailable = availabilitySetting?.enabled !== false
+    // 5. Fetch all network availability
+    const [mtnAvail, telecelAvail, atAvail] = await Promise.all([
+      getAdminSetting("airtime_enabled_mtn"),
+      getAdminSetting("airtime_enabled_telecel"),
+      getAdminSetting("airtime_enabled_at")
+    ])
+
+    const allAvailability = {
+      MTN: mtnAvail?.enabled !== false,
+      Telecel: telecelAvail?.enabled !== false,
+      AT: atAvail?.enabled !== false
+    }
 
     return NextResponse.json({
       success: true,
       baseFeePercent,
       markupPercent,
       totalFeePercent: baseFeePercent + markupPercent,
-      isAvailable
+      isAvailable: allAvailability[network as keyof typeof allAvailability],
+      allAvailability
     })
 
   } catch (error) {

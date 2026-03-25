@@ -55,21 +55,18 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   }
 
   const checkAllAvailability = async () => {
-    const nets = ["MTN", "Telecel", "AT"]
-    const newAvail: Record<string, boolean> = { ...availability }
-    
-    for (const net of nets) {
-      try {
-        const res = await fetch(`/api/shop/airtime/public-constraints?slug=${shopSlug}&network=${net}`)
-        if (res.ok) {
-          const data = await res.json()
-          newAvail[net] = data.isAvailable !== false
+    try {
+      // Just fetch one network to get the 'allAvailability' map for all 3
+      const res = await fetch(`/api/shop/airtime/public-constraints?slug=${shopSlug}&network=MTN`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.allAvailability) {
+          setAvailability(data.allAvailability)
         }
-      } catch (e) {
-        console.error(`Error checking ${net} availability:`, e)
       }
+    } catch (e) {
+      console.error(`Error checking availability:`, e)
     }
-    setAvailability(newAvail)
   }
 
   const loadConstraints = async () => {
@@ -78,6 +75,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       const data = await res.json()
       if (res.ok) {
         setConstraints(data)
+        if (data.allAvailability) {
+          setAvailability(data.allAvailability)
+        }
       }
     } catch (error) {
       console.error("Error loading constraints:", error)
