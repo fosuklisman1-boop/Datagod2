@@ -547,8 +547,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ received: true, skipped: "already_processed" })
       }
 
-      // If this is a shop order payment, update shop_orders payment status and create profit record
-      if (paymentData.order_id && paymentData.shop_id) {
+      // If this is an order payment (Airtime or Shop/Data), handle fulfillment
+      if (paymentData.order_id) {
+        if (paymentData.shop_id) {
         console.log(`[WEBHOOK] Updating shop order payment status for order: ${paymentData.order_id}`)
 
         // Get shop order details to create profit record and track customer
@@ -1024,8 +1025,6 @@ export async function POST(request: NextRequest) {
                 console.error("Error syncing parent shop balance:", parentSyncError)
               }
             }
-          } else if (shopOrderData?.parent_shop_id) {
-            console.log(`[WEBHOOK] ⚠️ Parent shop exists (${shopOrderData.parent_shop_id}) but parent_profit_amount is ${shopOrderData.parent_profit_amount} - skipping parent profit record`);
           }
         }
       }
@@ -1442,11 +1441,9 @@ export async function POST(request: NextRequest) {
           console.warn("[SMS] Failed to send wallet top-up SMS:", smsError)
           // Don't fail the webhook if SMS fails
         }
-      } else {
-        console.log(`[WEBHOOK] ✓ Shop order payment - NOT credited to wallet (profit goes to shop instead)`)
       }
 
-      console.log(`[WEBHOOK] ✓ Payment processed successfully: ${reference}`)
+      }
     } else if (event.event === "charge.failed") {
       // Handle failed payment
       const { reference, customer, amount, gateway_response } = event.data
