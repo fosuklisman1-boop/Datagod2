@@ -561,6 +561,28 @@ export function Sidebar() {
                   {isOpen && "Airtime Management"}
                 </Button>
               </Link>
+              <Link href="/admin/airtime/settings" onClick={() => handleNavigation("/admin/airtime/settings")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/airtime/settings" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/airtime/settings" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/airtime/settings" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Airtime Settings" : undefined}
+                  disabled={loadingPath === "/admin/airtime/settings"}
+                >
+                  {loadingPath === "/admin/airtime/settings" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Settings className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Airtime Settings"}
+                </Button>
+              </Link>
               <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>
                 <Button
                   variant="ghost"

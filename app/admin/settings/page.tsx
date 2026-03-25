@@ -14,6 +14,7 @@ import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import PhoneBlacklistManager from "@/components/admin/phone-blacklist-manager"
+import AirtimeSettingsCard from "@/components/admin/airtime-settings-card"
 
 export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -502,6 +503,8 @@ export default function AdminSettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <AirtimeSettingsCard />
 
         <Card>
           <CardHeader>

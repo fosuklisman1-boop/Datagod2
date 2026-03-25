@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     // Update the order status
     const { error: updateError } = await supabase
       .from("airtime_orders")
-      .update({ status: action, notes: notes || null, updated_at: new Date().toISOString() })
+      .update({ status: action, notes: notes || null })
       .eq("id", orderId)
 
     if (updateError) throw updateError
