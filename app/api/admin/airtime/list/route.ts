@@ -22,10 +22,10 @@ export async function GET(request: NextRequest) {
 
     console.log(`[AIRTIME-LIST] Filters - Date: ${date}, Net: ${network}, Status: ${status}, Search: ${search}`)
 
-    // Build query - SIMPLIFIED to troubleshoot visibility
+    // Build query - Restored join with disambiguation
     let query = supabase
       .from("airtime_orders")
-      .select("*", { count: "exact" })
+      .select("*, users:user_id!airtime_orders_user_id_fkey_public(email)", { count: "exact" })
 
     if (date && date !== "all") {
       query = query
