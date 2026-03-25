@@ -162,9 +162,8 @@ export async function POST(request: NextRequest) {
       }
 
       // If payment was for a shop order, update its payment status and create profit record
-      // If this is a shop order payment, update its payment status and create profit record
-      if (paymentData.shop_id && paymentData.order_id) {
-        console.log(`[PAYMENT-VERIFY] Payment is for ${paymentData.order_type || 'shop'} order. Updating order payment status...`)
+      if (paymentData.order_id) {
+        console.log(`[PAYMENT-VERIFY] Payment is for ${paymentData.order_type || 'shop'} order (${paymentData.order_id}). Updating order payment status...`)
 
         if (paymentData.order_type === "airtime") {
           // 1. Handle Airtime Orders
@@ -209,18 +208,19 @@ export async function POST(request: NextRequest) {
 
               // Create profit record for merchant
               const commission = airtimeData.merchant_commission || 0
-              if (commission > 0) {
+              const shopId = airtimeData.shop_id || paymentData.shop_id
+              if (commission > 0 && shopId) {
                 await supabase
                   .from("shop_profits")
                   .insert([{
-                    shop_id: paymentData.shop_id,
+                    shop_id: shopId,
                     airtime_order_id: airtimeData.id,
                     profit_amount: commission,
                     status: "credited",
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                   }])
-                console.log(`[PAYMENT-VERIFY] ✓ Airtime profit record created: GHS ${commission}`)
+                console.log(`[PAYMENT-VERIFY] ✓ Airtime profit record created: GHS ${commission} for shop ${shopId}`)
               }
             }
 
@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
           // 2. Handle Shop Orders (Data)
           const { data: shopOrderData, error: shopOrderFetchError } = await supabase
             .from("shop_orders")
-            .select("id, profit_amount, network, volume_gb, customer_phone, customer_name")
+            .select("id, shop_id, profit_amount, network, volume_gb, customer_phone, customer_name")
             .eq("id", paymentData.order_id)
             .single()
 
@@ -255,16 +255,21 @@ export async function POST(request: NextRequest) {
 
             // Create profit record
             const profitAmount = shopOrderData.profit_amount || 0
-            await supabase
-              .from("shop_profits")
-              .insert([{
-                shop_id: paymentData.shop_id,
-                shop_order_id: shopOrderData.id,
-                profit_amount: profitAmount,
-                status: "pending",
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              }])
+            const shopId = shopOrderData.shop_id || paymentData.shop_id
+            
+            if (profitAmount > 0 && shopId) {
+              await supabase
+                .from("shop_profits")
+                .insert([{
+                  shop_id: shopId,
+                  shop_order_id: shopOrderData.id,
+                  profit_amount: profitAmount,
+                  status: "credited",
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                }])
+              console.log(`[PAYMENT-VERIFY] ✓ Shop DATA order profit record created: GHS ${profitAmount} for shop ${shopId}`)
+            }
 
             // Trigger fulfillment logic for data
             if (shopOrderData.customer_phone) {

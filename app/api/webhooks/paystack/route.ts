@@ -1042,7 +1042,7 @@ export async function POST(request: NextRequest) {
           const isBlacklisted = await isPhoneBlacklisted(airtimeData.beneficiary_phone)
 
           // Update airtime order status
-          await supabase
+          const { error: airtimeUpdateError } = await supabase
             .from("airtime_orders")
             .update({
               payment_status: "completed",
@@ -1053,6 +1053,12 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", airtimeData.id)
+
+          if (airtimeUpdateError) {
+            console.error(`[WEBHOOK] ❌ Error updating airtime order ${airtimeData.id}:`, airtimeUpdateError)
+          } else {
+            console.log(`[WEBHOOK] ✓ Airtime order ${airtimeData.id} status updated to: ${isBlacklisted ? "flagged" : "pending"}`)
+          }
 
           // Create profit record for merchant ONLY if not flagged
           if (!isBlacklisted && airtimeData.merchant_commission > 0 && airtimeData.shop_id) {
