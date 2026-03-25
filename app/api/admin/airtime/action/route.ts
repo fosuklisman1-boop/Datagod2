@@ -1,27 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
-    // Auth — admin only
-    const authHeader = request.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const token = authHeader.slice(7)
-    const { data: { user: admin }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !admin) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    if (admin.user_metadata?.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-    }
+    const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) return errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const { orderId, action, notes } = await request.json()
     if (!orderId || !["completed", "failed"].includes(action)) {
@@ -31,12 +20,13 @@ export async function POST(request: NextRequest) {
     // Fetch the order
     const { data: order, error: fetchError } = await supabase
       .from("airtime_orders")
-      .select("*, users(email)")
+      .select("*, users:user_id(email)")
       .eq("id", orderId)
       .single()
 
     if (fetchError || !order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 })
+      console.error("[AIRTIME-ACTION] Order fetch failed:", fetchError)
+      return NextResponse.json({ error: "Order not found in database" }, { status: 404 })
     }
 
     if (order.status === "completed" || order.status === "failed") {
@@ -151,7 +141,7 @@ export async function POST(request: NextRequest) {
       }).catch(e => console.warn("[AIRTIME-ACTION] Delivered email error:", e))
     }
 
-    console.log(`[AIRTIME-ACTION] Admin ${admin.id} marked order ${order.reference_code} as ${action}`)
+    console.log(`[AIRTIME-ACTION] Admin ${userId} marked order ${order.reference_code} as ${action}`)
 
     return NextResponse.json({ success: true, action, orderId })
   } catch (error) {
