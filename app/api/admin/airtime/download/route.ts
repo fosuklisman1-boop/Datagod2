@@ -91,15 +91,21 @@ export async function POST(request: NextRequest) {
     if (batchError) console.error("[AIRTIME-DOWNLOAD] Batch record error:", batchError)
 
     // 6. Generate Excel
-    const excelData = orders.map(o => ({
-      Reference: o.reference_code,
-      Network: o.network,
-      Phone: o.beneficiary_phone,
-      Amount: o.airtime_amount,
-      Customer: o.users?.email || o.customer_email || o.customer_name || "Guest",
-      Shop: o.user_shops?.shop_name || "Direct",
-      Date: new Date(o.created_at).toLocaleString()
-    }))
+    const excelData = orders.map(o => {
+      // Handle potential array return from Supabase joins
+      const user = Array.isArray(o.users) ? o.users[0] : o.users
+      const shop = Array.isArray(o.user_shops) ? o.user_shops[0] : o.user_shops
+      
+      return {
+        Reference: o.reference_code,
+        Network: o.network,
+        Phone: o.beneficiary_phone,
+        Amount: o.airtime_amount,
+        Customer: user?.email || o.customer_email || o.customer_name || "Guest",
+        Shop: shop?.shop_name || "Direct",
+        Date: new Date(o.created_at).toLocaleString()
+      }
+    })
 
     const worksheet = XLSX.utils.json_to_sheet(excelData)
     const workbook = XLSX.utils.book_new()
