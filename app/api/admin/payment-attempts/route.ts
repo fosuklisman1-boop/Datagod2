@@ -287,7 +287,9 @@ export async function PATCH(request: NextRequest) {
 
       if (paymentType === "wallet_topup" && userId) {
         // ===== WALLET TOP-UP: Credit the user's wallet =====
-        const creditAmount = amount - feeAmount
+        // amount in payment_attempts is stored as finalAmount (base amount) in initialize/route.ts
+        // fee is stored separately. So we should NOT subtract fee again.
+        const creditAmount = amount
 
         console.log(`[ADMIN-PAYMENT-ATTEMPTS] Processing wallet top-up for user ${userId}`)
         console.log(`  Total: GHS ${amount.toFixed(2)}, Fee: GHS ${feeAmount.toFixed(2)}, Credit: GHS ${creditAmount.toFixed(2)}`)
