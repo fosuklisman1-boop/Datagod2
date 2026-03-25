@@ -1,26 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function GET(request: NextRequest) {
   try {
-    // Auth — admin only
-    const authHeader = request.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const token = authHeader.slice(7)
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    if (user.user_metadata?.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-    }
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) return errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const { searchParams } = new URL(request.url)
     const date       = searchParams.get("date")
@@ -33,15 +22,10 @@ export async function GET(request: NextRequest) {
 
     console.log(`[AIRTIME-LIST] Filters - Date: ${date}, Net: ${network}, Status: ${status}, Search: ${search}`)
 
-    // Build query - temporarily remove users join to check if it's the issue
+    // Build query - SIMPLIFIED to troubleshoot visibility
     let query = supabase
       .from("airtime_orders")
-      .select(`
-        id, reference_code, network, beneficiary_phone,
-        airtime_amount, fee_amount, total_paid, pay_separately,
-        status, notes, created_at, updated_at, user_id,
-        users:user_id(email)
-      `, { count: "exact" })
+      .select("*", { count: "exact" })
 
     if (date && date !== "all") {
       query = query
@@ -67,7 +51,9 @@ export async function GET(request: NextRequest) {
       throw error
     }
 
-    console.log(`[AIRTIME-LIST] Found ${orders?.length || 0} orders (Total: ${count})`)
+    // DEBUG: Check how many rows exist in the table TOTAL
+    const { count: totalAllOrders } = await supabase.from("airtime_orders").select("*", { count: "exact", head: true })
+    console.log(`[AIRTIME-LIST] Found ${orders?.length || 0} filtered orders (Total matching: ${count}). Total rows in table: ${totalAllOrders}`)
 
     // Aggregate stats for filtered set (whole matching set, not just one page)
     let statsQuery = supabase
@@ -87,10 +73,11 @@ export async function GET(request: NextRequest) {
 
     const stats = (statsData || []).reduce(
       (acc, o) => {
-        acc.totalRevenue += o.total_paid || 0
-        acc.totalProfit  += o.fee_amount || 0
-        acc.totalVolume  += o.airtime_amount || 0
-        acc[o.status]    = (acc[o.status] || 0) + 1
+        acc.totalRevenue += Number(o.total_paid || 0)
+        acc.totalProfit  += Number(o.fee_amount || 0)
+        acc.totalVolume  += Number(o.airtime_amount || 0)
+        const s = o.status || 'pending'
+        acc[s] = (acc[s] || 0) + 1
         return acc
       },
       { totalRevenue: 0, totalProfit: 0, totalVolume: 0, pending: 0, processing: 0, completed: 0, failed: 0 } as Record<string, number>

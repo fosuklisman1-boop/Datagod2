@@ -130,9 +130,9 @@ export default function AdminAirtimePage() {
 
   const statCards = stats
     ? [
-        { label: "Revenue",   value: `GHS ${stats.totalRevenue.toFixed(2)}`,  color: "text-indigo-600" },
-        { label: "Profit",    value: `GHS ${stats.totalProfit.toFixed(2)}`,   color: "text-green-600" },
-        { label: "Volume",    value: `GHS ${stats.totalVolume.toFixed(2)}`,   color: "text-blue-600" },
+        { label: "Revenue",   value: `GHS ${Number(stats.totalRevenue || 0).toFixed(2)}`,  color: "text-indigo-600" },
+        { label: "Profit",    value: `GHS ${Number(stats.totalProfit || 0).toFixed(2)}`,   color: "text-green-600" },
+        { label: "Volume",    value: `GHS ${Number(stats.totalVolume || 0).toFixed(2)}`,   color: "text-blue-600" },
         { label: "Pending",   value: stats.pending,                            color: "text-yellow-600" },
         { label: "Completed", value: stats.completed,                          color: "text-emerald-600" },
         { label: "Failed",    value: stats.failed,                             color: "text-red-600" },
@@ -225,12 +225,12 @@ export default function AdminAirtimePage() {
                       {copiedId === o.id ? "✓ Copied!" : o.beneficiary_phone}
                     </button>
                   </td>
-                  <td className="px-4 py-3 font-semibold text-gray-900">GHS {o.airtime_amount.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-gray-500">GHS {o.fee_amount.toFixed(2)}</td>
-                  <td className="px-4 py-3 font-semibold text-indigo-700">GHS {o.total_paid.toFixed(2)}</td>
+                  <td className="px-4 py-3 font-semibold text-gray-900">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-gray-500">GHS {Number(o.fee_amount || 0).toFixed(2)}</td>
+                  <td className="px-4 py-3 font-semibold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status] || "bg-gray-100 text-gray-600"}`}>
-                      {o.status}
+                    <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-gray-100 text-gray-600"}`}>
+                      {(o.status || 'pending').toUpperCase()}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
@@ -268,9 +268,9 @@ export default function AdminAirtimePage() {
               <p><span className="text-gray-500">Ref:</span> <strong>{actionModal.order.reference_code}</strong></p>
               <p><span className="text-gray-500">Network:</span> {actionModal.order.network}</p>
               <p><span className="text-gray-500">Phone:</span> {actionModal.order.beneficiary_phone}</p>
-              <p><span className="text-gray-500">Airtime:</span> GHS {actionModal.order.airtime_amount.toFixed(2)}</p>
+              <p><span className="text-gray-500">Airtime:</span> GHS {Number(actionModal.order.airtime_amount || 0).toFixed(2)}</p>
               {actionModal.action === "failed" && (
-                <p className="text-red-600 font-semibold mt-2">⚠ GHS {actionModal.order.total_paid.toFixed(2)} will be refunded to the user's wallet.</p>
+                <p className="text-red-600 font-semibold mt-2">⚠ GHS {Number(actionModal.order.total_paid || 0).toFixed(2)} will be refunded to the user's wallet.</p>
               )}
             </div>
             <div>
