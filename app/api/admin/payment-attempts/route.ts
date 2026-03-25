@@ -5,6 +5,7 @@ import { sendSMS } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
   createMTNOrder,
@@ -16,6 +17,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// Shared secret for internal server-to-server calls (e.g. /api/payments/verify)
+const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || ""
+
+function isInternalRequest(request: NextRequest): boolean {
+  if (!INTERNAL_SECRET) return false
+  return request.headers.get("x-internal-secret") === INTERNAL_SECRET
+}
 
 // Cleanup threshold: Mark pending attempts older than this as abandoned (in minutes)
 const ABANDONED_THRESHOLD_MINUTES = 10
@@ -69,6 +78,11 @@ async function cleanupAbandonedAttempts() {
 
 export async function GET(request: NextRequest) {
   try {
+    if (!isInternalRequest(request)) {
+      const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+      if (!isAdmin) return errorResponse!
+    }
+
     // Run cleanup in background (non-blocking)
     cleanupAbandonedAttempts()
 
@@ -235,6 +249,11 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    if (!isInternalRequest(request)) {
+      const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+      if (!isAdmin) return errorResponse!
+    }
+
     const body = await request.json()
     const { id, reference, status } = body
 

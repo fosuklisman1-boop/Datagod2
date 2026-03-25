@@ -141,7 +141,10 @@ export async function POST(request: NextRequest) {
 
         const completionResponse = await fetch(`${baseUrl}/api/admin/payment-attempts`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-secret": process.env.INTERNAL_API_SECRET || "",
+          },
           body: JSON.stringify({ reference, status: "completed" }),
         })
 
