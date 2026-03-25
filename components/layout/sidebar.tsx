@@ -34,6 +34,7 @@ import {
   Zap,
   Crown,
   Sparkles,
+  Smartphone,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -53,6 +54,7 @@ const formatCount = (num: number): string => {
 const menuItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/airtime", label: "Buy Airtime", icon: Smartphone, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/afa-orders", label: "AFA Orders", icon: Star, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent", "dealer"] },
@@ -534,6 +536,29 @@ export function Sidebar() {
                       )}
                     </div>
                   )}
+                </Button>
+              </Link>
+
+              <Link href="/admin/airtime" onClick={() => handleNavigation("/admin/airtime")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/airtime" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/airtime" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/airtime" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Airtime Management" : undefined}
+                  disabled={loadingPath === "/admin/airtime"}
+                >
+                  {loadingPath === "/admin/airtime" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Smartphone className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Airtime Management"}
                 </Button>
               </Link>
               <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>

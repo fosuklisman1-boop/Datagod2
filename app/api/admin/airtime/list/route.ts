@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
         users(email, user_metadata)
       `, { count: "exact" })
 
-    if (date) {
+    if (date && date !== "all") {
       query = query
         .gte("created_at", `${date}T00:00:00Z`)
         .lte("created_at", `${date}T23:59:59Z`)
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       .from("airtime_orders")
       .select("airtime_amount, fee_amount, total_paid, status")
 
-    if (date) {
+    if (date && date !== "all") {
       statsQuery = statsQuery
         .gte("created_at", `${date}T00:00:00Z`)
         .lte("created_at", `${date}T23:59:59Z`)

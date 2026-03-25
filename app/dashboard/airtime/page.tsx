@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@supabase/supabase-js"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -175,7 +176,7 @@ export default function AirtimePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <DashboardLayout>
       <div className="max-w-2xl mx-auto space-y-8">
 
         {/* Header */}
@@ -333,6 +334,6 @@ export default function AirtimePage() {
         </div>
 
       </div>
-    </div>
+    </DashboardLayout>
   )
 }

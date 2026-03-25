@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@supabase/supabase-js"
 import { useRouter } from "next/navigation"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,7 +49,7 @@ export default function AdminAirtimePage() {
   const [token, setToken]         = useState<string | null>(null)
 
   // Filters
-  const [date, setDate]           = useState(new Date().toISOString().split("T")[0])
+  const [date, setDate]           = useState("") // Default to empty for all dates
   const [network, setNetwork]     = useState("all")
   const [status, setStatus]       = useState("all")
   const [search, setSearch]       = useState("")
@@ -133,8 +134,9 @@ export default function AdminAirtimePage() {
     : []
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50">
-      <h1 className="text-2xl font-bold text-gray-900">Airtime Orders</h1>
+    <DashboardLayout>
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-gray-900">Airtime Orders</h1>
 
       {/* Stats */}
       {stats && (
@@ -291,6 +293,7 @@ export default function AdminAirtimePage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </DashboardLayout>
   )
 }
