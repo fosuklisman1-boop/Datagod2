@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { CreditCard, Loader2, Zap, CheckCircle2, ShieldCheck } from "lucide-react"
+import { CreditCard, Loader2, Zap, CheckCircle2, ShieldCheck, Copy } from "lucide-react"
 import { networkLogoService } from "@/lib/shop-service"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { toast } from "sonner"
@@ -21,6 +21,11 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [constraints, setConstraints] = useState<any>(null)
   const [paySeparately, setPaySeparately] = useState(true)
+  const [availability, setAvailability] = useState<Record<string, boolean>>({
+    MTN: true,
+    Telecel: true,
+    AT: true
+  })
   
   const [formData, setFormData] = useState({
     customerName: "",
@@ -31,6 +36,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
   useEffect(() => {
     loadNetworkLogos()
+    checkAllAvailability()
   }, [])
 
   useEffect(() => {
@@ -46,6 +52,24 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     } catch (error) {
       console.error("Error loading network logos:", error)
     }
+  }
+
+  const checkAllAvailability = async () => {
+    const nets = ["MTN", "Telecel", "AT"]
+    const newAvail: Record<string, boolean> = { ...availability }
+    
+    for (const net of nets) {
+      try {
+        const res = await fetch(`/api/shop/airtime/public-constraints?slug=${shopSlug}&network=${net}`)
+        if (res.ok) {
+          const data = await res.json()
+          newAvail[net] = data.isAvailable !== false
+        }
+      } catch (e) {
+        console.error(`Error checking ${net} availability:`, e)
+      }
+    }
+    setAvailability(newAvail)
   }
 
   const loadConstraints = async () => {
@@ -201,34 +225,45 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               1. Select Network
             </Label>
             <div className="grid grid-cols-3 gap-3">
-              {networks.map((net) => (
-                <button
-                  key={net.id}
-                  type="button"
-                  onClick={() => setSelectedNetwork(net.id)}
-                  className={`relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-300 ${
-                    selectedNetwork === net.id
-                      ? "border-violet-600 bg-violet-50 ring-4 ring-violet-100"
-                      : "border-slate-100 bg-slate-50 hover:border-violet-200 hover:bg-slate-100"
-                  }`}
-                >
-                  {networkLogos[net.id] ? (
-                    <img src={networkLogos[net.id]} alt={net.name} className="w-12 h-12 object-contain mb-2" />
-                  ) : (
-                    <div className="w-12 h-12 bg-slate-200 rounded-full mb-2 flex items-center justify-center">
-                       <span className="font-bold text-slate-500">{net.name[0]}</span>
-                    </div>
-                  )}
-                  <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-violet-700" : "text-slate-500"}`}>
-                    {net.name}
-                  </span>
-                  {selectedNetwork === net.id && (
-                    <div className="absolute -top-2 -right-2 bg-violet-600 text-white rounded-full p-1 shadow-md">
-                      <CheckCircle2 className="w-3 h-3" />
-                    </div>
-                  )}
-                </button>
-              ))}
+              {networks.map((net) => {
+                const isAvail = availability[net.id] !== false
+                return (
+                  <button
+                    key={net.id}
+                    type="button"
+                    disabled={!isAvail}
+                    onClick={() => setSelectedNetwork(net.id)}
+                    className={`relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-300 ${
+                      selectedNetwork === net.id
+                        ? "border-violet-600 bg-violet-50 ring-4 ring-violet-100 shadow-lg scale-[1.05]"
+                        : isAvail 
+                          ? "border-slate-100 bg-slate-50 hover:border-violet-200 hover:bg-slate-100"
+                          : "border-slate-50 bg-slate-50/50 grayscale opacity-60 cursor-not-allowed"
+                    }`}
+                  >
+                    {!isAvail && (
+                      <div className="absolute top-1 right-1 bg-red-100 text-red-600 text-[8px] font-black px-1 rounded-sm border border-red-200">
+                        OOS
+                      </div>
+                    )}
+                    {networkLogos[net.id] ? (
+                      <img src={networkLogos[net.id]} alt={net.name} className="w-12 h-12 object-contain mb-2" />
+                    ) : (
+                      <div className="w-12 h-12 bg-slate-200 rounded-full mb-2 flex items-center justify-center">
+                         <span className="font-bold text-slate-500">{net.name[0]}</span>
+                      </div>
+                    )}
+                    <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-violet-700" : "text-slate-500"}`}>
+                      {net.name}
+                    </span>
+                    {selectedNetwork === net.id && (
+                      <div className="absolute -top-2 -right-2 bg-violet-600 text-white rounded-full p-1 shadow-md">
+                        <CheckCircle2 className="w-3 h-3" />
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
 

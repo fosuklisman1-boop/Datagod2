@@ -59,11 +59,16 @@ export async function GET(request: NextRequest) {
       markupPercent = Math.max(0, 10 - baseFeePercent)
     }
 
+    // 5. Check Network Availability
+    const availabilitySetting = await getAdminSetting(`airtime_enabled_${networkKey}`)
+    const isAvailable = availabilitySetting?.enabled !== false
+
     return NextResponse.json({
       success: true,
       baseFeePercent,
       markupPercent,
-      totalFeePercent: baseFeePercent + markupPercent
+      totalFeePercent: baseFeePercent + markupPercent,
+      isAvailable
     })
 
   } catch (error) {
