@@ -35,20 +35,22 @@ async function getAdminSetting(key: string): Promise<any> {
 
 export async function POST(request: NextRequest) {
   try {
-    const { shopId, beneficiaryPhone, airtimeAmount, customerName, customerEmail } = await request.json()
+    const { shopId, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail } = await request.json()
 
-    if (!shopId || !beneficiaryPhone || !airtimeAmount || !customerEmail) {
+    if (!shopId || !beneficiaryPhone || (!airtimeAmount && !bodyAmount) || !customerEmail) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
     const cleanPhone = beneficiaryPhone.replace(/\s/g, "")
-    const network = detectNetwork(cleanPhone)
+    // Prefer passed network (manual selection), fallback to detection
+    const network = passedNetwork || detectNetwork(cleanPhone)
+    
     if (!network) {
       return NextResponse.json({ error: "Unable to detect network from phone number" }, { status: 400 })
     }
 
     const networkKey = network.toLowerCase().replace(/\s/g, "_")
-    const amount = parseFloat(airtimeAmount)
+    const amount = parseFloat(airtimeAmount || bodyAmount)
 
     // Find Shop and Merchant
     const { data: shop } = await supabase

@@ -30,7 +30,7 @@ export default function ShopStorefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
-  const [activeTab, setActiveTab] = useState<"products" | "about" | "track-order">("products")
+  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "about" | "track-order">("products")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
     customer_name: "",
@@ -418,10 +418,11 @@ export default function ShopStorefront() {
   }
 
   // Tab navigation items
-  const tabs: Array<{ id: "products" | "about" | "track-order", label: string, icon: React.ReactNode }> = [
-    { id: "products", label: "Products", icon: <ShoppingCart className="w-4 h-4" /> },
+  const tabs: Array<{ id: "products" | "airtime" | "about" | "track-order", label: string, icon: React.ReactNode }> = [
+    { id: "products", label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" /> },
+    { id: "airtime", label: "Buy Airtime", icon: <Zap className="w-4 h-4" /> },
     { id: "track-order", label: "Track Order", icon: <Package className="w-4 h-4" /> },
-    { id: "about", label: "About", icon: <AlertCircle className="w-4 h-4" /> },
+    { id: "about", label: "About Shop", icon: <AlertCircle className="w-4 h-4" /> },
   ]
 
   return (
@@ -574,7 +575,34 @@ export default function ShopStorefront() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content */}
           <div className="flex-1 min-w-0">
-            {/* Products Tab */}
+            {/* Airtime Tab */}
+            {activeTab === "airtime" && (
+              <div className="space-y-8">
+                <Card className="border-0 shadow-lg bg-gradient-to-br from-violet-600 to-indigo-700 text-white overflow-hidden">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <Zap className="w-8 h-8 text-yellow-300 fill-yellow-300" />
+                      <div>
+                        <CardTitle className="text-2xl">Buy Airtime</CardTitle>
+                        <CardDescription className="text-violet-100">Instantly top up any network with ease.</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pb-8">
+                    <p className="mb-6 text-violet-50">Support for MTN, Telecel, and AT networks. Fast delivery and secure payment.</p>
+                    <Button 
+                      onClick={() => router.push(`/shop/${shopSlug}/airtime`)}
+                      className="bg-white text-violet-700 hover:bg-violet-50 font-bold px-8 py-6 rounded-xl shadow-xl transition-all hover:scale-105"
+                    >
+                      Open Airtime Form
+                      <ArrowRight className="ml-2 w-5 h-5" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Products Tab (Data Packages) */}
             {activeTab === "products" && (
               <div className="space-y-8">
                 {/* Network Selection Section */}
