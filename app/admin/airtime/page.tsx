@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText } from "lucide-react"
 import { toast } from "sonner"
 
 const supabase = createClient(
@@ -63,7 +63,7 @@ const STATUS_CLASSES: Record<string, string> = {
 
 export default function AdminAirtimePage() {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<"pending" | "downloaded">("pending")
+  const [activeTab, setActiveTab] = useState<"pending" | "downloaded" | "history">("pending")
   const [orders, setOrders]       = useState<AirtimeOrder[]>([])
   const [batches, setBatches]     = useState<DownloadBatch[]>([])
   const [stats, setStats]         = useState<Stats | null>(null)
@@ -325,14 +325,14 @@ export default function AdminAirtimePage() {
         )}
 
         <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 h-auto">
+          <TabsList className="grid w-full grid-cols-3 h-auto">
             <TabsTrigger 
               value="pending" 
               className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm"
               onClick={() => { if(status === 'all') setStatus('pending') }}
             >
               <Clock className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
-              <span>Pending Orders</span>
+              <span>Pending</span>
               {stats && (stats.pending > 0 || stats.processing > 0) && (
                 <Badge variant="secondary" className="ml-1 bg-yellow-100 text-yellow-700 text-[10px] px-1.5 h-4">
                   {stats.pending + stats.processing}
@@ -340,12 +340,20 @@ export default function AdminAirtimePage() {
               )}
             </TabsTrigger>
             <TabsTrigger 
+              value="history" 
+              className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm"
+              onClick={() => setStatus('all')}
+            >
+              <FileText className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+              <span>History</span>
+            </TabsTrigger>
+            <TabsTrigger 
               value="downloaded" 
               className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm"
               onClick={() => setStatus('all')}
             >
               <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
-              <span>Download Batches</span>
+              <span>Batches</span>
               <Badge variant="secondary" className="ml-1 bg-indigo-100 text-indigo-700 text-[10px] px-1.5 h-4">
                 {batches.length}
               </Badge>
@@ -476,6 +484,129 @@ export default function AdminAirtimePage() {
                                 onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
                               >
                                 Fail
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="history" className="space-y-6 pt-4">
+            {/* Shared Filters */}
+            <form onSubmit={handleSearch} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3 items-end">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Network</label>
+                <select value={network} onChange={e => setNetwork(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="all">All</option>
+                  <option>MTN</option><option>Telecel</option><option>AT</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                <select value={status} onChange={e => setStatus(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="all">All</option>
+                  <option>pending</option><option>processing</option><option>completed</option><option>failed</option>
+                </select>
+              </div>
+              <div className="flex-1 min-w-[180px]">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                    placeholder="Reference or Phone…"
+                    className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </div>
+              <Button type="submit" variant="default" className="bg-indigo-600 hover:bg-indigo-700">
+                Search
+              </Button>
+            </form>
+
+            {/* Orders Table (Reusable) */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      {["Reference","Customer","Shop","Network","Phone","Airtime","Total","Status","Date","Actions"].map(h => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {loading ? (
+                      <tr><td colSpan={10} className="text-center py-12 text-gray-400">Loading orders...</td></tr>
+                    ) : orders.length === 0 ? (
+                      <tr><td colSpan={10} className="text-center py-12 text-gray-400">No orders found.</td></tr>
+                    ) : (
+                      orders.map((o) => (
+                        <tr key={o.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-800">{o.reference_code}</td>
+                          <td className="px-4 py-3">
+                            <p className="text-xs font-medium text-gray-900 truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
+                              {o.users?.email || o.customer_email || o.customer_name || "Guest"}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="text-xs text-gray-600 italic">
+                              {o.user_shops?.shop_name || "Direct"}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-yellow-200 bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-700'}>
+                                {o.network}
+                             </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
+                              className="font-mono text-xs bg-gray-100 hover:bg-indigo-100 text-gray-800 px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
+                            >
+                              {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
+                              {o.beneficiary_phone}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-gray-900">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-gray-100 text-gray-600"}`}>
+                              {(o.status || 'pending').toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+                            {new Date(o.created_at).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                                onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
+                                disabled={o.status === "completed"}
+                              >
+                                {o.status === "completed" ? "Done" : "Complete"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-red-200"
+                                onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
+                                disabled={o.status === "failed"}
+                              >
+                                {o.status === "failed" ? "Failed" : "Fail"}
                               </Button>
                             </div>
                           </td>
