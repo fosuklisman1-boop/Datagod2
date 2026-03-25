@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
         created_at,
         customer_name,
         customer_email,
-        users(email),
+        users!airtime_orders_user_id_fkey_public(email),
         user_shops(shop_name)
       `)
     
@@ -92,9 +92,12 @@ export async function POST(request: NextRequest) {
 
     // 6. Generate Excel
     const excelData = orders.map(o => {
-      // Handle potential array return from Supabase joins
-      const user = Array.isArray(o.users) ? o.users[0] : o.users
-      const shop = Array.isArray(o.user_shops) ? o.user_shops[0] : o.user_shops
+      // Handle potential aliasing in the Supabase results
+      const userData = (o as any).users || (o as any)["users!airtime_orders_user_id_fkey_public"]
+      const user = Array.isArray(userData) ? userData[0] : userData
+      
+      const shopData = (o as any).user_shops
+      const shop = Array.isArray(shopData) ? shopData[0] : shopData
       
       return {
         Reference: o.reference_code,
@@ -111,7 +114,7 @@ export async function POST(request: NextRequest) {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, "Airtime_Orders")
 
-    const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" })
+    const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" })
     const fileName = `airtime-orders-${new Date().toISOString().split('T')[0]}.xlsx`
 
     return new NextResponse(excelBuffer, {
