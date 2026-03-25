@@ -22,13 +22,12 @@ interface FeeSettings {
 
 export function FeeSettings() {
   const { user } = useAuth()
-  const [settings, setSettings] = useState<FeeSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  // Form state
+  // app_settings state (single-row table)
   const [formData, setFormData] = useState<FeeSettings>({
     paystack_fee_percentage: 3.0,
     wallet_topup_fee_percentage: 0,
@@ -39,6 +38,21 @@ export function FeeSettings() {
     storefront_announcement_enabled: false,
     storefront_announcement_title: "",
     storefront_announcement_message: "",
+  })
+
+  // admin_settings state (key-value table for airtime)
+  const [airtimeData, setAirtimeData] = useState<any>({
+    airtime_fee_mtn_customer: "0",
+    airtime_fee_mtn_dealer: "0",
+    airtime_fee_telecel_customer: "0",
+    airtime_fee_telecel_dealer: "0",
+    airtime_fee_at_customer: "0",
+    airtime_fee_at_dealer: "0",
+    airtime_min_amount: "1",
+    airtime_max_amount: "1000",
+    airtime_enabled_mtn: "true",
+    airtime_enabled_telecel: "true",
+    airtime_enabled_at: "true",
   })
 
   useEffect(() => {
@@ -52,30 +66,36 @@ export function FeeSettings() {
       setLoading(true)
       setError(null)
 
-      const token = user.id // This should be the actual auth token
-      const response = await fetch("/api/admin/settings", {
-        headers: {
-          "Authorization": `Bearer ${await getAuthToken()}`,
-        },
+      const token = await getAuthToken()
+      
+      // Load global app settings
+      const appRes = await fetch("/api/admin/settings", {
+        headers: { "Authorization": `Bearer ${token}` },
       })
-
-      if (!response.ok) {
-        throw new Error("Failed to load settings")
+      if (appRes.ok) {
+        const data = await appRes.json()
+        setFormData({
+          paystack_fee_percentage: data.paystack_fee_percentage || 3.0,
+          wallet_topup_fee_percentage: data.wallet_topup_fee_percentage || 0,
+          join_community_link: data.join_community_link || "",
+          announcement_enabled: data.announcement_enabled || false,
+          announcement_title: data.announcement_title || "",
+          announcement_message: data.announcement_message || "",
+          storefront_announcement_enabled: data.storefront_announcement_enabled || false,
+          storefront_announcement_title: data.storefront_announcement_title || "",
+          storefront_announcement_message: data.storefront_announcement_message || "",
+        })
       }
 
-      const data = await response.json()
-      setSettings(data)
-      setFormData({
-        paystack_fee_percentage: data.paystack_fee_percentage || 3.0,
-        wallet_topup_fee_percentage: data.wallet_topup_fee_percentage || 0,
-        join_community_link: data.join_community_link || "",
-        announcement_enabled: data.announcement_enabled || false,
-        announcement_title: data.announcement_title || "",
-        announcement_message: data.announcement_message || "",
-        storefront_announcement_enabled: data.storefront_announcement_enabled || false,
-        storefront_announcement_title: data.storefront_announcement_title || "",
-        storefront_announcement_message: data.storefront_announcement_message || "",
+      // Load airtime settings
+      const airtimeRes = await fetch("/api/admin/airtime/settings", {
+        headers: { "Authorization": `Bearer ${token}` },
       })
+      if (airtimeRes.ok) {
+        const { settings } = await airtimeRes.json()
+        setAirtimeData((prev: any) => ({ ...prev, ...settings }))
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings")
       console.error("Error loading settings:", err)
@@ -85,48 +105,28 @@ export function FeeSettings() {
   }
 
   const getAuthToken = async () => {
-    // Get token from Supabase auth
     const { data } = await (await import("@supabase/supabase-js")).createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     ).auth.getSession()
-    
     return data.session?.access_token || ""
   }
 
-  const handleInputChange = (
-    field: keyof FeeSettings,
-    value: string | number | boolean
-  ) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
+  const handleInputChange = (field: keyof FeeSettings, value: any) => {
+    setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleAirtimeChange = (field: string, value: any) => {
+    setAirtimeData((prev: any) => ({ ...prev, [field]: value }))
   }
 
   const validateForm = (): boolean => {
-    if (!formData.join_community_link) {
-      setError("Community link is required")
-      return false
+    if (formData.join_community_link) {
+      try { new URL(formData.join_community_link) } catch {
+        setError("Invalid URL format for community link")
+        return false
+      }
     }
-
-    try {
-      new URL(formData.join_community_link)
-    } catch {
-      setError("Invalid URL format for community link")
-      return false
-    }
-
-    if (formData.paystack_fee_percentage < 0 || formData.paystack_fee_percentage > 100) {
-      setError("Paystack fee must be between 0 and 100")
-      return false
-    }
-
-    if (formData.wallet_topup_fee_percentage < 0 || formData.wallet_topup_fee_percentage > 100) {
-      setError("Wallet topup fee must be between 0 and 100")
-      return false
-    }
-
     return true
   }
 
@@ -139,7 +139,9 @@ export function FeeSettings() {
       setSuccess(false)
 
       const token = await getAuthToken()
-      const response = await fetch("/api/admin/settings", {
+      
+      // Save app settings
+      const appRes = await fetch("/api/admin/settings", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -148,13 +150,20 @@ export function FeeSettings() {
         body: JSON.stringify(formData),
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to save settings")
+      // Save airtime settings
+      const airtimeRes = await fetch("/api/admin/airtime/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ settings: airtimeData }),
+      })
+
+      if (!appRes.ok || !airtimeRes.ok) {
+        throw new Error("Failed to save some settings")
       }
 
-      const data = await response.json()
-      setSettings(data.settings)
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
@@ -165,310 +174,210 @@ export function FeeSettings() {
     }
   }
 
-  if (!user) {
-    return (
-      <div className="text-center text-gray-500">
-        Please log in to access settings
-      </div>
-    )
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    )
-  }
+  if (!user) return <div className="text-center text-gray-500">Please log in as Admin</div>
+  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
 
   return (
-    <div className="space-y-6">
-      {/* Fee Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Payment Fees</CardTitle>
-          <CardDescription>
-            Configure payment processing fees for your platform
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Paystack Fee */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              Paystack Fee Percentage
-              <span className="text-xs text-gray-500 ml-2">(default: 3%)</span>
-            </label>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={formData.paystack_fee_percentage}
-                onChange={(e) =>
-                  handleInputChange("paystack_fee_percentage", parseFloat(e.target.value))
-                }
-                className="flex-1"
-                placeholder="3.0"
-              />
-              <span className="text-sm font-medium text-gray-600 w-8">%</span>
-            </div>
-            <p className="text-xs text-gray-500">
-              Fee charged on all Paystack wallet top-ups. Matches Paystack's standard rate.
-            </p>
-          </div>
-
-          {/* Wallet Topup Fee */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              Wallet Top-up Fee Percentage
-              <span className="text-xs text-gray-500 ml-2">(default: 0%)</span>
-            </label>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={formData.wallet_topup_fee_percentage}
-                onChange={(e) =>
-                  handleInputChange("wallet_topup_fee_percentage", parseFloat(e.target.value))
-                }
-                className="flex-1"
-                placeholder="0"
-              />
-              <span className="text-sm font-medium text-gray-600 w-8">%</span>
-            </div>
-            <p className="text-xs text-gray-500">
-              Additional fee charged on top-ups. Set to 0 for no additional fee.
-            </p>
-          </div>
-
-          {/* Fee Preview */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
-            <h4 className="font-semibold text-sm text-blue-900">Fee Preview</h4>
-            <div className="text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-blue-700">Amount to top up:</span>
-                <span className="font-medium text-blue-900">GHS 100.00</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-blue-700">
-                  Paystack fee ({formData.paystack_fee_percentage}%):
-                </span>
-                <span className="font-medium text-blue-900">
-                  GHS {(100 * formData.paystack_fee_percentage / 100).toFixed(2)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-blue-700">
-                  Wallet topup fee ({formData.wallet_topup_fee_percentage}%):
-                </span>
-                <span className="font-medium text-blue-900">
-                  GHS {(100 * formData.wallet_topup_fee_percentage / 100).toFixed(2)}
-                </span>
-              </div>
-              <div className="border-t border-blue-200 pt-1 flex justify-between">
-                <span className="text-blue-900 font-semibold">Total charge:</span>
-                <span className="font-bold text-blue-900">
-                  GHS {(100 + (100 * formData.paystack_fee_percentage / 100) + (100 * formData.wallet_topup_fee_percentage / 100)).toFixed(2)}
-                </span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Community Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Community Settings</CardTitle>
-          <CardDescription>
-            Configure community links and announcements
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              Join Community Link
-            </label>
-            <Input
-              type="url"
-              value={formData.join_community_link}
-              onChange={(e) =>
-                handleInputChange("join_community_link", e.target.value)
-              }
-              placeholder="https://example.com"
-            />
-            <p className="text-xs text-gray-500">
-              URL for users to join your community (e.g., Discord, WhatsApp)
-            </p>
-          </div>
-
-          {/* Announcement Toggle */}
-          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-            <input
-              type="checkbox"
-              id="announcement_enabled"
-              checked={formData.announcement_enabled}
-              onChange={(e) =>
-                handleInputChange("announcement_enabled", e.target.checked)
-              }
-              className="rounded"
-            />
-            <label htmlFor="announcement_enabled" className="text-sm font-medium text-gray-700">
-              Enable Announcement
-            </label>
-          </div>
-
-          {/* Announcement Fields */}
-          {formData.announcement_enabled && (
-            <div className="space-y-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Announcement Title
-                </label>
-                <Input
-                  type="text"
-                  value={formData.announcement_title}
-                  onChange={(e) =>
-                    handleInputChange("announcement_title", e.target.value)
-                  }
-                  placeholder="Important Update"
-                  maxLength={255}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Announcement Message
-                </label>
-                <textarea
-                  value={formData.announcement_message}
-                  onChange={(e) =>
-                    handleInputChange("announcement_message", e.target.value)
-                  }
-                  placeholder="Type your announcement message here..."
-                  rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Global Storefront Announcement Override */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Global Storefront Override</CardTitle>
-          <CardDescription>
-            Force all sub-agent and dealer storefronts to display this announcement. This overrides their individual shop announcements.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-            <input
-              type="checkbox"
-              id="storefront_announcement_enabled"
-              checked={formData.storefront_announcement_enabled}
-              onChange={(e) =>
-                handleInputChange("storefront_announcement_enabled", e.target.checked)
-              }
-              className="rounded"
-            />
-            <label htmlFor="storefront_announcement_enabled" className="text-sm font-medium text-gray-700">
-              Enable Global Storefront Override
-            </label>
-          </div>
-
-          {formData.storefront_announcement_enabled && (
-            <div className="space-y-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-              <div className="flex gap-2 p-3 bg-purple-100/50 text-purple-800 text-sm rounded-md items-start">
-                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                <p>When this is turned on, every customer visiting <strong>any storefront</strong> will see this announcement instead of the shop's personal announcement.</p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Global Announcement Title
-                </label>
-                <Input
-                  type="text"
-                  value={formData.storefront_announcement_title}
-                  onChange={(e) =>
-                    handleInputChange("storefront_announcement_title", e.target.value)
-                  }
-                  placeholder="System Maintenance Notice"
-                  maxLength={255}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Global Announcement Message
-                </label>
-                <textarea
-                  value={formData.storefront_announcement_message}
-                  onChange={(e) =>
-                    handleInputChange("storefront_announcement_message", e.target.value)
-                  }
-                  placeholder="Type your global announcement here..."
-                  rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Error Alert */}
-      {error && (
-        <div className="flex gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <h3 className="font-medium text-red-900">Error</h3>
-            <p className="text-sm text-red-700 mt-1">{error}</p>
-          </div>
+    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">System Settings</h1>
+          <p className="text-gray-500 mt-1">Manage global fees, announcements, and airtime configuration</p>
         </div>
-      )}
-
-      {/* Success Alert */}
-      {success && (
-        <div className="flex gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <h3 className="font-medium text-green-900">Success</h3>
-            <p className="text-sm text-green-700 mt-1">Settings saved successfully</p>
-          </div>
+        <div className="flex gap-3">
+          <Button onClick={loadSettings} variant="outline" disabled={loading || saving}>Reset</Button>
+          <Button onClick={handleSave} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
+            {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</> : "Save All Changes"}
+          </Button>
         </div>
-      )}
-
-      {/* Save Button */}
-      <div className="flex gap-3">
-        <Button
-          onClick={handleSave}
-          disabled={saving}
-          className="gap-2"
-        >
-          {saving ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            "Save Settings"
-          )}
-        </Button>
-        <Button
-          onClick={loadSettings}
-          variant="outline"
-          disabled={loading || saving}
-        >
-          Reset
-        </Button>
       </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          {/* Airtime Management */}
+          <Card className="border-orange-200 shadow-sm">
+            <CardHeader className="bg-orange-50/50 border-b border-orange-100">
+              <CardTitle className="text-orange-900">Airtime Management</CardTitle>
+              <CardDescription className="text-orange-700">Set network-specific fees and operational limits</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* MTN */}
+                <div className="space-y-4 p-4 rounded-xl bg-gray-50/50 border border-gray-100">
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <h4 className="font-bold text-gray-900">MTN Ghana</h4>
+                    <select 
+                      value={airtimeData.airtime_enabled_mtn}
+                      onChange={(e) => handleAirtimeChange("airtime_enabled_mtn", e.target.value)}
+                      className="text-xs font-semibold px-2 py-1 rounded bg-white border"
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Disabled</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-500">Customer Fee (GHS)</label>
+                      <Input type="number" step="0.1" value={airtimeData.airtime_fee_mtn_customer} onChange={(e) => handleAirtimeChange("airtime_fee_mtn_customer", e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-500">Dealer/Sub-Agent Fee (GHS)</label>
+                      <Input type="number" step="0.1" value={airtimeData.airtime_fee_mtn_dealer} onChange={(e) => handleAirtimeChange("airtime_fee_mtn_dealer", e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Telecel */}
+                <div className="space-y-4 p-4 rounded-xl bg-gray-50/50 border border-gray-100">
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <h4 className="font-bold text-gray-900">Telecel (Vodafone)</h4>
+                    <select 
+                      value={airtimeData.airtime_enabled_telecel}
+                      onChange={(e) => handleAirtimeChange("airtime_enabled_telecel", e.target.value)}
+                      className="text-xs font-semibold px-2 py-1 rounded bg-white border"
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Disabled</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-500">Customer Fee (GHS)</label>
+                      <Input type="number" step="0.1" value={airtimeData.airtime_fee_telecel_customer} onChange={(e) => handleAirtimeChange("airtime_fee_telecel_customer", e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-500">Dealer/Sub-Agent Fee (GHS)</label>
+                      <Input type="number" step="0.1" value={airtimeData.airtime_fee_telecel_dealer} onChange={(e) => handleAirtimeChange("airtime_fee_telecel_dealer", e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* AT */}
+                <div className="space-y-4 p-4 rounded-xl bg-gray-50/50 border border-gray-100">
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <h4 className="font-bold text-gray-900">AT (AirtelTigo)</h4>
+                    <select 
+                      value={airtimeData.airtime_enabled_at}
+                      onChange={(e) => handleAirtimeChange("airtime_enabled_at", e.target.value)}
+                      className="text-xs font-semibold px-2 py-1 rounded bg-white border"
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Disabled</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-500">Customer Fee (GHS)</label>
+                      <Input type="number" step="0.1" value={airtimeData.airtime_fee_at_customer} onChange={(e) => handleAirtimeChange("airtime_fee_at_customer", e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-500">Dealer/Sub-Agent Fee (GHS)</label>
+                      <Input type="number" step="0.1" value={airtimeData.airtime_fee_at_dealer} onChange={(e) => handleAirtimeChange("airtime_fee_at_dealer", e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Limits */}
+                <div className="space-y-4 p-4 rounded-xl bg-gray-800 text-white border border-gray-700 shadow-md">
+                   <h4 className="font-bold text-white border-b border-gray-700 pb-2">Purchase Limits</h4>
+                   <div className="grid grid-cols-1 gap-4 pt-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-400">Min Amount (GHS)</label>
+                      <Input type="number" className="bg-gray-900 border-gray-700 text-white" value={airtimeData.airtime_min_amount} onChange={(e) => handleAirtimeChange("airtime_min_amount", e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-gray-400">Max Amount (GHS)</label>
+                      <Input type="number" className="bg-gray-900 border-gray-700 text-white" value={airtimeData.airtime_max_amount} onChange={(e) => handleAirtimeChange("airtime_max_amount", e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment Fees */}
+          <Card className="shadow-sm">
+            <CardHeader className="bg-gray-50/50 border-b border-gray-100">
+              <CardTitle>Platform Fees</CardTitle>
+              <CardDescription>Configure processing fees for wallet top-ups</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Paystack Fee (%)</label>
+                  <div className="flex items-center gap-2">
+                    <Input type="number" value={formData.paystack_fee_percentage} onChange={(e) => handleInputChange("paystack_fee_percentage", parseFloat(e.target.value))} />
+                    <span className="text-gray-500">%</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Wallet Top-up Extra Fee (%)</label>
+                  <div className="flex items-center gap-2">
+                    <Input type="number" value={formData.wallet_topup_fee_percentage} onChange={(e) => handleInputChange("wallet_topup_fee_percentage", parseFloat(e.target.value))} />
+                    <span className="text-gray-500">%</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-8">
+           {/* Community Settings */}
+           <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle>Community</CardTitle>
+              <CardDescription>Links & Announcements</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-gray-500">Join Community Link</label>
+                <Input type="url" value={formData.join_community_link} onChange={(e) => handleInputChange("join_community_link", e.target.value)} />
+              </div>
+
+              <div className="space-y-4 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold text-gray-700 font-medium">Internal Announcement</label>
+                  <input type="checkbox" className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" checked={formData.announcement_enabled} onChange={(e) => handleInputChange("announcement_enabled", e.target.checked)} />
+                </div>
+                {formData.announcement_enabled && (
+                  <div className="space-y-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                    <Input placeholder="Title" value={formData.announcement_title} onChange={(e) => handleInputChange("announcement_title", e.target.value)} />
+                    <textarea className="w-full text-sm p-3 rounded-md border border-gray-300 min-h-[100px]" placeholder="Message..." value={formData.announcement_message} onChange={(e) => handleInputChange("announcement_message", e.target.value)} />
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold text-gray-700 font-medium">Storefront Override</label>
+                  <input type="checkbox" className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500" checked={formData.storefront_announcement_enabled} onChange={(e) => handleInputChange("storefront_announcement_enabled", e.target.checked)} />
+                </div>
+                {formData.storefront_announcement_enabled && (
+                  <div className="space-y-3 p-3 bg-purple-50 rounded-lg border border-purple-100">
+                    <Input placeholder="Override Title" value={formData.storefront_announcement_title} onChange={(e) => handleInputChange("storefront_announcement_title", e.target.value)} />
+                    <textarea className="w-full text-sm p-3 rounded-md border border-gray-300 min-h-[100px]" placeholder="Override Message..." value={formData.storefront_announcement_message} onChange={(e) => handleInputChange("storefront_announcement_message", e.target.value)} />
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+          <p className="text-sm text-red-700 font-medium">{error}</p>
+        </div>
+      )}
+
+      {success && (
+        <div className="fixed bottom-8 right-8 flex gap-3 p-4 bg-green-600 text-white rounded-xl shadow-2xl animate-in slide-in-from-bottom-5">
+          <CheckCircle2 className="w-5 h-5" />
+          <p className="text-sm font-bold">Settings saved successfully!</p>
+        </div>
+      )}
     </div>
   )
 }

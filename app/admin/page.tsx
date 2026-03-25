@@ -628,7 +628,37 @@ export default function AdminDashboardPage() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Airtime Orders */}
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-orange-50/60 to-yellow-50/40 backdrop-blur-xl border border-orange-200/40 hover:border-orange-300/60">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-gradient-to-br from-orange-400/30 to-yellow-400/20 backdrop-blur p-2 rounded-lg border border-orange-300/60">
+                  <Banknote className="h-5 w-5 text-orange-600" />
+                </div>
+                <CardTitle>Airtime Orders</CardTitle>
+              </div>
+              <CardDescription>Manage and fulfil airtime top-up orders</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => handleNavigate("/admin/airtime")}
+                disabled={navigating !== null}
+                className="w-full bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-700 hover:to-yellow-700 text-white font-semibold"
+              >
+                {navigating === "/admin/airtime" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Manage Airtime"
+                )}
+              </Button>
+            </CardContent>
+          </Card>
         </div>
+
 
         {/* Success Metrics */}
         {stats && (

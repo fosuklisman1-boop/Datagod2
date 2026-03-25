@@ -452,7 +452,7 @@ export default function DashboardPage() {
             <CardTitle className="text-gray-900">Quick Actions</CardTitle>
             <CardDescription>Get started with common tasks</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <Button
               onClick={() => router.push("/dashboard/my-shop")}
               className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 font-semibold text-white"
@@ -464,6 +464,12 @@ export default function DashboardPage() {
               className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 font-semibold text-white"
             >
               Buy Data Package
+            </Button>
+            <Button
+              onClick={() => router.push("/dashboard/airtime")}
+              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 font-semibold text-white"
+            >
+              Buy Airtime
             </Button>
             <Button
               variant="outline"

@@ -23,10 +23,30 @@ export async function GET(request: NextRequest) {
       throw rpcError
     }
 
+    // Fetch airtime stats separately and merge
+    const { data: airtimeData, error: airtimeError } = await supabase
+      .from("airtime_orders")
+      .select("status, total_paid")
+
+    const airtimeStats = (airtimeData || []).reduce((acc, order) => {
+      acc.totalAirtimeOrders++
+      if (order.status === 'completed') {
+        acc.completedAirtimeOrders++
+        acc.airtimeRevenue += (order.total_paid || 0)
+      }
+      return acc
+    }, { totalAirtimeOrders: 0, completedAirtimeOrders: 0, airtimeRevenue: 0 })
+
     return NextResponse.json(
       {
         ...stats,
-        successRate: stats.totalOrders ? (((stats.completedOrders / stats.totalOrders) * 100).toFixed(2)) : 0,
+        totalOrders: stats.totalOrders + airtimeStats.totalAirtimeOrders,
+        completedOrders: stats.completedOrders + airtimeStats.completedAirtimeOrders,
+        totalRevenue: stats.totalRevenue + airtimeStats.airtimeRevenue,
+        airtimeStats, // Optional: send detailed airtime stats too
+        successRate: (stats.totalOrders + airtimeStats.totalAirtimeOrders) 
+          ? (((stats.completedOrders + airtimeStats.completedAirtimeOrders) / (stats.totalOrders + airtimeStats.totalAirtimeOrders)) * 100).toFixed(2) 
+          : 0,
       },
       { status: 200 }
     )

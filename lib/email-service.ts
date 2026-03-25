@@ -651,7 +651,64 @@ export const EmailTemplates = {
       <a href="${APP_URL}/dashboard" class="button-primary">Go to Dashboard</a>
     `, "Account Restored", true),
   }),
+
+  // ── Airtime Templates ─────────────────────────────────────
+  airtimePurchaseConfirmed: (referenceCode: string, network: string, airtimeAmount: string, totalPaid: string) => ({
+    subject: `Airtime Delivered — ${referenceCode}`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">📱</span>
+        <h2>Airtime Delivered!</h2>
+        <span class="badge badge-success">Completed</span>
+        <p class="mt-4">Your airtime has been sent successfully.</p>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row"><span class="info-label">Reference</span><span class="info-value">${referenceCode}</span></div>
+        <div class="info-row"><span class="info-label">Network</span><span class="info-value">${network}</span></div>
+        <div class="info-row"><span class="info-label">Airtime Sent</span><span class="info-value highlight">GHS ${airtimeAmount}</span></div>
+        <div class="info-row"><span class="info-label">Total Deducted</span><span class="info-value">GHS ${totalPaid}</span></div>
+      </div>
+
+      <a href="${APP_URL}/dashboard/airtime" class="button-secondary">View Order History</a>
+    `, "Airtime Delivered", true),
+  }),
+
+  airtimeAdminAlert: (referenceCode: string, network: string, phone: string, airtimeAmount: string, totalPaid: string) => ({
+    subject: `[AIRTIME] New Order: ${referenceCode}`,
+    html: wrapHtml(`
+      <h2>New Airtime Order</h2>
+      <div class="info-card">
+        <div class="info-row"><span class="info-label">Reference</span><span class="info-value">${referenceCode}</span></div>
+        <div class="info-row"><span class="info-label">Network</span><span class="info-value">${network}</span></div>
+        <div class="info-row"><span class="info-label">Beneficiary</span><span class="info-value">${phone}</span></div>
+        <div class="info-row"><span class="info-label">Airtime Amount</span><span class="info-value highlight">GHS ${airtimeAmount}</span></div>
+        <div class="info-row"><span class="info-label">Total Charged</span><span class="info-value">GHS ${totalPaid}</span></div>
+      </div>
+      <a href="${APP_URL}/admin/airtime" class="button-primary">Manage in Admin Panel</a>
+    `, "Admin Alert", true),
+  }),
+
+  airtimeOrderFailed: (referenceCode: string, reason: string) => ({
+    subject: `Airtime Order Failed — ${referenceCode}`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">❌</span>
+        <h2>Airtime Order Failed</h2>
+        <span class="badge badge-error">Refunded</span>
+        <p class="mt-4">We could not complete your airtime order.</p>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row"><span class="info-label">Reference</span><span class="info-value">${referenceCode}</span></div>
+        <div class="info-row"><span class="info-label">Reason</span><span class="info-value">${reason}</span></div>
+      </div>
+      <p>The full amount has been refunded to your wallet.</p>
+      <a href="${APP_URL}/dashboard/wallet" class="button-secondary">Check Wallet</a>
+    `, "Order Failed", true),
+  }),
 }
+
 
 /**
  * Send email via Brevo
