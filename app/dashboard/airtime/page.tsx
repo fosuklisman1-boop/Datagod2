@@ -85,26 +85,50 @@ export default function AirtimePage() {
     ? numAmount
     : parseFloat((numAmount - feeAmount).toFixed(2))
 
+  const [availableNetworks, setAvailableNetworks] = useState<string[]>(["MTN", "Telecel", "AT"])
+
   // ----- Load wallet balance & fee from settings -----
   const loadSettings = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { router.push("/auth/login"); return }
 
+    // Fetch basic user context
     const [walletRes, roleRes] = await Promise.all([
       supabase.from("wallets").select("balance").eq("user_id", session.user.id).single(),
       supabase.from("users").select("role").eq("id", session.user.id).single(),
     ])
     setWalletBalance(walletRes.data?.balance ?? 0)
-
     const role = roleRes.data?.role || "user"
     setUserRole(role)
     const isDealer = role === "dealer" || role === "sub_agent"
-    const netKey = network.toLowerCase()
-    const { data: feeSetting } = await supabase
+
+    // Fetch availability settings
+    const { data: settingsData } = await supabase
       .from("admin_settings")
-      .select("value")
-      .eq("key", `airtime_fee_${netKey}_${isDealer ? 'dealer' : 'customer'}`)
-      .single()
+      .select("key, value")
+      .in("key", [
+        "airtime_enabled_mtn", "airtime_enabled_telecel", "airtime_enabled_at",
+        `airtime_fee_mtn_${isDealer ? 'dealer' : 'customer'}`,
+        `airtime_fee_telecel_${isDealer ? 'dealer' : 'customer'}`,
+        `airtime_fee_at_${isDealer ? 'dealer' : 'customer'}`
+      ])
+
+    // Filter networks
+    const enabledNets = ["MTN", "Telecel", "AT"].filter(n => {
+      const setting = settingsData?.find(s => s.key === `airtime_enabled_${n.toLowerCase()}`)
+      return setting?.value?.enabled !== false
+    })
+
+    setAvailableNetworks(enabledNets)
+    
+    // Auto-switch network if current is disabled
+    if (enabledNets.length > 0 && !enabledNets.includes(network)) {
+      setNetwork(enabledNets[0])
+    }
+
+    // Set specific fee for current network
+    const netKey = network.toLowerCase()
+    const feeSetting = settingsData?.find(s => s.key === `airtime_fee_${netKey}_${isDealer ? 'dealer' : 'customer'}`)
     setFeeRate(feeSetting?.value?.rate ?? 5)
   }, [network, router])
 
@@ -191,18 +215,25 @@ export default function AirtimePage() {
         </div>
 
         {/* Network Selector */}
-        <div className="grid grid-cols-3 gap-3">
-          {NETWORKS.map((n) => (
-            <button
-              key={n}
-              onClick={() => setNetwork(n)}
-              className={`py-3 rounded-xl font-semibold text-white bg-gradient-to-br transition-all shadow-sm
-                ${NETWORK_COLORS[n]}
-                ${network === n ? "ring-2 ring-offset-2 ring-gray-800 scale-105" : "opacity-70 hover:opacity-100"}`}
-            >
-              {n}
-            </button>
-          ))}
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            {availableNetworks.map((n) => (
+              <button
+                key={n}
+                onClick={() => setNetwork(n)}
+                className={`py-3 rounded-xl font-semibold text-white bg-gradient-to-br transition-all shadow-sm
+                  ${NETWORK_COLORS[n]}
+                  ${network === n ? "ring-2 ring-offset-2 ring-gray-800 scale-105" : "opacity-70 hover:opacity-100"}`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          {availableNetworks.length === 0 && !loadingOrders && (
+            <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-100 text-center font-medium">
+              Airtime services are temporarily unavailable. Please check back later.
+            </div>
+          )}
         </div>
 
         {/* Purchase Form */}
