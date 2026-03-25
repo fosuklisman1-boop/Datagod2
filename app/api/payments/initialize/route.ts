@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           shop_id: shopId || null,
           order_id: orderId || null,
+          order_type: orderType || "data",
           amount: parseFloat(totalAmount.toString()),
           fee: parseFloat(paystackFee.toString()),
           reference,

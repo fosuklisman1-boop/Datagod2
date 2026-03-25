@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
       // Find and update payment record (select only needed columns)
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")
-        .select("id, user_id, status, shop_id, order_id, fee, reference, amount")
+        .select("id, user_id, status, shop_id, order_id, order_type, fee, reference, amount")
         .eq("reference", reference)
         .single()
 
@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
         let verifiedTotalPrice = 0;
 
         // Fetch the shop order and all relevant fields
-        const isAirtime = metadata?.orderType === "airtime"
+        const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
         
         if (isAirtime) {
           const { data: airtimeOrder } = await supabase
@@ -1461,7 +1461,7 @@ export async function POST(request: NextRequest) {
       // Find payment record
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")
-        .select("id, user_id, status, shop_id, order_id, reference")
+        .select("id, user_id, status, shop_id, order_id, order_type, reference")
         .eq("reference", reference)
         .single()
 
@@ -1599,8 +1599,10 @@ export async function POST(request: NextRequest) {
       } else {
         // Update shop order payment status to failed
         if (paymentData.order_id) {
+          const table = paymentData.order_type === "airtime" ? "airtime_orders" : "shop_orders"
+          
           const { error: orderUpdateError } = await supabase
-            .from("shop_orders")
+            .from(table)
             .update({
               payment_status: "failed",
               updated_at: new Date().toISOString(),
@@ -1608,9 +1610,9 @@ export async function POST(request: NextRequest) {
             .eq("id", paymentData.order_id)
 
           if (orderUpdateError) {
-            console.error("[WEBHOOK] Error updating shop order to failed:", orderUpdateError)
+            console.error(`[WEBHOOK] Error updating ${paymentData.order_type || 'shop'} order to failed:`, orderUpdateError)
           } else {
-            console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} marked as payment failed`)
+            console.log(`[WEBHOOK] ✓ ${paymentData.order_type || 'Shop'} order ${paymentData.order_id} marked as payment failed`)
           }
         }
       }

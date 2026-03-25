@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     console.log("[PAYMENT-VERIFY] Fetching payment record...")
     const { data: paymentData, error: fetchError } = await supabase
       .from("wallet_payments")
-      .select("id, user_id, reference, status, shop_id, order_id")
+      .select("id, user_id, reference, status, shop_id, order_id, order_type")
       .eq("reference", reference)
       .maybeSingle()
 
@@ -84,23 +84,21 @@ export async function POST(request: NextRequest) {
 
       // If there's an order, mark it as failed too
       if (paymentData.order_id) {
-        // Try shop_orders first, then airtime_orders
-        await supabase
-          .from("shop_orders")
-          .update({
-            payment_status: "failed",
-            order_status: "failed",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", paymentData.order_id)
+        const table = paymentData.order_type === "airtime" ? "airtime_orders" : "shop_orders"
+        const updateData: any = {
+          payment_status: "failed",
+          updated_at: new Date().toISOString(),
+        }
         
+        if (paymentData.order_type === "airtime") {
+          updateData.status = "failed"
+        } else {
+          updateData.order_status = "failed"
+        }
+
         await supabase
-          .from("airtime_orders")
-          .update({
-            payment_status: "failed",
-            status: "failed",
-            updated_at: new Date().toISOString(),
-          })
+          .from(table)
+          .update(updateData)
           .eq("id", paymentData.order_id)
       }
 
@@ -164,143 +162,146 @@ export async function POST(request: NextRequest) {
       }
 
       // If payment was for a shop order, update its payment status and create profit record
+      // If this is a shop order payment, update its payment status and create profit record
       if (paymentData.shop_id && paymentData.order_id) {
-        console.log("[PAYMENT-VERIFY] Payment is for shop order (Data or Airtime). Updating order payment status...")
+        console.log(`[PAYMENT-VERIFY] Payment is for ${paymentData.order_type || 'shop'} order. Updating order payment status...`)
 
-        // 1. Try Shop Orders (Data)
-        const { data: shopOrderData, error: shopOrderFetchError } = await supabase
-          .from("shop_orders")
-          .select("id, profit_amount, network, volume_gb, customer_phone, customer_name")
-          .eq("id", paymentData.order_id)
-          .single()
+        if (paymentData.order_type === "airtime") {
+          // 1. Handle Airtime Orders
+          const { data: airtimeData, error: airtimeFetchError } = await supabase
+            .from("airtime_orders")
+            .select("id, shop_id, merchant_commission, reference_code, network, airtime_amount, beneficiary_phone, notes, status, is_flagged")
+            .eq("id", paymentData.order_id)
+            .maybeSingle()
 
-        if (!shopOrderFetchError && shopOrderData) {
-          // Update Data Order
-          await supabase
-            .from("shop_orders")
-            .update({
-              payment_status: "completed",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", shopOrderData.id)
-
-          console.log("[PAYMENT-VERIFY] ✓ Shop DATA order payment status updated to completed")
-
-          // Create profit record
-          const profitAmount = shopOrderData.profit_amount || 0
-          await supabase
-            .from("shop_profits")
-            .insert([{
-              shop_id: paymentData.shop_id,
-              shop_order_id: shopOrderData.id,
-              profit_amount: profitAmount,
-              status: "pending",
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            }])
-
-          // Trigger fulfillment logic for data
-          if (shopOrderData.customer_phone) {
-            console.log(`[PAYMENT-VERIFY] Triggering unified fulfillment for order ${shopOrderData.id}`)
-            try {
-              const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
-              await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/fulfillment/process-order`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  shop_order_id: shopOrderData.id,
-                  network: shopOrderData.network,
-                  phone_number: shopOrderData.customer_phone,
-                  volume_gb: sizeGb,
-                  customer_name: shopOrderData.customer_name,
-                }),
-              })
-            } catch (fError) {
-              console.error("[PAYMENT-VERIFY] Fulfillment trigger error:", fError)
-            }
-
-            // Blacklist check
-            try {
-              const isBlacklisted = await isPhoneBlacklisted(shopOrderData.customer_phone)
-              if (isBlacklisted) {
-                await sendSMS({
-                  phone: shopOrderData.customer_phone,
-                  message: `DATAGOD: Your payment has been confirmed for ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`,
-                  type: 'order_blacklisted',
-                  reference: shopOrderData.id,
-                })
-              }
-            } catch (bError) {
-              console.warn("[PAYMENT-VERIFY] Blacklist error:", bError)
-            }
-          }
-        }
-
-        // 2. Try Airtime Orders
-        const { data: airtimeData, error: airtimeFetchError } = await supabase
-          .from("airtime_orders")
-          .select("id, shop_id, merchant_commission, reference_code, network, airtime_amount, beneficiary_phone, notes, status, is_flagged")
-          .eq("id", paymentData.order_id)
-          .maybeSingle()
-
-        if (!airtimeFetchError && airtimeData) {
-          // 0. Fraud Check
-          const isBlacklisted = await isPhoneBlacklisted(airtimeData.beneficiary_phone)
-          
-          if (isBlacklisted) {
-            console.warn(`[PAYMENT-VERIFY] ⚠️ FRAUD ALERT: Beneficiary ${airtimeData.beneficiary_phone} is blacklisted. Skipping profit disbursement.`)
+          if (!airtimeFetchError && airtimeData) {
+            // 0. Fraud Check
+            const isBlacklisted = await isPhoneBlacklisted(airtimeData.beneficiary_phone)
             
-            // Update order with fraud note
-            await supabase
-              .from("airtime_orders")
-              .update({
-                payment_status: "completed",
-                status: "flagged",
-                is_flagged: true,
-                notes: (airtimeData.notes || "") + "[FLAGGED: Beneficiary Blacklisted]",
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", airtimeData.id)
-            
-            console.log(`[PAYMENT-VERIFY] ✓ Airtime order flagged/completed.`)
-          } else {
-            // Update Airtime Order (Normal flow)
-            await supabase
-              .from("airtime_orders")
-              .update({
-                payment_status: "completed",
-                status: "pending",
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", airtimeData.id)
-            
-            console.log(`[PAYMENT-VERIFY] ✓ Airtime order status updated to pending`)
-
-            // Create profit record for merchant
-            const commission = airtimeData.merchant_commission || 0
-            if (commission > 0) {
+            if (isBlacklisted) {
+              console.warn(`[PAYMENT-VERIFY] ⚠️ FRAUD ALERT: Beneficiary ${airtimeData.beneficiary_phone} is blacklisted. Skipping profit disbursement.`)
+              
+              // Update order with fraud note
               await supabase
-                .from("shop_profits")
-                .insert([{
-                  shop_id: paymentData.shop_id,
-                  airtime_order_id: airtimeData.id,
-                  profit_amount: commission,
-                  status: "credited",
-                  created_at: new Date().toISOString(),
+                .from("airtime_orders")
+                .update({
+                  payment_status: "completed",
+                  status: "flagged",
+                  is_flagged: true,
+                  notes: (airtimeData.notes || "") + "[FLAGGED: Beneficiary Blacklisted]",
                   updated_at: new Date().toISOString(),
-                }])
-              console.log(`[PAYMENT-VERIFY] ✓ Airtime profit record created: GHS ${commission}`)
+                })
+                .eq("id", airtimeData.id)
+              
+              console.log(`[PAYMENT-VERIFY] ✓ Airtime order flagged/completed.`)
+            } else {
+              // Update Airtime Order (Normal flow)
+              await supabase
+                .from("airtime_orders")
+                .update({
+                  payment_status: "completed",
+                  status: "pending",
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", airtimeData.id)
+              
+              console.log(`[PAYMENT-VERIFY] ✓ Airtime order status updated to pending`)
+
+              // Create profit record for merchant
+              const commission = airtimeData.merchant_commission || 0
+              if (commission > 0) {
+                await supabase
+                  .from("shop_profits")
+                  .insert([{
+                    shop_id: paymentData.shop_id,
+                    airtime_order_id: airtimeData.id,
+                    profit_amount: commission,
+                    status: "credited",
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  }])
+                console.log(`[PAYMENT-VERIFY] ✓ Airtime profit record created: GHS ${commission}`)
+              }
+            }
+
+            // Notify Admins
+            const { notifyAdmins } = await import("@/lib/sms-service")
+            const alertPrefix = isBlacklisted ? "[FRAUD-ALERT] " : ""
+            await notifyAdmins(
+              `${alertPrefix}Paid Airtime Order: ${airtimeData.reference_code} | ${airtimeData.network} GHS ${airtimeData.airtime_amount} → ${airtimeData.beneficiary_phone}`,
+              isBlacklisted ? "airtime_fraud_alert" : "airtime_new_order",
+              airtimeData.id
+            )
+          }
+        } else {
+          // 2. Handle Shop Orders (Data)
+          const { data: shopOrderData, error: shopOrderFetchError } = await supabase
+            .from("shop_orders")
+            .select("id, profit_amount, network, volume_gb, customer_phone, customer_name")
+            .eq("id", paymentData.order_id)
+            .single()
+
+          if (!shopOrderFetchError && shopOrderData) {
+            // Update Data Order
+            await supabase
+              .from("shop_orders")
+              .update({
+                payment_status: "completed",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", shopOrderData.id)
+
+            console.log("[PAYMENT-VERIFY] ✓ Shop DATA order payment status updated to completed")
+
+            // Create profit record
+            const profitAmount = shopOrderData.profit_amount || 0
+            await supabase
+              .from("shop_profits")
+              .insert([{
+                shop_id: paymentData.shop_id,
+                shop_order_id: shopOrderData.id,
+                profit_amount: profitAmount,
+                status: "pending",
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }])
+
+            // Trigger fulfillment logic for data
+            if (shopOrderData.customer_phone) {
+              console.log(`[PAYMENT-VERIFY] Triggering unified fulfillment for order ${shopOrderData.id}`)
+              try {
+                const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
+                await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/fulfillment/process-order`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    shop_order_id: shopOrderData.id,
+                    network: shopOrderData.network,
+                    phone_number: shopOrderData.customer_phone,
+                    volume_gb: sizeGb,
+                    customer_name: shopOrderData.customer_name,
+                  }),
+                })
+              } catch (fError) {
+                console.error("[PAYMENT-VERIFY] Fulfillment trigger error:", fError)
+              }
+
+              // Blacklist check
+              try {
+                const isBlacklisted = await isPhoneBlacklisted(shopOrderData.customer_phone)
+                if (isBlacklisted) {
+                  await sendSMS({
+                    phone: shopOrderData.customer_phone,
+                    message: `DATAGOD: Your payment has been confirmed for ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`,
+                    type: 'order_blacklisted',
+                    reference: shopOrderData.id,
+                  })
+                }
+              } catch (bError) {
+                console.warn("[PAYMENT-VERIFY] Blacklist error:", bError)
+              }
             }
           }
-
-          // Notify Admins
-          const { notifyAdmins } = await import("@/lib/sms-service")
-          const alertPrefix = isBlacklisted ? "[FRAUD-ALERT] " : ""
-          await notifyAdmins(
-            `${alertPrefix}Paid Airtime Order: ${airtimeData.reference_code} | ${airtimeData.network} GHS ${airtimeData.airtime_amount} → ${airtimeData.beneficiary_phone}`,
-            isBlacklisted ? "airtime_fraud_alert" : "airtime_new_order",
-            airtimeData.id
-          )
         }
       }
     }
