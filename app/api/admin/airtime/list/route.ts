@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     // Build query - Restored join with disambiguation
     let query = supabase
       .from("airtime_orders")
-      .select("*, users:user_id!airtime_orders_user_id_fkey_public(email)", { count: "exact" })
+      .select("*, users!airtime_orders_user_id_fkey_public(email)", { count: "exact" })
 
     if (date && date !== "all") {
       query = query

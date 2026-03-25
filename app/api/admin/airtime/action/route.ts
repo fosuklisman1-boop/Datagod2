@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     // Fetch the order
     const { data: order, error: fetchError } = await supabase
       .from("airtime_orders")
-      .select("*, users:user_id!airtime_orders_user_id_fkey_public(email)")
+      .select("*, users!airtime_orders_user_id_fkey_public(email)")
       .eq("id", orderId)
       .single()
 
