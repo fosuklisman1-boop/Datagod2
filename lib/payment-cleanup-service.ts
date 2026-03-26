@@ -118,85 +118,49 @@ export async function cleanupAbandonedPayments(
       
       if (paystackStatus.status === "success") {
         // Payment was actually successful! Credit the wallet
-        console.log(`[PAYMENT-CLEANUP] Payment ${payment.reference} was successful - crediting wallet`)
+        console.log(`[PAYMENT-CLEANUP] Payment ${payment.reference} was successful - crediting wallet via RPC`)
         
-        // Check if transaction already exists (prevent double credit)
-        const { data: existingTransaction } = await supabase
-          .from("transactions")
-          .select("id")
-          .eq("reference_id", payment.reference)
-          .eq("user_id", payment.user_id)
-          .eq("type", "credit")
+        // Fetch the net amount from payment_attempts to be 100% sure we credit ONLY the net amount (excluding fee)
+        const { data: attempt } = await supabase
+          .from("payment_attempts")
+          .select("amount")
+          .eq("reference", payment.reference)
           .maybeSingle()
 
-        if (existingTransaction) {
-          console.log(`[PAYMENT-CLEANUP] ✓ Reference ${payment.reference} already credited. Skipping duplicate credit.`)
-          // Still mark payment as completed if not already
-          await supabase
-            .from("wallet_payments")
-            .update({ status: "completed", updated_at: new Date().toISOString() })
-            .eq("id", payment.id)
-          verified++
+        // Fallback to net amount calculation if attempt doesn't exist
+        // Note: wallet_payments.amount usually includes the fee!
+        const netAmount = attempt?.amount || payment.amount // amount from payment_attempts is net
+
+        // Use the atomic credit_wallet_safely RPC
+        // This handles: Idempotency (transactions table), atomic wallet update, and transaction logging
+        const { data: rpcData, error: rpcError } = await supabase.rpc("credit_wallet_safely", {
+          p_user_id: payment.user_id,
+          p_amount: netAmount,
+          p_reference_id: payment.reference,
+          p_description: "Wallet top-up via Paystack (recovered by system)",
+          p_source: "wallet_topup"
+        })
+
+        if (rpcError) {
+          console.error(`[PAYMENT-CLEANUP] RPC Error crediting ${payment.reference}:`, rpcError)
           continue
         }
 
-        // Get current wallet balance
-        const { data: wallet } = await supabase
-          .from("wallets")
-          .select("balance, total_credited")
-          .eq("user_id", payment.user_id)
-          .single()
+        const { already_processed: alreadyProcessed } = rpcData[0]
 
-        const currentBalance = wallet?.balance || 0
-        const currentTotalCredited = wallet?.total_credited || 0
-        const creditAmount = paystackStatus.amount || payment.amount
-        const newBalance = currentBalance + creditAmount
+        if (alreadyProcessed) {
+          console.log(`[PAYMENT-CLEANUP] ✓ Reference ${payment.reference} already credited (idempotency caught).`)
+        } else {
+          console.log(`[PAYMENT-CLEANUP] ✓ Wallet credited via RPC for user ${payment.user_id}`)
+          credited++
+        }
 
-        // Update wallet
-        await supabase
-          .from("wallets")
-          .upsert({
-            user_id: payment.user_id,
-            balance: newBalance,
-            total_credited: currentTotalCredited + creditAmount,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: "user_id" })
-
-        // Update payment status
+        // Update payment status in wallet_payments table to match
         await supabase
           .from("wallet_payments")
           .update({ status: "completed", updated_at: new Date().toISOString() })
           .eq("id", payment.id)
 
-        // Create transaction record
-        await supabase
-          .from("transactions")
-          .insert([{
-            user_id: payment.user_id,
-            type: "credit",
-            amount: creditAmount,
-            reference_id: payment.reference,
-            source: "wallet_topup",
-            description: "Wallet top-up via Paystack (recovered)",
-            status: "completed",
-            balance_before: currentBalance,
-            balance_after: newBalance,
-            created_at: new Date().toISOString(),
-          }])
-
-        // Notify user
-        await supabase
-          .from("notifications")
-          .insert([{
-            user_id: payment.user_id,
-            title: "Wallet Credited",
-            message: `Your wallet has been credited with GHS ${creditAmount.toFixed(2)}. This payment was recovered from a pending transaction.`,
-            type: "balance_updated",
-            is_read: false,
-            created_at: new Date().toISOString(),
-          }])
-
-        credited++
         verified++
       } else if (paystackStatus.status === "failed") {
         // Payment failed - mark as failed
@@ -296,71 +260,51 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
       checked++
 
       if (paystackStatus.status === "success") {
-        // Check if transaction already exists (prevent double credit)
-        const { data: existingTransaction } = await supabase
-          .from("transactions")
-          .select("id")
-          .eq("reference_id", payment.reference)
-          .eq("user_id", userId)
-          .eq("type", "credit")
+        checked++
+
+        // Fetch the net amount from payment_attempts to be 100% sure we credit ONLY the net amount (excluding fee)
+        const { data: attempt } = await supabase
+          .from("payment_attempts")
+          .select("amount")
+          .eq("reference", payment.reference)
           .maybeSingle()
 
-        if (existingTransaction) {
-          console.log(`[PAYMENT-VERIFY] ✓ Reference ${payment.reference} already credited. Skipping duplicate credit.`)
-          // Still mark payment as completed if not already
-          await supabase
-            .from("wallet_payments")
-            .update({ status: "completed", updated_at: new Date().toISOString() })
-            .eq("id", payment.id)
+        // Fallback to net amount calculation if attempt doesn't exist
+        const netAmount = attempt?.amount || payment.amount // amount from payment_attempts is net
+
+        // Use the atomic credit_wallet_safely RPC
+        // This handles: Idempotency (transactions table), atomic wallet update, and transaction logging
+        const { data: rpcData, error: rpcError } = await supabase.rpc("credit_wallet_safely", {
+          p_user_id: userId,
+          p_amount: netAmount,
+          p_reference_id: payment.reference,
+          p_description: "Wallet top-up via Paystack (verified manually)",
+          p_source: "wallet_topup"
+        })
+
+        if (rpcError) {
+          console.error(`[PAYMENT-VERIFY] RPC Error crediting ${payment.reference}:`, rpcError)
           continue
         }
 
-        // Get current wallet
-        const { data: wallet } = await supabase
-          .from("wallets")
-          .select("balance, total_credited")
-          .eq("user_id", userId)
-          .single()
+        const { already_processed: alreadyProcessed } = rpcData[0]
 
-        const currentBalance = wallet?.balance || 0
-        const creditAmount = paystackStatus.amount || payment.amount
-        const newBalance = currentBalance + creditAmount
+        if (alreadyProcessed) {
+          console.log(`[PAYMENT-VERIFY] ✓ Reference ${payment.reference} already credited (idempotency caught).`)
+        } else {
+          console.log(`[PAYMENT-VERIFY] ✓ Wallet credited via RPC for user ${userId}`)
+          credited++
+        }
 
-        // Update wallet
-        await supabase
-          .from("wallets")
-          .upsert({
-            user_id: userId,
-            balance: newBalance,
-            total_credited: (wallet?.total_credited || 0) + creditAmount,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: "user_id" })
-
-        // Update payment status
+        // Update payment status in wallet_payments table to match
         await supabase
           .from("wallet_payments")
           .update({ status: "completed", updated_at: new Date().toISOString() })
           .eq("id", payment.id)
 
-        // Create transaction record
-        await supabase
-          .from("transactions")
-          .insert([{
-            user_id: userId,
-            type: "credit",
-            amount: creditAmount,
-            reference_id: payment.reference,
-            source: "wallet_topup",
-            description: "Wallet top-up via Paystack (verified)",
-            status: "completed",
-            balance_before: currentBalance,
-            balance_after: newBalance,
-            created_at: new Date().toISOString(),
-          }])
-
-        credited++
-        console.log(`[PAYMENT-VERIFY] ✓ Payment ${payment.reference} verified and credited`)
+        console.log(`[PAYMENT-VERIFY] ✓ Payment ${payment.reference} verified and completed`)
       } else if (paystackStatus.status === "failed") {
+        checked++
         await supabase
           .from("wallet_payments")
           .update({ status: "failed", updated_at: new Date().toISOString() })
