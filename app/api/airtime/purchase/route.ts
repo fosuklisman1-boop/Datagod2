@@ -194,6 +194,7 @@ export async function POST(request: NextRequest) {
         total_paid: totalPaid,
         pay_separately: paySeparately,
         status: "pending",
+        payment_status: "completed",
         shop_id: shopId || null,
         merchant_commission: merchantCommissionValue,
       }])
