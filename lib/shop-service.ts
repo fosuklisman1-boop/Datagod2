@@ -314,6 +314,54 @@ export const shopProfitService = {
     const balanceBefore = currentBalance
     const balanceAfter = currentBalance + profitAmount
 
+    // 1. Get the shop owner's user_id and current wallet balance
+    const { data: shopOwner } = await supabase
+      .from("user_shops")
+      .select("user_id")
+      .eq("id", shopId)
+      .single()
+
+    const userId = shopOwner?.user_id
+    let recoveryApplied = false
+    let recoveredAmount = 0
+
+    if (userId) {
+      // 2. Check for negative wallet balance
+      const { data: wallet } = await supabase
+        .from("wallets")
+        .select("balance")
+        .eq("user_id", userId)
+        .single()
+
+      if (wallet && wallet.balance < 0) {
+        // Calculate recovery: amount that can be paid back from this profit
+        recoveredAmount = Math.min(profitAmount, Math.abs(wallet.balance))
+
+        if (recoveredAmount > 0) {
+          console.log(`[DEBT-RECOVERY] Auto-recovering GHS ${recoveredAmount} from profit for user ${userId}`)
+          
+          // Use our atomic credit RPC to pay back the debt
+          // We use a unique reference to prevent double recovery for the same profit/order
+          const { data: recoveryResult, error: recoveryError } = await supabase.rpc("credit_wallet_safely", {
+            p_user_id: userId,
+            p_amount: recoveredAmount,
+            p_reference_id: `RECOVERY_FOR_ORDER_${shopOrderId}`,
+            p_description: "Automatic recovery from shop profit",
+            p_source: "debt_recovery"
+          })
+
+          if (recoveryError) {
+            console.error("[DEBT-RECOVERY] Error during auto-recovery:", recoveryError)
+          } else {
+            recoveryApplied = true
+          }
+        }
+      }
+    }
+
+    // 3. Create the profit record
+    // If we recovered the full amount, the status should be 'credited' (since it was immediately used)
+    // If not, we still track it for the shop available balance.
     const { data, error } = await supabase
       .from("shop_profits")
       .insert([{
@@ -322,7 +370,8 @@ export const shopProfitService = {
         profit_amount: profitAmount,
         profit_balance_before: balanceBefore,
         profit_balance_after: balanceAfter,
-        status: "pending"
+        status: recoveryApplied ? "credited" : "pending",
+        description: recoveryApplied ? `Debt recovery of GHS ${recoveredAmount.toFixed(2)} applied.` : null
       }])
       .select()
 

@@ -439,7 +439,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                GHS {(walletBalance || 0).toFixed(2)}
+                GHS {Math.max(0, walletBalance || 0).toFixed(2)}
               </div>
               <p className="text-xs text-gray-500">Available funds</p>
             </CardContent>

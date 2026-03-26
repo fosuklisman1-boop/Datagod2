@@ -190,7 +190,7 @@ export default function BuyStockPage() {
 
   const handleBuyClick = (pkg: WholesalePackage) => {
     if (walletBalance < (pkg.parent_price || 0)) {
-      toast.error(`Insufficient balance. You need GHS ${(pkg.parent_price || 0).toFixed(2)} but have GHS ${(walletBalance || 0).toFixed(2)}`)
+      toast.error(`Insufficient balance. You need GHS ${(pkg.parent_price || 0).toFixed(2)} but have GHS ${Math.max(0, walletBalance || 0).toFixed(2)}`)
       return
     }
     setSelectedPackageForPurchase(pkg)
@@ -359,7 +359,7 @@ export default function BuyStockPage() {
               <Wallet className="w-5 h-5 text-green-600" />
               <div>
                 <p className="text-xs text-gray-500">Wallet Balance</p>
-                <p className="text-lg font-bold text-green-600">GHS {(walletBalance || 0).toFixed(2)}</p>
+                <p className="text-lg font-bold text-green-600">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
               </div>
             </CardContent>
           </Card>

@@ -209,7 +209,7 @@ export default function AirtimePage() {
           <p className="text-gray-500 text-sm mt-1">
             Wallet balance:{" "}
             <span className="font-semibold text-gray-800">
-              {walletBalance !== null ? `GHS ${walletBalance.toFixed(2)}` : "Loading…"}
+              {walletBalance !== null ? `GHS ${Math.max(0, walletBalance).toFixed(2)}` : "Loading…"}
             </span>
           </p>
         </div>

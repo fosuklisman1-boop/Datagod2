@@ -235,7 +235,7 @@ export default function DataPackagesPage() {
     }
 
     if (wallet.balance < (pkg.price || 0)) {
-      toast.error(`Insufficient balance. You need GHS ${(pkg.price || 0).toFixed(2)} but have GHS ${(wallet.balance || 0).toFixed(2)}`)
+      toast.error(`Insufficient balance. You need GHS ${(pkg.price || 0).toFixed(2)} but have GHS ${Math.max(0, wallet.balance || 0).toFixed(2)}`)
       return
     }
 
@@ -375,7 +375,7 @@ export default function DataPackagesPage() {
                   ? "bg-gradient-to-r from-amber-600 to-orange-600"
                   : "bg-gradient-to-r from-emerald-600 to-teal-600"
                   }`}>
-                  GHS {(wallet.balance || 0).toFixed(2)}
+                  GHS {Math.max(0, wallet.balance || 0).toFixed(2)}
                 </p>
               </CardContent>
             </Card>

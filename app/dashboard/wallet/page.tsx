@@ -364,7 +364,7 @@ export default function WalletPage() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className={`${isDealer ? "text-amber-100" : "text-blue-100"} text-sm`}>Available Balance</p>
-                <p className="text-2xl sm:text-3xl md:text-4xl font-bold">GHS {walletData.balance.toFixed(2)}</p>
+                <p className="text-2xl sm:text-3xl md:text-4xl font-bold">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
               </div>
               <Wallet className={`w-16 h-16 opacity-50 ${isDealer ? "text-amber-100" : "text-blue-100"}`} />
             </div>
@@ -468,7 +468,7 @@ export default function WalletPage() {
               <Wallet className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">GHS {walletData.balance.toFixed(2)}</div>
+              <div className="text-2xl font-bold">GHS {Math.max(0, walletData.balance).toFixed(2)}</div>
               <p className="text-xs text-gray-600">Ready to use</p>
             </CardContent>
           </Card>

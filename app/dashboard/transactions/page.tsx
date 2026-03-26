@@ -282,11 +282,11 @@ export default function TransactionsPage() {
                       <div className="grid grid-cols-2 gap-2 text-xs border-t pt-3">
                         <div>
                           <span className="text-gray-500">Before:</span>
-                          <span className="ml-1 font-medium">GHS {formatAmount(txn.balance_before)}</span>
+                          <span className="ml-1 font-medium">GHS {formatAmount(Math.max(0, txn.balance_before))}</span>
                         </div>
                         <div>
                           <span className="text-gray-500">After:</span>
-                          <span className="ml-1 font-semibold">GHS {formatAmount(txn.balance_after)}</span>
+                          <span className="ml-1 font-semibold">GHS {formatAmount(Math.max(0, txn.balance_after))}</span>
                         </div>
                       </div>
                       
@@ -336,8 +336,8 @@ export default function TransactionsPage() {
                           }`}>
                             {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
                           </td>
-                          <td className="px-4 py-3">GHS {formatAmount(txn.balance_before)}</td>
-                          <td className="px-4 py-3 font-semibold">GHS {formatAmount(txn.balance_after)}</td>
+                          <td className="px-4 py-3">GHS {formatAmount(Math.max(0, txn.balance_before))}</td>
+                          <td className="px-4 py-3 font-semibold">GHS {formatAmount(Math.max(0, txn.balance_after))}</td>
                           <td className="px-4 py-3">
                             <Badge className={
                               txn.status === "completed" ? "bg-green-100 text-green-800" :
