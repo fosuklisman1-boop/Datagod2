@@ -763,3 +763,65 @@ export const adminMessagingService = {
     }
   }
 }
+
+// Admin Payment Management
+export const adminPaymentService = {
+  // Get all payment attempts with filtering and pagination
+  async getPaymentAttempts(params: URLSearchParams) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch(`/api/admin/payment-attempts?${params.toString()}`, {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch payment attempts")
+      }
+
+      return data
+    } catch (error: any) {
+      console.error("Error fetching payment attempts:", error)
+      throw error
+    }
+  },
+
+  // Update payment attempt status (mark as completed, etc.)
+  async updatePaymentAttemptStatus(updateData: { id?: string; reference?: string; status: string }) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/payment-attempts", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(updateData),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update payment attempt status")
+      }
+
+      return data
+    } catch (error: any) {
+      console.error("Error updating payment attempt status:", error)
+      throw error
+    }
+  },
+}

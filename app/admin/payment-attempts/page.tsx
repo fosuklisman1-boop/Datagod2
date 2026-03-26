@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Search, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, Wallet, ShoppingCart, TrendingUp, MoreHorizontal, Check, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { adminPaymentService } from "@/lib/admin-service"
 
 // Safe format currency helper
 const formatCurrency = (amount: number | null | undefined) => {
@@ -119,12 +120,7 @@ export default function PaymentAttemptsPage() {
       if (startDate) params.append("startDate", startDate)
       if (endDate) params.append("endDate", endDate)
 
-      const response = await fetch(`/api/admin/payment-attempts?${params}`)
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to fetch payment attempts")
-      }
+      const data = await adminPaymentService.getPaymentAttempts(params)
 
       setAttempts(data.attempts || [])
       setStats({
@@ -189,15 +185,7 @@ export default function PaymentAttemptsPage() {
     if (!confirm("Are you sure you want to mark this transaction as completed?")) return
     setUpdatingId(attemptId)
     try {
-      const response = await fetch("/api/admin/payment-attempts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: attemptId, status: "completed" }),
-      })
-      const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update status")
-      }
+      const data = await adminPaymentService.updatePaymentAttemptStatus({ id: attemptId, status: "completed" })
       toast.success("Transaction marked as completed")
       fetchAttempts()
     } catch (error) {
@@ -217,15 +205,7 @@ export default function PaymentAttemptsPage() {
     if (!confirm(`Are you sure you want to mark reference "${ref}" as completed? This will credit the wallet or trigger fulfillment.`)) return
     setReferenceLoading(true)
     try {
-      const response = await fetch("/api/admin/payment-attempts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reference: ref, status: "completed" }),
-      })
-      const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update status")
-      }
+      const data = await adminPaymentService.updatePaymentAttemptStatus({ reference: ref, status: "completed" })
       toast.success(data.message || "Transaction marked as completed")
       setReferenceInput("")
       fetchAttempts()
