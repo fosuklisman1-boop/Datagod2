@@ -306,86 +306,34 @@ export async function PATCH(request: NextRequest) {
 
       if (paymentType === "wallet_topup" && userId) {
         // ===== WALLET TOP-UP: Credit the user's wallet =====
-        // amount in payment_attempts is stored as finalAmount (base amount) in initialize/route.ts
-        // fee is stored separately. So we should NOT subtract fee again.
         const creditAmount = amount
+        const description = "Wallet top-up (manually completed by admin)"
+        const source = "wallet_topup"
 
-        console.log(`[ADMIN-PAYMENT-ATTEMPTS] Processing wallet top-up for user ${userId}`)
-        console.log(`  Total: GHS ${amount.toFixed(2)}, Fee: GHS ${feeAmount.toFixed(2)}, Credit: GHS ${creditAmount.toFixed(2)}`)
+        console.log(`[ADMIN-PAYMENT-ATTEMPTS] Processing wallet top-up for user ${userId} via RPC`)
+        
+        // Use the atomic credit_wallet_safely RPC
+        const { data: rpcData, error: rpcError } = await supabase.rpc("credit_wallet_safely", {
+          p_user_id: userId,
+          p_amount: creditAmount,
+          p_reference_id: attemptReference,
+          p_description: description,
+          p_source: source
+        })
 
-        // Get current wallet balance
-        const { data: walletData, error: walletFetchError } = await supabase
-          .from("wallets")
-          .select("balance, total_credited")
-          .eq("user_id", userId)
-          .single()
-
-        if (walletFetchError && walletFetchError.code !== "PGRST116") {
-          console.error("[ADMIN-PAYMENT-ATTEMPTS] Error fetching wallet:", walletFetchError)
-          return NextResponse.json({ error: "Failed to fetch wallet data" }, { status: 500 })
+        if (rpcError) {
+          console.error("[ADMIN-PAYMENT-ATTEMPTS] RPC Error crediting wallet:", rpcError)
+          return NextResponse.json({ error: `Failed to credit wallet: ${rpcError.message}` }, { status: 500 })
         }
 
-        const currentBalance = walletData?.balance || 0
-        const currentTotalCredited = walletData?.total_credited || 0
+        const { new_balance: newBalance, already_processed: alreadyProcessed } = rpcData[0]
 
-        // Check for duplicate transaction (idempotency)
-        const { data: existingTransaction } = await supabase
-          .from("transactions")
-          .select("id")
-          .eq("reference_id", attemptReference)
-          .eq("user_id", userId)
-          .eq("type", "credit")
-          .maybeSingle()
-
-        if (existingTransaction) {
-          console.log(`[ADMIN-PAYMENT-ATTEMPTS] Reference ${attemptReference} already credited. Skipping duplicate.`)
+        if (alreadyProcessed) {
+          console.log(`[ADMIN-PAYMENT-ATTEMPTS] Reference ${attemptReference} already credited (idempotency caught by RPC).`)
           return NextResponse.json({ success: true, message: "Payment attempt already credited (duplicate reference)" })
         }
 
-        const newBalance = currentBalance + creditAmount
-        const newTotalCredited = currentTotalCredited + creditAmount
-
-        // Update wallet balance
-        const { error: walletUpdateError } = await supabase
-          .from("wallets")
-          .upsert(
-            {
-              user_id: userId,
-              balance: newBalance,
-              total_credited: newTotalCredited,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "user_id" }
-          )
-
-        if (walletUpdateError) {
-          console.error("[ADMIN-PAYMENT-ATTEMPTS] Error updating wallet:", walletUpdateError)
-          return NextResponse.json({ error: "Failed to credit wallet" }, { status: 500 })
-        }
-
-        console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ Wallet credited: GHS ${creditAmount.toFixed(2)} (new balance: GHS ${newBalance.toFixed(2)})`)
-
-        // Create transaction record
-        const { error: transactionError } = await supabase
-          .from("transactions")
-          .insert([
-            {
-              user_id: userId,
-              type: "credit",
-              amount: creditAmount,
-              reference_id: attemptReference,
-              source: "wallet_topup",
-              description: "Wallet top-up (manually completed by admin)",
-              status: "completed",
-              balance_before: currentBalance,
-              balance_after: newBalance,
-              created_at: new Date().toISOString(),
-            },
-          ])
-
-        if (transactionError && transactionError.code !== "23505") {
-          console.error("[ADMIN-PAYMENT-ATTEMPTS] Error creating transaction:", transactionError)
-        }
+        console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ Wallet credited via RPC: GHS ${creditAmount.toFixed(2)} (new balance: GHS ${newBalance.toFixed(2)})`)
 
         // Also update wallet_payments table to stay in sync
         supabase
