@@ -41,8 +41,15 @@ export async function POST(request: NextRequest) {
       ...(airtimeOrders || []).map(o => ({ 
         ...o, 
         type: 'airtime',
-        volume_gb: o.airtime_amount, // For UI compatibility
-        customer_phone: o.beneficiary_phone
+        volume_gb: o.airtime_amount,
+        customer_phone: o.beneficiary_phone,
+        customer_name: o.customer_name || 'N/A',
+        customer_email: o.customer_email || '',
+        base_price: Number(o.airtime_amount) || 0,
+        total_price: Number(o.total_paid) || 0,
+        profit_amount: Number(o.fee_amount) || 0,
+        order_status: o.status || 'pending',
+        reference_code: o.reference_code || o.id,
       }))
     ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 

@@ -389,15 +389,15 @@ export default function OrderStatusPage() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="space-y-1">
                           <p className="text-xs text-gray-600">Price</p>
-                          <p className="font-semibold text-gray-900">₵ {order.base_price.toFixed(2)}</p>
+                          <p className="font-semibold text-gray-900">₵ {(order.base_price || 0).toFixed(2)}</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs text-gray-600">Total</p>
-                          <p className="font-semibold text-gray-900">₵ {order.total_price.toFixed(2)}</p>
+                          <p className="font-semibold text-gray-900">₵ {(order.total_price || 0).toFixed(2)}</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs text-gray-600">Customer Name</p>
-                          <p className="font-semibold text-gray-900">{order.customer_name}</p>
+                          <p className="font-semibold text-gray-900">{order.customer_name || 'N/A'}</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs text-gray-600">Phone</p>
@@ -408,7 +408,7 @@ export default function OrderStatusPage() {
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-2 border-t">
                         <div className="space-y-1">
                           <p className="text-xs text-gray-600">Email</p>
-                          <p className="text-sm text-gray-900 break-all">{order.customer_email}</p>
+                          <p className="text-sm text-gray-900 break-all">{order.customer_email || 'N/A'}</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs text-gray-600">Ordered</p>
