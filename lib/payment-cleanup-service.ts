@@ -4,6 +4,8 @@
  */
 
 import { createClient } from "@supabase/supabase-js"
+import { sendSMS } from "@/lib/sms-service"
+import { notificationTemplates } from "@/lib/notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -153,6 +155,65 @@ export async function cleanupAbandonedPayments(
         } else {
           console.log(`[PAYMENT-CLEANUP] ✓ Wallet credited via RPC for user ${payment.user_id}`)
           credited++
+
+          // Send SMS, email, and in-app notification for recovered payment
+          const { new_balance: newBalance } = rpcData[0]
+          try {
+            const { data: userData } = await supabase
+              .from("users")
+              .select("phone_number, first_name, email")
+              .eq("id", payment.user_id)
+              .single()
+
+            if (userData?.phone_number) {
+              const firstName = userData.first_name || 'User'
+              const smsMessage = `Hi ${firstName}, your wallet has been topped up by GHS ${netAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
+              await sendSMS({
+                phone: userData.phone_number,
+                message: smsMessage,
+                type: 'wallet_topup_success',
+                reference: payment.id,
+              }).catch(err => console.error("[PAYMENT-CLEANUP] SMS error:", err))
+              console.log(`[PAYMENT-CLEANUP] ✓ SMS sent to user ${payment.user_id}`)
+            }
+
+            // Send email
+            if (userData?.email) {
+              import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+                const payload = EmailTemplates.walletTopUpSuccess(
+                  netAmount.toFixed(2),
+                  newBalance.toFixed(2),
+                  payment.reference
+                );
+                sendEmail({
+                  to: [{ email: userData.email, name: userData.first_name || "User" }],
+                  subject: payload.subject,
+                  htmlContent: payload.html,
+                  userId: payment.user_id,
+                  referenceId: payment.reference,
+                  type: 'wallet_topup_success'
+                }).catch(err => console.error("[PAYMENT-CLEANUP] Email error:", err));
+              });
+            }
+          } catch (notifError) {
+            console.warn("[PAYMENT-CLEANUP] Notification error (non-blocking):", notifError)
+          }
+
+          // In-app notification
+          try {
+            const notifData = notificationTemplates.balanceUpdated(newBalance)
+            await supabase.from("notifications").insert([{
+              user_id: payment.user_id,
+              title: notifData.title,
+              message: `${notifData.message} Credited amount: GHS ${netAmount.toFixed(2)}.`,
+              type: notifData.type,
+              reference_id: `PAYSTACK_${payment.reference}`,
+              action_url: "/dashboard/wallet",
+              read: false,
+            }])
+          } catch (notifError) {
+            console.warn("[PAYMENT-CLEANUP] In-app notification error:", notifError)
+          }
         }
 
         // Update payment status in wallet_payments table to match
@@ -294,6 +355,66 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
         } else {
           console.log(`[PAYMENT-VERIFY] ✓ Wallet credited via RPC for user ${userId}`)
           credited++
+
+          // Send SMS, email, and in-app notification for verified payment
+          const { new_balance: newBalance } = rpcData[0]
+          const netAmount = attempt?.amount || payment.amount
+          try {
+            const { data: userData } = await supabase
+              .from("users")
+              .select("phone_number, first_name, email")
+              .eq("id", userId)
+              .single()
+
+            if (userData?.phone_number) {
+              const firstName = userData.first_name || 'User'
+              const smsMessage = `Hi ${firstName}, your wallet has been topped up by GHS ${netAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
+              await sendSMS({
+                phone: userData.phone_number,
+                message: smsMessage,
+                type: 'wallet_topup_success',
+                reference: payment.id,
+              }).catch(err => console.error("[PAYMENT-VERIFY] SMS error:", err))
+              console.log(`[PAYMENT-VERIFY] ✓ SMS sent to user ${userId}`)
+            }
+
+            // Send email
+            if (userData?.email) {
+              import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
+                const payload = EmailTemplates.walletTopUpSuccess(
+                  netAmount.toFixed(2),
+                  newBalance.toFixed(2),
+                  payment.reference
+                );
+                sendEmail({
+                  to: [{ email: userData.email, name: userData.first_name || "User" }],
+                  subject: payload.subject,
+                  htmlContent: payload.html,
+                  userId: userId,
+                  referenceId: payment.reference,
+                  type: 'wallet_topup_success'
+                }).catch(err => console.error("[PAYMENT-VERIFY] Email error:", err));
+              });
+            }
+          } catch (notifError) {
+            console.warn("[PAYMENT-VERIFY] Notification error (non-blocking):", notifError)
+          }
+
+          // In-app notification
+          try {
+            const notifData = notificationTemplates.balanceUpdated(newBalance)
+            await supabase.from("notifications").insert([{
+              user_id: userId,
+              title: notifData.title,
+              message: `${notifData.message} Credited amount: GHS ${netAmount.toFixed(2)}.`,
+              type: notifData.type,
+              reference_id: `PAYSTACK_${payment.reference}`,
+              action_url: "/dashboard/wallet",
+              read: false,
+            }])
+          } catch (notifError) {
+            console.warn("[PAYMENT-VERIFY] In-app notification error:", notifError)
+          }
         }
 
         // Update payment status in wallet_payments table to match
