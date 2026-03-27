@@ -138,12 +138,24 @@ export async function POST(request: NextRequest) {
 
     // Handle charge.success event
     if (event.event === "charge.success") {
-      const { reference, customer, amount, status, metadata } = event.data
+      let { reference, customer, amount, status, metadata } = event.data
+
+      // Paystack metadata can sometimes be sent as a string
+      if (typeof metadata === "string" && metadata.length > 0) {
+        try {
+          metadata = JSON.parse(metadata)
+          console.log("[WEBHOOK] Parsed metadata string into object")
+        } catch (e) {
+          console.warn("[WEBHOOK] Failed to parse metadata string:", e)
+        }
+      }
 
       console.log(`Processing payment: ${reference}`, {
         email: customer.email,
         amount: amount / 100,
         status,
+        hasMetadata: !!metadata,
+        metadataType: typeof metadata
       })
 
       // Find and update payment record (select only needed columns)
@@ -182,15 +194,28 @@ export async function POST(request: NextRequest) {
         let verifiedTotalPrice = 0;
 
         // Fetch the shop order and all relevant fields
+        const isDealerUpgradePriceCheck = (paymentData.order_type === "dealer_upgrade") || (metadata?.type === "dealer_upgrade")
         const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
-        
-        if (isAirtime) {
+
+        if (isDealerUpgradePriceCheck) {
+          // Verify against subscription plan price
+          const { data: plan } = await supabase
+            .from("subscription_plans")
+            .select("price")
+            .eq("id", paymentData.order_id)
+            .single();
+
+          if (plan) {
+            verifiedTotalPrice = Number(plan.price);
+            priceDebugInfo = { source: "subscription_plans", verifiedTotalPrice };
+          }
+        } else if (isAirtime) {
           const { data: airtimeOrder } = await supabase
             .from("airtime_orders")
             .select("id, total_paid")
             .eq("id", paymentData.order_id)
             .single();
-          
+
           if (airtimeOrder) {
             verifiedTotalPrice = Number(airtimeOrder.total_paid);
             priceDebugInfo = { source: "airtime_orders", verifiedTotalPrice };
@@ -1027,8 +1052,8 @@ export async function POST(request: NextRequest) {
 
       if (isDealerUpgrade) {
         console.log("[WEBHOOK] Processing DEALER UPGRADE...")
-        const upgradeUserId = metadata.userId || paymentData.user_id
-        const planId = metadata.planId
+        const upgradeUserId = metadata?.userId || paymentData.user_id
+        const planId = metadata?.planId || paymentData.order_id
 
         if (!upgradeUserId || !planId) {
           console.error("[WEBHOOK] ❌ Missing userId or planId in metadata for dealer upgrade")
