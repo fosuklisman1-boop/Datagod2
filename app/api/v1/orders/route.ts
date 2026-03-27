@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { network, volume_gb, recipient, reference, shop_id } = body
+  const { network, volume_gb, recipient, reference } = body
 
   if (!network || !volume_gb || !recipient || !reference) {
     return NextResponse.json({
@@ -96,12 +96,20 @@ export async function POST(request: NextRequest) {
     }, { status: 400 })
   }
 
-  if (!shop_id) {
+  // Automatically fetch the user's shop ID
+  const { data: userShop } = await supabase
+    .from("shops")
+    .select("id")
+    .eq("user_id", user.id)
+    .single()
+
+  if (!userShop) {
     return NextResponse.json({
       success: false,
-      error: "shop_id is required. Use your registered shop ID."
+      error: "No shop found for this user account. You must create a shop first."
     }, { status: 400 })
   }
+  const shop_id = userShop.id
 
   // Verify wallet balance covers the order price
   const { data: wallet } = await supabase

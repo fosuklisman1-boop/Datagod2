@@ -225,8 +225,7 @@ export default function ApiKeysManager() {
     "network": "MTN",
     "volume_gb": 5,
     "recipient": "0541234567",
-    "reference": "your_unique_txn_id",
-    "shop_id": "your-shop-uuid-here"
+    "reference": "your_unique_txn_id"
   }'`}</pre>
         </div>
 
