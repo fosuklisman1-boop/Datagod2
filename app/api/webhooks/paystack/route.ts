@@ -406,7 +406,10 @@ export async function POST(request: NextRequest) {
       // check if the payment was already processed to prevent double crediting shop orders
       const wasAlreadyCompleted = paymentData.status === "completed"
 
-      if (wasAlreadyCompleted) {
+      // Check for dealer upgrade early - we need to know this before the wasAlreadyCompleted return
+      const isDealerUpgrade = metadata?.type === "dealer_upgrade" || paymentData.order_type === "dealer_upgrade"
+
+      if (wasAlreadyCompleted && !isDealerUpgrade) {
         console.log(`[WEBHOOK] ⚠️ Payment already processed (status was: ${paymentData.status}). Skipping duplicate shop order fulfillment.`)
         return NextResponse.json({ received: true, skipped: "already_processed" })
       }
@@ -1011,9 +1014,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Check for dealer upgrade in metadata OR DB-stored order_type
-      // We check BOTH because Paystack metadata may not always be reliably passed through
-      const isDealerUpgrade = metadata?.type === "dealer_upgrade" || paymentData.order_type === "dealer_upgrade"
+      // isDealerUpgrade is already determined above (before wasAlreadyCompleted check)
       const isShopOrderPayment = paymentData.order_id && paymentData.shop_id
       console.log("[WEBHOOK] Payment type check:", {
         isShopOrder: isShopOrderPayment,
@@ -1032,6 +1033,16 @@ export async function POST(request: NextRequest) {
         if (!upgradeUserId || !planId) {
           console.error("[WEBHOOK] ❌ Missing userId or planId in metadata for dealer upgrade")
         } else {
+          // Idempotency: check if this upgrade was already processed
+          const { data: existingSub } = await supabase
+            .from("user_subscriptions")
+            .select("id")
+            .eq("payment_reference", reference)
+            .maybeSingle()
+
+          if (existingSub) {
+            console.log(`[WEBHOOK] ✓ Dealer upgrade for reference ${reference} already processed (idempotency). Skipping.`)
+          } else {
           try {
             // Get plan details
             const { data: plan } = await supabase
@@ -1168,6 +1179,7 @@ export async function POST(request: NextRequest) {
           } catch (err) {
             console.error("[WEBHOOK] ❌ Error in dealer upgrade processing:", err)
           }
+          } // end of idempotency else
         }
       } else if (!isShopOrderPayment) {
         console.log("[WEBHOOK] This is a WALLET payment - will credit wallet and send SMS")
