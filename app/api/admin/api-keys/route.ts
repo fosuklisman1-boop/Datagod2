@@ -30,7 +30,8 @@ export async function GET(request: NextRequest) {
       is_active,
       last_used_at,
       created_at,
-      users!user_api_keys_user_id_fkey (
+      rate_limit_per_min,
+      user:user_id (
         id,
         first_name,
         last_name,
