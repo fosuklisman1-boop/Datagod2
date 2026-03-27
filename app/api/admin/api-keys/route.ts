@@ -21,6 +21,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const userId = searchParams.get("userId")
 
+  console.log("[ADMIN API KEYS] Fetching keys...", userId ? `for user ${userId}` : "all")
+
   let query = supabase
     .from("user_api_keys")
     .select(`
@@ -31,13 +33,7 @@ export async function GET(request: NextRequest) {
       last_used_at,
       created_at,
       rate_limit_per_min,
-      user:user_id (
-        id,
-        first_name,
-        last_name,
-        email,
-        role
-      )
+      user_id
     `)
     .order("created_at", { ascending: false })
 
@@ -48,10 +44,44 @@ export async function GET(request: NextRequest) {
   const { data: keys, error } = await query
 
   if (error) {
+    console.error("[ADMIN API KEYS] Fetch error:", error)
     return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 })
   }
 
-  return NextResponse.json({ keys })
+  if (!keys || keys.length === 0) {
+    console.log("[ADMIN API KEYS] No keys found in database.")
+    return NextResponse.json({ keys: [] })
+  }
+
+  console.log(`[ADMIN API KEYS] Found ${keys.length} keys. Enriching with user data...`)
+
+  // Step 2: Fetch user details for these keys to avoid join issues
+  const userIds = Array.from(new Set(keys.map(k => k.user_id).filter(Boolean)))
+  
+  if (userIds.length === 0) {
+    return NextResponse.json({ keys: keys.map(k => ({ ...k, user: null })) })
+  }
+
+  const { data: users, error: userError } = await supabase
+    .from("users")
+    .select("id, first_name, last_name, email, role")
+    .in("id", userIds)
+
+  if (userError) {
+    console.warn("[ADMIN API KEYS] Could not fetch user details:", userError)
+  }
+
+  const userMap = (users || []).reduce((acc: any, u: any) => {
+    acc[u.id] = u
+    return acc
+  }, {})
+
+  const enrichedKeys = keys.map(k => ({
+    ...k,
+    user: userMap[k.user_id] || { email: "Unknown", first_name: "Deleted", last_name: "User" }
+  }))
+
+  return NextResponse.json({ keys: enrichedKeys })
 }
 
 /**
