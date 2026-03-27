@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2 } from "lucide-react"
+import ApiKeysManager from "@/components/developer/ApiKeysManager"
+
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
@@ -481,50 +483,14 @@ export default function ProfilePage() {
         </Card>
 
         {/* API Keys */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>API Keys</CardTitle>
-              <CardDescription>Manage your API access</CardDescription>
-            </div>
-            <Button className="bg-gradient-to-r from-blue-600 to-purple-600">
-              <Key className="w-4 h-4 mr-2" />
-              Generate New Key
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="p-4 border rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="font-semibold">API Key #18</p>
-                  <Badge className="bg-red-100 text-red-800">Expired</Badge>
-                </div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Input value="••••••••••••••••••••" readOnly type="password" />
-                  <Button size="sm" variant="outline">Copy</Button>
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-gray-600">Rate Limit</p>
-                    <p className="font-semibold">100/min</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Created</p>
-                    <p className="font-semibold">Aug 11, 2025</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Expires</p>
-                    <p className="font-semibold">Nov 11, 2025</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Webhook URL</p>
-                    <p className="font-semibold text-xs">https://example.com/webhook</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {(isDealer || profile.role === 'admin') && (
+          <Card>
+            <CardContent className="pt-6">
+              <ApiKeysManager />
+            </CardContent>
+          </Card>
+        )}
+
 
         {/* Security */}
         <Card>
