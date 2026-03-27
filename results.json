@@ -14,10 +14,10 @@
     }
   },
   "order_post": {
-    "status": 400,
+    "status": 500,
     "data": {
       "success": false,
-      "error": "Package MTN 1GB not found or unavailable."
+      "error": "Failed to create order"
     }
   }
 }

@@ -3,6 +3,7 @@ CREATE TABLE api_orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   api_key_id UUID NOT NULL REFERENCES user_api_keys(id) ON DELETE RESTRICT,
+  package_id UUID REFERENCES packages(id) ON DELETE SET NULL,
   network TEXT NOT NULL,
   volume_gb NUMERIC NOT NULL,
   price NUMERIC NOT NULL,
