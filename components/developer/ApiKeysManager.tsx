@@ -1,9 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@supabase/supabase-js"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
-import { Copy, Plus, Trash2, RefreshCw, Eye, EyeOff, AlertCircle, CheckCircle2, Code2, Key } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { Copy, Plus, Trash2, RefreshCw, AlertCircle, CheckCircle2, Code2, Key } from "lucide-react"
 
 interface ApiKey {
   id: string
@@ -22,8 +21,6 @@ export default function ApiKeysManager() {
   const [generating, setGenerating] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const supabase = createClientComponentClient()
 
   const fetchKeys = async () => {
     setLoading(true)
