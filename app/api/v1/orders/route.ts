@@ -100,12 +100,14 @@ export async function POST(request: NextRequest) {
 
   // 1. Fetch pricing from global packages table based on role
   // Database stores size as just "1", "2", "5" etc (string)
+  // 1. Fetch pricing from global packages table based on role
+  // Database stores size as just "1", "2", "5" etc (string)
   const { data: pkg } = await supabase
     .from("packages")
     .select("id, price, dealer_price")
     .ilike("network", network)
     .eq("size", volume_gb.toString())
-    .eq("is_available", true)
+    .eq("active", true)
     .single()
 
   if (!pkg) {
