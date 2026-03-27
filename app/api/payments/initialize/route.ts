@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           shop_id: shopId || null,
           order_id: orderId || null,
-          order_type: orderType || "data",
+          order_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType || "data"),
           amount: parseFloat(totalAmount.toString()),
           fee: parseFloat(paystackFee.toString()),
           reference,
@@ -151,11 +151,16 @@ export async function POST(request: NextRequest) {
 
     // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
-    // For shop orders, redirect to order confirmation; for wallet topup, redirect to wallet page with reference
+    const isDealerUpgradePayment = type === "dealer_upgrade"
     const confirmationPath = orderType === "airtime" ? "airtime/confirmation" : `order-confirmation/${orderId}`
-    const redirectUrl = shopId && orderId && shopSlug
-      ? `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${orderType === "airtime" ? `&orderId=${orderId}` : ""}`
-      : `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?reference=${reference}`
+    let redirectUrl: string
+    if (shopId && orderId && shopSlug) {
+      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${orderType === "airtime" ? `&orderId=${orderId}` : ""}`
+    } else if (isDealerUpgradePayment) {
+      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/upgrade?reference=${reference}`
+    } else {
+      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?reference=${reference}`
+    }
     console.log("[PAYMENT-INIT] Redirect URL:", redirectUrl)
 
     const paymentResult = await initializePayment({

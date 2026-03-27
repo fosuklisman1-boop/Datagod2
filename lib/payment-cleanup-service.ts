@@ -92,7 +92,7 @@ export async function cleanupAbandonedPayments(
   // Find pending wallet payments older than cutoff
   const { data: pendingPayments, error } = await supabase
     .from("wallet_payments")
-    .select("id, reference, user_id, amount, created_at, shop_id, order_id")
+    .select("id, reference, user_id, amount, created_at, shop_id, order_id, order_type")
     .eq("status", "pending")
     .lt("created_at", cutoffTime)
     .limit(100) // Process in batches
@@ -120,6 +120,17 @@ export async function cleanupAbandonedPayments(
       
       if (paystackStatus.status === "success") {
         // Payment was actually successful! Credit the wallet
+        // Skip dealer upgrade payments - those are handled by the webhook
+        if (payment.order_type === "dealer_upgrade") {
+          console.log(`[PAYMENT-CLEANUP] Payment ${payment.reference} is a dealer upgrade - marking completed but NOT crediting wallet`)
+          await supabase
+            .from("wallet_payments")
+            .update({ status: "completed", updated_at: new Date().toISOString() })
+            .eq("id", payment.id)
+          verified++
+          continue
+        }
+
         console.log(`[PAYMENT-CLEANUP] Payment ${payment.reference} was successful - crediting wallet via RPC`)
         
         // Fetch the net amount from payment_attempts to be 100% sure we credit ONLY the net amount (excluding fee)
@@ -299,11 +310,12 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
   
   const { data: pendingPayments, error } = await supabase
     .from("wallet_payments")
-    .select("id, reference, amount, shop_id")
+    .select("id, reference, amount, shop_id, order_type")
     .eq("user_id", userId)
     .eq("status", "pending")
     .gt("created_at", cutoffTime)
     .is("shop_id", null) // Only wallet top-ups, not shop orders
+    .neq("order_type", "dealer_upgrade") // Exclude dealer upgrades - handled by webhook
 
   if (error || !pendingPayments || pendingPayments.length === 0) {
     return { checked: 0, credited: 0, failed: 0 }
