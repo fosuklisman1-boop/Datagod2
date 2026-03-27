@@ -128,40 +128,46 @@ export async function POST(request: NextRequest) {
 
     // Credit wallet / trigger fulfillment if Paystack confirms success
     if (verificationResult.status === "success") {
-      console.log("[PAYMENT-VERIFY] Paystack confirmed success. Triggering completion via admin endpoint...")
 
-      // Call the admin PATCH endpoint which handles all completion logic:
-      // wallet credit, fulfillment, notifications, balance sync, etc.
-      try {
-        // FIX: correct operator precedence — NEXT_PUBLIC_APP_URL is checked first,
-        // then VERCEL_URL (prefixed with https://), then localhost as fallback.
-        const baseUrl =
-          process.env.NEXT_PUBLIC_APP_URL ||
-          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+      // Skip wallet credit for dealer upgrades - the webhook handles those
+      if (paymentData.order_type === "dealer_upgrade") {
+        console.log("[PAYMENT-VERIFY] ℹ Dealer upgrade payment - skipping wallet credit (handled by webhook)")
+      } else {
+        console.log("[PAYMENT-VERIFY] Paystack confirmed success. Triggering completion via admin endpoint...")
 
-        const completionResponse = await fetch(`${baseUrl}/api/admin/payment-attempts`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-internal-secret": process.env.INTERNAL_API_SECRET || "",
-          },
-          body: JSON.stringify({ reference, status: "completed" }),
-        })
+        // Call the admin PATCH endpoint which handles all completion logic:
+        // wallet credit, fulfillment, notifications, balance sync, etc.
+        try {
+          // FIX: correct operator precedence — NEXT_PUBLIC_APP_URL is checked first,
+          // then VERCEL_URL (prefixed with https://), then localhost as fallback.
+          const baseUrl =
+            process.env.NEXT_PUBLIC_APP_URL ||
+            (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
-        const completionResult = await completionResponse.json()
+          const completionResponse = await fetch(`${baseUrl}/api/admin/payment-attempts`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-secret": process.env.INTERNAL_API_SECRET || "",
+            },
+            body: JSON.stringify({ reference, status: "completed" }),
+          })
 
-        if (!completionResponse.ok) {
-          // If already completed, that's fine - not an error for the user
-          if (completionResult.error?.includes("already marked as completed")) {
-            console.log("[PAYMENT-VERIFY] Payment already completed")
+          const completionResult = await completionResponse.json()
+
+          if (!completionResponse.ok) {
+            // If already completed, that's fine - not an error for the user
+            if (completionResult.error?.includes("already marked as completed")) {
+              console.log("[PAYMENT-VERIFY] Payment already completed")
+            } else {
+              console.error("[PAYMENT-VERIFY] Completion endpoint error:", completionResult)
+            }
           } else {
-            console.error("[PAYMENT-VERIFY] Completion endpoint error:", completionResult)
+            console.log("[PAYMENT-VERIFY] ✓ Payment completed successfully via admin endpoint")
           }
-        } else {
-          console.log("[PAYMENT-VERIFY] ✓ Payment completed successfully via admin endpoint")
+        } catch (completionError) {
+          console.error("[PAYMENT-VERIFY] Error calling completion endpoint:", completionError)
         }
-      } catch (completionError) {
-        console.error("[PAYMENT-VERIFY] Error calling completion endpoint:", completionError)
       }
 
       // If payment was for a shop order, update its payment status and create profit record

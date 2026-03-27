@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
         fee: paystackFee,
         email,
         status: "pending",
-        payment_type: orderType === "airtime" ? "shop_airtime" : (shopId ? "shop_order" : "wallet_topup"),
+        payment_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType === "airtime" ? "shop_airtime" : (shopId ? "shop_order" : "wallet_topup")),
         shop_id: shopId || null,
         order_id: orderId || null,
         created_at: new Date().toISOString(),
