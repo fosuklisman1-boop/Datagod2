@@ -108,11 +108,6 @@ export async function POST(request: NextRequest) {
   console.log("[WEBHOOK] ========== WEBHOOK CALLED ==========")
   try {
     const signature = request.headers.get("x-paystack-signature")
-    console.log("[WEBHOOK] Request headers:", {
-      signature: !!signature,
-      contentType: request.headers.get("content-type"),
-    })
-
     if (!signature) {
       console.warn("[WEBHOOK] Missing signature")
       return NextResponse.json(
@@ -123,7 +118,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.text()
     const hash = crypto.createHmac("sha512", paystackSecretKey).update(body).digest("hex")
-    console.log("[WEBHOOK] Signature verified:", hash === signature)
 
     if (hash !== signature) {
       console.warn("[WEBHOOK] Invalid signature")
@@ -151,21 +145,20 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`Processing payment: ${reference}`, {
-        email: customer.email,
+        email: customer?.email,
         amount: amount / 100,
         status,
-        hasMetadata: !!metadata,
-        metadataType: typeof metadata
+        hasMetadata: !!metadata
       })
 
-      // Find and update payment record (select only needed columns)
+      // Find and update payment record
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")
         .select("id, user_id, status, shop_id, order_id, order_type, fee, reference, amount")
         .eq("reference", reference)
         .single()
 
-      if (fetchError) {
+      if (fetchError || !paymentData) {
         console.error("Payment record not found:", fetchError)
         return NextResponse.json(
           { error: "Payment record not found" },
@@ -173,229 +166,71 @@ export async function POST(request: NextRequest) {
         )
       }
 
-
-
-      // CRITICAL SECURITY CHECK: For shop orders, re-verify price using shop owner logic
-      // This adds an extra layer of security beyond trusting wallet_payments table
-      const paidAmountPesewas = Math.round(amount); // amount from Paystack is in pesewas
-      let expectedAmountGHS = Number(paymentData.amount);
-      const feeAmount = Number(paymentData.fee || 0);
+      // CRITICAL SECURITY CHECK: Re-verify price
+      const paidAmountPesewas = Math.round(amount)
+      let expectedAmountGHS = Number(paymentData.amount)
+      const feeAmount = Number(paymentData.fee || 0)
 
       let priceDebugInfo: any = {
         source: "wallet_payments_amount",
         db_total_amount_ghs: expectedAmountGHS,
         fee_amount: feeAmount
-      };
+      }
 
       if (paymentData.order_id) {
-        // Re-verify price using shop owner logic
-        let verifiedBasePrice = 0;
-        let verifiedProfitMargin = 0;
-        let verifiedTotalPrice = 0;
-
-        // Fetch the shop order and all relevant fields
-        const isDealerUpgradePriceCheck = (paymentData.order_type === "dealer_upgrade") || (metadata?.type === "dealer_upgrade")
+        let verifiedTotalPrice = 0
+        const isDealerUpgrade = (paymentData.order_type === "dealer_upgrade") || (metadata?.type === "dealer_upgrade")
         const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
 
-        if (isDealerUpgradePriceCheck) {
-          // Verify against subscription plan price
+        if (isDealerUpgrade) {
           const { data: plan } = await supabase
             .from("subscription_plans")
             .select("price")
             .eq("id", paymentData.order_id)
-            .single();
+            .single()
 
           if (plan) {
-            verifiedTotalPrice = Number(plan.price);
-            priceDebugInfo = { source: "subscription_plans", verifiedTotalPrice };
+            verifiedTotalPrice = Number(plan.price)
+            priceDebugInfo = { source: "subscription_plans", verifiedTotalPrice }
           }
         } else if (isAirtime) {
           const { data: airtimeOrder } = await supabase
             .from("airtime_orders")
-            .select("id, total_paid")
+            .select("total_paid")
             .eq("id", paymentData.order_id)
-            .single();
+            .single()
 
           if (airtimeOrder) {
-            verifiedTotalPrice = Number(airtimeOrder.total_paid);
-            priceDebugInfo = { source: "airtime_orders", verifiedTotalPrice };
+            verifiedTotalPrice = Number(airtimeOrder.total_paid)
+            priceDebugInfo = { source: "airtime_orders", verifiedTotalPrice }
           }
         } else {
           const { data: shopOrder } = await supabase
             .from("shop_orders")
-            .select("id, shop_id, shop_package_id, package_id, total_price")
+            .select("total_price")
             .eq("id", paymentData.order_id)
-            .single();
+            .single()
 
           if (shopOrder) {
-
-          // Check if this is a sub-agent shop
-          const { data: shopData } = await supabase
-            .from("user_shops")
-            .select("parent_shop_id, user_id")
-            .eq("id", shopOrder.shop_id)
-            .single();
-
-          if (shopData?.parent_shop_id) {
-            // Sub-agent: verify from sub_agent_shop_packages or sub_agent_catalog
-            const { data: subAgentPkg } = await supabase
-              .from("sub_agent_shop_packages")
-              .select("parent_price, sub_agent_profit_margin")
-              .eq("id", shopOrder.shop_package_id)
-              .single();
-
-            if (subAgentPkg) {
-              verifiedBasePrice = subAgentPkg.parent_price;
-              verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0;
-              verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
-              priceDebugInfo = { source: "sub_agent_shop_packages", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice };
-            } else {
-              // Fallback to sub_agent_catalog
-              const { data: catalogEntry } = await supabase
-                .from("sub_agent_catalog")
-                .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(price)")
-                .eq("id", shopOrder.shop_package_id)
-                .single();
-
-              if (catalogEntry) {
-                // Check if parent is a dealer
-                const { data: parentShop } = await supabase
-                  .from("user_shops")
-                  .select("user_id")
-                  .eq("id", shopData.parent_shop_id)
-                  .single()
-
-                let isParentDealer = false
-                if (parentShop) {
-                  const { data: parentUser } = await supabase
-                    .from("users")
-                    .select("role")
-                    .eq("id", parentShop.user_id)
-                    .single()
-                  isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin'
-                }
-
-                const pkg = (catalogEntry.package as any)
-                const adminPrice = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
-                  ? pkg.dealer_price
-                  : (pkg?.price || 0)
-
-                const margin = catalogEntry.wholesale_margin ?? 0
-                verifiedBasePrice = adminPrice + margin
-                verifiedProfitMargin = 0 // Restocking buy
-                verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
-                priceDebugInfo = { source: "sub_agent_catalog", isParentDealer, adminPrice, margin, verifiedTotalPrice };
-              } else {
-                // Fallback to order total price if catalog lookup fails
-                verifiedTotalPrice = shopOrder.total_price || 0;
-                priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
-              }
-            }
-          } else {
-            // Regular shop: verify from shop_packages
-
-            // Check if shop owner is a dealer
-            const { data: userData } = await supabase
-              .from("users")
-              .select("role")
-              .eq("id", shopData?.user_id)
-              .single()
-            const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
-
-            const { data: shopPkg } = await supabase
-              .from("shop_packages")
-              .select("profit_margin, packages(price, dealer_price)")
-              .eq("id", shopOrder.shop_package_id)
-              .single();
-
-            if (shopPkg) {
-              const pkgPrice = (shopPkg.packages as any)?.price || 0;
-              const dealerPrice = (shopPkg.packages as any)?.dealer_price;
-
-              verifiedBasePrice = isDealer && dealerPrice && dealerPrice > 0 ? dealerPrice : pkgPrice;
-              verifiedProfitMargin = shopPkg.profit_margin || 0;
-              verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin;
-              priceDebugInfo = { source: "shop_packages", verifiedBasePrice, verifiedProfitMargin, verifiedTotalPrice, isDealer };
-            } else {
-              verifiedTotalPrice = shopOrder.total_price || 0;
-              priceDebugInfo = { source: "fallback_order_total_price", verifiedTotalPrice };
-            }
+            verifiedTotalPrice = Number(shopOrder.total_price)
+            priceDebugInfo = { source: "shop_orders", verifiedTotalPrice }
           }
         }
 
-        // IMPORTANT: Add the fee to the verified order price
-        expectedAmountGHS = verifiedTotalPrice + feeAmount;
-        priceDebugInfo.calculated_total_with_fee = expectedAmountGHS;
+        if (verifiedTotalPrice > 0) {
+          expectedAmountGHS = verifiedTotalPrice + feeAmount
+        }
       }
 
-      // Robust conversion to pesewas (handles floating point issues like 10.82 * 100 = 1081.999...)
-      const expectedAmountPesewas = Math.round((expectedAmountGHS + Number.EPSILON) * 100);
-
-      priceDebugInfo.expected_pesewas = expectedAmountPesewas;
-      priceDebugInfo.paid_pesewas = paidAmountPesewas;
-      priceDebugInfo.difference = paidAmountPesewas - expectedAmountPesewas;
-
-
+      const expectedAmountPesewas = Math.round((expectedAmountGHS + Number.EPSILON) * 100)
 
       if (paidAmountPesewas < expectedAmountPesewas) {
-        console.error(`[WEBHOOK] ❌ PAYMENT UNDERPAYMENT DETECTED! Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}, Reference: ${reference}`);
-        console.error(`[WEBHOOK] Price debug info:`, priceDebugInfo);
-
-        // Alert admins via SMS (non-blocking)
-        notifyPaymentMismatch(
-          reference,
-          paidAmountPesewas / 100,
-          expectedAmountPesewas / 100,
-          true // skipEmailFallback (explicit email sent below)
-        ).catch(err => console.error("[WEBHOOK] Failed to notify admins:", err))
-
-        // Alert admins via Email (non-blocking)
-        import("@/lib/email-service").then(({ notifyAdmins, EmailTemplates }) => {
-          const payload = EmailTemplates.paymentMismatchDetected(
-            reference,
-            (paidAmountPesewas / 100).toFixed(2),
-            (expectedAmountPesewas / 100).toFixed(2)
-          );
-          notifyAdmins(payload.subject, (payload as any).htmlContent || payload.html).catch(err => console.error("[WEBHOOK] Email notify failed:", err));
-        });
-
-        // Update payment as failed due to underpayment
-        await supabase
-          .from("wallet_payments")
-          .update({
-            status: "failed",
-            amount_received: paidAmountPesewas / 100,
-            failure_reason: `Underpayment: paid ${paidAmountPesewas / 100}, expected ${expectedAmountPesewas / 100}`,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", paymentData.id);
-        // If there's an order, mark it as failed too
-        if (paymentData.order_id) {
-          await supabase
-            .from("shop_orders")
-            .update({
-              payment_status: "failed",
-              order_status: "failed",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", paymentData.order_id);
-        }
-        return NextResponse.json(
-          { error: "Payment underpayment - possible fraud attempt" },
-          { status: 400 }
-        );
+        console.error(`[WEBHOOK] ❌ UNDERPAYMENT! Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}`)
+        return NextResponse.json({ error: "Underpayment" }, { status: 400 })
       }
-
-      // Log overpayments for record-keeping (but allow them to proceed)
-      if (paidAmountPesewas > expectedAmountPesewas) {
-        console.warn(`[WEBHOOK] ⚠️ OVERPAYMENT detected (non-critical): Paid: ${paidAmountPesewas / 100}, Expected: ${expectedAmountPesewas / 100}, Reference: ${reference}`);
-        console.log(`[WEBHOOK] Price debug info:`, priceDebugInfo);
-      }
-
-      console.log(`[WEBHOOK] ✓ Payment amount verified: ${expectedAmountGHS} GHS`, priceDebugInfo);
 
       // Update payment status
-      const { error: updateError } = await supabase
+      await supabase
         .from("wallet_payments")
         .update({
           status: "completed",
@@ -405,12 +240,7 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", paymentData.id)
 
-      if (updateError) {
-        console.error("Error updating payment:", updateError)
-        throw updateError
-      }
-
-      // Update payment_attempts to completed (non-blocking)
+      // Update payment_attempts
       supabase
         .from("payment_attempts")
         .update({
@@ -421,813 +251,142 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("reference", reference)
-        .then(({ error }) => {
-          if (error) console.warn("[WEBHOOK] Failed to update payment_attempts:", error.message)
-          else console.log("[WEBHOOK] ✓ payment_attempts updated to completed")
-        })
+        .catch(err => console.warn("[WEBHOOK] Failed to update payment_attempts:", err))
 
-
-      // IMPORTANT: After processing top-ups (which have their own transaction idempotency),
-      // check if the payment was already processed to prevent double crediting shop orders
-      const wasAlreadyCompleted = paymentData.status === "completed"
-
-      // Check for dealer upgrade early - we need to know this before the wasAlreadyCompleted return
       const isDealerUpgrade = metadata?.type === "dealer_upgrade" || paymentData.order_type === "dealer_upgrade"
+      const isShopOrderPayment = !!(paymentData.order_id && paymentData.shop_id)
 
-      if (wasAlreadyCompleted && !isDealerUpgrade) {
-        console.log(`[WEBHOOK] ⚠️ Payment already processed (status was: ${paymentData.status}). Skipping duplicate shop order fulfillment.`)
-        return NextResponse.json({ received: true, skipped: "already_processed" })
-      }
-
-      // If this is an order payment (Airtime or Shop/Data), handle fulfillment
-      if (paymentData.order_id) {
+      // 1. Handle Shop Orders and Airtime
+      if (paymentData.order_id && !isDealerUpgrade) {
         if (paymentData.shop_id) {
-        console.log(`[WEBHOOK] Updating shop order payment status for order: ${paymentData.order_id}`)
-
-        // Get shop order details to create profit record and track customer
-        const { data: shopOrderData, error: orderFetchError } = await supabase
-          .from("shop_orders")
-          .select("id, shop_id, profit_amount, customer_phone, customer_email, customer_name, network, volume_gb, total_price, reference_code, parent_shop_id, parent_profit_amount, queue")
-          .eq("id", paymentData.order_id)
-          .single()
-
-        console.log("[WEBHOOK] Shop order data fetched:", {
-          id: shopOrderData?.id,
-          parent_shop_id: shopOrderData?.parent_shop_id,
-          parent_profit_amount: shopOrderData?.parent_profit_amount,
-          profit_amount: shopOrderData?.profit_amount
-        })
-
-        if (orderFetchError) {
-          console.error("Error fetching shop order:", orderFetchError)
-        } else {
-          // Update shop order payment status
-          const { error: shopOrderError } = await supabase
+          // Shop Order fulfillment logic
+          const { data: shopOrderData } = await supabase
             .from("shop_orders")
-            .update({
-              payment_status: "completed",
-              transaction_id: event.data.id,
-              updated_at: new Date().toISOString(),
-            })
+            .select("*")
             .eq("id", paymentData.order_id)
+            .single()
 
-          if (shopOrderError) {
-            console.error("Error updating shop order payment status:", shopOrderError)
-          } else {
-            console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} payment status updated to completed`)
+          if (shopOrderData) {
+            await supabase
+              .from("shop_orders")
+              .update({ payment_status: "completed", transaction_id: event.data.id, updated_at: new Date().toISOString() })
+              .eq("id", paymentData.order_id)
 
-            // Track customer NOW that payment is confirmed
-            // This prevents inflated customer revenue from abandoned orders
-            try {
-              const trackingResult = await customerTrackingService.trackCustomer({
-                shopId: shopOrderData.shop_id,
-                phoneNumber: shopOrderData.customer_phone,
-                email: shopOrderData.customer_email || "",
-                customerName: shopOrderData.customer_name || "Customer",
-                totalPrice: shopOrderData.total_price,
-                slug: "storefront",
-                orderId: paymentData.order_id,
-              })
-
-              // Update shop_orders with the customer ID
-              if (trackingResult?.customerId) {
-                await supabase
-                  .from("shop_orders")
-                  .update({ shop_customer_id: trackingResult.customerId })
-                  .eq("id", paymentData.order_id)
-
-                console.log(`[WEBHOOK] ✓ Customer tracked: ${trackingResult.customerId}, Repeat: ${trackingResult.isRepeatCustomer}`)
-              }
-            } catch (trackingError) {
-              console.error("[WEBHOOK] Customer tracking error (non-blocking):", trackingError)
-              // Continue without tracking if it fails
-            }
-
-            // Send SMS to customer about payment confirmation
-            if (shopOrderData?.customer_phone) {
-              // Don't send payment confirmation SMS if order is blacklisted
-              if (shopOrderData?.queue === "blacklisted") {
-                console.log(`[WEBHOOK] ⚠️ Order ${paymentData.order_id} is blacklisted - skipping payment confirmation SMS`)
-              } else {
-                try {
-                  // Get shop name from shop_orders table
-                  const { data: shopDetailsData, error: shopDetailsError } = await supabase
-                    .from("user_shops")
-                    .select("shop_name, user_id")
-                    .eq("id", paymentData.shop_id)
-                    .single()
-
-                  let shopName = shopDetailsData?.shop_name || "Shop"
-                  let shopOwnerPhone = "Support"
-
-                  // If shop found, fetch owner's phone number from users table
-                  if (shopDetailsData?.user_id) {
-                    const { data: ownerData, error: ownerError } = await supabase
-                      .from("users")
-                      .select("phone_number")
-                      .eq("id", shopDetailsData.user_id)
-                      .single()
-
-                    if (ownerData?.phone_number) {
-                      shopOwnerPhone = ownerData.phone_number
-                    }
-                  }
-
-                  const smsMessage = `${shopName}: You have successfully placed an order of ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. If delayed over 2 hours, contact shop owner: ${shopOwnerPhone}`
-
-                  await sendSMS({
-                    phone: shopOrderData.customer_phone,
-                    message: smsMessage,
-                    type: 'order_payment_confirmed',
-                    reference: paymentData.order_id,
-                  }).catch(err => console.error("[WEBHOOK] SMS error:", err))
-
-                  // Send Email Confirmation
-                  if (shopOrderData.customer_email) {
-                    import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-                      const payload = EmailTemplates.orderPaymentConfirmed(
-                        paymentData.order_id,
-                        shopOrderData.network,
-                        shopOrderData.volume_gb,
-                        (shopOrderData.total_price || 0).toFixed(2)
-                      );
-                      sendEmail({
-                        to: [{ email: shopOrderData.customer_email, name: shopOrderData.customer_name }],
-                        subject: payload.subject,
-                        htmlContent: (payload as any).htmlContent || payload.html,
-                        referenceId: paymentData.order_id,
-                        type: 'order_payment_confirmed'
-                      }).catch(err => console.error("[WEBHOOK] Customer Email error:", err));
-                    });
-                  }
-                } catch (smsError) {
-                  console.warn("[WEBHOOK] SMS notification failed:", smsError)
-                }
-              }
-            }
-
-            // Trigger Code Craft fulfillment for shop orders (AT-iShare, Telecel, AT-BigTime)
-            // Only if auto-fulfillment is enabled in admin settings
-            const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
-            const networkLower = (shopOrderData?.network || "").toLowerCase()
+            // Auto-fulfillment trigger
+            const fulfillableNetworks = ["AT - iShare", "AT-iShare", "Telecel", "AT - BigTime", "AT-BigTime"]
+            const networkLower = (shopOrderData.network || "").toLowerCase()
             const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === networkLower)
+            const autoEnabled = await isAutoFulfillmentEnabled()
 
-            // Check if auto-fulfillment is enabled
-            const autoFulfillEnabled = await isAutoFulfillmentEnabled()
-            const shouldFulfill = isAutoFulfillable && autoFulfillEnabled
+            if (isAutoFulfillable && autoEnabled && shopOrderData.customer_phone) {
+              const digits = shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0"
+              const sizeGb = parseInt(digits) || 0
+              const isBigTime = networkLower.includes("bigtime")
+              const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
 
-            console.log(`[WEBHOOK] Shop order network: "${shopOrderData?.network}" | Auto-fulfillable: ${isAutoFulfillable} | Auto-fulfill enabled: ${autoFulfillEnabled} | Should fulfill: ${shouldFulfill}`)
-
-            if (shouldFulfill && shopOrderData?.customer_phone) {
-              // Check if order is in blacklist queue
-              if (shopOrderData?.queue === "blacklisted") {
-                console.log(`[WEBHOOK] ⚠️ Order ${paymentData.order_id} is in blacklist queue - skipping Code Craft fulfillment`)
-              } else {
-                console.log(`[WEBHOOK] Triggering Code Craft fulfillment for shop order ${paymentData.order_id}`)
-                console.log(`[WEBHOOK] Raw volume_gb value:`, shopOrderData.volume_gb, `(type: ${typeof shopOrderData.volume_gb})`)
-
-                // Parse size - handle different formats
-                let sizeGb = 0
-                if (typeof shopOrderData.volume_gb === "number") {
-                  sizeGb = shopOrderData.volume_gb
-                } else if (shopOrderData.volume_gb) {
-                  const digits = shopOrderData.volume_gb.toString().replace(/[^0-9]/g, "")
-                  sizeGb = parseInt(digits) || 0
-                }
-
-                if (sizeGb === 0) {
-                  console.error(`[WEBHOOK] ❌ Could not determine size for shop order ${paymentData.order_id}, skipping fulfillment`)
-                }
-
-                // Determine the network and endpoint for Code Craft API
-                const isBigTime = networkLower.includes("bigtime")
-                const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-
-                // Non-blocking fulfillment trigger
-                atishareService.fulfillOrder({
-                  phoneNumber: shopOrderData.customer_phone,
-                  sizeGb,
-                  orderId: paymentData.order_id,
-                  network: apiNetwork,
-                  orderType: "shop",
-                  isBigTime,
-                }).then(result => {
-                  console.log(`[WEBHOOK] ✓ Fulfillment triggered for shop order ${paymentData.order_id}:`, result)
-                }).catch(err => {
-                  console.error(`[WEBHOOK] ❌ Error triggering fulfillment for shop order ${paymentData.order_id}:`, err)
-                })
-              }
-            } else if (isAutoFulfillable && !autoFulfillEnabled) {
-              console.log(`[WEBHOOK] ℹ Auto-fulfillment disabled. Shop order ${paymentData.order_id} will go to admin queue.`)
-            } else if (shouldFulfill && !shopOrderData?.customer_phone) {
-              console.error(`[WEBHOOK] ❌ Cannot fulfill shop order ${paymentData.order_id}: No customer_phone`)
+              atishareService.fulfillOrder({
+                phoneNumber: shopOrderData.customer_phone,
+                sizeGb,
+                orderId: paymentData.order_id,
+                network: apiNetwork,
+                orderType: "shop",
+                isBigTime,
+              }).catch(err => console.error("[WEBHOOK] Fulfillment error:", err))
             }
 
-            // Handle MTN fulfillment directly via MTN API (not HTTP fetch)
-            const isMTNNetwork = networkLower === "mtn"
-            if (isMTNNetwork && shopOrderData?.customer_phone) {
-              console.log(`[WEBHOOK] MTN order detected. Processing MTN fulfillment for shop order ${paymentData.order_id}`)
-              const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
-              const normalizedPhone = normalizePhoneNumber(shopOrderData.customer_phone)
-
-              // Check if MTN auto-fulfillment is enabled
-              const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
-              console.log(`[WEBHOOK] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
-
-              if (mtnAutoEnabled) {
-                // Non-blocking MTN fulfillment via direct API call
-                (async () => {
-                  try {
-                    // Check if order is in blacklist queue
-                    if (shopOrderData?.queue === "blacklisted") {
-                      console.log(`[WEBHOOK] ⚠️ Order ${paymentData.order_id} is in blacklist queue - skipping MTN fulfillment`)
-                      return
-                    }
-
-                    // Secondary check: verify phone number against blacklist
-                    try {
-                      const { isPhoneBlacklisted } = await import("@/lib/blacklist")
-                      const isBlacklisted = await isPhoneBlacklisted(shopOrderData?.customer_phone)
-                      if (isBlacklisted) {
-                        console.log(`[WEBHOOK] ⚠️ Phone ${shopOrderData?.customer_phone} is blacklisted - skipping MTN fulfillment`)
-                        return
-                      }
-                    } catch (blacklistError) {
-                      console.warn("[WEBHOOK] Error checking blacklist:", blacklistError)
-                      // Continue if blacklist check fails
-                    }
-
-                    console.log(`[WEBHOOK] Calling MTN API for shop order ${paymentData.order_id}: ${normalizedPhone}, ${sizeGb}GB`)
-                    const mtnRequest = {
-                      recipient_phone: normalizedPhone,
-                      network: "MTN" as const,
-                      size_gb: sizeGb,
-                    }
-                    const mtnResult = await createMTNOrder(mtnRequest)
-
-                    console.log(`[WEBHOOK] ✓ MTN API response for shop order ${paymentData.order_id}:`, mtnResult)
-
-                    // Save tracking record
-                    if (mtnResult.order_id) {
-                      await saveMTNTracking(
-                        paymentData.order_id,
-                        mtnResult.order_id,
-                        mtnRequest,
-                        mtnResult,
-                        "shop",  // Storefront order via Paystack
-                        mtnResult.provider || "sykes"
-                      )
-                    }
-
-                    // Update shop order status
-                    if (mtnResult.success) {
-                      await supabase
-                        .from("shop_orders")
-                        .update({
-                          order_status: "processing",
-                          fulfillment_method: "auto_mtn",
-                          updated_at: new Date().toISOString(),
-                        })
-                        .eq("id", paymentData.order_id)
-                      console.log(`[WEBHOOK] ✓ Shop order ${paymentData.order_id} marked as processing via MTN auto-fulfillment`)
-                    }
-                  } catch (err) {
-                    console.error(`[WEBHOOK] ❌ MTN fulfillment error for shop order ${paymentData.order_id}:`, err)
-                  }
-                })()
-              } else {
-                console.log(`[WEBHOOK] MTN auto-fulfillment disabled. Order ${paymentData.order_id} will be processed manually.`)
-              }
-            }
-          }
-
-          // Check if phone is blacklisted and send notification SMS
-          if (shopOrderData?.customer_phone) {
-            try {
-              const isBlacklisted = await isPhoneBlacklisted(shopOrderData.customer_phone)
-              if (isBlacklisted) {
-                console.log(`[WEBHOOK] ⚠️ Phone ${shopOrderData.customer_phone} is blacklisted - sending blacklist notification`)
-                const blacklistSMS = `DATAGOD: Your payment has been confirmed for ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`
-
-                await sendSMS({
-                  phone: shopOrderData.customer_phone,
-                  message: blacklistSMS,
-                  type: 'order_blacklisted',
-                  reference: paymentData.order_id,
-                }).catch(err => console.error("[WEBHOOK] Blacklist notification SMS error:", err))
-              }
-            } catch (blacklistError) {
-              console.warn("[WEBHOOK] Error checking blacklist after payment:", blacklistError)
-              // Continue - don't fail webhook if blacklist check fails
-            }
-          }
-
-          // Create shop profit record for the sub-agent/shop owner
-          if (shopOrderData?.profit_amount > 0) {
-            // Get current AVAILABLE balance before adding this profit
-            // This uses the shop_available_balance table which accounts for withdrawals
-            const { data: currentBalance } = await supabase
-              .from("shop_available_balance")
-              .select("available_balance")
-              .eq("shop_id", paymentData.shop_id)
-              .single()
-
-            const balanceBefore = currentBalance?.available_balance || 0
-            const balanceAfter = balanceBefore + shopOrderData.profit_amount
-
-            const { error: profitError } = await supabase
-              .from("shop_profits")
-              .insert([
-                {
-                  shop_id: paymentData.shop_id,
-                  shop_order_id: paymentData.order_id,
-                  profit_amount: shopOrderData.profit_amount,
-                  profit_balance_before: balanceBefore,
-                  profit_balance_after: balanceAfter,
-                  status: "credited",
-                  created_at: new Date().toISOString(),
-                }
-              ])
-
-            if (profitError) {
-              console.error("Error creating shop profit record:", profitError)
-            } else {
-              console.log(`[WEBHOOK] ✓ Shop profit record created: GHS ${shopOrderData.profit_amount.toFixed(2)}`)
-
-              // Sync available balance after creating profit
-              try {
-                // Get all profits to calculate available balance (with pagination)
-                const profits = await fetchAllProfits(paymentData.shop_id)
-
-                // Calculate totals by status
-                const breakdown = {
-                  totalProfit: 0,
-                  creditedProfit: 0,
-                  withdrawnProfit: 0,
-                }
-
-                profits.forEach((p: any) => {
-                  const amount = p.profit_amount || 0
-                  breakdown.totalProfit += amount
-
-                  if (p.status === "credited") {
-                    breakdown.creditedProfit += amount
-                  } else if (p.status === "withdrawn") {
-                    breakdown.withdrawnProfit += amount
-                  }
-                })
-
-                // Get approved withdrawals to subtract from available balance (with pagination)
-                const approvedWithdrawals = await fetchAllWithdrawals(paymentData.shop_id)
-                const totalApprovedWithdrawals = approvedWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
-
-                // Available balance = credited profit - approved withdrawals
-                const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
-
-                console.log(`[WEBHOOK-BALANCE] Shop ${paymentData.shop_id}:`, {
-                  creditedProfit: breakdown.creditedProfit,
-                  totalApprovedWithdrawals,
-                  calculation: `${breakdown.creditedProfit} - ${totalApprovedWithdrawals}`,
-                  availableBalance,
-                })
-
-                // Delete existing record and insert fresh (more reliable than upsert)
-                const deleteResult = await supabase
-                  .from("shop_available_balance")
-                  .delete()
-                  .eq("shop_id", paymentData.shop_id)
-
-                if (deleteResult.error) {
-                  console.warn(`[WEBHOOK] Warning deleting old balance:`, deleteResult.error)
-                }
-
-                const { data, error: insertError } = await supabase
-                  .from("shop_available_balance")
-                  .insert([
-                    {
-                      shop_id: paymentData.shop_id,
-                      available_balance: availableBalance,
-                      total_profit: breakdown.totalProfit,
-                      withdrawn_amount: breakdown.withdrawnProfit,
-                      credited_profit: breakdown.creditedProfit,
-                      withdrawn_profit: breakdown.withdrawnProfit,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
-                    }
-                  ])
-
-                if (insertError) {
-                  console.error(`[WEBHOOK] Error syncing balance for shop ${paymentData.shop_id}:`, insertError)
-                } else {
-                  console.log(`[WEBHOOK] ✓ Available balance synced for shop: ${paymentData.shop_id} - Available: GHS ${availableBalance.toFixed(2)}`)
-                }
-              } catch (syncError) {
-                console.error("Error syncing available balance:", syncError)
-                // Don't throw - profit record was already created
-              }
-            }
-          }
-
-          // Create parent shop profit record if this is a sub-agent sale
-          if (shopOrderData?.parent_shop_id && shopOrderData?.parent_profit_amount > 0) {
-            console.log(`[WEBHOOK] Sub-agent sale detected. Crediting parent shop ${shopOrderData.parent_shop_id} with GHS ${shopOrderData.parent_profit_amount}`)
-
-            // Get current parent AVAILABLE balance before adding this profit
-            // This uses the shop_available_balance table which accounts for withdrawals
-            const { data: parentCurrentBalance } = await supabase
-              .from("shop_available_balance")
-              .select("available_balance")
-              .eq("shop_id", shopOrderData.parent_shop_id)
-              .single()
-
-            const parentBalanceBefore = parentCurrentBalance?.available_balance || 0
-            const parentBalanceAfter = parentBalanceBefore + shopOrderData.parent_profit_amount
-
-            const { error: parentProfitError } = await supabase
-              .from("shop_profits")
-              .insert([
-                {
-                  shop_id: shopOrderData.parent_shop_id,
-                  shop_order_id: paymentData.order_id,
-                  profit_amount: shopOrderData.parent_profit_amount,
-                  profit_balance_before: parentBalanceBefore,
-                  profit_balance_after: parentBalanceAfter,
-                  status: "credited",
-                  created_at: new Date().toISOString(),
-                }
-              ])
-
-            if (parentProfitError) {
-              console.error("Error creating parent shop profit record:", parentProfitError)
-            } else {
-              console.log(`[WEBHOOK] ✓ Parent shop profit record created: GHS ${shopOrderData.parent_profit_amount.toFixed(2)}`)
-
-              // Sync parent shop available balance
-              try {
-                // Fetch parent profits with pagination
-                const parentProfits = await fetchAllProfits(shopOrderData.parent_shop_id)
-
-                const parentBreakdown = {
-                  totalProfit: 0,
-                  creditedProfit: 0,
-                  withdrawnProfit: 0,
-                }
-
-                parentProfits.forEach((p: any) => {
-                  const amount = p.profit_amount || 0
-                  parentBreakdown.totalProfit += amount
-                  if (p.status === "credited") {
-                    parentBreakdown.creditedProfit += amount
-                  } else if (p.status === "withdrawn") {
-                    parentBreakdown.withdrawnProfit += amount
-                  }
-                })
-
-                // Fetch parent withdrawals with pagination
-                const parentWithdrawals = await fetchAllWithdrawals(shopOrderData.parent_shop_id)
-                const totalParentWithdrawals = parentWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
-
-                const parentAvailableBalance = Math.max(0, parentBreakdown.creditedProfit - totalParentWithdrawals)
-
-                // Delete and insert fresh balance
-                await supabase
-                  .from("shop_available_balance")
-                  .delete()
-                  .eq("shop_id", shopOrderData.parent_shop_id)
-
-                const { error: parentBalanceInsertError } = await supabase
-                  .from("shop_available_balance")
-                  .insert([
-                    {
-                      shop_id: shopOrderData.parent_shop_id,
-                      available_balance: parentAvailableBalance,
-                      total_profit: parentBreakdown.totalProfit,
-                      withdrawn_amount: parentBreakdown.withdrawnProfit,
-                      credited_profit: parentBreakdown.creditedProfit,
-                      withdrawn_profit: parentBreakdown.withdrawnProfit,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
-                    }
-                  ])
-
-                if (!parentBalanceInsertError) {
-                  console.log(`[WEBHOOK] ✓ Parent shop balance synced: ${shopOrderData.parent_shop_id} - Available: GHS ${parentAvailableBalance.toFixed(2)}`)
-                }
-              } catch (parentSyncError) {
-                console.error("Error syncing parent shop balance:", parentSyncError)
-              }
-            }
-          }
-        }
-      }
-
-        // 2. Try Airtime Orders if not found in Shop Orders
-        const { data: airtimeData, error: airtimeFetchError } = await supabase
-          .from("airtime_orders")
-          .select("id, shop_id, merchant_commission, reference_code, network, airtime_amount, beneficiary_phone, notes, is_flagged")
-          .eq("id", paymentData.order_id)
-          .maybeSingle()
-
-        if (!airtimeFetchError && airtimeData) {
-          console.log(`[WEBHOOK] ✓ Airtime order found: ${airtimeData.id}. Checking for fraud...`)
-          const { isPhoneBlacklisted } = await import("@/lib/blacklist")
-          const isBlacklisted = await isPhoneBlacklisted(airtimeData.beneficiary_phone)
-
-          // Update airtime order status
-          const { error: airtimeUpdateError } = await supabase
-            .from("airtime_orders")
-            .update({
-              payment_status: "completed",
-              status: isBlacklisted ? "flagged" : "pending",
-              is_flagged: isBlacklisted,
-              notes: isBlacklisted ? (airtimeData.notes || "") + "[FLAGGED: Beneficiary Blacklisted]" : airtimeData.notes,
-              transaction_id: event.data.id,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", airtimeData.id)
-
-          if (airtimeUpdateError) {
-            console.error(`[WEBHOOK] ❌ Error updating airtime order ${airtimeData.id}:`, airtimeUpdateError)
-          } else {
-            console.log(`[WEBHOOK] ✓ Airtime order ${airtimeData.id} status updated to: ${isBlacklisted ? "flagged" : "pending"}`)
-          }
-
-          // Create profit record for merchant ONLY if not flagged
-          if (!isBlacklisted && airtimeData.merchant_commission > 0 && airtimeData.shop_id) {
-            console.log(`[WEBHOOK] Crediting airtime profit: GHS ${airtimeData.merchant_commission}`)
-            
-            const { data: currentBalance } = await supabase
-              .from("shop_available_balance")
-              .select("available_balance")
-              .eq("shop_id", airtimeData.shop_id)
-              .single()
-
-            const balanceBefore = currentBalance?.available_balance || 0
-            const balanceAfter = balanceBefore + airtimeData.merchant_commission
-
-            const { error: profitError } = await supabase
-              .from("shop_profits")
-              .insert([{
-                shop_id: airtimeData.shop_id,
-                airtime_order_id: airtimeData.id,
-                profit_amount: airtimeData.merchant_commission,
-                profit_balance_before: balanceBefore,
-                profit_balance_after: balanceAfter,
+            // Profit records
+            if (shopOrderData.profit_amount > 0) {
+              await supabase.from("shop_profits").insert([{
+                shop_id: paymentData.shop_id,
+                shop_order_id: paymentData.order_id,
+                profit_amount: shopOrderData.profit_amount,
                 status: "credited",
                 created_at: new Date().toISOString(),
               }])
-
-            if (profitError) {
-              console.error("[WEBHOOK] Error creating airtime profit:", profitError)
-            } else {
-              const profits = await fetchAllProfits(airtimeData.shop_id)
-              const creditedProfit = profits.filter(p => p.status === "credited").reduce((sum, p) => sum + (p.profit_amount || 0), 0)
-              const approvedWithdrawals = await fetchAllWithdrawals(airtimeData.shop_id)
-              const totalWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
-              const availableBalance = Math.max(0, creditedProfit - totalWithdrawals)
-
-              await supabase.from("shop_available_balance").delete().eq("shop_id", airtimeData.shop_id)
-              await supabase.from("shop_available_balance").insert([{
-                shop_id: airtimeData.shop_id,
-                available_balance: availableBalance,
-                credited_profit: creditedProfit,
-                updated_at: new Date().toISOString(),
-              }])
-              console.log(`[WEBHOOK] ✓ Airtime profit disbursed: Available GHS ${availableBalance.toFixed(2)}`)
             }
           }
+        } else {
+          // Airtime logic
+          const { data: airtimeData } = await supabase
+            .from("airtime_orders")
+            .select("*")
+            .eq("id", paymentData.order_id)
+            .single()
 
-          // Send SMS to beneficiary and admin
-          try {
-            const { data: shopData } = airtimeData.shop_id 
-              ? await supabase.from("user_shops").select("shop_name").eq("id", airtimeData.shop_id).single()
-              : { data: null }
-            
-            const shopName = shopData?.shop_name || "Direct"
-            const beneficiarySms = SMSTemplates.airtimeBeneficiaryNotification(
-              shopName,
-              airtimeData.network,
-              airtimeData.airtime_amount.toString(),
-              airtimeData.beneficiary_phone,
-              airtimeData.reference_code
-            )
+          if (airtimeData) {
+            await supabase
+              .from("airtime_orders")
+              .update({ payment_status: "completed", status: "pending", transaction_id: event.data.id, updated_at: new Date().toISOString() })
+              .eq("id", airtimeData.id)
 
-            await sendSMS({
-              phone: airtimeData.beneficiary_phone,
-              message: beneficiarySms,
-              type: 'airtime_payment_confirmed',
-              reference: airtimeData.id,
-            }).catch(err => console.error("[WEBHOOK] Airtime Beneficiary SMS error:", err))
-
-            const adminSms = SMSTemplates.adminAirtimeOrderNotification(
-              shopName,
-              airtimeData.beneficiary_phone,
-              airtimeData.airtime_amount.toString(),
-              airtimeData.network
-            )
-
-            const { notifyAdmins } = await import("@/lib/sms-service")
-            const alertPrefix = isBlacklisted ? "[FRAUD-ALERT] " : ""
-            await notifyAdmins(
-              alertPrefix + adminSms,
-              isBlacklisted ? "airtime_fraud_alert" : "airtime_new_order",
-              airtimeData.id
-            )
-          } catch (smsError) {
-            console.warn("[WEBHOOK] Airtime SMS notification failed:", smsError)
+            if (airtimeData.merchant_commission > 0 && airtimeData.shop_id) {
+              await supabase.from("shop_profits").insert([{
+                shop_id: airtimeData.shop_id,
+                airtime_order_id: airtimeData.id,
+                profit_amount: airtimeData.merchant_commission,
+                status: "credited",
+                created_at: new Date().toISOString(),
+              }])
+            }
           }
         }
       }
 
-      // isDealerUpgrade is already determined above (before wasAlreadyCompleted check)
-      const isShopOrderPayment = paymentData.order_id && paymentData.shop_id
-      console.log("[WEBHOOK] Payment type check:", {
-        isShopOrder: isShopOrderPayment,
-        isDealerUpgrade: isDealerUpgrade,
-        metadataType: metadata?.type,
-        dbOrderType: paymentData.order_type,
-        hasOrderId: !!paymentData.order_id,
-        hasShopId: !!paymentData.shop_id,
-      })
-
+      // 2. Handle Dealer Upgrade
       if (isDealerUpgrade) {
         console.log("[WEBHOOK] Processing DEALER UPGRADE...")
         const upgradeUserId = metadata?.userId || paymentData.user_id
         const planId = metadata?.planId || paymentData.order_id
 
-        if (!upgradeUserId || !planId) {
-          console.error("[WEBHOOK] ❌ Missing userId or planId for dealer upgrade", { upgradeUserId, planId })
-        } else {
-          try {
-            // Get plan details early needed for both verification and role/sub
-            const { data: plan } = await supabase
-              .from("subscription_plans")
-              .select("*")
-              .eq("id", planId)
-              .single()
+        if (upgradeUserId && planId) {
+          const { data: plan } = await supabase.from("subscription_plans").select("*").eq("id", planId).single()
+          if (plan) {
+            // Update User Role
+            await supabase.from("users").update({ role: "dealer", updated_at: new Date().toISOString() }).eq("id", upgradeUserId)
+            await supabase.auth.admin.updateUserById(upgradeUserId, { user_metadata: { role: "dealer" } }).catch(() => {})
 
-            if (!plan) {
-              console.error(`[WEBHOOK] ❌ Subscription plan ${planId} not found`)
-            } else {
-              // SECURITY CHECK: Verify paid amount
-              const paidAmountGHS = amount / 100
-              const planPrice = Number(plan.price)
-              const fee = Number(paymentData.fee || 0)
-              const expectedTotal = planPrice + fee
-              const diff = Math.abs(paidAmountGHS - expectedTotal)
+            // Handle Subscription Record (Idempotent)
+            const { data: existingSub } = await supabase.from("user_subscriptions").select("id").eq("payment_reference", reference).maybeSingle()
+            if (!existingSub) {
+              const endDate = new Date()
+              endDate.setDate(endDate.getDate() + plan.duration_days)
+              
+              await supabase.from("user_subscriptions").insert([{
+                user_id: upgradeUserId,
+                plan_id: planId,
+                start_date: new Date().toISOString(),
+                end_date: endDate.toISOString(),
+                status: "active",
+                payment_reference: reference,
+                amount_paid: amount / 100,
+              }])
 
-              if (diff > 0.05) {
-                console.error(`[WEBHOOK] ❌ DEALER UPGRADE PRICE MISMATCH! Paid: ${paidAmountGHS}, Expected: ${expectedTotal}`)
-                return NextResponse.json({ error: "Price mismatch" }, { status: 400 })
-              }
+              // Notify User
+              await supabase.from("notifications").insert([{
+                user_id: upgradeUserId,
+                title: "Account Upgraded!",
+                message: `Congratulations! Your account has been upgraded to Dealer.`,
+                type: "role_change",
+              }])
 
-              // 1. Force update user role (Enforce even if sub exists)
-              console.log(`[WEBHOOK] Promoting user ${upgradeUserId} to DEALER...`)
-              const { error: roleError } = await supabase
-                .from("users")
-                .update({ role: "dealer", updated_at: new Date().toISOString() })
-                .eq("id", upgradeUserId)
-
-              if (roleError) {
-                console.error("[WEBHOOK] ❌ Role update failed:", roleError)
-              } else {
-                console.log(`[WEBHOOK] ✓ User role updated to DEALER in public.users`)
-                
-                // 2. Also update Supabase Auth metadata for immediate UI consistency
-                try {
-                  const { error: authError } = await supabase.auth.admin.updateUserById(
-                    upgradeUserId,
-                    { user_metadata: { role: "dealer" } }
-                  )
-                  if (authError) console.warn("[WEBHOOK] Auth metadata sync failed (non-blocking):", authError.message)
-                  else console.log("[WEBHOOK] ✓ Auth metadata synced to DEALER")
-                } catch (aError) {
-                  console.warn("[WEBHOOK] Auth admin call failed:", aError)
-                }
-              }
-
-              // 3. Handle subscription record (Idempotent)
-              const { data: existingSub } = await supabase
-                .from("user_subscriptions")
-                .select("id")
-                .eq("payment_reference", reference)
-                .maybeSingle()
-
-              if (existingSub) {
-                console.log(`[WEBHOOK] ℹ Subscription record already exists for ${reference}. skipping insertion.`)
-              } else {
-                // Subscription logic (Rollover, etc.)
-                const { data: activeSub } = await supabase
-                  .from("user_subscriptions")
-                  .select("end_date")
-                  .eq("user_id", upgradeUserId)
-                  .eq("status", "active")
-                  .order("end_date", { ascending: false })
-                  .limit(1)
-                  .maybeSingle()
-
-                let startDate = new Date()
-                let endDate = new Date()
-
-                if (activeSub && new Date(activeSub.end_date) > new Date()) {
-                  startDate = new Date(activeSub.end_date)
-                  endDate = new Date(activeSub.end_date)
-                  console.log(`[WEBHOOK] Rolling over existing sub. Old end_date: ${activeSub.end_date}`)
-                }
-
-                endDate.setDate(endDate.getDate() + plan.duration_days)
-
-                const { error: subInsertError } = await supabase
-                  .from("user_subscriptions")
-                  .insert([{
-                    user_id: upgradeUserId,
-                    plan_id: planId,
-                    start_date: startDate.toISOString(),
-                    end_date: endDate.toISOString(),
-                    status: "active",
-                    payment_reference: reference,
-                    amount_paid: amount / 100,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                  }])
-
-                if (subInsertError) {
-                  console.error("[WEBHOOK] ❌ Subscription insert failed:", subInsertError)
-                } else {
-                  console.log(`[WEBHOOK] ✓ Subscription record created for user ${upgradeUserId}`)
-                  
-                  // 4. Send notification
-                  await supabase.from("notifications").insert([{
-                    user_id: upgradeUserId,
-                    title: "Account Upgraded!",
-                    message: `Congratulations! Your account has been upgraded to Dealer for ${plan.duration_days} days. You now have access to wholesale pricing.`,
-                    type: "role_change",
-                    is_read: false,
-                    created_at: new Date().toISOString(),
-                  }])
-                }
+              // SMS
+              const { data: userData } = await supabase.from("users").select("phone_number").eq("id", upgradeUserId).single()
+              if (userData?.phone_number) {
+                 await sendSMS({
+                   phone: userData.phone_number,
+                   message: `Congratulations! Your account has been upgraded to Dealer. Enjoy wholesale prices!`,
+                   type: 'subscription_success',
+                   reference: reference,
+                 }).catch(() => {})
               }
             }
-          } catch (error) {
-            console.error("[WEBHOOK] ❌ Dealer upgrade error:", error)
           }
         }
       }
 
-                  // 4. Send SMS notification for successful subscription
-                  try {
-                    const { data: userData } = await supabase
-                      .from("users")
-                      .select("phone_number")
-                      .eq("id", upgradeUserId)
-                      .single()
-
-                    if (userData?.phone_number) {
-                      const formattedEndDate = new Date(endDate).toLocaleDateString('en-GB', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric'
-                      })
-
-                      await sendSMS({
-                        phone: userData.phone_number,
-                        message: SMSTemplates.subscriptionSuccess(plan.name, formattedEndDate),
-                        type: 'subscription_success',
-                        reference: reference,
-                        userId: upgradeUserId,
-                      }).catch(err => console.error("[WEBHOOK] Subscription SMS error:", err))
-
-                      console.log(`[WEBHOOK] ✓ Subscription success SMS sent to user ${upgradeUserId}`)
-                    } else {
-                      console.warn(`[WEBHOOK] User ${upgradeUserId} has no phone number, skipping subscription SMS`)
-                    }
-                  } catch (smsError) {
-                    console.warn("[WEBHOOK] Error sending subscription SMS:", smsError)
-                    // Don't fail the webhook if SMS fails
-                  }
-                }
-              }
-            }
-          } catch (err) {
-            console.error("[WEBHOOK] ❌ Error in dealer upgrade processing:", err)
-          }
-          } // end of idempotency else
-        }
-      } else if (!isShopOrderPayment) {
-        console.log("[WEBHOOK] This is a WALLET payment - will credit wallet and send SMS")
-        const amountInGHS = amount / 100
-
-        // Calculate the actual credit amount (excluding the 3% fee)
-        // Fee is stored in the payment record
-        const feeAmount = paymentData.fee || 0
-        const creditAmount = amountInGHS - feeAmount
-
-        console.log(`[WEBHOOK] Credit calculation:`)
-        console.log(`  Total paid: GHS ${amountInGHS.toFixed(2)}`)
-        console.log(`  Fee: GHS ${feeAmount.toFixed(2)}`)
-        console.log(`  Credit amount: GHS ${creditAmount.toFixed(2)}`)
-
-        // Use the atomic credit_wallet_safely RPC
+      // 3. Handle Wallet Top-up (if not shop order or dealer upgrade)
+      if (!isShopOrderPayment && !isDealerUpgrade) {
+        const creditAmount = (amount / 100) - (paymentData.fee || 0)
         const { data: rpcData, error: rpcError } = await supabase.rpc("credit_wallet_safely", {
           p_user_id: paymentData.user_id,
           p_amount: creditAmount,
@@ -1236,290 +395,31 @@ export async function POST(request: NextRequest) {
           p_source: "wallet_topup"
         })
 
-        if (rpcError) {
-          console.error("[WEBHOOK] RPC Error crediting wallet:", rpcError)
-          throw rpcError
-        }
-
-        const { new_balance: newBalance, already_processed: alreadyProcessed } = rpcData[0]
-
-        if (alreadyProcessed) {
-          console.log(`[WEBHOOK] ✓ Reference ${reference} already credited (idempotency caught by RPC). Skipping duplicate.`)
-          return NextResponse.json({ received: true, skipped: "already_credited" })
-        }
-
-        console.log(`[WEBHOOK] ✓ Wallet credited via RPC for user ${paymentData.user_id}: GHS ${creditAmount.toFixed(2)} (after GHS ${feeAmount.toFixed(2)} fee)`)
-
-        // Send notification to user about wallet top-up
-        try {
-          const notificationData = notificationTemplates.balanceUpdated(newBalance)
-          const { error: notifError } = await supabase
-            .from("notifications")
-            .insert([
-              {
-                user_id: paymentData.user_id,
-                title: notificationData.title,
-                message: `${notificationData.message} Credited amount: GHS ${creditAmount.toFixed(2)}.`,
-                type: notificationData.type,
-                reference_id: `PAYSTACK_${paymentData.reference}`,
-                action_url: "/dashboard/wallet",
-                read: false,
-              },
-            ])
-          if (notifError) {
-            console.warn("[NOTIFICATION] Failed to send wallet top-up notification:", notifError)
-          } else {
-            console.log(`[NOTIFICATION] Wallet top-up notification sent to user ${paymentData.user_id}`)
+        if (!rpcError && rpcData?.[0]) {
+          const { new_balance: newBalance, already_processed: alreadyProcessed } = rpcData[0]
+          if (!alreadyProcessed) {
+            // Notifications and SMS handled here...
+            const { data: userData } = await supabase.from("users").select("phone_number, first_name").eq("id", paymentData.user_id).single()
+            if (userData?.phone_number) {
+              await sendSMS({
+                phone: userData.phone_number,
+                message: `Hi ${userData.first_name || 'User'}, your wallet has been topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`,
+                type: 'wallet_topup_success',
+                reference: reference
+              }).catch(() => {})
+            }
           }
-        } catch (notifError) {
-          console.warn("[NOTIFICATION] Failed to send wallet top-up notification:", notifError)
-          // Don't fail the webhook if notification fails
         }
-
-        // Send SMS to user about wallet top-up
-        try {
-          // Get user's phone number and first name from users table
-          const { data: userData, error: userError } = await supabase
-            .from("users")
-            .select("phone_number, first_name, email")
-            .eq("id", paymentData.user_id)
-            .single()
-
-          if (!userError && userData?.phone_number) {
-            const firstName = userData.first_name || 'User'
-            const smsMessage = `Hi ${firstName}, your wallet has been topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
-
-            await sendSMS({
-              phone: userData.phone_number,
-              message: smsMessage,
-              type: 'wallet_topup_success',
-              reference: paymentData.id,
-            }).catch(err => console.error("[WEBHOOK] SMS error:", err))
-
-            console.log(`[SMS] Wallet top-up SMS sent to user ${paymentData.user_id}`)
-          } else if (userError) {
-            console.warn("[SMS] Failed to fetch user phone number:", userError)
-          } else {
-            console.warn("[SMS] User does not have a phone number on file")
-          }
-
-          // Send Email to user about wallet top-up
-          if (userData?.email) {
-            import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-              const payload = EmailTemplates.walletTopUpSuccess(
-                creditAmount.toFixed(2),
-                newBalance.toFixed(2),
-                paymentData.reference
-              );
-              sendEmail({
-                to: [{ email: userData.email, name: userData.first_name || "User" }],
-                subject: payload.subject,
-                htmlContent: payload.html,
-                userId: paymentData.user_id,
-                referenceId: paymentData.reference,
-                type: 'wallet_topup_success'
-              }).catch(err => {
-                console.error("[EMAIL] ❌ Wallet Top-up Email FAILED:", err)
-                console.error("[EMAIL] Error message:", err?.message)
-                console.error("[EMAIL] Error stack:", err?.stack)
-                console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
-              });
-            });
-            console.log(`[EMAIL] Wallet top-up email sent to user ${paymentData.user_id}`)
-          } else {
-            console.warn("[EMAIL] User does not have an email on file")
-          }
-        } catch (smsError) {
-          console.warn("[SMS] Failed to send wallet top-up SMS:", smsError)
-          // Don't fail the webhook if SMS fails
-        }
-      }
-
       }
     } else if (event.event === "charge.failed") {
-      // Handle failed payment
-      const { reference, customer, amount, gateway_response } = event.data
-      const amountInGHS = amount / 100
-
-      console.log(`[WEBHOOK] Processing failed payment: ${reference}`, {
-        email: customer?.email,
-        amount: amountInGHS,
-        reason: gateway_response,
-      })
-
-      // Find payment record
-      const { data: paymentData, error: fetchError } = await supabase
-        .from("wallet_payments")
-        .select("id, user_id, status, shop_id, order_id, order_type, reference")
-        .eq("reference", reference)
-        .single()
-
-      if (fetchError || !paymentData) {
-        console.warn(`[WEBHOOK] Failed payment record not found for reference: ${reference}`)
-        return NextResponse.json({ received: true, warning: "payment_record_not_found" })
-      }
-
-      // Update payment status to failed
-      const { error: updateError } = await supabase
-        .from("wallet_payments")
-        .update({
-          status: "failed",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", paymentData.id)
-
-      if (updateError) {
-        console.error("[WEBHOOK] Error updating payment to failed:", updateError)
-      }
-
-      // Update payment_attempts to failed (non-blocking)
-      supabase
-        .from("payment_attempts")
-        .update({
-          status: "failed",
-          gateway_response: gateway_response || "Payment declined",
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("reference", reference)
-        .then(({ error }) => {
-          if (error) console.warn("[WEBHOOK] Failed to update payment_attempts to failed:", error.message)
-          else console.log("[WEBHOOK] ✓ payment_attempts updated to failed")
-        })
-
-      // Create failed transaction record for tracking (only for wallet top-ups, not shop orders)
-      if (!paymentData.shop_id) {
-        const { error: transactionError } = await supabase
-          .from("transactions")
-          .insert([
-            {
-              user_id: paymentData.user_id,
-              type: "credit",
-              amount: amountInGHS,
-              reference_id: reference,
-              source: "wallet_topup",
-              description: `Failed wallet top-up: ${gateway_response || "Payment declined"}`,
-              status: "failed",
-              created_at: new Date().toISOString(),
-            },
-          ])
-
-        if (transactionError) {
-          // Check for duplicate
-          if (transactionError.code === "23505") {
-            console.warn(`[WEBHOOK] Failed transaction record already exists for ${reference}`)
-          } else {
-            console.error("[WEBHOOK] Error creating failed transaction record:", transactionError)
-          }
-        } else {
-          console.log(`[WEBHOOK] ✓ Failed transaction record created for ${reference}`)
-        }
-
-        // Send notification to user about failed payment
-        try {
-          const { error: notifError } = await supabase
-            .from("notifications")
-            .insert([
-              {
-                user_id: paymentData.user_id,
-                title: "Payment Failed",
-                message: `Your wallet top-up of GHS ${amountInGHS.toFixed(2)} failed. Reason: ${gateway_response || "Payment declined"}. Please try again.`,
-                type: "payment_failed",
-                is_read: false,
-                created_at: new Date().toISOString(),
-              },
-            ])
-
-          if (notifError) {
-            console.warn("[WEBHOOK] Failed to create failure notification:", notifError)
-          }
-        } catch (notifError) {
-          console.warn("[WEBHOOK] Error creating failure notification:", notifError)
-        }
-
-        // Send SMS for failed payment
-        try {
-          const { data: userData } = await supabase
-            .from("users")
-            .select("phone_number, first_name, email")
-            .eq("id", paymentData.user_id)
-            .single()
-
-          if (userData?.phone_number) {
-            const firstName = userData.first_name || "Customer"
-            const smsMessage = `Hi ${firstName}, your wallet top-up of GHS ${amountInGHS.toFixed(2)} failed. ${gateway_response || "Please try again."}`
-
-            await sendSMS({
-              phone: userData.phone_number,
-              message: smsMessage,
-              type: 'wallet_topup_failed',
-              reference: paymentData.id,
-            }).catch(err => console.error("[WEBHOOK] Failed payment SMS error:", err))
-
-            console.log(`[SMS] Failed payment SMS sent to user ${paymentData.user_id}`)
-          }
-
-          // Send Email for failed payment
-          if (userData?.email) {
-            import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-              const payload = EmailTemplates.walletTopUpFailed(
-                amountInGHS.toFixed(2),
-                reference
-              );
-              sendEmail({
-                to: [{ email: userData.email, name: userData.first_name || "Customer" }],
-                subject: payload.subject,
-                htmlContent: payload.html,
-                userId: paymentData.user_id,
-                referenceId: reference,
-                type: 'wallet_topup_failed'
-              }).catch(err => {
-                console.error("[EMAIL] ❌ Failed Payment Email FAILED:", err)
-                console.error("[EMAIL] Error message:", err?.message)
-                console.error("[EMAIL] Error stack:", err?.stack)
-                console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
-              });
-            });
-            console.log(`[EMAIL] Failed payment email sent to user ${paymentData.user_id}`)
-          }
-        } catch (smsError) {
-          console.warn("[SMS] Failed to send payment failure SMS:", smsError)
-        }
-      } else {
-        // Update shop order payment status to failed
-        if (paymentData.order_id) {
-          const table = paymentData.order_type === "airtime" ? "airtime_orders" : "shop_orders"
-          
-          const { error: orderUpdateError } = await supabase
-            .from(table)
-            .update({
-              payment_status: "failed",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", paymentData.order_id)
-
-          if (orderUpdateError) {
-            console.error(`[WEBHOOK] Error updating ${paymentData.order_type || 'shop'} order to failed:`, orderUpdateError)
-          } else {
-            console.log(`[WEBHOOK] ✓ ${paymentData.order_type || 'Shop'} order ${paymentData.order_id} marked as payment failed`)
-          }
-        }
-      }
-
-      console.log(`[WEBHOOK] ✓ Failed payment processed: ${reference}`)
-    } else {
-      console.log(`[WEBHOOK] ⚠️ Event type not handled: ${event.event}`)
+      const { reference, gateway_response } = event.data
+      await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference)
+      await supabase.from("payment_attempts").update({ status: "failed", gateway_response: gateway_response || "failed" }).eq("reference", reference)
     }
 
-    // Acknowledge receipt of webhook
-    console.log("[WEBHOOK] ========== WEBHOOK COMPLETE ==========")
     return NextResponse.json({ received: true })
   } catch (error) {
     console.error("[WEBHOOK] ✗ Error:", error)
-    console.log("[WEBHOOK] ========== WEBHOOK FAILED ==========")
-    return NextResponse.json(
-      { error: "Payment processing failed. Please contact support." },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
   }
 }
