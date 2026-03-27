@@ -140,9 +140,7 @@ export async function POST(request: NextRequest) {
         try {
           // FIX: correct operator precedence — NEXT_PUBLIC_APP_URL is checked first,
           // then VERCEL_URL (prefixed with https://), then localhost as fallback.
-          const baseUrl =
-            process.env.NEXT_PUBLIC_APP_URL ||
-            (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
           const completionResponse = await fetch(`${baseUrl}/api/admin/payment-attempts`, {
             method: "PATCH",
@@ -318,7 +316,8 @@ export async function POST(request: NextRequest) {
               console.log(`[PAYMENT-VERIFY] Triggering unified fulfillment for order ${shopOrderData.id}`)
               try {
                 const sizeGb = parseInt(shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
-                await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/fulfillment/process-order`, {
+                const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+                await fetch(`${baseUrl}/api/fulfillment/process-order`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({

@@ -81,9 +81,7 @@ async function triggerFulfillment(order: {
     console.log(`[VERIFY-PAYMENT] Triggering fulfillment for order ${order.id}`)
     
     // Call the fulfillment process-order endpoint internally
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}` 
-      : "http://localhost:3000"
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
     
     const response = await fetch(`${baseUrl}/api/fulfillment/process-order`, {
       method: "POST",

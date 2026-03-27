@@ -274,26 +274,34 @@ export async function POST(request: NextRequest) {
               .update({ payment_status: "completed", transaction_id: event.data.id, updated_at: new Date().toISOString() })
               .eq("id", paymentData.order_id)
 
-            // Auto-fulfillment trigger
-            const fulfillableNetworks = ["AT - iShare", "AT-iShare", "Telecel", "AT - BigTime", "AT-BigTime"]
-            const networkLower = (shopOrderData.network || "").toLowerCase()
-            const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === networkLower)
-            const autoEnabled = await isAutoFulfillmentEnabled()
-
-            if (isAutoFulfillable && autoEnabled && shopOrderData.customer_phone) {
+            // Auto-fulfillment trigger via unified endpoint
+            try {
+              const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
               const digits = shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0"
               const sizeGb = parseInt(digits) || 0
-              const isBigTime = networkLower.includes("bigtime")
-              const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
 
-              atishareService.fulfillOrder({
-                phoneNumber: shopOrderData.customer_phone,
-                sizeGb,
-                orderId: paymentData.order_id,
-                network: apiNetwork,
-                orderType: "shop",
-                isBigTime,
-              }).catch(err => console.error("[WEBHOOK] Fulfillment error:", err))
+              console.log(`[WEBHOOK] Triggering unified fulfillment for shop order ${paymentData.order_id}`)
+              
+              const fulfillmentResponse = await fetch(`${baseUrl}/api/fulfillment/process-order`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  shop_order_id: paymentData.order_id,
+                  network: shopOrderData.network,
+                  phone_number: shopOrderData.customer_phone,
+                  volume_gb: sizeGb,
+                  customer_name: shopOrderData.customer_name,
+                }),
+              })
+              
+              const fulfillmentResult = await fulfillmentResponse.json()
+              if (!fulfillmentResponse.ok) {
+                console.error("[WEBHOOK] Unified fulfillment error:", fulfillmentResult)
+              } else {
+                console.log("[WEBHOOK] ✓ Unified fulfillment triggered successfully")
+              }
+            } catch (fError) {
+              console.error("[WEBHOOK] Failed to trigger unified fulfillment:", fError)
             }
 
             // Profit records
