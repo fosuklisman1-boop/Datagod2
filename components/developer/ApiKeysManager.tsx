@@ -201,12 +201,42 @@ export default function ApiKeysManager() {
         )}
       </div>
 
-      {/* Usage Example */}
+      {/* API Documentation */}
       <div className="api-usage-card">
-        <h3>How to use</h3>
-        <p>Include your API key in the <code>X-API-Key</code> header:</p>
-        <pre>{`curl https://datagod.app/api/v1/balance \\
+        <h3>API Documentation</h3>
+        <p className="docs-intro">Manage your wallet and place orders programmatically. All requests require the <code>X-API-Key</code> header.</p>
+        
+        <div className="doc-section">
+          <h4>1. Check Wallet Balance</h4>
+          <div className="endpoint"><span className="method get">GET</span> /api/v1/balance</div>
+          <p>Returns your current wallet balance and total spend.</p>
+          <pre>{`curl -X GET https://datagod.app/api/v1/balance \\
   -H "X-API-Key: dg_live_your_key_here"`}</pre>
+        </div>
+
+        <div className="doc-section">
+          <h4>2. Place Data/Airtime Order</h4>
+          <div className="endpoint"><span className="method post">POST</span> /api/v1/orders</div>
+          <p>Place a new order. Requires sufficient wallet balance.</p>
+          <pre>{`curl -X POST https://datagod.app/api/v1/orders \\
+  -H "X-API-Key: dg_live_your_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "network": "MTN",
+    "volume_gb": 5,
+    "recipient": "0541234567",
+    "reference": "your_unique_txn_id",
+    "shop_id": "your-shop-uuid-here"
+  }'`}</pre>
+        </div>
+
+        <div className="doc-section">
+          <h4>3. Check Order Status</h4>
+          <div className="endpoint"><span className="method get">GET</span> /api/v1/orders?reference=&#60;ref&#62;</div>
+          <p>Query the status of a specific order using your custom reference.</p>
+          <pre>{`curl -X GET "https://datagod.app/api/v1/orders?reference=your_unique_txn_id" \\
+  -H "X-API-Key: dg_live_your_key_here"`}</pre>
+        </div>
       </div>
 
       <style jsx>{`
@@ -256,6 +286,15 @@ export default function ApiKeysManager() {
         .api-usage-card p { margin: 0 0 12px; font-size: 0.85rem; color: #9ca3af; }
         .api-usage-card pre { margin: 0; background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 14px; font-size: 0.8rem; color: #a5b4fc; overflow-x: auto; }
         .api-usage-card code { color: #818cf8; }
+        .docs-intro { font-size: 0.85rem; color: #9ca3af; margin-bottom: 20px; line-height: 1.5; }
+        .doc-section { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #1f2937; }
+        .doc-section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+        .doc-section h4 { margin: 0 0 10px; font-size: 0.9rem; color: #e5e7eb; display: flex; align-items: center; gap: 8px; }
+        .endpoint { display: flex; align-items: center; gap: 10px; font-family: monospace; font-size: 0.85rem; color: #e5e7eb; background: #111827; padding: 6px 12px; border-radius: 6px; border: 1px solid #1f2937; margin-bottom: 12px; }
+        .method { padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.75rem; color: white; }
+        .method.get { background: #0ea5e9; }
+        .method.post { background: #10b981; }
+        .doc-section p { font-size: 0.8rem; color: #9ca3af; margin-bottom: 12px; }
       `}</style>
     </div>
   )
