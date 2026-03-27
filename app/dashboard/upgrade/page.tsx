@@ -6,11 +6,12 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Crown, Check, Zap, Loader2, Sparkles, Star } from "lucide-react"
+import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, Users, Store as StoreIcon } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 
 interface Plan {
     id: string
@@ -31,6 +32,7 @@ export default function UpgradePage() {
     const [userId, setUserId] = useState<string | null>(null)
     const [currentSubscription, setCurrentSubscription] = useState<any>(null)
     const [daysLeft, setDaysLeft] = useState<number | null>(null)
+    const [showSuccessModal, setShowSuccessModal] = useState(false)
 
     useEffect(() => {
         fetchUserData()
@@ -109,6 +111,7 @@ export default function UpgradePage() {
 
             if (response.ok) {
                 toast.success("Welcome to the Dealer Club!", { id: "verify-upgrade" })
+                setShowSuccessModal(true)
                 router.refresh()
                 // Wait a bit then refresh status
                 setTimeout(() => {
@@ -159,6 +162,13 @@ export default function UpgradePage() {
         "Manage Sub-Agents",
         "Bulk Order Access",
         "Custom Shop Branding"
+    ]
+
+    const successBenefits = [
+        { icon: <Crown className="w-5 h-5 text-amber-500" />, text: "Wholesale pricing on all data packages" },
+        { icon: <Users className="w-5 h-5 text-blue-500" />, text: "Create & manage sub-agents" },
+        { icon: <StoreIcon className="w-5 h-5 text-green-500" />, text: "Custom shop branding" },
+        { icon: <ShieldCheck className="w-5 h-5 text-purple-500" />, text: "Priority customer support" },
     ]
 
     return (
@@ -304,6 +314,71 @@ export default function UpgradePage() {
                     </div>
                 </div>
             </div>
+
+                {/* Congratulations Modal */}
+                <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
+                    <DialogContent showCloseButton={false} className="sm:max-w-md overflow-hidden p-0 border-0">
+                        {/* Header Gradient */}
+                        <div className="bg-gradient-to-br from-amber-500 via-yellow-400 to-amber-600 px-6 pt-10 pb-8 text-center relative overflow-hidden">
+                            {/* Decorative circles */}
+                            <div className="absolute top-0 left-0 w-32 h-32 bg-white/10 rounded-full -translate-x-1/2 -translate-y-1/2" />
+                            <div className="absolute bottom-0 right-0 w-24 h-24 bg-white/10 rounded-full translate-x-1/3 translate-y-1/3" />
+                            <div className="absolute top-4 right-8 w-3 h-3 bg-white/30 rounded-full animate-pulse" />
+                            <div className="absolute top-12 left-10 w-2 h-2 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '0.5s' }} />
+                            <div className="absolute bottom-6 left-1/4 w-2 h-2 bg-white/30 rounded-full animate-pulse" style={{ animationDelay: '1s' }} />
+
+                            <div className="relative">
+                                <div className="mx-auto w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mb-4 ring-4 ring-white/30 shadow-xl">
+                                    <Crown className="w-10 h-10 text-white drop-shadow-lg" />
+                                </div>
+                                <div className="flex items-center justify-center gap-2 mb-2">
+                                    <PartyPopper className="w-6 h-6 text-white/90" />
+                                    <h2 className="text-2xl font-extrabold text-white">Congratulations!</h2>
+                                    <PartyPopper className="w-6 h-6 text-white/90 scale-x-[-1]" />
+                                </div>
+                                <p className="text-white/90 text-lg font-semibold">You&apos;re now a DATAGOD Dealer</p>
+                            </div>
+                        </div>
+
+                        {/* Body */}
+                        <div className="px-6 py-6 space-y-5">
+                            <p className="text-center text-gray-600 text-sm">
+                                Your account has been upgraded. Here&apos;s what you&apos;ve unlocked:
+                            </p>
+
+                            <div className="space-y-3">
+                                {successBenefits.map((benefit, i) => (
+                                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100 transition-colors">
+                                        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center border border-gray-100">
+                                            {benefit.icon}
+                                        </div>
+                                        <span className="text-sm font-medium text-gray-700">{benefit.text}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex flex-col gap-2 pt-2">
+                                <Button
+                                    className="w-full h-12 text-base font-bold bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-700 hover:to-yellow-600 text-white shadow-lg"
+                                    onClick={() => {
+                                        setShowSuccessModal(false)
+                                        router.push('/dashboard')
+                                    }}
+                                >
+                                    <Sparkles className="w-5 h-5 mr-2" />
+                                    Go to Dashboard
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    className="w-full text-sm text-gray-500 hover:text-gray-700"
+                                    onClick={() => setShowSuccessModal(false)}
+                                >
+                                    Stay on this page
+                                </Button>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
         </DashboardLayout>
     )
 }
