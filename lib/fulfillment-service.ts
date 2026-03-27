@@ -21,7 +21,7 @@ export interface FulfillmentResult {
  */
 export async function processManualFulfillment(
   orderId: string,
-  orderType: "shop" | "bulk" = "shop",
+  orderType: "shop" | "bulk" | "api" = "shop",
   provider?: string
 ): Promise<FulfillmentResult> {
   const logPrefix = `[FULFILLMENT-SERVICE][${orderId}]`
@@ -48,6 +48,19 @@ export async function processManualFulfillment(
         orderData.order_status = orderData.status
         orderData.customer_phone = orderData.phone_number
         orderData.customer_name = "Bulk Order"
+      }
+    } else if (orderType === "api") {
+      const response = await supabase
+        .from(tableName)
+        .select("id, network, volume_gb, recipient_phone, status, queue, user_id")
+        .eq("id", orderId.trim())
+        .single()
+      orderData = response.data
+      fetchError = response.error
+      if (orderData) {
+        orderData.order_status = orderData.status
+        orderData.customer_phone = orderData.recipient_phone
+        orderData.customer_name = "API Order"
       }
     } else {
       const response = await supabase

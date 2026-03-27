@@ -53,8 +53,16 @@ export async function GET(request: NextRequest) {
 
     if (shopOrdersError) throw shopOrdersError
 
-    // Total pending orders = user orders + shop orders (both with payment confirmed)
-    const totalPendingCount = (userOrders?.length || 0) + (shopOrders?.length || 0)
+    // 3. API orders (api_orders table with status='pending')
+    const { data: apiOrders, error: apiOrdersError } = await supabase
+      .from("api_orders")
+      .select("id")
+      .eq("status", "pending")
+
+    if (apiOrdersError) throw apiOrdersError
+
+    // Total pending orders = user orders + shop orders + api orders
+    const totalPendingCount = (userOrders?.length || 0) + (shopOrders?.length || 0) + (apiOrders?.length || 0)
 
     return NextResponse.json({
       count: totalPendingCount

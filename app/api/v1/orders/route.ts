@@ -116,38 +116,26 @@ export async function POST(request: NextRequest) {
 
   const orderPrice = user.role === "dealer" && pkg.dealer_price > 0 ? Number(pkg.dealer_price) : Number(pkg.price)
 
-  // 2. Safely deduct wallet balance
-  const { data: wallet } = await supabase
-    .from("wallets")
-    .select("id, balance")
-    .eq("user_id", user.id)
-    .single()
+  // 2. Atomically deduct wallet balance via RPC
+  const { data: deductResult, error: deductError } = await supabase.rpc('deduct_wallet', {
+    p_user_id: user.id,
+    p_amount: orderPrice,
+  })
 
-  if (!wallet) {
-    return NextResponse.json({ success: false, error: "Wallet not found" }, { status: 402 })
+  if (deductError) {
+    console.error("[API v1] Wallet deduction RPC error:", deductError)
+    return NextResponse.json({ success: false, error: "Failed to process payment. Wallet deduction failed." }, { status: 500 })
   }
 
-  if (wallet.balance < orderPrice) {
-    const shortfall = (orderPrice - wallet.balance).toFixed(2)
+  if (!deductResult || deductResult.length === 0) {
     return NextResponse.json({
       success: false,
-      error: `Insufficient balance. You need GHS ${shortfall} more to place this order.`,
-      balance: wallet.balance,
+      error: `Insufficient balance to place this order.`,
       required: orderPrice,
     }, { status: 402 })
   }
 
-  // Atomically update balance (ideally use RPC but direct update with service role is okay for now if no concurrent bursts)
-  const newBalance = Number((wallet.balance - orderPrice).toFixed(2))
-  const { error: walletError } = await supabase
-    .from("wallets")
-    .update({ balance: newBalance })
-    .eq("id", wallet.id)
-
-  if (walletError) {
-    console.error("[API v1] Wallet deduction failed:", walletError)
-    return NextResponse.json({ success: false, error: "Wallet deduction failed" }, { status: 500 })
-  }
+  const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
 
   // 3. Create the api_orders record
   const { data: order, error: orderError } = await supabase
@@ -172,11 +160,13 @@ export async function POST(request: NextRequest) {
   logApiRequest({ userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/orders", statusCode: httpStatus, request, durationMs: Date.now() - start }).catch(() => {})
 
   if (orderError || !order) {
-    // Rollback wallet deduction conceptually, though manual intervention is needed if this fails.
-    console.error("[API v1] Order creation error:", orderError)
+    // 4. Refund logic: wallet was already deducted via RPC, so we need to reverse
+    console.error("[API v1] Order creation error, refunding wallet:", orderError)
     
-    // Auto-refund
-    await supabase.from("wallets").update({ balance: wallet.balance }).eq("id", wallet.id)
+    await supabase.from("wallets").update({ 
+      balance: balanceBefore,
+      updated_at: new Date().toISOString()
+    }).eq("user_id", user.id)
     
     // Check if it's a unique constraint error
     if (orderError?.code === '23505') {
@@ -184,6 +174,29 @@ export async function POST(request: NextRequest) {
     }
     
     return NextResponse.json({ success: false, error: "Failed to create order" }, { status: 500 })
+  }
+
+  // 5. Create transaction record for audit trail and user history
+  const { error: transactionError } = await supabase
+    .from("transactions")
+    .insert([
+      {
+        user_id: user.id,
+        type: "debit",
+        source: "api_order",
+        amount: orderPrice,
+        balance_before: balanceBefore,
+        balance_after: newBalance,
+        description: `API Data Purchase: ${network.toUpperCase()} ${volume_gb}GB (${recipient})`,
+        reference_id: order.id, // Reference to internal api_orders table record
+        status: "completed",
+        created_at: new Date().toISOString(),
+      },
+    ])
+
+  if (transactionError) {
+    console.error("[API v1] Failed to create transaction ledger entry:", transactionError)
+    // Non-blocking: we already have the order record and wallet was deducted.
   }
 
   // --- 4. Trigger Asynchronous Fulfillment ---

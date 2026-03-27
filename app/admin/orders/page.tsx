@@ -863,6 +863,7 @@ export default function AdminOrdersPage() {
                         <thead className="bg-gray-50 border-b">
                           <tr>
                             <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Order ID</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Type</th>
                             <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Network</th>
                             <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Package</th>
                             <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Phone</th>
@@ -874,6 +875,15 @@ export default function AdminOrdersPage() {
                           {pendingOrders.map((order) => (
                             <tr key={order.id} className="hover:bg-gray-50">
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold break-all max-w-[120px]">{order.id}</td>
+                              <td className="px-2 sm:px-4 py-3">
+                                <Badge variant="outline" className={`text-xs capitalize ${
+                                  order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                                  order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                                  'bg-amber-50 text-amber-700 border-amber-200'
+                                }`}>
+                                  {order.type || 'Shop'}
+                                </Badge>
+                              </td>
                               <td className="px-2 sm:px-4 py-3">
                                 <Badge className={`${getNetworkColor(order.network)} border text-xs`}>{order.network}</Badge>
                               </td>
@@ -1149,7 +1159,8 @@ export default function AdminOrdersPage() {
                             <thead className="bg-gray-50 border-b">
                               <tr>
                                 <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Order ID</th>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Network</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Type</th>
+                                 <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Network</th>
                                 <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Package</th>
                                 <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Phone</th>
                                 <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 text-xs sm:text-sm">Price (GHS)</th>
@@ -1161,7 +1172,16 @@ export default function AdminOrdersPage() {
                                 <tr key={order.id} className="hover:bg-gray-50">
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
                                   <td className="px-2 sm:px-4 py-3">
-                                    <Badge className={`${getNetworkColor(order.network)} border text-xs`}>
+                                    <Badge variant="outline" className={`text-xs capitalize ${
+                                       order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                                       order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                                       'bg-amber-50 text-amber-700 border-amber-200'
+                                     }`}>
+                                       {order.type || 'Shop'}
+                                     </Badge>
+                                   </td>
+                                   <td className="px-2 sm:px-4 py-3">
+                                     <Badge className={`${getNetworkColor(order.network)} border text-xs`}>
                                       {order.network}
                                     </Badge>
                                   </td>
@@ -1371,7 +1391,14 @@ export default function AdminOrdersPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <Badge className={`${getNetworkColor(order.network)} border`}>
+                            <Badge variant="outline" className={`text-xs capitalize ${
+                               order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                               order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                               'bg-amber-50 text-amber-700 border-amber-200'
+                             }`}>
+                               {order.type || 'Shop'}
+                             </Badge>
+                             <Badge className={`${getNetworkColor(order.network)} border`}>
                               {order.network}
                             </Badge>
                             <Badge

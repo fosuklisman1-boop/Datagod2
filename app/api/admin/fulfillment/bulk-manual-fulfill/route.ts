@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     for (const orderInfo of orders) {
       const { id, type } = orderInfo
       try {
-        const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk", provider)
+        const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk" | "api", provider)
         results.push(result)
         if (result.success) {
           successCount++

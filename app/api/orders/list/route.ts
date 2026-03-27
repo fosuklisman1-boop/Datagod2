@@ -30,9 +30,9 @@ export async function GET(request: NextRequest) {
 
     const offset = (page - 1) * limit
 
-    // Build the query using actual orders table columns
+    // Build the query using the unified view
     let query = supabase
-      .from("orders")
+      .from("combined_orders_view")
       .select(
         `
         id,
@@ -40,19 +40,17 @@ export async function GET(request: NextRequest) {
         phone_number,
         price,
         status,
-        package_id,
-        size,
         network,
-        packages(size, network)
+        volume_gb,
+        type
         `,
         { count: "exact" }
       )
-      .eq("user_id", userId)
+      .eq("shop_owner_id", userId)
       .order("created_at", { ascending: false })
 
     // Apply filters
     if (network && network !== "all") {
-      // Filter by the orders.network column (packages relation may not exist for all orders)
       query = query.eq("network", network)
     }
 
@@ -91,22 +89,23 @@ export async function GET(request: NextRequest) {
     const { data: ordersData, error, count } = await query.range(offset, offset + limit - 1)
 
     if (error) {
-      console.error("Error fetching orders:", error)
+      console.error("Error fetching orders from view:", error)
       return NextResponse.json(
         { error: "Failed to fetch orders" },
         { status: 400 }
       )
     }
 
-    // Transform the data to flatten nested objects and normalize field names for the frontend
+    // Transform the data for the frontend
     const orders = (ordersData || []).map((order: any) => ({
       id: order.id,
       created_at: order.created_at,
       phone_number: order.phone_number,
-      total_price: order.price ?? 0,
+      total_price: Number(order.price) ?? 0,
       order_status: order.status ?? "pending",
-      package_name: order.packages?.size ? `${order.packages.size}GB` : (order.size ? `${order.size}GB` : "Unknown"),
-      network_name: order.network || order.packages?.network || "Unknown",
+      package_name: order.volume_gb ? `${order.volume_gb}GB` : "Unknown",
+      network_name: order.network || "Unknown",
+      type: order.type
     }))
 
     return NextResponse.json({

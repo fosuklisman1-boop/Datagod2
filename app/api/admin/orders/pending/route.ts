@@ -198,8 +198,30 @@ export async function GET() {
       type: "shop"
     })) || []
 
-    // Combine both orders
-    const allOrders = [...mappedBulkOrders, ...mappedShopOrders]
+    // Map api orders
+    const { data: apiOrders, error: apiError } = await supabase
+      .from("api_orders")
+      .select("id, created_at, recipient_phone, price, status, volume_gb, network")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .range(0, 9999)
+
+    if (apiError) throw apiError
+
+    const mappedApiOrders = (apiOrders || []).map((order: any) => ({
+      id: order.id,
+      phone_number: order.recipient_phone,
+      network: normalizeNetwork(order.network),
+      size: order.volume_gb,
+      price: order.price,
+      status: order.status,
+      order_status: order.status,
+      created_at: order.created_at,
+      type: "api"
+    }))
+
+    // Combine all orders
+    const allOrders = [...mappedBulkOrders, ...mappedShopOrders, ...mappedApiOrders]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     console.log("All pending orders by network:", allOrders.reduce((acc: any, o: any) => {

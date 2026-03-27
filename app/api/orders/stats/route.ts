@@ -21,13 +21,10 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = user.id
-
-    // Get exact count and all orders without limit (count is accurate regardless of rows)
-    const { data: orders, count: totalCount, error: ordersError } = await supabase
-      .from("orders")
-      .select("status", { count: "exact" })
-      .eq("user_id", userId)
-      .range(0, 999999) // No practical limit for personal orders
+    const { data: orders, error: ordersError } = await supabase
+      .from("combined_orders_view")
+      .select("status")
+      .eq("shop_owner_id", userId)
 
     if (ordersError) {
       console.error("Error fetching orders:", ordersError)

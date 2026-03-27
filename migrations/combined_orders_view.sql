@@ -25,13 +25,42 @@ SELECT
     'bulk' as type,
     NULL as customer_email,
     NULL as store_name,
-    NULL as shop_owner_id,
-    NULL as shop_owner_email
+    o.user_id as shop_owner_id,
+    u.email as shop_owner_email
 FROM orders o
+LEFT JOIN users u ON o.user_id = u.id
 
 UNION ALL
 
--- 2. Shop Orders (Only completed payments)
+-- 2. API Orders
+SELECT 
+    ao.id::text as id,
+    ao.created_at as created_at,
+    ao.recipient_phone as phone_number,
+    ao.price as price,
+    CASE 
+        WHEN LOWER(ao.network) = 'mtn' THEN 'MTN'
+        WHEN LOWER(ao.network) = 'telecel' THEN 'Telecel'
+        WHEN LOWER(ao.network) = 'at' THEN 'AT'
+        WHEN LOWER(ao.network) IN ('at - ishare', 'ishare') THEN 'AT - iShare'
+        WHEN LOWER(ao.network) = 'at - bigtime' THEN 'AT - BigTime'
+        ELSE UPPER(ao.network)
+    END as network,
+    ao.status as status,
+    'completed' as payment_status,
+    ao.api_reference as payment_reference,
+    ao.volume_gb::text as volume_gb,
+    'api' as type,
+    NULL as customer_email,
+    NULL as store_name,
+    ao.user_id as shop_owner_id,
+    u.email as shop_owner_email
+FROM api_orders ao
+LEFT JOIN users u ON ao.user_id = u.id
+
+UNION ALL
+
+-- 3. Shop Orders (Only completed payments)
 SELECT 
     so.id::text as id,
     so.created_at as created_at,

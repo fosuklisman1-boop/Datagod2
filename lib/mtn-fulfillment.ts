@@ -842,7 +842,7 @@ export async function updateMTNOrderFromWebhook(
     const { error: logError } = await supabase
       .from("fulfillment_logs")
       .insert({
-        order_id: tracking.shop_order_id || tracking.order_id,
+        order_id: tracking.shop_order_id || tracking.order_id || tracking.api_order_id,
         order_type: tracking.order_type || "shop",
         status: newStatus,
         external_api: "MTN",
@@ -897,7 +897,7 @@ export async function updateDataKazinaOrderFromPayload(
     // Get the tracking record to check current status
     const { data: currentTracking } = await supabase
       .from("mtn_fulfillment_tracking")
-      .select("status, shop_order_id, order_id, order_type")
+      .select("status, shop_order_id, order_id, api_order_id, order_type")
       .eq("mtn_order_id", String(mtnOrderId))
       .single()
 
@@ -927,7 +927,7 @@ export async function updateDataKazinaOrderFromPayload(
     // Get the tracking record to update the corresponding order table
     const { data: tracking } = await supabase
       .from("mtn_fulfillment_tracking")
-      .select("shop_order_id, order_id, order_type")
+      .select("shop_order_id, order_id, api_order_id, order_type")
       .eq("mtn_order_id", String(mtnOrderId))
       .single()
 
@@ -947,6 +947,16 @@ export async function updateDataKazinaOrderFromPayload(
         .eq("id", tracking.order_id)
 
       if (orderError) console.error("[MTN] Error updating bulk order:", orderError)
+    } else if (tracking.order_type === "api" && tracking.api_order_id) {
+      const { error: apiError } = await supabase
+        .from("api_orders")
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tracking.api_order_id)
+
+      if (apiError) console.error("[MTN] Error updating api order:", apiError)
     } else if (tracking.shop_order_id) {
       const { error: shopError } = await supabase
         .from("shop_orders")
@@ -963,7 +973,7 @@ export async function updateDataKazinaOrderFromPayload(
     const { error: logError } = await supabase
       .from("fulfillment_logs")
       .insert({
-        order_id: tracking.shop_order_id || tracking.order_id,
+        order_id: tracking.shop_order_id || tracking.order_id || tracking.api_order_id,
         order_type: tracking.order_type || "shop",
         status: newStatus,
         external_api: "DataKazina",
@@ -1095,6 +1105,8 @@ export async function retryMTNOrder(
           await supabase.from("shop_orders").update({ order_status: "pending_download" }).eq("id", tracking.shop_order_id)
         } else if (tracking.order_id) {
           await supabase.from("orders").update({ status: "pending_download" }).eq("id", tracking.order_id)
+        } else if (tracking.api_order_id) {
+          await supabase.from("api_orders").update({ status: "pending_download" }).eq("id", tracking.api_order_id)
         }
       }
 

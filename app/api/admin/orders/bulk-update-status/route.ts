@@ -95,24 +95,36 @@ export async function POST(request: NextRequest) {
       console.warn(`[BULK-UPDATE] Error checking shop_orders table:`, shopError.message)
     }
 
+    const { data: apiOrders, error: apiError } = await supabase
+      .from("api_orders")
+      .select("id, status")
+      .in("id", orderIds)
+
+    if (apiError) {
+      console.warn(`[BULK-UPDATE] Error checking api_orders table:`, apiError.message)
+    }
+
     // Filter out restricted transitions: pending -> completed
     let finalBulkOrderIds = bulkOrders?.map(o => o.id) || []
     let finalShopOrderIds = shopOrders?.map(o => o.id) || []
+    let finalApiOrderIds = apiOrders?.map(o => o.id) || []
     let skippedPendingCount = 0
 
     if (status === "completed") {
       const allowedBulk = bulkOrders?.filter(o => o.status !== "pending").map(o => o.id) || []
       const allowedShop = shopOrders?.filter(o => o.order_status !== "pending").map(o => o.id) || []
+      const allowedApi = apiOrders?.filter(o => o.status !== "pending").map(o => o.id) || []
       
-      skippedPendingCount = (bulkOrders?.length || 0) + (shopOrders?.length || 0) - (allowedBulk.length + allowedShop.length)
+      skippedPendingCount = (bulkOrders?.length || 0) + (shopOrders?.length || 0) + (apiOrders?.length || 0) - (allowedBulk.length + allowedShop.length + allowedApi.length)
       
       finalBulkOrderIds = allowedBulk
       finalShopOrderIds = allowedShop
+      finalApiOrderIds = allowedApi
       
-      console.log(`[BULK-UPDATE] Restricted transition filter applied. Allowed: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop. Skipped ${skippedPendingCount} pending orders.`)
+      console.log(`[BULK-UPDATE] Restricted transition filter applied. Allowed: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop, ${finalApiOrderIds.length} api. Skipped ${skippedPendingCount} pending orders.`)
     }
 
-    console.log(`[BULK-UPDATE] Final targets: ${finalBulkOrderIds.length} bulk orders, ${finalShopOrderIds.length} shop orders`)
+    console.log(`[BULK-UPDATE] Final targets: ${finalBulkOrderIds.length} bulk orders, ${finalShopOrderIds.length} shop orders, ${finalApiOrderIds.length} api orders`)
 
     // Update bulk orders
     if (finalBulkOrderIds.length > 0) {
@@ -210,6 +222,80 @@ export async function POST(request: NextRequest) {
           }
         } catch (error) {
           console.warn("[NOTIFICATION] Error sending bulk notifications:", error)
+        }
+      }
+    }
+
+    // Update api orders
+    if (finalApiOrderIds.length > 0) {
+      const { error: updateError } = await supabase
+        .from("api_orders")
+        .update({ status, updated_at: new Date().toISOString() })
+        .in("id", finalApiOrderIds)
+
+      if (updateError) {
+        throw new Error(`Failed to update api order status: ${updateError.message}`)
+      }
+
+      console.log(`[BULK-UPDATE] ✓ Updated ${finalApiOrderIds.length} api orders to status: ${status}`)
+
+      // Update fulfillment tracking for api orders
+      try {
+        const { error: mtnUpdateError } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .update({
+            status: status,
+            updated_at: new Date().toISOString()
+          })
+          .in("api_order_id", finalApiOrderIds)
+
+        if (mtnUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating MTN tracking for api orders:", mtnUpdateError)
+        }
+
+        // Fulfllment logs update
+        const { error: logsUpdateError } = await supabase
+          .from("fulfillment_logs")
+          .update({
+            status: status === 'completed' ? 'success' : status,
+            updated_at: new Date().toISOString()
+          })
+          .in("api_order_id", finalApiOrderIds)
+
+        if (logsUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating fulfillment_logs for api orders:", logsUpdateError)
+        }
+
+      } catch (error) {
+        console.warn("[BULK-UPDATE] Error updating tracking/logs for api orders:", error)
+      }
+
+      // Send notifications for completed or failed api orders
+      if (status === "completed" || status === "failed") {
+        try {
+          const { data: orders, error: ordersError } = await supabase
+            .from("api_orders")
+            .select("id, user_id, network, volume_gb, recipient_phone")
+            .in("id", finalApiOrderIds)
+
+          if (!ordersError && orders && orders.length > 0) {
+            const notifications = orders.map((order) => {
+              const baseMsg = `Your ${order.network} ${order.volume_gb}GB API order has ${status === "completed" ? "been completed" : "failed"}.`
+              return {
+                user_id: order.user_id,
+                title: status === "completed" ? "Order Completed" : "Order Failed",
+                message: `${baseMsg} Phone: ${order.recipient_phone}`,
+                type: "order_update" as NotificationType,
+                reference_id: order.id,
+                action_url: `/dashboard/my-orders`,
+                read: false,
+              }
+            })
+
+            await supabase.from("notifications").insert(notifications)
+          }
+        } catch (error) {
+          console.warn("[NOTIFICATION] Error sending api notifications:", error)
         }
       }
     }
@@ -490,6 +576,7 @@ export async function POST(request: NextRequest) {
       status,
       bulkCount: finalBulkOrderIds.length,
       shopCount: finalShopOrderIds.length,
+      apiCount: finalApiOrderIds.length,
       skippedPending: skippedPendingCount
     })
   } catch (error) {

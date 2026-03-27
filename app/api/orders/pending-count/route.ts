@@ -25,12 +25,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get pending orders for this user from orders table (user dashboard orders)
-    // Note: All pending bulk orders are already paid (wallet was deducted at creation)
+    // Get pending orders for this user from unified view
     const { data: orders, error } = await supabase
-      .from("orders")
+      .from("combined_orders_view")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("shop_owner_id", user.id)
       .eq("status", "pending")
 
     if (error) throw error
