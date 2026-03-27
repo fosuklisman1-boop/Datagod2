@@ -103,14 +103,39 @@ export async function POST(request: NextRequest) {
     }, { status: 400 })
   }
 
-  // Check wallet balance first
+  // Verify wallet balance covers the order price
   const { data: wallet } = await supabase
     .from("wallets")
     .select("balance")
     .eq("user_id", user.id)
     .single()
 
-  if (!wallet || wallet.balance <= 0) {
+  if (!wallet) {
+    return NextResponse.json({ success: false, error: "Wallet not found" }, { status: 402 })
+  }
+
+  // Look up the package price to ensure balance is sufficient
+  const { data: pkg } = await supabase
+    .from("shop_data_packages")
+    .select("price")
+    .eq("shop_id", shop_id)
+    .eq("network", network)
+    .eq("volume_gb", volume_gb)
+    .single()
+
+  if (pkg) {
+    const orderPrice = Number(pkg.price)
+    if (wallet.balance < orderPrice) {
+      const shortfall = (orderPrice - wallet.balance).toFixed(2)
+      return NextResponse.json({
+        success: false,
+        error: `Insufficient balance. You need GHS ${shortfall} more to place this order.`,
+        balance: wallet.balance,
+        required: orderPrice,
+      }, { status: 402 })
+    }
+  } else if (wallet.balance <= 0) {
+    // Fallback: if package not found, still block zero-balance wallets
     return NextResponse.json({ success: false, error: "Insufficient wallet balance" }, { status: 402 })
   }
 
