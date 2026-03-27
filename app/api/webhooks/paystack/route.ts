@@ -1011,12 +1011,15 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Check for dealer upgrade in metadata
-      const isDealerUpgrade = metadata?.type === "dealer_upgrade"
+      // Check for dealer upgrade in metadata OR DB-stored order_type
+      // We check BOTH because Paystack metadata may not always be reliably passed through
+      const isDealerUpgrade = metadata?.type === "dealer_upgrade" || paymentData.order_type === "dealer_upgrade"
       const isShopOrderPayment = paymentData.order_id && paymentData.shop_id
       console.log("[WEBHOOK] Payment type check:", {
         isShopOrder: isShopOrderPayment,
         isDealerUpgrade: isDealerUpgrade,
+        metadataType: metadata?.type,
+        dbOrderType: paymentData.order_type,
         hasOrderId: !!paymentData.order_id,
         hasShopId: !!paymentData.shop_id,
       })
