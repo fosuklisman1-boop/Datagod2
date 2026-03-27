@@ -66,18 +66,19 @@ export async function PATCH(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { is_active } = body
+  const { is_active, rate_limit_per_min } = body
 
-  if (typeof is_active !== "boolean") {
-    return NextResponse.json({ error: "is_active (boolean) is required" }, { status: 400 })
-  }
+  const updateData: any = { updated_at: new Date().toISOString() }
+  if (typeof is_active === "boolean") updateData.is_active = is_active
+  if (typeof rate_limit_per_min === "number") updateData.rate_limit_per_min = rate_limit_per_min
 
   const { error } = await supabase
     .from("user_api_keys")
-    .update({ is_active, updated_at: new Date().toISOString() })
+    .update(updateData)
     .eq("id", keyId)
 
   if (error) {
+    console.error("[ADMIN API KEYS] Update error:", error)
     return NextResponse.json({ error: "Failed to update API key" }, { status: 500 })
   }
 

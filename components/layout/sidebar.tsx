@@ -35,6 +35,7 @@ import {
   Crown,
   Sparkles,
   Smartphone,
+  Activity,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -536,6 +537,29 @@ export function Sidebar() {
                       )}
                     </div>
                   )}
+                </Button>
+              </Link>
+
+              <Link href="/admin/api-keys" onClick={() => handleNavigation("/admin/api-keys")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/api-keys" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/api-keys" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/api-keys" && "opacity-70"
+                  )}
+                  title={!isOpen ? "API Control" : undefined}
+                  disabled={loadingPath === "/admin/api-keys"}
+                >
+                  {loadingPath === "/admin/api-keys" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Activity className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "API Control"}
                 </Button>
               </Link>
 

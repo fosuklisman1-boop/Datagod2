@@ -17,14 +17,15 @@ const supabase = createClient(
 export async function GET(request: NextRequest) {
   const start = Date.now()
 
-  const rateLimit = await applyRateLimit(request, "v1_orders_get", 60, 60 * 1000)
-  if (!rateLimit.allowed) {
-    return NextResponse.json({ success: false, error: "Rate limit exceeded." }, { status: 429 })
-  }
-
   const user = await authenticateApiKey(request)
   if (!user) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
+  }
+
+  const rateLimitCount = user.rate_limit_per_min || 60
+  const rateLimit = await applyRateLimit(request, "v1_orders_get", rateLimitCount, 60 * 1000, user.id)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ success: false, error: "Rate limit exceeded." }, { status: 429 })
   }
 
   const { searchParams } = new URL(request.url)
@@ -72,14 +73,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const start = Date.now()
 
-  const rateLimit = await applyRateLimit(request, "v1_orders_post", 20, 60 * 1000)
-  if (!rateLimit.allowed) {
-    return NextResponse.json({ success: false, error: "Rate limit exceeded. Max 20 orders/minute." }, { status: 429 })
-  }
-
   const user = await authenticateApiKey(request)
   if (!user) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
+  }
+
+  const rateLimitCount = user.rate_limit_per_min || 60
+  const postLimit = Math.max(5, Math.floor(rateLimitCount / 3)) // Allow 1/3 of total limit specifically for orders
+  const rateLimit = await applyRateLimit(request, "v1_orders_post", postLimit, 60 * 1000, user.id)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} orders/minute.` }, { status: 429 })
   }
 
   let body: any

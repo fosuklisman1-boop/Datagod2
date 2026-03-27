@@ -13,6 +13,7 @@ export interface ApiUser {
   role: string
   first_name: string
   api_key_id: string
+  rate_limit_per_min: number
 }
 
 /**
@@ -48,7 +49,7 @@ export async function authenticateApiKey(request: NextRequest): Promise<ApiUser 
   // Look up the hashed key
   const { data: keyRecord, error } = await supabase
     .from("user_api_keys")
-    .select("id, user_id, is_active, last_used_at")
+    .select("id, user_id, is_active, last_used_at, rate_limit_per_min")
     .eq("key_hash", keyHash)
     .eq("is_active", true)
     .single()
@@ -81,6 +82,7 @@ export async function authenticateApiKey(request: NextRequest): Promise<ApiUser 
     role: user.role,
     first_name: user.first_name,
     api_key_id: keyRecord.id,
+    rate_limit_per_min: keyRecord.rate_limit_per_min || 60,
   }
 }
 
