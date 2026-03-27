@@ -1,0 +1,23 @@
+{
+  "balance": {
+    "status": 200,
+    "data": {
+      "success": true,
+      "balance": 41.16,
+      "total_credited": 516.45,
+      "total_spent": 465.99,
+      "currency": "GHS",
+      "user": {
+        "name": "Fosu",
+        "role": "admin"
+      }
+    }
+  },
+  "order_post": {
+    "status": 400,
+    "data": {
+      "success": false,
+      "error": "Package MTN 1GB not found or unavailable."
+    }
+  }
+}

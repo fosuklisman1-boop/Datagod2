@@ -99,16 +99,17 @@ export async function POST(request: NextRequest) {
   }
 
   // 1. Fetch pricing from global packages table based on role
+  // Database stores size as just "1", "2", "5" etc (string)
   const { data: pkg } = await supabase
     .from("packages")
-    .select("price, dealer_price")
-    .eq("network", network)
-    .eq("size", `${volume_gb}GB`)
+    .select("id, price, dealer_price")
+    .ilike("network", network)
+    .eq("size", volume_gb.toString())
     .eq("is_available", true)
     .single()
 
   if (!pkg) {
-    return NextResponse.json({ success: false, error: `Package ${network} ${volume_gb}GB not found or unavailable.` }, { status: 400 })
+    return NextResponse.json({ success: false, error: `Package ${network} ${volume_gb}GB not found or unavailable in our database.` }, { status: 400 })
   }
 
   const orderPrice = user.role === "dealer" && pkg.dealer_price > 0 ? Number(pkg.dealer_price) : Number(pkg.price)
@@ -152,6 +153,7 @@ export async function POST(request: NextRequest) {
     .insert({
       user_id: user.id,
       api_key_id: user.api_key_id,
+      package_id: pkg.id,
       network,
       volume_gb,
       price: orderPrice,
