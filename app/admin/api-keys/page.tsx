@@ -35,7 +35,7 @@ interface ApiKey {
   last_used_at: string | null
   created_at: string
   rate_limit_per_min: number
-  users: {
+  user: {
     first_name: string
     last_name: string
     email: string
@@ -253,7 +253,7 @@ export default function AdminApiManagementPage() {
                           <td className="py-4 pl-2">
                             <div className="font-semibold text-slate-900">{key.name}</div>
                             <div className="text-xs text-slate-500 font-mono mt-1">{key.key_prefix}... [ID: {key.id.substring(0,8)}]</div>
-                            <div className="text-xs text-blue-600 font-medium mt-0.5">{key.users?.first_name} ({key.users?.email})</div>
+                            <div className="text-xs text-blue-600 font-medium mt-0.5">{key.user?.first_name} ({key.user?.email})</div>
                           </td>
                           <td className="py-4">
                             <div className="flex items-center gap-3">
