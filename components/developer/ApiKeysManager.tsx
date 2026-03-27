@@ -217,7 +217,7 @@ export default function ApiKeysManager() {
         <div className="doc-section">
           <h4>2. Place Data/Airtime Order</h4>
           <div className="endpoint"><span className="method post">POST</span> /api/v1/orders</div>
-          <p>Place a new order. Requires sufficient wallet balance.</p>
+          <p>Place a new standalone order. This bypasses retail storefronts and uses wholesale pricing (Dealer/Base). Requires sufficient wallet balance.</p>
           <pre>{`curl -X POST https://datagod.app/api/v1/orders \\
   -H "X-API-Key: dg_live_your_key_here" \\
   -H "Content-Type: application/json" \\
@@ -232,7 +232,7 @@ export default function ApiKeysManager() {
         <div className="doc-section">
           <h4>3. Check Order Status</h4>
           <div className="endpoint"><span className="method get">GET</span> /api/v1/orders?reference=&#60;ref&#62;</div>
-          <p>Query the status of a specific order using your custom reference.</p>
+          <p>Query the status of a specific standalone order using your custom <code>reference</code>.</p>
           <pre>{`curl -X GET "https://datagod.app/api/v1/orders?reference=your_unique_txn_id" \\
   -H "X-API-Key: dg_live_your_key_here"`}</pre>
         </div>

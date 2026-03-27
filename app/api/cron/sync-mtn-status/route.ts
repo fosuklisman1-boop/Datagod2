@@ -199,7 +199,7 @@ export async function GET(request: NextRequest) {
     // Step 2: Get all pending, processing, and failed/retrying orders from our database
     const { data: ordersToSync, error: fetchError } = await supabase
       .from("mtn_fulfillment_tracking")
-      .select("id, mtn_order_id, status, shop_order_id, order_id, order_type, provider, retry_count")
+      .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, provider, retry_count")
       .in("status", ["pending", "processing", "failed", "retrying", "error"])
       .not("mtn_order_id", "is", null)
       .order("updated_at", { ascending: true })
@@ -384,6 +384,24 @@ export async function GET(request: NextRequest) {
               userId = orderData.user_id
               orderDetails = { network: orderData.network, size: orderData.size, phone: orderData.phone_number }
             }
+          } else if (order.order_type === "api" && (order.api_order_id || order.order_id)) {
+            const apiId = order.api_order_id || order.order_id
+            const { data: apiData, error: apiError } = await supabase
+              .from("api_orders")
+              .update({
+                status: normalizedStatus,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", apiId)
+              .select("user_id, network, volume_gb, recipient_phone")
+              .single()
+
+            if (apiError) {
+              console.error(`[CRON] ⚠️ Failed to update API order ${apiId}:`, apiError)
+            } else if (apiData) {
+              userId = apiData.user_id
+              orderDetails = { network: apiData.network, size: `${apiData.volume_gb}GB`, phone: apiData.recipient_phone }
+            }
           } else if (order.shop_order_id) {
             const { data: shopData, error: shopError } = await supabase
               .from("shop_orders")
@@ -425,10 +443,12 @@ export async function GET(request: NextRequest) {
                 title: notifTitle,
                 message: notifMessage,
                 type: normalizedStatus === "completed" ? "order_completed" : "order_failed",
-                reference_id: order.order_id || order.shop_order_id,
+                reference_id: order.api_order_id || order.order_id || order.shop_order_id,
                 action_url: order.order_type === "bulk"
                   ? `/dashboard/my-orders?orderId=${order.order_id}`
-                  : `/dashboard/shop/orders`,
+                  : order.order_type === "api"
+                    ? `/dashboard/profile`
+                    : `/dashboard/shop/orders`,
                 read: false,
               })
 

@@ -12,7 +12,7 @@ interface FulfillmentRequest {
   sizeGb: number
   orderId: string
   network?: string
-  orderType?: "wallet" | "shop"  // wallet = orders table, shop = shop_orders table
+  orderType?: "wallet" | "shop" | "api"  // wallet = orders table, shop = shop_orders table, api = api_orders table
   isBigTime?: boolean  // true for AT-BigTime orders (uses special.php endpoint)
 }
 
@@ -369,7 +369,7 @@ class ATiShareService {
   async verifyAndUpdateStatus(
     orderId: string, 
     network: string, 
-    orderType: "wallet" | "shop",
+    orderType: "wallet" | "shop" | "api",
     isBigTime: boolean = false,
     externalReference?: string  // Code Craft's order ID if different from ours
   ): Promise<{ actualStatus: string; message?: string }> {
@@ -472,6 +472,11 @@ class ATiShareService {
             .from("orders")
             .update({ status: actualStatus, updated_at: new Date().toISOString() })
             .eq("id", orderId)
+        } else if (orderType === "api") {
+          await this.supabase
+            .from("api_orders")
+            .update({ status: actualStatus, updated_at: new Date().toISOString() })
+            .eq("id", orderId)
         } else {
           await this.supabase
             .from("shop_orders")
@@ -515,7 +520,7 @@ class ATiShareService {
       // Max 99 attempts: 3 initial + 96 scheduled (every 15 min for 24 hrs)
       const { data: dueLogs, error } = await this.supabase
         .from("fulfillment_logs")
-        .select("order_id, attempt_number, phone_number, network, order_type, api_response")
+        .select("order_id, api_order_id, attempt_number, phone_number, network, order_type, api_response")
         .eq("status", "processing")
         .lte("retry_after", now)
         .lt("attempt_number", 99) // Max 99 attempts (3 initial + 96 scheduled)
@@ -583,12 +588,14 @@ class ATiShareService {
                 .eq("order_id", log.order_id)
               
               // Update order status to completed
-              const tableName = log.order_type === "shop" ? "shop_orders" : "orders"
+              const tableName = log.order_type === "shop" ? "shop_orders" : (log.order_type === "api" ? "api_orders" : "orders")
               const statusField = log.order_type === "shop" ? "order_status" : "status"
+              const finalId = log.order_type === "api" ? (log.api_order_id || log.order_id) : log.order_id
+              
               await this.supabase
                 .from(tableName)
                 .update({ [statusField]: "completed", updated_at: new Date().toISOString() })
-                .eq("id", log.order_id)
+                .eq("id", finalId)
               
               updated++
               console.log(`[CODECRAFT] Order ${log.order_id} auto-completed after 24 hours`)
@@ -786,7 +793,7 @@ class ATiShareService {
     reference?: string,
     phoneNumber?: string,
     network?: string,
-    orderType: "wallet" | "shop" = "wallet"
+    orderType: "wallet" | "shop" | "api" = "wallet"
   ): Promise<void> {
     try {
       console.log(`[CODECRAFT-LOG] Logging fulfillment attempt for order ${orderId}`)
@@ -806,7 +813,6 @@ class ATiShareService {
       
       // Build the record with required fields
       const logRecord: any = {
-        order_id: orderId,
         order_type: orderType,
         status,
         phone_number: phoneNumber.trim(),
@@ -815,6 +821,14 @@ class ATiShareService {
         error_message: errorMessage,
         fulfilled_at: status === "success" ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
+      }
+
+      // Link to the correct order ID column
+      if (orderType === "api") {
+        logRecord.api_order_id = orderId
+        logRecord.order_id = orderId // Legacy/internal reference
+      } else {
+        logRecord.order_id = orderId
       }
 
       console.log(`[CODECRAFT-LOG] Attempting to insert fulfillment log with record:`, logRecord)
@@ -841,7 +855,20 @@ class ATiShareService {
       console.log(`[CODECRAFT-LOG] Updating order ${orderId} (type: ${orderType}) with status: ${orderStatus}`)
       
       // Use appropriate table based on order type
-      const tableName = orderType === "shop" ? "shop_orders" : "orders"
+      const tableNameMap: Record<string, string> = {
+        shop: "shop_orders",
+        api: "api_orders",
+        wallet: "orders"
+      }
+      const tableName = tableNameMap[orderType] || "orders"
+      const statusField = orderType === "shop" ? "order_status" : "status"
+
+      console.log(`[CODECRAFT-LOG] Updating ${tableName} order ${orderId} with ${statusField}: ${orderStatus}`)
+
+      await this.supabase
+        .from(tableName)
+        .update({ [statusField]: orderStatus, updated_at: new Date().toISOString() })
+        .eq("id", orderId)
       
       console.log(`[CODECRAFT-LOG] Table: ${tableName}`)
       

@@ -659,6 +659,24 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         }
       }
 
+      // Update api_orders table if programmatic order
+      if (tracking.api_order_id && (newStatus === "completed" || newStatus === "failed")) {
+        console.log(`[MTN-SYNC] Updating API order ${tracking.api_order_id} to ${newStatus}`)
+        const { error: apiOrderError } = await supabase
+          .from("api_orders")
+          .update({
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", tracking.api_order_id)
+
+        if (apiOrderError) {
+          console.error(`[MTN-SYNC] Failed to update api_order:`, apiOrderError)
+        } else {
+          console.log(`[MTN-SYNC] ✅ Updated api_order ${tracking.api_order_id} to ${newStatus}`)
+        }
+      }
+
       console.log(`[MTN] Synced order ${tracking.mtn_order_id} status: ${tracking.status} -> ${newStatus}`)
       return { success: true, newStatus, message: `Status updated to ${newStatus}` }
     }
@@ -684,7 +702,7 @@ export async function saveMTNTracking(
   mtnOrderId: number | string,
   request: MTNOrderRequest,
   response: MTNOrderResponse,
-  orderType: "shop" | "bulk" = "shop",
+  orderType: "shop" | "bulk" | "api" = "shop",
   provider: string = "sykes"
 ): Promise<string | null> {
   try {
@@ -705,6 +723,8 @@ export async function saveMTNTracking(
     // Set the appropriate order ID column based on type
     if (orderType === "shop") {
       insertData.shop_order_id = orderId
+    } else if (orderType === "api") {
+      insertData.api_order_id = orderId
     } else {
       insertData.order_id = orderId
     }
@@ -761,7 +781,7 @@ export async function updateMTNOrderFromWebhook(
     // Get the tracking record to update the corresponding order table
     const { data: tracking } = await supabase
       .from("mtn_fulfillment_tracking")
-      .select("shop_order_id, order_id, order_type")
+      .select("shop_order_id, order_id, api_order_id, order_type")
       .eq("mtn_order_id", mtnOrderId)
       .single()
 
@@ -785,6 +805,21 @@ export async function updateMTNOrderFromWebhook(
         console.error("[MTN] Error updating bulk order:", orderError)
       } else {
         console.log(`[MTN] Updated bulk order ${tracking.order_id} status to ${newStatus}`)
+      }
+    } else if (tracking.order_type === "api" && tracking.api_order_id) {
+      // Update programmatic API orders table
+      const { error: apiError } = await supabase
+        .from("api_orders")
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tracking.api_order_id)
+
+      if (apiError) {
+        console.error("[MTN] Error updating API order:", apiError)
+      } else {
+        console.log(`[MTN] Updated API order ${tracking.api_order_id} status to ${newStatus}`)
       }
     } else if (tracking.shop_order_id) {
       // Update shop_orders table
