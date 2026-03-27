@@ -1056,20 +1056,10 @@ export async function POST(request: NextRequest) {
         const planId = metadata?.planId || paymentData.order_id
 
         if (!upgradeUserId || !planId) {
-          console.error("[WEBHOOK] ❌ Missing userId or planId in metadata for dealer upgrade")
+          console.error("[WEBHOOK] ❌ Missing userId or planId for dealer upgrade", { upgradeUserId, planId })
         } else {
-          // Idempotency: check if this upgrade was already processed
-          const { data: existingSub } = await supabase
-            .from("user_subscriptions")
-            .select("id")
-            .eq("payment_reference", reference)
-            .maybeSingle()
-
-          if (existingSub) {
-            console.log(`[WEBHOOK] ✓ Dealer upgrade for reference ${reference} already processed (idempotency). Skipping.`)
-          } else {
           try {
-            // Get plan details
+            // Get plan details early needed for both verification and role/sub
             const { data: plan } = await supabase
               .from("subscription_plans")
               .select("*")
@@ -1079,39 +1069,55 @@ export async function POST(request: NextRequest) {
             if (!plan) {
               console.error(`[WEBHOOK] ❌ Subscription plan ${planId} not found`)
             } else {
-              // SECURITY CHECK: Verify paid amount matches plan price
-              // This protects against plan switching or manipulated initialization
+              // SECURITY CHECK: Verify paid amount
               const paidAmountGHS = amount / 100
               const planPrice = Number(plan.price)
               const fee = Number(paymentData.fee || 0)
               const expectedTotal = planPrice + fee
-
-              // Allow small floating point difference (0.05) or exact pesewa match
               const diff = Math.abs(paidAmountGHS - expectedTotal)
-              if (diff > 0.05) {
-                console.error(`[WEBHOOK] ❌ DEALER UPGRADE PRICE MISMATCH! Plan: ${planPrice}, Fee: ${fee}, Paid: ${paidAmountGHS}, Expected: ${expectedTotal}`)
-                // Stop processing - do not grant upgrade
-                return NextResponse.json(
-                  { error: "Payment amount does not match plan price" },
-                  { status: 400 }
-                )
-              }
-              console.log(`[WEBHOOK] ✓ Dealer upgrade price verified: Paid ${paidAmountGHS} (Plan ${planPrice} + Fee ${fee})`)
 
-              // 1. Update user role to dealer
-              const { error: userUpdateError } = await supabase
+              if (diff > 0.05) {
+                console.error(`[WEBHOOK] ❌ DEALER UPGRADE PRICE MISMATCH! Paid: ${paidAmountGHS}, Expected: ${expectedTotal}`)
+                return NextResponse.json({ error: "Price mismatch" }, { status: 400 })
+              }
+
+              // 1. Force update user role (Enforce even if sub exists)
+              console.log(`[WEBHOOK] Promoting user ${upgradeUserId} to DEALER...`)
+              const { error: roleError } = await supabase
                 .from("users")
                 .update({ role: "dealer", updated_at: new Date().toISOString() })
                 .eq("id", upgradeUserId)
 
-              if (userUpdateError) {
-                console.error("[WEBHOOK] ❌ Error updating user role:", userUpdateError)
+              if (roleError) {
+                console.error("[WEBHOOK] ❌ Role update failed:", roleError)
               } else {
-                console.log(`[WEBHOOK] ✓ User ${upgradeUserId} promoted to DEALER`)
+                console.log(`[WEBHOOK] ✓ User role updated to DEALER in public.users`)
+                
+                // 2. Also update Supabase Auth metadata for immediate UI consistency
+                try {
+                  const { error: authError } = await supabase.auth.admin.updateUserById(
+                    upgradeUserId,
+                    { user_metadata: { role: "dealer" } }
+                  )
+                  if (authError) console.warn("[WEBHOOK] Auth metadata sync failed (non-blocking):", authError.message)
+                  else console.log("[WEBHOOK] ✓ Auth metadata synced to DEALER")
+                } catch (aError) {
+                  console.warn("[WEBHOOK] Auth admin call failed:", aError)
+                }
+              }
 
-                // 2. Handle subscription record (Rollover logic)
-                // Check if user already has an active subscription to roll over
-                const { data: currentSub } = await supabase
+              // 3. Handle subscription record (Idempotent)
+              const { data: existingSub } = await supabase
+                .from("user_subscriptions")
+                .select("id")
+                .eq("payment_reference", reference)
+                .maybeSingle()
+
+              if (existingSub) {
+                console.log(`[WEBHOOK] ℹ Subscription record already exists for ${reference}. skipping insertion.`)
+              } else {
+                // Subscription logic (Rollover, etc.)
+                const { data: activeSub } = await supabase
                   .from("user_subscriptions")
                   .select("end_date")
                   .eq("user_id", upgradeUserId)
@@ -1123,49 +1129,50 @@ export async function POST(request: NextRequest) {
                 let startDate = new Date()
                 let endDate = new Date()
 
-                if (currentSub && new Date(currentSub.end_date) > new Date()) {
-                  // Rollover: start from previous end_date
-                  startDate = new Date(currentSub.end_date)
-                  endDate = new Date(currentSub.end_date)
-                  console.log(`[WEBHOOK] Rolling over subscription. Old end_date: ${currentSub.end_date}`)
+                if (activeSub && new Date(activeSub.end_date) > new Date()) {
+                  startDate = new Date(activeSub.end_date)
+                  endDate = new Date(activeSub.end_date)
+                  console.log(`[WEBHOOK] Rolling over existing sub. Old end_date: ${activeSub.end_date}`)
                 }
 
                 endDate.setDate(endDate.getDate() + plan.duration_days)
 
-                const { error: subError } = await supabase
+                const { error: subInsertError } = await supabase
                   .from("user_subscriptions")
-                  .insert([
-                    {
-                      user_id: upgradeUserId,
-                      plan_id: planId,
-                      start_date: startDate.toISOString(),
-                      end_date: endDate.toISOString(),
-                      status: "active",
-                      payment_reference: reference,
-                      amount_paid: amount / 100,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
-                    }
-                  ])
+                  .insert([{
+                    user_id: upgradeUserId,
+                    plan_id: planId,
+                    start_date: startDate.toISOString(),
+                    end_date: endDate.toISOString(),
+                    status: "active",
+                    payment_reference: reference,
+                    amount_paid: amount / 100,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  }])
 
-                if (subError) {
-                  console.error("[WEBHOOK] ❌ Error creating subscription record:", subError)
+                if (subInsertError) {
+                  console.error("[WEBHOOK] ❌ Subscription insert failed:", subInsertError)
                 } else {
                   console.log(`[WEBHOOK] ✓ Subscription record created for user ${upgradeUserId}`)
-
-                  // 3. Send notification
-                  await supabase
-                    .from("notifications")
-                    .insert([
-                      {
-                        user_id: upgradeUserId,
-                        title: "Account Upgraded!",
-                        message: `Congratulations! Your account has been upgraded to Dealer for ${plan.duration_days} days. You now have access to wholesale pricing.`,
-                        type: "role_change",
-                        is_read: false,
-                        created_at: new Date().toISOString(),
-                      }
-                    ])
+                  
+                  // 4. Send notification
+                  await supabase.from("notifications").insert([{
+                    user_id: upgradeUserId,
+                    title: "Account Upgraded!",
+                    message: `Congratulations! Your account has been upgraded to Dealer for ${plan.duration_days} days. You now have access to wholesale pricing.`,
+                    type: "role_change",
+                    is_read: false,
+                    created_at: new Date().toISOString(),
+                  }])
+                }
+              }
+            }
+          } catch (error) {
+            console.error("[WEBHOOK] ❌ Dealer upgrade error:", error)
+          }
+        }
+      }
 
                   // 4. Send SMS notification for successful subscription
                   try {
