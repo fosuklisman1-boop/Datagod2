@@ -166,6 +166,10 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      const isDealerUpgrade = (metadata?.type === "dealer_upgrade") || (paymentData.order_type === "dealer_upgrade")
+      const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
+      const isShopOrderPayment = !!(paymentData.order_id && paymentData.shop_id)
+
       // CRITICAL SECURITY CHECK: Re-verify price
       const paidAmountPesewas = Math.round(amount)
       let expectedAmountGHS = Number(paymentData.amount)
@@ -179,8 +183,6 @@ export async function POST(request: NextRequest) {
 
       if (paymentData.order_id) {
         let verifiedTotalPrice = 0
-        const isDealerUpgrade = (paymentData.order_type === "dealer_upgrade") || (metadata?.type === "dealer_upgrade")
-        const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
 
         if (isDealerUpgrade) {
           const { data: plan } = await supabase
@@ -241,20 +243,20 @@ export async function POST(request: NextRequest) {
         .eq("id", paymentData.id)
 
       // Update payment_attempts
-      supabase
-        .from("payment_attempts")
-        .update({
-          status: "completed",
-          paystack_transaction_id: event.data.id,
-          gateway_response: event.data.gateway_response || "success",
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("reference", reference)
-        .catch(err => console.warn("[WEBHOOK] Failed to update payment_attempts:", err))
-
-      const isDealerUpgrade = metadata?.type === "dealer_upgrade" || paymentData.order_type === "dealer_upgrade"
-      const isShopOrderPayment = !!(paymentData.order_id && paymentData.shop_id)
+      try {
+        await supabase
+          .from("payment_attempts")
+          .update({
+            status: "completed",
+            paystack_transaction_id: event.data.id,
+            gateway_response: event.data.gateway_response || "success",
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("reference", reference)
+      } catch (err) {
+        console.warn("[WEBHOOK] Failed to update payment_attempts:", err)
+      }
 
       // 1. Handle Shop Orders and Airtime
       if (paymentData.order_id && !isDealerUpgrade) {
