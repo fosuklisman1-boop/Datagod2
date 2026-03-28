@@ -109,11 +109,75 @@ export async function POST(request: NextRequest) {
       console.log("[FULFILLMENT] MTN auto-fulfillment DISABLED - Queuing for manual download")
       return await handleMTNManualFulfillment(shop_order_id, network, normalizedPhone, volume_gb)
     } else {
-      // OTHER NETWORKS: Handle as before (AT-iShare, etc.)
-      console.log("[FULFILLMENT] Non-MTN network:", network, "- Skipping fulfillment (handled by specific service)")
+      // Check if it's a Codecraft network
+      const fulfillableNetworks = ["AT - ISHARE", "AT-ISHARE", "TELECEL", "AT - BIGTIME", "AT-BIGTIME"]
+      const normalizedNetwork = network.toUpperCase().trim()
+      const isCodecraft = fulfillableNetworks.includes(normalizedNetwork)
+
+      if (isCodecraft) {
+        // Fetch global auto-fulfillment setting for Codecraft
+        const { data: globalSettings } = await supabase
+          .from("admin_settings")
+          .select("value")
+          .eq("key", "auto_fulfillment_enabled")
+          .single()
+          
+        const isCodeCraftAuto = globalSettings?.value?.enabled ?? true
+        
+        if (isCodeCraftAuto) {
+          console.log("[FULFILLMENT] CodeCraft auto-fulfillment ENABLED - Processing via atishareService")
+          
+          // Import dynamically to avoid top-level issues
+          const { atishareService } = await import("@/lib/at-ishare-service")
+          
+          const sizeGbStr = volume_gb.toString().replace(/[^0-9]/g, "")
+          const sizeGb = parseInt(sizeGbStr) || 0
+          const networkLower = network.toLowerCase()
+          const isBigTime = networkLower.includes("bigtime")
+          const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
+          
+          // Trigger Codecraft fulfillment asynchronously
+          atishareService.fulfillOrder({
+            phoneNumber: phone_number,
+            sizeGb,
+            orderId: shop_order_id,
+            network: apiNetwork,
+            orderType: "shop",
+            isBigTime,
+          }).catch(err => {
+            console.error("[FULFILLMENT] Codecraft async error:", err)
+          })
+
+          return NextResponse.json({
+            success: true,
+            message: "CodeCraft auto-fulfillment triggered successfully",
+            fulfillment_method: "auto_codecraft",
+          })
+        }
+      }
+
+      // If not auto-fulfillable or auto is disabled, queue for manual
+      console.log(`[FULFILLMENT] Network ${network} queued for manual fulfillment`)
+      const { error: updateError } = await supabase
+        .from("shop_orders")
+        .update({
+          order_status: "pending_download",
+          fulfillment_method: "manual",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", shop_order_id)
+
+      if (updateError) {
+        console.error("[FULFILLMENT] Failed to update shop_orders for manual queue:", updateError)
+        return NextResponse.json(
+          { error: "Failed to queue order for manual fulfillment" },
+          { status: 500 }
+        )
+      }
+
       return NextResponse.json({
         success: true,
-        message: `${network} fulfillment handled by dedicated service`,
+        message: `${network} order queued for manual fulfillment`,
         fulfillment_method: "manual",
       })
     }

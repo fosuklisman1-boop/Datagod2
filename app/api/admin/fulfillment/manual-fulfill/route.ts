@@ -63,12 +63,18 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit
 
     const statuses = ["pending", "pending_download"]
+    const allowedNetworks = [
+      "MTN", 
+      "AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "AT - ISHARE", "AT-ISHARE",
+      "Telecel", "telecel", "TELECEL",
+      "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime", "AT - BIGTIME", "AT-BIGTIME"
+    ]
 
     // 1. Fetch from shop_orders
     const { data: shopOrders, count: shopCount, error: shopError } = await supabase
       .from("shop_orders")
       .select("id, network, volume_gb, customer_phone, customer_name, customer_email, order_status, created_at, payment_status", { count: "exact" })
-      .eq("network", "MTN")
+      .in("network", allowedNetworks)
       .eq("payment_status", "completed")
       .in("order_status", statuses)
       .order("created_at", { ascending: false })
@@ -81,7 +87,7 @@ export async function GET(request: NextRequest) {
     const { data: bulkOrders, count: bulkCount, error: bulkError } = await supabase
       .from("orders")
       .select("id, network, size, phone_number, status, created_at, payment_status", { count: "exact" })
-      .eq("network", "MTN")
+      .in("network", allowedNetworks)
       .eq("payment_status", "completed")
       .in("status", statuses)
       .order("created_at", { ascending: false })

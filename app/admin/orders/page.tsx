@@ -1327,19 +1327,19 @@ export default function AdminOrdersPage() {
               </CardContent>
             </Card>
 
-            {/* MTN Pending Orders Section */}
+            {/* Pending Orders Section */}
             <Card className="border-l-4 border-l-orange-500">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       <Badge className="bg-orange-100 text-orange-800 border border-orange-200">
-                        MTN
+                        MTN & Codecraft
                       </Badge>
                       Pending Manual Fulfillment
                     </CardTitle>
                     <CardDescription>
-                      Orders queued for manual MTN fulfillment
+                      Orders queued for manual fulfillment
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1358,7 +1358,7 @@ export default function AdminOrdersPage() {
                         ) : (
                           <Zap className="h-4 w-4 mr-2" />
                         )}
-                        Fulfill All Pending MTN ({pendingMTNOrders.length})
+                        Fulfill All Pending ({pendingMTNOrders.length})
                       </Button>
                     )}
                     {loadingMTNOrders && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
@@ -1433,19 +1433,25 @@ export default function AdminOrdersPage() {
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-4">
                             <div className="min-w-[120px]">
-                              <Select
-                                value={selectedProviders[order.id] || "sykes"}
-                                onValueChange={(val) => setSelectedProviders(prev => ({ ...prev, [order.id]: val }))}
-                                disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue placeholder="Select Provider" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="sykes">Sykes</SelectItem>
-                                  <SelectItem value="datakazina">DataKazina</SelectItem>
-                                </SelectContent>
-                              </Select>
+                              {order.network?.toUpperCase() === "MTN" ? (
+                                <Select
+                                  value={selectedProviders[order.id] || "sykes"}
+                                  onValueChange={(val) => setSelectedProviders(prev => ({ ...prev, [order.id]: val }))}
+                                  disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
+                                >
+                                  <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder="Select Provider" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="sykes">Sykes</SelectItem>
+                                    <SelectItem value="datakazina">DataKazina</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Badge variant="outline" className="w-full h-8 flex items-center justify-center text-xs font-medium text-gray-500 bg-gray-50 border-gray-200">
+                                  Default
+                                </Badge>
+                              )}
                             </div>
                             <span className="text-right font-semibold whitespace-nowrap">₵ {(order.price || 0).toFixed(2)}</span>
                           </div>

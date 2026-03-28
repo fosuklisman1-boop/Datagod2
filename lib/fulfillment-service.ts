@@ -84,28 +84,36 @@ export async function processManualFulfillment(
       return { success: false, message: "Order already completed", orderId }
     }
 
-    // Check existing tracking/logs
-    const trackingQuery = orderType === "bulk"
-      ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count").eq("order_id", orderId.trim())
-      : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count").eq("shop_order_id", orderId.trim())
+    const isMTN = orderData.network?.toUpperCase() === "MTN"
+    const fulfillableNetworks = ["AT - ISHARE", "AT-ISHARE", "TELECEL", "AT - BIGTIME", "AT-BIGTIME"]
+    const normalizedNetwork = orderData.network?.toUpperCase().trim() || ""
+    const isCodecraft = fulfillableNetworks.includes(normalizedNetwork)
 
-    const { data: existingTracking } = await trackingQuery.order("created_at", { ascending: false }).limit(1)
-
-    if (existingTracking && existingTracking.length > 0) {
-      const lastTracking = existingTracking[0]
-      const isFailedId = lastTracking.mtn_order_id?.toString().startsWith("FAILED")
-      if (!isFailedId && ["pending", "processing", "completed"].includes(lastTracking.status)) {
-        return { success: false, message: `Already tracked with MTN (${lastTracking.status})`, orderId }
-      }
-    }
-
-    // Network & Blacklist check
-    if (orderData.network?.toUpperCase() !== "MTN") {
-      return { success: false, message: `Network ${orderData.network} is not MTN`, orderId }
+    if (!isMTN && !isCodecraft) {
+      return { success: false, message: `Network ${orderData.network} is not supported for manual fulfillment`, orderId }
     }
 
     if (orderData.queue === "blacklisted" || await isPhoneBlacklisted(phone)) {
       return { success: false, message: "Phone is blacklisted", orderId }
+    }
+
+    // Check existing tracking/logs strictly for MTN orders to avoid dual execution
+    let existingTracking: any = null
+    if (isMTN) {
+      const trackingQuery = orderType === "bulk"
+        ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count").eq("order_id", orderId.trim())
+        : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count").eq("shop_order_id", orderId.trim())
+
+      const { data } = await trackingQuery.order("created_at", { ascending: false }).limit(1)
+      existingTracking = data
+
+      if (existingTracking && existingTracking.length > 0) {
+        const lastTracking = existingTracking[0]
+        const isFailedId = lastTracking.mtn_order_id?.toString().startsWith("FAILED")
+        if (!isFailedId && ["pending", "processing", "completed"].includes(lastTracking.status)) {
+          return { success: false, message: `Already tracked with MTN (${lastTracking.status})`, orderId }
+        }
+      }
     }
 
     // Provider selection
@@ -126,8 +134,57 @@ export async function processManualFulfillment(
       return { success: false, message: "Order already processing or fulfilled", orderId }
     }
 
-    // Call MTN API
     const volumeGb = parseFloat(orderData.volume_gb?.toString() || "0")
+
+    if (isCodecraft) {
+      console.log(`${logPrefix} Processing Codecraft manual fulfillment: ${normalizedNetwork}`)
+      const { atishareService } = await import("@/lib/at-ishare-service")
+      
+      const networkLower = orderData.network?.toLowerCase() || ""
+      const isBigTime = networkLower.includes("bigtime")
+      const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
+
+      try {
+        const codecraftResponse = await atishareService.fulfillOrder({
+          phoneNumber: phone,
+          sizeGb: volumeGb,
+          orderId: orderId,
+          network: apiNetwork,
+          orderType: orderType === "bulk" ? "wallet" : orderType === "api" ? "api" : "shop",
+          isBigTime
+        })
+
+        if (!codecraftResponse.success) {
+          console.error(`${logPrefix} Codecraft API failed: ${codecraftResponse.message}`)
+          
+          // Revert to pending_download on failure
+          await supabase.from(tableName).update({ [statusField]: "pending_download", updated_at: new Date().toISOString() }).eq("id", orderId)
+
+          // Notifications on failure
+          sendSMS({
+            phone,
+            message: SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || "Codecraft", volumeGb.toString(), codecraftResponse.message || "Failed"),
+            type: "fulfillment_failed"
+          }).catch(e => console.error(`${logPrefix} SMS Error:`, e))
+
+          return { success: false, message: codecraftResponse.message || "Codecraft API Error", orderId }
+        }
+
+        return {
+          success: true,
+          message: "Codecraft API processing started",
+          orderId,
+          trackingId: codecraftResponse.reference
+        }
+      } catch (err: any) {
+        console.error(`${logPrefix} Codecraft Error:`, err)
+        // Revert Lock on crash
+        await supabase.from(tableName).update({ [statusField]: "pending_download", updated_at: new Date().toISOString() }).eq("id", orderId)
+        return { success: false, message: err.message || "Codecraft Internal error", orderId }
+      }
+    }
+
+    // Call MTN API
     const mtnRequest: MTNOrderRequest = {
       recipient_phone: phone,
       network: "MTN",
