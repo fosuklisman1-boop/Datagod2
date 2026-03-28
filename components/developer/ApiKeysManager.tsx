@@ -204,21 +204,28 @@ export default function ApiKeysManager() {
       {/* API Documentation */}
       <div className="api-usage-card">
         <h3>API Documentation</h3>
-        <p className="docs-intro">Manage your wallet and place orders programmatically. All requests require the <code>X-API-Key</code> header.</p>
+        <p className="docs-intro">Manage your wallet and place orders programmatically. All requests require the <code>X-API-Key</code> header. Base URL: <code>https://datagod.store</code></p>
         
         <div className="doc-section">
           <h4>1. Check Wallet Balance</h4>
           <div className="endpoint"><span className="method get">GET</span> /api/v1/balance</div>
           <p>Returns your current wallet balance and total spend.</p>
-          <pre>{`curl -X GET https://datagod.app/api/v1/balance \\
+          <pre>{`curl -X GET https://datagod.store/api/v1/balance \\
   -H "X-API-Key: dg_live_your_key_here"`}</pre>
+          <p className="response-label">Response</p>
+          <pre>{`{
+  "success": true,
+  "balance": 45.00,
+  "total_spent": 120.50,
+  "currency": "GHS"
+}`}</pre>
         </div>
 
         <div className="doc-section">
           <h4>2. Place Data/Airtime Order</h4>
           <div className="endpoint"><span className="method post">POST</span> /api/v1/orders</div>
-          <p>Place a new standalone order. This bypasses retail storefronts and uses wholesale pricing (Dealer/Base). Requires sufficient wallet balance.</p>
-          <pre>{`curl -X POST https://datagod.app/api/v1/orders \\
+          <p>Place a new standalone order. Bypasses retail storefronts and uses wholesale pricing (Dealer/Base). Requires sufficient wallet balance.</p>
+          <pre>{`curl -X POST https://datagod.store/api/v1/orders \\
   -H "X-API-Key: dg_live_your_key_here" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -227,14 +234,55 @@ export default function ApiKeysManager() {
     "recipient": "0541234567",
     "reference": "your_unique_txn_id"
   }'`}</pre>
+          <p className="response-label">Response</p>
+          <pre>{`{
+  "success": true,
+  "order": {
+    "id": "ord_xxxxxxxxxxxxxxxx",
+    "reference": "your_unique_txn_id",
+    "network": "MTN",
+    "volume_gb": 5,
+    "recipient": "0541234567",
+    "status": "pending",
+    "amount_charged": 12.50,
+    "created_at": "2025-01-01T12:00:00Z"
+  },
+  "new_balance": 32.50
+}`}</pre>
         </div>
 
         <div className="doc-section">
           <h4>3. Check Order Status</h4>
           <div className="endpoint"><span className="method get">GET</span> /api/v1/orders?reference=&#60;ref&#62;</div>
           <p>Query the status of a specific standalone order using your custom <code>reference</code>.</p>
-          <pre>{`curl -X GET "https://datagod.app/api/v1/orders?reference=your_unique_txn_id" \\
+          <pre>{`curl -X GET "https://datagod.store/api/v1/orders?reference=your_unique_txn_id" \\
   -H "X-API-Key: dg_live_your_key_here"`}</pre>
+          <p className="response-label">Response</p>
+          <pre>{`{
+  "success": true,
+  "order": {
+    "id": "ord_xxxxxxxxxxxxxxxx",
+    "reference": "your_unique_txn_id",
+    "network": "MTN",
+    "volume_gb": 5,
+    "recipient": "0541234567",
+    "status": "completed",
+    "amount_charged": 12.50,
+    "created_at": "2025-01-01T12:00:00Z",
+    "completed_at": "2025-01-01T12:03:22Z"
+  }
+}`}</pre>
+        </div>
+
+        <div className="doc-section">
+          <h4>Error Responses</h4>
+          <p>All endpoints return a consistent error format on failure.</p>
+          <pre>{`{
+  "success": false,
+  "error": "Insufficient wallet balance",
+  "code": "INSUFFICIENT_BALANCE"   // optional
+}`}</pre>
+          <p style={{ marginTop: 8 }}>Common HTTP status codes: <code>400</code> Bad Request · <code>401</code> Unauthorized (invalid key) · <code>402</code> Insufficient balance · <code>404</code> Not found · <code>500</code> Server error</p>
         </div>
       </div>
 
@@ -294,6 +342,7 @@ export default function ApiKeysManager() {
         .method.get { background: #0ea5e9; }
         .method.post { background: #10b981; }
         .doc-section p { font-size: 0.8rem; color: #9ca3af; margin-bottom: 12px; }
+        .response-label { font-size: 0.75rem !important; font-weight: 600; color: #6366f1 !important; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 12px !important; margin-bottom: 6px !important; }
       `}</style>
     </div>
   )
