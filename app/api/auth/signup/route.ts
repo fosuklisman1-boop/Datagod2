@@ -41,6 +41,19 @@ export async function POST(request: NextRequest) {
       }
     )
 
+    // Check if signups are enabled globally
+    const { data: settings } = await supabaseServiceRole
+      .from("app_settings")
+      .select("signups_enabled")
+      .single()
+
+    if (settings && settings.signups_enabled === false) {
+      return NextResponse.json(
+        { error: "New user registrations are currently disabled by the administrator." },
+        { status: 403 }
+      )
+    }
+
     // Phone number is required
     if (!phoneNumber || phoneNumber.trim() === '') {
       return NextResponse.json(

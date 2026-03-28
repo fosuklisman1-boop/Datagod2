@@ -28,6 +28,36 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Fetch feature toggles and fee settings early
+    const { data: settings } = await supabase
+      .from("app_settings")
+      .select("paystack_fee_percentage, wallet_topups_enabled, upgrades_enabled")
+      .single()
+
+    // Fetch user role for admin bypass
+    const { data: { user } } = await supabase.auth.admin.getUserById(userId)
+    const isAdmin = user?.user_metadata?.role === 'admin'
+
+    const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
+    const isUpgrade = type === "dealer_upgrade"
+
+    // Enforce Feature Availability Toggles
+    if (isTopup && settings?.wallet_topups_enabled === false && !isAdmin) {
+      console.warn(`[PAYMENT-INIT] Blocked Top Up for non-admin user ${userId} because feature is disabled.`)
+      return NextResponse.json(
+        { error: "Wallet top-ups are currently disabled by the administrator." },
+        { status: 403 }
+      )
+    }
+
+    if (isUpgrade && settings?.upgrades_enabled === false && !isAdmin) {
+      console.warn(`[PAYMENT-INIT] Blocked Upgrade for non-admin user ${userId} because feature is disabled.`)
+      return NextResponse.json(
+        { error: "Rank upgrades are currently disabled by the administrator." },
+        { status: 403 }
+      )
+    }
+
     let finalAmount = amount
 
     // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
@@ -98,12 +128,6 @@ export async function POST(request: NextRequest) {
 
     // Generate unique reference
     const reference = `WALLET-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
-
-    // Get current fee settings from app_settings
-    const { data: settings, error: settingsError } = await supabase
-      .from("app_settings")
-      .select("paystack_fee_percentage")
-      .single()
 
     // For airtime orders, we remove the additional Paystack fee as requested
     // The platform base fee is expected to absorb the payment processor cost.

@@ -30,6 +30,11 @@ export default function AdminSettingsPage() {
 
   // App Control settings
   const [orderingEnabled, setOrderingEnabled] = useState(true)
+  
+  // Feature Toggles
+  const [signupsEnabled, setSignupsEnabled] = useState(true)
+  const [walletTopupsEnabled, setWalletTopupsEnabled] = useState(true)
+  const [upgradesEnabled, setUpgradesEnabled] = useState(true)
 
   // MTN Provider settings
   const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina">("sykes")
@@ -109,6 +114,17 @@ export default function AdminSettingsPage() {
         // Load ordering settings
         if (data.ordering_enabled !== undefined) {
           setOrderingEnabled(data.ordering_enabled)
+        }
+
+        // Load feature toggles
+        if (data.signups_enabled !== undefined) {
+          setSignupsEnabled(data.signups_enabled)
+        }
+        if (data.wallet_topups_enabled !== undefined) {
+          setWalletTopupsEnabled(data.wallet_topups_enabled)
+        }
+        if (data.upgrades_enabled !== undefined) {
+          setUpgradesEnabled(data.upgrades_enabled)
         }
 
         // Load announcement settings
@@ -351,6 +367,9 @@ export default function AdminSettingsPage() {
           price_adjustment_telecel: priceAdjustmentTelecel,
           price_adjustment_at_ishare: priceAdjustmentAtIshare,
           price_adjustment_at_bigtime: priceAdjustmentAtBigtime,
+          signups_enabled: signupsEnabled,
+          wallet_topups_enabled: walletTopupsEnabled,
+          upgrades_enabled: upgradesEnabled,
         }),
       })
 
@@ -423,6 +442,75 @@ export default function AdminSettingsPage() {
                 onCheckedChange={handleOrderingToggle}
                 className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-red-600"
               />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Feature Availability Toggles */}
+        <Card className="mb-6 border-blue-200 bg-blue-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-800">
+              <Power className="w-5 h-5" />
+              Feature Availability Controls
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900">Sign Ups</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Allow new users to register. If disabled, the sign-up form will block new registrations entirely.
+                </p>
+              </div>
+              <Switch
+                checked={signupsEnabled}
+                onCheckedChange={setSignupsEnabled}
+                className="data-[state=checked]:bg-green-600"
+              />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900">Wallet Top Ups</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Allow users to add funds to their wallet. <br/>
+                  <span className="text-blue-700 font-semibold text-xs">Admins bypass this restriction.</span>
+                </p>
+              </div>
+              <Switch
+                checked={walletTopupsEnabled}
+                onCheckedChange={setWalletTopupsEnabled}
+                className="data-[state=checked]:bg-green-600"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900">Rank Upgrades</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Allow users to upgrade their subscription plans. <br/>
+                  <span className="text-blue-700 font-semibold text-xs">Admins bypass this restriction.</span>
+                </p>
+              </div>
+              <Switch
+                checked={upgradesEnabled}
+                onCheckedChange={setUpgradesEnabled}
+                className="data-[state=checked]:bg-green-600"
+              />
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
+              >
+                {saving ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                ) : (
+                  <><Save className="w-4 h-4" /> Save Controls</>
+                )}
+              </Button>
             </div>
           </CardContent>
         </Card>
