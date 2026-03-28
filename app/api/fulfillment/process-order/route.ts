@@ -127,6 +127,26 @@ export async function POST(request: NextRequest) {
         if (isCodeCraftAuto) {
           console.log("[FULFILLMENT] CodeCraft auto-fulfillment ENABLED - Processing via atishareService")
           
+          // ATOMIC LOCK: Claim the order before hitting the API
+          const { data: lockData } = await supabase
+            .from("shop_orders")
+            .update({
+              order_status: "processing",
+              fulfillment_method: "auto_codecraft",
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", shop_order_id)
+            .in("order_status", ["pending", "pending_download"])
+            .select("id")
+
+          if (!lockData || lockData.length === 0) {
+            console.warn(`[FULFILLMENT] CodeCraft order ${shop_order_id} already claimed or processing. Skipping.`)
+            return NextResponse.json({
+              success: true,
+              message: "Order is already being processed",
+            })
+          }
+
           // Import dynamically to avoid top-level issues
           const { atishareService } = await import("@/lib/at-ishare-service")
           
