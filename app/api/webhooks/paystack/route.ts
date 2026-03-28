@@ -304,7 +304,7 @@ export async function POST(request: NextRequest) {
               console.error("[WEBHOOK] Failed to trigger unified fulfillment:", fError)
             }
 
-            // Profit record — balance is auto-synced by DB trigger
+            // Sub-agent profit record — balance is auto-synced by DB trigger
             if (shopOrderData.profit_amount > 0) {
               const { error: profitInsertError } = await supabase.from("shop_profits").insert([{
                 shop_id: paymentData.shop_id,
@@ -316,7 +316,23 @@ export async function POST(request: NextRequest) {
               if (profitInsertError && profitInsertError.code !== "23505") {
                 console.error("[WEBHOOK] Failed to insert shop profit record:", profitInsertError)
               } else {
-                console.log(`[WEBHOOK] ✓ Shop profit recorded: GHS ${shopOrderData.profit_amount} (balance synced by DB trigger)`)
+                console.log(`[WEBHOOK] ✓ Sub-agent profit recorded: GHS ${shopOrderData.profit_amount}`)
+              }
+            }
+
+            // Parent shop profit record (sub-agent order) — balance is auto-synced by DB trigger
+            if (shopOrderData.parent_shop_id && shopOrderData.parent_profit_amount > 0) {
+              const { error: parentProfitError } = await supabase.from("shop_profits").insert([{
+                shop_id: shopOrderData.parent_shop_id,
+                shop_order_id: paymentData.order_id,
+                profit_amount: shopOrderData.parent_profit_amount,
+                status: "credited",
+                created_at: new Date().toISOString(),
+              }])
+              if (parentProfitError && parentProfitError.code !== "23505") {
+                console.error("[WEBHOOK] Failed to insert parent shop profit record:", parentProfitError)
+              } else {
+                console.log(`[WEBHOOK] ✓ Parent shop profit recorded: GHS ${shopOrderData.parent_profit_amount} for shop ${shopOrderData.parent_shop_id}`)
               }
             }
           }

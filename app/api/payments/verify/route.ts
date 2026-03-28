@@ -282,7 +282,7 @@ export async function POST(request: NextRequest) {
           // 2. Handle Shop Orders (Data)
           const { data: shopOrderData, error: shopOrderFetchError } = await supabase
             .from("shop_orders")
-            .select("id, shop_id, profit_amount, network, volume_gb, customer_phone, customer_name")
+            .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_name")
             .eq("id", paymentData.order_id)
             .single()
 
@@ -298,7 +298,7 @@ export async function POST(request: NextRequest) {
 
             console.log("[PAYMENT-VERIFY] ✓ Shop DATA order payment status updated to completed")
 
-            // Create profit record — balance is auto-synced by DB trigger
+            // Sub-agent profit record — balance is auto-synced by DB trigger
             const profitAmount = shopOrderData.profit_amount || 0
             const shopId = shopOrderData.shop_id || paymentData.shop_id
             
@@ -316,7 +316,26 @@ export async function POST(request: NextRequest) {
               if (dataProfitError && dataProfitError.code !== "23505") {
                 console.error(`[PAYMENT-VERIFY] Failed to insert data order profit:`, dataProfitError)
               } else {
-                console.log(`[PAYMENT-VERIFY] ✓ Data order profit recorded: GHS ${profitAmount} for shop ${shopId} (balance synced by DB trigger)`)
+                console.log(`[PAYMENT-VERIFY] ✓ Sub-agent profit recorded: GHS ${profitAmount} for shop ${shopId}`)
+              }
+            }
+
+            // Parent shop profit record (sub-agent order) — balance is auto-synced by DB trigger
+            if (shopOrderData.parent_shop_id && shopOrderData.parent_profit_amount > 0) {
+              const { error: parentProfitError } = await supabase
+                .from("shop_profits")
+                .insert([{
+                  shop_id: shopOrderData.parent_shop_id,
+                  shop_order_id: shopOrderData.id,
+                  profit_amount: shopOrderData.parent_profit_amount,
+                  status: "credited",
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                }])
+              if (parentProfitError && parentProfitError.code !== "23505") {
+                console.error(`[PAYMENT-VERIFY] Failed to insert parent shop profit:`, parentProfitError)
+              } else {
+                console.log(`[PAYMENT-VERIFY] ✓ Parent shop profit recorded: GHS ${shopOrderData.parent_profit_amount} for shop ${shopOrderData.parent_shop_id}`)
               }
             }
 
