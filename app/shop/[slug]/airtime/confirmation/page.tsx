@@ -37,18 +37,37 @@ export default function AirtimeConfirmationPage() {
   const verifyAndLoadOrder = async () => {
     try {
       setVerifying(true)
-      // Call verify endpoint
-      const res = await fetch("/api/payments/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reference })
-      })
-      
-      // Load order details from DB (using public API or similar)
-      const { data: orderData, error } = await fetch(`/api/shop/orders/status?orderId=${orderId}&type=airtime`).then(r => r.json())
-      
-      if (orderData) {
-        setOrder(orderData)
+
+      // Step 1: Verify the payment first — this updates DB
+      if (reference) {
+        await fetch("/api/payments/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reference })
+        })
+      }
+
+      // Step 2: Poll for updated order status (up to 4 retries, 1.5s apart)
+      if (orderId) {
+        let orderData = null
+        for (let attempt = 0; attempt < 4; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 1500))
+
+          const res = await fetch(`/api/shop/orders/status?orderId=${orderId}&type=airtime`)
+          const json = await res.json()
+
+          if (json.data) {
+            orderData = json.data
+            // If payment is confirmed, stop polling early
+            if (orderData.payment_status === "completed" || orderData.status === "pending" || orderData.status === "completed") {
+              break
+            }
+          }
+        }
+
+        if (orderData) {
+          setOrder(orderData)
+        }
       }
     } catch (error) {
       console.error("Verification error:", error)
