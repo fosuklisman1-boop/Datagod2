@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
 
       // 1. Handle Shop Orders and Airtime
       if (paymentData.order_id && !isDealerUpgrade) {
-        if (paymentData.shop_id) {
+        if (!isAirtime) {
           // Shop Order fulfillment logic
           const { data: shopOrderData } = await supabase
             .from("shop_orders")
@@ -420,8 +420,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 3. Handle Wallet Top-up (if not shop order or dealer upgrade)
-      if (!isShopOrderPayment && !isDealerUpgrade) {
+      // 3. Handle Wallet Top-up (if not an order or dealer upgrade)
+      if (!paymentData.order_id && !isDealerUpgrade) {
         const creditAmount = (amount / 100) - (paymentData.fee || 0)
         const { data: rpcData, error: rpcError } = await supabase.rpc("credit_wallet_safely", {
           p_user_id: paymentData.user_id,
