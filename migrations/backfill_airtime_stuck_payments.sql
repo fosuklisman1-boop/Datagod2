@@ -1,16 +1,19 @@
 -- ============================================================
--- Backfill: Fix airtime orders stuck in payment_status = 'pending'
+-- Backfill: Fix airtime orders stuck in payment_status = 'pending_payment'
 -- due to the race condition on the confirmation page.
--- 
+--
 -- These are orders where:
 --   1. wallet_payments.status = 'completed'  (Paystack confirmed)
---   2. airtime_orders.payment_status != 'completed' (DB wasn't updated)
+--   2. airtime_orders.payment_status = 'pending_payment' (DB was never updated)
 --
--- Safe to run multiple times (idempotent).
+-- HOW TO USE:
+--   Run STEP 1 first (SELECT only) to preview affected orders.
+--   Then run STEP 2 + STEP 3 together to apply the fix.
+--   Run STEP 4 to verify results.
 -- ============================================================
 
--- STEP 1: Preview affected orders before applying (run SELECT first)
-/*
+
+-- STEP 1 (PREVIEW ONLY — run this first, do not run STEP 2 until you verify):
 SELECT
   ao.id AS airtime_order_id,
   ao.payment_status AS current_payment_status,
@@ -26,30 +29,36 @@ INNER JOIN public.wallet_payments wp
   ON wp.order_id = ao.id
   AND wp.order_type = 'airtime'
 WHERE wp.status = 'completed'
-  AND (ao.payment_status IS NULL OR ao.payment_status = 'pending')
+  AND (ao.payment_status IS NULL OR ao.payment_status = 'pending_payment')
   AND ao.status NOT IN ('failed', 'flagged')
 ORDER BY ao.created_at DESC;
-*/
 
--- STEP 2: Update affected airtime orders to payment_status = 'completed'
--- and set status = 'pending' (awaiting airtime delivery) if still unset
-UPDATE public.airtime_orders ao
+
+-- ============================================================
+-- STEP 2: Fix payment_status and status on affected airtime orders.
+-- ============================================================
+UPDATE public.airtime_orders
 SET
   payment_status = 'completed',
   status = CASE
-    WHEN ao.status IN ('pending_payment', 'pending') THEN 'pending'
-    ELSE ao.status  -- don't override completed/failed/flagged
+    WHEN status = 'pending_payment' THEN 'pending'
+    ELSE status
   END,
   updated_at = NOW()
-FROM public.wallet_payments wp
-WHERE wp.order_id = ao.id
-  AND wp.order_type = 'airtime'
-  AND wp.status = 'completed'
-  AND (ao.payment_status IS NULL OR ao.payment_status NOT IN ('completed', 'failed'));
+WHERE id IN (
+  SELECT ao.id
+  FROM public.airtime_orders ao
+  INNER JOIN public.wallet_payments wp
+    ON wp.order_id = ao.id
+    AND wp.order_type = 'airtime'
+  WHERE wp.status = 'completed'
+    AND (ao.payment_status IS NULL OR ao.payment_status = 'pending_payment')
+);
 
 
--- STEP 3: Also backfill shop_profits for any of those airtime orders
--- that had a merchant commission but the profit record was never created.
+-- ============================================================
+-- STEP 3: Create missing shop_profits records for merchant commissions.
+-- ============================================================
 INSERT INTO public.shop_profits (
   shop_id,
   airtime_order_id,
@@ -72,14 +81,15 @@ INNER JOIN public.wallet_payments wp
 WHERE wp.status = 'completed'
   AND ao.merchant_commission > 0
   AND ao.shop_id IS NOT NULL
-  -- Only insert if no profit record already exists for this airtime order
   AND NOT EXISTS (
     SELECT 1 FROM public.shop_profits sp
     WHERE sp.airtime_order_id = ao.id
   );
 
 
--- STEP 4: Verification — check how many were fixed
+-- ============================================================
+-- STEP 4 (VERIFY): Check how many orders were fixed.
+-- ============================================================
 SELECT
   COUNT(*) AS total_fixed,
   SUM(ao.airtime_amount) AS total_airtime_ghs

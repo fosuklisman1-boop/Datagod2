@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       `)
       .eq("wallet_payments.status", "completed")
       .eq("wallet_payments.order_type", "airtime")
-      .not("payment_status", "in", '("completed","failed")')
+      .or("payment_status.is.null,payment_status.eq.pending_payment")
 
     if (findError) {
       console.error("[BACKFILL] Error finding affected orders:", findError)
@@ -65,10 +65,11 @@ export async function POST(request: NextRequest) {
       .from("airtime_orders")
       .update({
         payment_status: "completed",
+        status: "pending", // move from pending_payment → pending (awaiting delivery)
         updated_at: new Date().toISOString(),
       })
       .in("id", orderIds)
-      .not("payment_status", "in", '("completed","failed")')
+      .or("payment_status.is.null,payment_status.eq.pending_payment")
       .select("id, status, merchant_commission, shop_id")
 
     if (updateError) {
@@ -143,7 +144,7 @@ export async function GET(request: NextRequest) {
     `)
     .eq("wallet_payments.status", "completed")
     .eq("wallet_payments.order_type", "airtime")
-    .not("payment_status", "in", '("completed","failed")')
+    .or("payment_status.is.null,payment_status.eq.pending_payment")
     .order("created_at", { ascending: false })
 
   if (error) {

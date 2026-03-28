@@ -685,6 +685,63 @@ export async function PATCH(request: NextRequest) {
             await syncShopAvailableBalance(shopOrderData.parent_shop_id)
           }
         }
+      } else if (paymentType === "shop_airtime" && attempt.order_id) {
+        // ===== AIRTIME ORDER: Update payment status =====
+        console.log(`[ADMIN-PAYMENT-ATTEMPTS] Processing airtime order ${attempt.order_id}`)
+
+        const { data: airtimeOrderData, error: airtimeFetchError } = await supabase
+          .from("airtime_orders")
+          .select("id, shop_id, merchant_commission, reference_code, network, airtime_amount, beneficiary_phone, notes, status, is_flagged")
+          .eq("id", attempt.order_id)
+          .maybeSingle()
+
+        if (!airtimeFetchError && airtimeOrderData) {
+          // Update airtime order payment status and move to 'pending' (awaiting delivery)
+          const { error: airtimeUpdateError } = await supabase
+            .from("airtime_orders")
+            .update({
+              payment_status: "completed",
+              status: airtimeOrderData.status === "pending_payment" ? "pending" : airtimeOrderData.status,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", airtimeOrderData.id)
+
+          if (airtimeUpdateError) {
+            console.error("[ADMIN-PAYMENT-ATTEMPTS] Failed to update airtime order:", airtimeUpdateError)
+          } else {
+            console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ Airtime order ${attempt.order_id} payment status updated to completed`)
+          }
+
+          // Also update wallet_payments to stay in sync
+          supabase
+            .from("wallet_payments")
+            .update({ status: "completed", updated_at: new Date().toISOString() })
+            .eq("reference", attempt.reference)
+            .then(({ error }) => {
+              if (error) console.warn("[ADMIN-PAYMENT-ATTEMPTS] Failed to sync wallet_payments for airtime:", error.message)
+            })
+
+          // Create profit record for merchant if not already existing
+          const commission = airtimeOrderData.merchant_commission || 0
+          const shopId = airtimeOrderData.shop_id || attempt.shop_id
+          if (commission > 0 && shopId) {
+            const { error: profitError } = await supabase
+              .from("shop_profits")
+              .insert([{
+                shop_id: shopId,
+                airtime_order_id: airtimeOrderData.id,
+                profit_amount: commission,
+                status: "credited",
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }])
+            if (!profitError || profitError.code === "23505") {
+              if (!profitError) console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ Airtime profit recorded: GHS ${commission}`)
+            } else {
+              console.error(`[ADMIN-PAYMENT-ATTEMPTS] Failed to insert airtime profit:`, profitError)
+            }
+          }
+        }
       }
     }
 
