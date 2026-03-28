@@ -17,19 +17,44 @@ export async function GET(request: NextRequest) {
   const userId = searchParams.get("userId")
   const apiKeyId = searchParams.get("apiKeyId")
   const statusCode = searchParams.get("statusCode")
+  const statusFilter = searchParams.get("statusFilter")
+  const search = searchParams.get("search")
+  const startDate = searchParams.get("startDate")
+  const endDate = searchParams.get("endDate")
   const limit = parseInt(searchParams.get("limit") || "100")
   const offset = parseInt(searchParams.get("offset") || "0")
 
+  // Step 1a: If search is provided, we might want to search by endpoint or method
   // Step 1: Fetch logs without problematic joins
   let query = supabase
     .from("user_api_logs")
-    .select("id, user_id, api_key_id, method, endpoint, status_code, ip_address, duration_ms, created_at")
+    .select("id, user_id, api_key_id, method, endpoint, status_code, ip_address, duration_ms, created_at, request_payload, response_payload", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1)
 
   if (userId) query = query.eq("user_id", userId)
   if (apiKeyId) query = query.eq("api_key_id", apiKeyId)
+  
+  // Exact status code
   if (statusCode) query = query.eq("status_code", parseInt(statusCode))
+  
+  // Status filter categories (200s, 400s, 500s)
+  if (statusFilter === "success") {
+    query = query.gte("status_code", 200).lt("status_code", 300)
+  } else if (statusFilter === "client_error") {
+    query = query.gte("status_code", 400).lt("status_code", 500)
+  } else if (statusFilter === "server_error") {
+    query = query.gte("status_code", 500)
+  }
+
+  // Date ranges
+  if (startDate) query = query.gte("created_at", startDate)
+  if (endDate) query = query.lte("created_at", endDate)
+
+  // Text search on endpoint or IP
+  if (search) {
+    query = query.or(`endpoint.ilike.%${search}%,ip_address.ilike.%${search}%,method.ilike.%${search}%`)
+  }
 
   const { data: logs, error } = await query
 
