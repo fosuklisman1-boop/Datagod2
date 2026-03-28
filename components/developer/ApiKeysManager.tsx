@@ -216,8 +216,13 @@ export default function ApiKeysManager() {
           <pre>{`{
   "success": true,
   "balance": 45.00,
+  "total_credited": 165.50,
   "total_spent": 120.50,
-  "currency": "GHS"
+  "currency": "GHS",
+  "user": {
+    "name": "John",
+    "role": "dealer"
+  }
 }`}</pre>
         </div>
 
