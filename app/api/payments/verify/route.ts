@@ -9,6 +9,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+
 export async function POST(request: NextRequest) {
   try {
     const { reference } = await request.json()
@@ -215,11 +216,11 @@ export async function POST(request: NextRequest) {
               
               console.log(`[PAYMENT-VERIFY] ✓ Airtime order status updated to pending`)
 
-              // Create profit record for merchant
+              // Create profit record for merchant — balance is auto-synced by DB trigger
               const commission = airtimeData.merchant_commission || 0
               const shopId = airtimeData.shop_id || paymentData.shop_id
               if (commission > 0 && shopId) {
-                await supabase
+                const { error: airtimeProfitError } = await supabase
                   .from("shop_profits")
                   .insert([{
                     shop_id: shopId,
@@ -229,7 +230,11 @@ export async function POST(request: NextRequest) {
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                   }])
-                console.log(`[PAYMENT-VERIFY] ✓ Airtime profit record created: GHS ${commission} for shop ${shopId}`)
+                if (airtimeProfitError && airtimeProfitError.code !== "23505") {
+                  console.error(`[PAYMENT-VERIFY] Failed to insert airtime profit:`, airtimeProfitError)
+                } else {
+                  console.log(`[PAYMENT-VERIFY] ✓ Airtime profit recorded: GHS ${commission} for shop ${shopId} (balance synced by DB trigger)`)
+                }
               }
             }
 
@@ -293,12 +298,12 @@ export async function POST(request: NextRequest) {
 
             console.log("[PAYMENT-VERIFY] ✓ Shop DATA order payment status updated to completed")
 
-            // Create profit record
+            // Create profit record — balance is auto-synced by DB trigger
             const profitAmount = shopOrderData.profit_amount || 0
             const shopId = shopOrderData.shop_id || paymentData.shop_id
             
             if (profitAmount > 0 && shopId) {
-              await supabase
+              const { error: dataProfitError } = await supabase
                 .from("shop_profits")
                 .insert([{
                   shop_id: shopId,
@@ -308,7 +313,11 @@ export async function POST(request: NextRequest) {
                   created_at: new Date().toISOString(),
                   updated_at: new Date().toISOString(),
                 }])
-              console.log(`[PAYMENT-VERIFY] ✓ Shop DATA order profit record created: GHS ${profitAmount} for shop ${shopId}`)
+              if (dataProfitError && dataProfitError.code !== "23505") {
+                console.error(`[PAYMENT-VERIFY] Failed to insert data order profit:`, dataProfitError)
+              } else {
+                console.log(`[PAYMENT-VERIFY] ✓ Data order profit recorded: GHS ${profitAmount} for shop ${shopId} (balance synced by DB trigger)`)
+              }
             }
 
             // Trigger fulfillment logic for data

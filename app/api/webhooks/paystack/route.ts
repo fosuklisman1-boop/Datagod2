@@ -304,15 +304,20 @@ export async function POST(request: NextRequest) {
               console.error("[WEBHOOK] Failed to trigger unified fulfillment:", fError)
             }
 
-            // Profit records
+            // Profit record — balance is auto-synced by DB trigger
             if (shopOrderData.profit_amount > 0) {
-              await supabase.from("shop_profits").insert([{
+              const { error: profitInsertError } = await supabase.from("shop_profits").insert([{
                 shop_id: paymentData.shop_id,
                 shop_order_id: paymentData.order_id,
                 profit_amount: shopOrderData.profit_amount,
                 status: "credited",
                 created_at: new Date().toISOString(),
               }])
+              if (profitInsertError && profitInsertError.code !== "23505") {
+                console.error("[WEBHOOK] Failed to insert shop profit record:", profitInsertError)
+              } else {
+                console.log(`[WEBHOOK] ✓ Shop profit recorded: GHS ${shopOrderData.profit_amount} (balance synced by DB trigger)`)
+              }
             }
           }
         } else {
@@ -330,13 +335,18 @@ export async function POST(request: NextRequest) {
               .eq("id", airtimeData.id)
 
             if (airtimeData.merchant_commission > 0 && airtimeData.shop_id) {
-              await supabase.from("shop_profits").insert([{
+              const { error: airtimeProfitInsertError } = await supabase.from("shop_profits").insert([{
                 shop_id: airtimeData.shop_id,
                 airtime_order_id: airtimeData.id,
                 profit_amount: airtimeData.merchant_commission,
                 status: "credited",
                 created_at: new Date().toISOString(),
               }])
+              if (airtimeProfitInsertError && airtimeProfitInsertError.code !== "23505") {
+                console.error("[WEBHOOK] Failed to insert airtime profit record:", airtimeProfitInsertError)
+              } else {
+                console.log(`[WEBHOOK] ✓ Airtime profit recorded: GHS ${airtimeData.merchant_commission} (balance synced by DB trigger)`)
+              }
             }
           }
         }
