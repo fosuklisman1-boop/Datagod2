@@ -34,9 +34,17 @@ export async function POST(request: NextRequest) {
       .select("paystack_fee_percentage, wallet_topups_enabled, upgrades_enabled")
       .single()
 
-    // Fetch user role for admin bypass
-    const { data: { user } } = await supabase.auth.admin.getUserById(userId)
-    const isAdmin = user?.user_metadata?.role === 'admin'
+    // Fetch user role for admin bypass - only if userId is a valid-looking UUID
+    let isAdmin = false
+    if (userId && userId.length > 20) {
+      try {
+        const { data: authResult } = await supabase.auth.admin.getUserById(userId)
+        isAdmin = authResult?.user?.user_metadata?.role === 'admin'
+      } catch (err) {
+        console.warn(`[PAYMENT-INIT] Could not verify user status for ${userId}:`, err)
+        // Default to non-admin on any auth error
+      }
+    }
 
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
