@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { useAuth } from "@/lib/auth-context"
 import { supabase } from "@/lib/supabase"
@@ -408,8 +409,9 @@ export default function AdminSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto">
+    <DashboardLayout>
+      <div className="bg-gray-50 p-4 md:p-8">
+        <div className="max-w-2xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">App Settings</h1>
           <p className="text-gray-600 mt-2">
@@ -1348,5 +1350,6 @@ export default function AdminSettingsPage() {
         </Card>
       </div>
     </div>
+    </DashboardLayout>
   )
 }
