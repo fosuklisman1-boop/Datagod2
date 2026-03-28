@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, Users, Store as StoreIcon } from "lucide-react"
+import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, Users, Store as StoreIcon, AlertCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
@@ -33,6 +33,7 @@ export default function UpgradePage() {
     const [currentSubscription, setCurrentSubscription] = useState<any>(null)
     const [daysLeft, setDaysLeft] = useState<number | null>(null)
     const [showSuccessModal, setShowSuccessModal] = useState(false)
+    const [upgradesEnabled, setUpgradesEnabled] = useState<boolean>(true)
 
     useEffect(() => {
         fetchUserData()
@@ -43,6 +44,16 @@ export default function UpgradePage() {
         if (reference) {
             verifyUpgrade(reference)
         }
+
+        // Fetch public toggles
+        fetch("/api/settings/public")
+            .then((res) => res.json())
+            .then((data) => {
+                if (data.upgrades_enabled !== undefined) {
+                    setUpgradesEnabled(data.upgrades_enabled)
+                }
+            })
+            .catch((err) => console.error("Failed to load toggles", err))
     }, [])
 
     const fetchCurrentSubscription = async () => {
@@ -186,6 +197,14 @@ export default function UpgradePage() {
                     </p>
                 </div>
 
+                {!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin' && (
+                    <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl text-center">
+                        <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                        <h3 className="text-lg font-bold text-red-900">Upgrades Temporarily Disabled</h3>
+                        <p className="text-red-700">Account upgrades are currently paused for system maintenance. Please check back later!</p>
+                    </div>
+                )}
+
                 {(currentRole === 'dealer' || currentRole === 'admin') && (
                     <div className="mb-12 p-6 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
                         <div className="flex items-center gap-4">
@@ -279,15 +298,19 @@ export default function UpgradePage() {
                                     <Button
                                         className={cn(
                                             "w-full h-12 text-lg font-bold transition-all duration-300",
-                                            index === 1
-                                                ? "bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-700 hover:to-yellow-600 text-white shadow-lg"
-                                                : "bg-gray-900 hover:bg-black text-white"
+                                            !upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin'
+                                                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                                                : index === 1
+                                                    ? "bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-700 hover:to-yellow-600 text-white shadow-lg"
+                                                    : "bg-gray-900 hover:bg-black text-white"
                                         )}
                                         onClick={() => handleUpgrade(plan)}
-                                        disabled={processingId === plan.id}
+                                        disabled={processingId === plan.id || (!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin')}
                                     >
                                         {processingId === plan.id ? (
                                             <Loader2 className="w-5 h-5 animate-spin" />
+                                        ) : (!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin') ? (
+                                            "Currently Unavailable"
                                         ) : (currentRole === 'dealer' || currentRole === 'admin') ? (
                                             "Renew / Extend"
                                         ) : (

@@ -64,6 +64,9 @@ export default function WalletPage() {
     details: Array<{ label: string; value: string }>
   }>({ open: false, title: "", message: "", details: [] })
 
+  // Feature Toggle State
+  const [walletTopupsEnabled, setWalletTopupsEnabled] = useState<boolean>(true)
+
   // Auth protection
   useEffect(() => {
     if (!authLoading && !user) {
@@ -82,6 +85,16 @@ export default function WalletPage() {
         console.log("[WALLET] Payment reference detected:", reference)
         verifyPaymentAndRefresh(reference)
       }
+
+      // Fetch public toggles
+      fetch("/api/settings/public")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.wallet_topups_enabled !== undefined) {
+            setWalletTopupsEnabled(data.wallet_topups_enabled)
+          }
+        })
+        .catch((err) => console.error("Failed to load toggles", err))
     }
   }, [user])
 
@@ -369,20 +382,26 @@ export default function WalletPage() {
               <Wallet className={`w-16 h-16 opacity-50 ${isDealer ? "text-amber-100" : "text-blue-100"}`} />
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-              <Button
-                onClick={() => setShowTopUp(!showTopUp)}
-                className={`bg-white hover:bg-gray-100 w-full sm:w-auto ${isDealer ? "text-amber-600" : "text-blue-600"
-                  }`}
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Add Funds
-              </Button>
+              {walletTopupsEnabled || isDealer ? (
+                <Button
+                  onClick={() => setShowTopUp(!showTopUp)}
+                  className={`bg-white hover:bg-gray-100 w-full sm:w-auto ${isDealer ? "text-amber-600" : "text-blue-600"
+                    }`}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Funds
+                </Button>
+              ) : (
+                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-3 w-full text-sm text-white/90">
+                  ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
         {/* Top Up Form */}
-        {showTopUp && (
+        {(showTopUp && (walletTopupsEnabled || isDealer)) && (
           <div className="animate-in fade-in slide-in-from-top-2">
             <WalletTopUp onSuccess={handleTopUpSuccess} />
           </div>
