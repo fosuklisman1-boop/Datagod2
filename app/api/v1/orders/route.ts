@@ -119,88 +119,57 @@ export async function POST(request: NextRequest) {
 
   const orderPrice = user.role === "dealer" && pkg.dealer_price > 0 ? Number(pkg.dealer_price) : Number(pkg.price)
 
-  // 2. Atomically deduct wallet balance via RPC
-  const { data: deductResult, error: deductError } = await supabase.rpc('deduct_wallet', {
+  // --- 2 & 3 & 5. Atomic Order Placement ---
+  const description = `API Data Purchase: ${network.toUpperCase()} ${volume_gb}GB (${recipient})`
+  
+  const { data: result, error: rpcError } = await supabase.rpc('place_api_order', {
     p_user_id: user.id,
-    p_amount: orderPrice,
-  })
+    p_api_key_id: user.api_key_id,
+    p_package_id: pkg.id,
+    p_network: network,
+    p_volume_gb: volume_gb,
+    p_price: orderPrice,
+    p_recipient_phone: recipient,
+    p_api_reference: reference,
+    p_description: description
+  }) as { data: { success: boolean; order_id: string; new_balance: number; error?: string; required?: number } | null; error: any }
 
-  if (deductError) {
-    console.error("[API v1] Wallet deduction RPC error:", deductError)
-    return NextResponse.json({ success: false, error: "Failed to process payment. Wallet deduction failed." }, { status: 500 })
-  }
+  const durationMs = Date.now() - start
 
-  if (!deductResult || deductResult.length === 0) {
-    return NextResponse.json({
-      success: false,
-      error: `Insufficient balance to place this order.`,
-      required: orderPrice,
-    }, { status: 402 })
-  }
-
-  const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
-
-  // 3. Create the api_orders record
-  const { data: order, error: orderError } = await supabase
-    .from("api_orders")
-    .insert({
-      user_id: user.id,
-      api_key_id: user.api_key_id,
-      package_id: pkg.id,
-      network,
-      volume_gb,
-      price: orderPrice,
-      recipient_phone: recipient,
-      api_reference: reference,
-      status: "pending",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .select("id, status, created_at")
-    .single()
-
-  const httpStatus = orderError ? 500 : 201
-  logApiRequest({ userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/orders", statusCode: httpStatus, request, durationMs: Date.now() - start }).catch(() => {})
-
-  if (orderError || !order) {
-    // 4. Refund logic: wallet was already deducted via RPC, so we need to reverse
-    console.error("[API v1] Order creation error, refunding wallet:", orderError)
+  if (rpcError || !result || !result.success) {
+    const errorMsg = result?.error || rpcError?.message || "Failed to place order"
+    const status = result?.error === 'Insufficient balance' ? 402 : 
+                   result?.error === 'Duplicate reference' ? 409 : 500
     
-    await supabase.from("wallets").update({ 
-      balance: balanceBefore,
-      updated_at: new Date().toISOString()
-    }).eq("user_id", user.id)
-    
-    // Check if it's a unique constraint error
-    if (orderError?.code === '23505') {
-       return NextResponse.json({ success: false, error: "Duplicate reference: an order with this reference already exists." }, { status: 409 })
-    }
-    
-    return NextResponse.json({ success: false, error: "Failed to create order" }, { status: 500 })
+    logApiRequest({ 
+      userId: user.id, 
+      apiKeyId: user.api_key_id, 
+      method: "POST", 
+      endpoint: "/api/v1/orders", 
+      statusCode: status, 
+      request, 
+      durationMs 
+    }).catch(() => {})
+
+    return NextResponse.json({ 
+      success: false, 
+      error: errorMsg,
+      required: result?.required
+    }, { status })
   }
 
-  // 5. Create transaction record for audit trail and user history
-  const { error: transactionError } = await supabase
-    .from("transactions")
-    .insert([
-      {
-        user_id: user.id,
-        type: "debit",
-        source: "api_order",
-        amount: orderPrice,
-        balance_before: balanceBefore,
-        balance_after: newBalance,
-        description: `API Data Purchase: ${network.toUpperCase()} ${volume_gb}GB (${recipient})`,
-        reference_id: order.id, // Reference to internal api_orders table record
-        status: "completed",
-        created_at: new Date().toISOString(),
-      },
-    ])
-
-  if (transactionError) {
-    console.error("[API v1] Failed to create transaction ledger entry:", transactionError)
-    // Non-blocking: we already have the order record and wallet was deducted.
-  }
+  const { order_id: orderId, new_balance: newBalance } = result!
+  const orderCreatedAt = new Date().toISOString()
+  
+  logApiRequest({ 
+    userId: user.id, 
+    apiKeyId: user.api_key_id, 
+    method: "POST", 
+    endpoint: "/api/v1/orders", 
+    statusCode: 201, 
+    request, 
+     durationMs 
+  }).catch(() => {})
 
   // --- 4. Trigger Asynchronous Fulfillment ---
   const normalizedNetwork = network.trim().toLowerCase()
@@ -217,10 +186,10 @@ export async function POST(request: NextRequest) {
             size_gb: volume_gb,
           }
           const mtnResult = await createMTNOrder(mtnRequest)
-          if (mtnResult.order_id) {
-            await saveMTNTracking(order.id, mtnResult.order_id, mtnRequest, mtnResult, "api", mtnResult.provider || "sykes")
+          if (orderId) {
+            await saveMTNTracking(String(orderId), mtnResult.order_id, mtnRequest, mtnResult, "api", mtnResult.provider || "sykes")
             if (mtnResult.success) {
-              await supabase.from("api_orders").update({ status: "processing" }).eq("id", order.id)
+              await supabase.from("api_orders").update({ status: "processing" }).eq("id", orderId)
             }
           }
         }
@@ -243,7 +212,7 @@ export async function POST(request: NextRequest) {
           atishareService.fulfillOrder({
             phoneNumber: recipient,
             sizeGb: volume_gb,
-            orderId: order.id,
+            orderId: orderId,
             network: apiNetwork,
             orderType: "api",
             isBigTime,
@@ -259,14 +228,14 @@ export async function POST(request: NextRequest) {
     success: true,
     message: "Order placed successfully",
     order: {
-      id: order.id,
+      id: orderId,
       reference,
       network,
       volume_gb,
       price: orderPrice,
       recipient,
-      status: order.status,
-      created_at: order.created_at,
+      status: "pending",
+      created_at: orderCreatedAt,
     }
   }, { status: 201 })
 }

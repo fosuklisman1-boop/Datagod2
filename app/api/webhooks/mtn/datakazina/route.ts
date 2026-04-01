@@ -11,6 +11,8 @@ import {
 } from "@/lib/mtn-production-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
+import { mtnConfig } from "@/lib/mtn-production-config"
+import crypto from "crypto"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -26,18 +28,35 @@ export async function POST(request: NextRequest) {
     const startTime = Date.now()
 
     try {
+        // SECURITY: Verify webhook signature
+        const signature = request.headers.get("X-DataKazina-Signature") || request.headers.get("x-signature")
+        const bodyText = await request.text()
+
+        if (mtnConfig.webhookSecret) {
+            const expectedSignature = crypto
+                .createHmac("sha256", mtnConfig.webhookSecret)
+                .update(bodyText)
+                .digest("hex")
+
+            if (signature !== expectedSignature && signature !== `sha256=${expectedSignature}`) {
+                log("warn", "Webhook.DataKazina", "Invalid webhook signature", { traceId, signature })
+                return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+            }
+        } else {
+            log("warn", "Webhook.DataKazina", "Webhook secret not configured, skipping verification (INSECURE)", { traceId })
+        }
+
         const contentType = request.headers.get("content-type") || ""
         let payload: DataKazinaWebhookPayload
 
         if (!contentType.includes("application/json")) {
-            const text = await request.text()
-            log("info", "Webhook.DataKazina", "Received non-JSON webhook", { traceId, text: text.slice(0, 500) })
+            log("info", "Webhook.DataKazina", "Received non-JSON webhook", { traceId, text: bodyText.slice(0, 500) })
             // Return 200 for non-JSON pings (common for validation)
             return NextResponse.json({ success: true, message: "Ping received", traceId })
         }
 
         try {
-            payload = await request.json()
+            payload = JSON.parse(bodyText)
         } catch (jsonError) {
             log("warn", "Webhook.DataKazina", "Failed to parse JSON body", { traceId })
             // Return 200 for empty or invalid JSON pings
