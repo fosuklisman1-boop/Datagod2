@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
             size_gb: volume_gb,
           }
           const mtnResult = await createMTNOrder(mtnRequest)
-          if (orderId) {
+          if (orderId && mtnResult.order_id) {
             await saveMTNTracking(String(orderId), mtnResult.order_id, mtnRequest, mtnResult, "api", mtnResult.provider || "sykes")
             if (mtnResult.success) {
               await supabase.from("api_orders").update({ status: "processing" }).eq("id", orderId)
