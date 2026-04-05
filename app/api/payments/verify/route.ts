@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
     const paidAmount = verificationResult.amount
     const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
 
-    if (verificationResult.status === "success" && Math.abs(paidAmount - expectedAmount) > tolerance) {
-      console.error(`[PAYMENT-VERIFY] ❌ PAYMENT AMOUNT MISMATCH! Paid: ${paidAmount}, Expected: ${expectedAmount}, Reference: ${reference}`)
+    if (verificationResult.status === "success" && (paidAmount + tolerance) < expectedAmount) {
+      console.error(`[PAYMENT-VERIFY] ❌ UNDERPAYMENT! Paid: ${paidAmount}, Expected: ${expectedAmount}, Reference: ${reference}`)
 
       // Update payment as failed due to amount mismatch
       await supabase
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
         .update({
           status: "failed",
           amount_received: paidAmount,
-          failure_reason: `Amount mismatch: paid ${paidAmount}, expected ${expectedAmount}`,
+          failure_reason: `Underpayment: paid ${paidAmount}, expected ${expectedAmount}`,
           updated_at: new Date().toISOString(),
         })
         .eq("id", paymentData.id)

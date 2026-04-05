@@ -128,6 +128,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Underpayment" }, { status: 400 })
       }
 
+      // Overpayments are accepted and flow as normal orders
+
       // Update payment status
       await supabase
         .from("wallet_payments")
