@@ -7,6 +7,27 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+const ALLOWED_ORIGINS = [
+  "https://www.datagod.store",
+  "https://datagod.store",
+  ...(process.env.NODE_ENV === "development" ? ["http://localhost:3000"] : []),
+]
+
+function getCorsHeaders(origin: string | null) {
+  const allowed = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  return {
+    "Access-Control-Allow-Origin": allowed,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Credentials": "true",
+  }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get("origin")
+  return new NextResponse(null, { status: 204, headers: getCorsHeaders(origin) })
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -230,7 +251,7 @@ export async function POST(request: NextRequest) {
         }
       })
 
-    // Add Safari-compatible CORS headers
+    const corsHeaders = getCorsHeaders(request.headers.get("origin"))
     const response = NextResponse.json({
       success: true,
       authorizationUrl: paymentResult.authorizationUrl,
@@ -239,11 +260,7 @@ export async function POST(request: NextRequest) {
       paymentId: paymentData[0].id,
     })
 
-    // Safari-compatible headers
-    response.headers.set("Access-Control-Allow-Origin", request.headers.get("origin") || "*")
-    response.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS")
-    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-    response.headers.set("Access-Control-Allow-Credentials", "true")
+    Object.entries(corsHeaders).forEach(([k, v]) => response.headers.set(k, v))
     response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
     response.headers.set("Pragma", "no-cache")
     response.headers.set("Expires", "0")
