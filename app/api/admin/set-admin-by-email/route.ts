@@ -20,8 +20,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
     }
 
-    // Check if caller is admin
-    if (callerUser.user_metadata?.role !== "admin") {
+    // Check if caller is admin — DB is source of truth
+    const { data: callerData } = await supabaseClient.from("users").select("role").eq("id", callerUser.id).single()
+    if (callerData?.role !== "admin") {
       console.warn(`[SET-ADMIN-BY-EMAIL] Unauthorized attempt by user ${callerUser.id}. Not an admin.`)
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
