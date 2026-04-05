@@ -29,12 +29,12 @@ export async function POST(request: NextRequest) {
       .select("paystack_fee_percentage, wallet_topups_enabled, upgrades_enabled")
       .single()
 
-    // Fetch user role for admin bypass - only if userId is a valid-looking UUID
+    // Fetch user role for admin bypass - check users table (source of truth)
     let isAdmin = false
     if (userId && userId.length > 20) {
       try {
-        const { data: authResult } = await supabase.auth.admin.getUserById(userId)
-        isAdmin = authResult?.user?.user_metadata?.role === 'admin'
+        const { data: userData } = await supabase.from("users").select("role").eq("id", userId).single()
+        isAdmin = userData?.role === 'admin'
       } catch (err) {
         console.warn(`[PAYMENT-INIT] Could not verify user status for ${userId}:`, err)
         // Default to non-admin on any auth error
@@ -124,9 +124,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Use finalAmount for all subsequent calculations
-    const processingAmount = finalAmount
-    const amountToUse = processingAmount; // Alias to minimize diff changes below if 'amount' var is reused elsewhere, but we should replace 'amount' usages with 'finalAmount'
 
 
     // Generate unique reference
