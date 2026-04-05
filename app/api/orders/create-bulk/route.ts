@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
     const blacklistedPhones = new Set(
       blacklistChecks.filter(check => check.isBlacklisted).map(check => check.phone_number)
     )
-    console.log(`[BULK-ORDERS] Found ${blacklistedPhones.size} blacklisted phone(s)`, Array.from(blacklistedPhones))
+    console.log(`[BULK-ORDERS] Found ${blacklistedPhones.size} blacklisted phone(s)`)
 
     // Build verified order records
     const ordersToInsert = orders.map((order: BulkOrderData) => {

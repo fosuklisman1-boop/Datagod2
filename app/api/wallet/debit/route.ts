@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     const currentBalance = wallet.balance || 0
-    console.log("[WALLET-DEBIT] Current balance:", currentBalance)
+    console.log("[WALLET-DEBIT] Wallet fetched")
 
     if (currentBalance < amount) {
       console.warn("[WALLET-DEBIT] Insufficient balance")
@@ -568,7 +568,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log("[WALLET-DEBIT] ✓ Success - New balance:", newBalance)
+    console.log("[WALLET-DEBIT] ✓ Success")
 
     return NextResponse.json({
       success: true,

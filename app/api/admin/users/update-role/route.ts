@@ -20,9 +20,13 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
-        // Verify requesting user is an admin
+        // Verify requesting user is an admin (dual check: metadata + DB)
         const adminRole = user.user_metadata?.role
         if (adminRole !== "admin") {
+            return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+        }
+        const { data: dbUser } = await supabase.from("users").select("role").eq("id", user.id).single()
+        if (dbUser?.role !== "admin") {
             return NextResponse.json({ error: "Admin access required" }, { status: 403 })
         }
 

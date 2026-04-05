@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
     const totalCredited = walletData.total_credited || 0
     const totalDebited = walletData.total_spent || 0
 
-    console.log("[WALLET-BALANCE] User:", userId, "Balance:", balance, "Credited:", totalCredited, "Spent:", totalDebited)
+    console.log("[WALLET-BALANCE] Fetched wallet for user:", userId)
 
     return NextResponse.json({
       balance,

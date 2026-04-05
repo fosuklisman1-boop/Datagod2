@@ -12,12 +12,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { amount, email, userId, shopId, orderId, shopSlug, type, planId, orderType } = body
 
-    console.log("[PAYMENT-INIT] Request received:")
-    console.log("  User:", userId)
-    console.log("  Email:", email)
-    console.log("  Amount:", amount)
-    console.log("  Shop ID:", shopId)
-    console.log("  Order ID:", orderId)
+    console.log("[PAYMENT-INIT] Request received:", { userId, amount, orderType })
 
     // Validate input
     if (!email) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -8,12 +9,14 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 /**
  * Find completed shop orders that are missing profit records
  * These are orders that were manually marked as completed but never had profits credited
- * 
+ *
  * GET: Preview orders missing profits
  * POST: Create missing profit records
  */
 
 export async function GET(request: NextRequest) {
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) return errorResponse
     try {
         const { searchParams } = new URL(request.url)
         const dateFrom = searchParams.get("dateFrom") // e.g., "2026-01-29T19:00:00"
@@ -122,6 +125,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) return errorResponse
+
     try {
         const body = await request.json()
         const { orderId, fixAll, dateFrom, dateTo } = body

@@ -41,22 +41,14 @@ export async function verifyAdminAccess(request: NextRequest): Promise<{
     }
   }
 
-  // Check if user is admin - first check user_metadata, then users table
-  // This matches the frontend useIsAdmin hook behavior
-  const isAdminFromMetadata = user.user?.user_metadata?.role === "admin"
+  // Check if user is admin — DB is the source of truth
+  const { data: userData, error: userError2 } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", user.user.id)
+    .single()
 
-  let isAdmin = isAdminFromMetadata
-
-  if (!isAdmin) {
-    // Fall back to users table check
-    const { data: userData, error: userError2 } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.user.id)
-      .single()
-
-    isAdmin = !userError2 && userData?.role === "admin"
-  }
+  const isAdmin = !userError2 && userData?.role === "admin"
 
   if (!isAdmin) {
     return {

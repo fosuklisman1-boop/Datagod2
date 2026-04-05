@@ -1,104 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
-import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS, notifyPaymentMismatch, SMSTemplates } from "@/lib/sms-service"
-import { atishareService } from "@/lib/at-ishare-service"
-import { customerTrackingService } from "@/lib/customer-tracking-service"
-import { isPhoneBlacklisted } from "@/lib/blacklist"
-import {
-  isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
-  createMTNOrder,
-  saveMTNTracking,
-  normalizePhoneNumber,
-} from "@/lib/mtn-fulfillment"
+import { sendSMS } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-/**
- * Fetch all records with pagination (to avoid 1000 row Supabase limit)
- */
-async function fetchAllProfits(shopId: string): Promise<any[]> {
-  let allProfits: any[] = []
-  let offset = 0
-  const batchSize = 1000
-  let hasMore = true
-
-  while (hasMore) {
-    const { data, error } = await supabase
-      .from("shop_profits")
-      .select("profit_amount, status")
-      .eq("shop_id", shopId)
-      .range(offset, offset + batchSize - 1)
-
-    if (error) break
-
-    if (data && data.length > 0) {
-      allProfits = allProfits.concat(data)
-      offset += batchSize
-      hasMore = data.length === batchSize
-    } else {
-      hasMore = false
-    }
-  }
-
-  return allProfits
-}
-
-async function fetchAllWithdrawals(shopId: string): Promise<any[]> {
-  let allWithdrawals: any[] = []
-  let offset = 0
-  const batchSize = 1000
-  let hasMore = true
-
-  while (hasMore) {
-    const { data, error } = await supabase
-      .from("withdrawal_requests")
-      .select("amount")
-      .eq("shop_id", shopId)
-      .eq("status", "approved")
-      .range(offset, offset + batchSize - 1)
-
-    if (error) break
-
-    if (data && data.length > 0) {
-      allWithdrawals = allWithdrawals.concat(data)
-      offset += batchSize
-      hasMore = data.length === batchSize
-    } else {
-      hasMore = false
-    }
-  }
-
-  return allWithdrawals
-}
-
-/**
- * Check if auto-fulfillment is enabled in admin settings
- */
-async function isAutoFulfillmentEnabled(): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from("admin_settings")
-      .select("value")
-      .eq("key", "auto_fulfillment_enabled")
-      .single()
-
-    if (error || !data) {
-      // Default to enabled if setting doesn't exist
-      return true
-    }
-
-    return data.value?.enabled ?? true
-  } catch (error) {
-    console.warn("[WEBHOOK] Error checking auto-fulfillment setting:", error)
-    // Default to enabled on error
-    return true
-  }
-}
 
 /**
  * Webhook endpoint for Paystack payment notifications
@@ -132,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     // Handle charge.success event
     if (event.event === "charge.success") {
-      let { reference, customer, amount, status, metadata } = event.data
+      let { reference, amount, status, metadata } = event.data
 
       // Paystack metadata can sometimes be sent as a string
       if (typeof metadata === "string" && metadata.length > 0) {
@@ -145,7 +54,6 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`Processing payment: ${reference}`, {
-        email: customer?.email,
         amount: amount / 100,
         status,
         hasMetadata: !!metadata
@@ -168,18 +76,10 @@ export async function POST(request: NextRequest) {
 
       const isDealerUpgrade = (metadata?.type === "dealer_upgrade") || (paymentData.order_type === "dealer_upgrade")
       const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
-      const isShopOrderPayment = !!(paymentData.order_id && paymentData.shop_id)
-
       // CRITICAL SECURITY CHECK: Re-verify price
       const paidAmountPesewas = Math.round(amount)
       let expectedAmountGHS = Number(paymentData.amount)
       const feeAmount = Number(paymentData.fee || 0)
-
-      let priceDebugInfo: any = {
-        source: "wallet_payments_amount",
-        db_total_amount_ghs: expectedAmountGHS,
-        fee_amount: feeAmount
-      }
 
       if (paymentData.order_id) {
         let verifiedTotalPrice = 0
@@ -193,7 +93,6 @@ export async function POST(request: NextRequest) {
 
           if (plan) {
             verifiedTotalPrice = Number(plan.price)
-            priceDebugInfo = { source: "subscription_plans", verifiedTotalPrice }
           }
         } else if (isAirtime) {
           const { data: airtimeOrder } = await supabase
@@ -204,7 +103,6 @@ export async function POST(request: NextRequest) {
 
           if (airtimeOrder) {
             verifiedTotalPrice = Number(airtimeOrder.total_paid)
-            priceDebugInfo = { source: "airtime_orders", verifiedTotalPrice }
           }
         } else {
           const { data: shopOrder } = await supabase
@@ -215,7 +113,6 @@ export async function POST(request: NextRequest) {
 
           if (shopOrder) {
             verifiedTotalPrice = Number(shopOrder.total_price)
-            priceDebugInfo = { source: "shop_orders", verifiedTotalPrice }
           }
         }
 

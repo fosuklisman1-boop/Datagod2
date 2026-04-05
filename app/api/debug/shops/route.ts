@@ -1,14 +1,17 @@
 import { createClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { verifyAdminAccess } from '@/lib/admin-auth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
-    // Get all shops
     const { data: shops, error: shopsError } = await supabase
       .from('user_shops')
       .select('id, shop_name, shop_slug')

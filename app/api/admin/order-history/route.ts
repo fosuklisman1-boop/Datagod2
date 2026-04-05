@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     try {
         console.log('[ORDER-HISTORY] API called')
         console.log('[ORDER-HISTORY] Supabase URL:', supabaseUrl ? 'Set' : 'NOT SET')
-        console.log('[ORDER-HISTORY] Service key:', serviceRoleKey ? `Set (${serviceRoleKey.length} chars)` : 'NOT SET')
+        console.log('[ORDER-HISTORY] Service key:', serviceRoleKey ? 'Set' : 'NOT SET')
 
         const { isAdmin, errorResponse } = await verifyAdminAccess(request)
         console.log('[ORDER-HISTORY] Admin check result:', isAdmin)

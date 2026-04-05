@@ -8,6 +8,18 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { userId } = await request.json()
 
     if (!userId) {
@@ -15,6 +27,10 @@ export async function POST(request: NextRequest) {
         { error: "User ID is required" },
         { status: 400 }
       )
+    }
+
+    if (userId !== user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     // Update user's onboarding status

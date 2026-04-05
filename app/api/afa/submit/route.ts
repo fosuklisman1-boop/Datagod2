@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     // Parse request body
     const body = await request.json()
     const { fullName, phoneNumber, ghCardNumber, location, region, occupation, amount, userId } = body
-    console.log("[AFA-SUBMIT] Body parsed:", { fullName, phoneNumber, ghCardNumber, location, region, occupation, amount, userId })
+    console.log("[AFA-SUBMIT] Body parsed:", { region, amount, userId })
 
     // Validate inputs
     if (!fullName || !phoneNumber || !ghCardNumber || !location || !region || !amount || !userId) {
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
-    console.log("[AFA-SUBMIT] Wallet deducted:", { balanceBefore, newBalance })
+    console.log("[AFA-SUBMIT] Wallet deducted successfully")
 
     // Generate order code and transaction code
     const orderCode = `AFA-${Date.now().toString().slice(-7)}`

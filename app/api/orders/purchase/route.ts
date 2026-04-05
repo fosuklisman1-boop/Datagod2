@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
       userEmail = userData?.email || undefined
     }
 
-    console.log(`[PURCHASE] User ID: ${userId}, Email: ${userEmail || "NOT FOUND"}`)
+    console.log(`[PURCHASE] User ID: ${userId}`)
 
     // Get user's wallet
     const { data: walletData, error: walletError } = await supabaseAdmin
@@ -336,7 +336,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        console.log(`[FULFILLMENT] Order details - Network: ${network}, Size: ${sizeGb}GB, Phone: ${phoneNumber}, OrderID: ${order[0].id}`)
+        console.log(`[FULFILLMENT] Order details - Network: ${network}, Size: ${sizeGb}GB, OrderID: ${order[0].id}`)
 
         // Determine API network and endpoint based on order network
         const networkLower = normalizedNetwork.toLowerCase()
