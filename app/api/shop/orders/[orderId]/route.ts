@@ -10,18 +10,23 @@ export async function GET(
   { params }: { params: Promise<{ orderId: string }> }
 ) {
   try {
-    const { orderId } = await params
-
-    if (!orderId) {
-      return NextResponse.json(
-        { error: "Order ID is required" },
-        { status: 400 }
-      )
+    // Verify authenticated user
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    console.log(`[SHOP-ORDER-GET] Fetching order details for ID: ${orderId}`)
+    const { orderId } = await params
+    if (!orderId) {
+      return NextResponse.json({ error: "Order ID is required" }, { status: 400 })
+    }
 
-    // Fetch the order using service role to bypass RLS
+    // Fetch order
     const { data: order, error } = await supabase
       .from("shop_orders")
       .select("*")
@@ -29,52 +34,38 @@ export async function GET(
       .single()
 
     if (error) {
-      console.error("[SHOP-ORDER-GET] Database error:", error)
       if (error.code === "PGRST116") {
-        return NextResponse.json(
-          { error: "Order not found" },
-          { status: 404 }
-        )
+        return NextResponse.json({ error: "Order not found" }, { status: 404 })
       }
       throw new Error(`Failed to fetch order: ${error.message}`)
     }
 
-    console.log(`[SHOP-ORDER-GET] ✓ Order found: ${order.reference_code}`)
+    // Verify the authenticated user owns the shop this order belongs to
+    const { data: shop } = await supabase
+      .from("user_shops")
+      .select("user_id")
+      .eq("id", order.shop_id)
+      .single()
 
-    // Fetch shop owner's contact info
-    let shopOwner: { email?: string; phone?: string } = {}
-    try {
-      const { data: shopData } = await supabase
-        .from("user_shops")
-        .select("user_id")
-        .eq("id", order.shop_id)
-        .single()
-
-      if (shopData) {
-        // Get owner's phone from users table
-        const { data: userData } = await supabase
-          .from("users")
-          .select("phone_number")
-          .eq("id", shopData.user_id)
-          .single()
-
-        // Get owner's email from Supabase auth
-        const { data: authData } = await supabase.auth.admin.getUserById(shopData.user_id)
-
-        shopOwner = {
-          email: authData?.user?.email || undefined,
-          phone: userData?.phone_number || undefined,
-        }
-      }
-    } catch (ownerError) {
-      console.warn("[SHOP-ORDER-GET] Could not fetch shop owner info:", ownerError)
+    if (!shop || shop.user_id !== user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    return NextResponse.json({
-      success: true,
-      order,
-      shopOwner,
-    })
+    // Fetch shop owner contact info (same user, safe to return)
+    const { data: userData } = await supabase
+      .from("users")
+      .select("phone_number")
+      .eq("id", user.id)
+      .single()
+
+    const { data: authData } = await supabase.auth.admin.getUserById(user.id)
+
+    const shopOwner = {
+      email: authData?.user?.email || undefined,
+      phone: userData?.phone_number || undefined,
+    }
+
+    return NextResponse.json({ success: true, order, shopOwner })
   } catch (error) {
     console.error("[SHOP-ORDER-GET] ✗ Error:", error)
     return NextResponse.json(

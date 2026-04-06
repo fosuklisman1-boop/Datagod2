@@ -14,10 +14,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = authHeader.slice(7)
-    if (!userId) {
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    const userId = user.id
 
     console.log(`[CUSTOMER-LIST] Looking for shop with user_id: ${userId}`)
 

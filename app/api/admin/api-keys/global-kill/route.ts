@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,15 +12,15 @@ const supabase = createClient(
  * Admin: Instantly disable all API keys globally.
  */
 export async function POST(request: NextRequest) {
-  // In a real production setup, we'd verify admin session here.
-  // The service role is used for db access.
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
 
   console.log("[ADMIN API KEYS] Triggered GLOBAL KILL switch")
 
   const { error } = await supabase
     .from("user_api_keys")
     .update({ is_active: false, updated_at: new Date().toISOString() })
-    .neq("is_active", false) // only update active ones
+    .neq("is_active", false)
 
   if (error) {
     console.error("[ADMIN API KEYS] Global kill error:", error)

@@ -8,14 +8,25 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authenticated user — derive userId from token, not request body
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const userId = user.id
+
     const formData = await request.formData()
-    
+
     const orderId = formData.get("orderId") as string
     const orderType = formData.get("orderType") as string || "regular" // "regular" or "shop"
     const description = formData.get("description") as string
     const priority = formData.get("priority") as string
     const orderDetailsStr = formData.get("orderDetails") as string
-    const userId = formData.get("userId") as string
     const balanceImage = formData.get("balanceImage") as File
     const momoReceiptImage = formData.get("momoReceiptImage") as File | null
 

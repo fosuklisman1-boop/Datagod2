@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
-// Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authenticated user
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { phone, shopId } = await request.json()
 
     if (!phone || !shopId) {
@@ -17,9 +27,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`[SHOP-ORDER-SEARCH] Searching for orders - phone: ${phone}, shop: ${shopId}`)
+    // Verify the authenticated user owns this shop
+    const { data: shop } = await supabase
+      .from("user_shops")
+      .select("id")
+      .eq("id", shopId)
+      .eq("user_id", user.id)
+      .single()
 
-    // Search for shop orders (data)
+    if (!shop) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     const { data: dataOrders } = await supabase
       .from("shop_orders")
       .select("*")
@@ -27,7 +46,6 @@ export async function POST(request: NextRequest) {
       .eq("customer_phone", phone.trim())
       .order("created_at", { ascending: false })
 
-    // Search for airtime orders
     const { data: airtimeOrders } = await supabase
       .from("airtime_orders")
       .select("*")
@@ -35,11 +53,10 @@ export async function POST(request: NextRequest) {
       .eq("beneficiary_phone", phone.trim())
       .order("created_at", { ascending: false })
 
-    // Combine and format
     const combinedOrders = [
       ...(dataOrders || []).map(o => ({ ...o, type: 'data' })),
-      ...(airtimeOrders || []).map(o => ({ 
-        ...o, 
+      ...(airtimeOrders || []).map(o => ({
+        ...o,
         type: 'airtime',
         volume_gb: o.airtime_amount,
         customer_phone: o.beneficiary_phone,
@@ -53,19 +70,9 @@ export async function POST(request: NextRequest) {
       }))
     ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-    return NextResponse.json({
-      success: true,
-      orders: combinedOrders,
-      count: combinedOrders.length
-    })
+    return NextResponse.json({ success: true, orders: combinedOrders, count: combinedOrders.length })
   } catch (error) {
     console.error("[SHOP-ORDER-SEARCH] Error searching orders:", error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        success: false
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error", success: false }, { status: 500 })
   }
 }

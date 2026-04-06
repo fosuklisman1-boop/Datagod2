@@ -1,23 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-function isAdminRequest(request: NextRequest): boolean {
-  // Admin routes are protected by existing session/cookie auth
-  // The service role client is used, so we verify via the token
-  const authHeader = request.headers.get("Authorization")
-  return !!authHeader
-}
-
 /**
  * GET /api/admin/api-keys
  * Admin: List all API keys across all users
  */
 export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   const { searchParams } = new URL(request.url)
   const userId = searchParams.get("userId")
 
@@ -55,9 +52,8 @@ export async function GET(request: NextRequest) {
 
   console.log(`[ADMIN API KEYS] Found ${keys.length} keys. Enriching with user data...`)
 
-  // Step 2: Fetch user details for these keys to avoid join issues
   const userIds = Array.from(new Set(keys.map(k => k.user_id).filter(Boolean)))
-  
+
   if (userIds.length === 0) {
     return NextResponse.json({ keys: keys.map(k => ({ ...k, user: null })) })
   }
@@ -89,6 +85,9 @@ export async function GET(request: NextRequest) {
  * Admin: Enable or disable a specific API key
  */
 export async function PATCH(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   const { searchParams } = new URL(request.url)
   const keyId = searchParams.get("id")
 
@@ -123,6 +122,9 @@ export async function PATCH(request: NextRequest) {
  * Admin: Permanently delete an API key
  */
 export async function DELETE(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   const { searchParams } = new URL(request.url)
   const keyId = searchParams.get("id")
 
