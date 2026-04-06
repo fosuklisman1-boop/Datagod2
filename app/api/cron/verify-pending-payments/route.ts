@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyCronAuth } from "@/lib/cron-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -117,6 +118,9 @@ async function triggerFulfillment(order: {
  * Runs every 2 minutes to check payments pending for more than 10 minutes.
  */
 export async function GET(request: NextRequest) {
+  const { authorized, errorResponse } = verifyCronAuth(request)
+  if (!authorized) return errorResponse
+
   try {
     console.log("[VERIFY-PAYMENT] Starting pending payment verification...")
 

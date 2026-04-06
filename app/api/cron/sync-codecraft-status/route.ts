@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { atishareService } from "@/lib/at-ishare-service"
-
-// Cron secret to prevent unauthorized access
-const CRON_SECRET = process.env.CRON_SECRET
+import { verifyCronAuth } from "@/lib/cron-auth"
 
 /**
  * GET /api/cron/sync-codecraft-status
@@ -13,18 +11,11 @@ const CRON_SECRET = process.env.CRON_SECRET
  * This handles AT-iShare, Telecel, and AT-BigTime orders fulfilled via CodeCraft API.
  */
 export async function GET(request: NextRequest) {
+  const { authorized, errorResponse } = verifyCronAuth(request)
+  if (!authorized) return errorResponse
+
   try {
     console.log("[CRON-CODECRAFT] Starting CodeCraft status sync...")
-
-    // Verify cron secret if configured (optional security layer)
-    const authHeader = request.headers.get("authorization")
-    if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
-      // For Vercel cron, we can skip this check as Vercel handles auth
-      // But we'll log a warning if the header is present but wrong
-      if (authHeader) {
-        console.warn("[CRON-CODECRAFT] Invalid authorization header")
-      }
-    }
 
     // Call the checkScheduledOrders method which:
     // 1. Finds orders in fulfillment_logs with status="processing" and retry_after <= now

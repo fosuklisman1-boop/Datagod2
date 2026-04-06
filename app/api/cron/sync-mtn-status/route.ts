@@ -13,8 +13,7 @@ const MTN_API_KEY = process.env.MTN_API_KEY || ""
 const DATAKAZINA_API_URL = process.env.DATAKAZINA_API_URL || "https://reseller.dakazinabusinessconsult.com/api/v1"
 const DATAKAZINA_API_KEY = process.env.DATAKAZINA_API_KEY || ""
 
-// Cron secret to prevent unauthorized access
-const CRON_SECRET = process.env.CRON_SECRET
+import { verifyCronAuth } from "@/lib/cron-auth"
 
 /**
  * Fetch ALL orders from Sykes API in a single call
@@ -161,18 +160,11 @@ async function isMTNAutoFulfillmentEnabled(): Promise<boolean> {
  * Only runs when MTN auto-fulfillment is enabled.
  */
 export async function GET(request: NextRequest) {
+  const { authorized, errorResponse } = verifyCronAuth(request)
+  if (!authorized) return errorResponse
+
   try {
     console.log("[CRON] Starting MTN status sync...")
-
-    // Check CRON_SECRET if configured to prevent unauthorized manual triggers
-    const authHeader = request.headers.get("authorization")
-    const searchParams = request.nextUrl.searchParams
-    const secret = searchParams.get("secret") || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null)
-
-    if (CRON_SECRET && secret !== CRON_SECRET) {
-      console.warn("[CRON] Unauthorized sync attempt blocked")
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
 
     // Step 1: Fetch orders from Sykes provider API
     // DataKazina sync is removed to reduce rate limits as requested

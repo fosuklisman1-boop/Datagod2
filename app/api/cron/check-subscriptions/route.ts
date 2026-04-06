@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyCronAuth } from "@/lib/cron-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function GET(request: NextRequest) {
+    const { authorized, errorResponse } = verifyCronAuth(request)
+    if (!authorized) return errorResponse
+
     try {
         console.log("[CRON] Checking for expired subscriptions...")
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { verifyCronAuth } from "@/lib/cron-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -13,6 +14,9 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
  * Sends reminders at: 1 day, 12 hours, 6 hours, and 1 hour before expiry
  */
 export async function GET(request: NextRequest) {
+    const { authorized, errorResponse } = verifyCronAuth(request)
+    if (!authorized) return errorResponse
+
     try {
         console.log("[CRON-SUBSCRIPTION] Starting subscription expiry check...")
 

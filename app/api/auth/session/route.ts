@@ -23,14 +23,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { 
-        data: { 
-          session: {
-            access_token: session.access_token,
-            user: session.user
-          }
-        }
-      },
+      { data: { session: { user: session.user } } },
       { status: 200 }
     )
   } catch (error: any) {

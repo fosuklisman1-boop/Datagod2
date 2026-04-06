@@ -58,6 +58,25 @@ export async function POST(request: NextRequest) {
 
     const orderDetails = JSON.parse(orderDetailsStr)
 
+    // Validate uploaded files
+    const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"]
+    const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+
+    if (!ALLOWED_MIME_TYPES.includes(balanceImage.type)) {
+      return NextResponse.json({ message: "Invalid file type. Only JPEG, PNG, and WebP are allowed." }, { status: 400 })
+    }
+    if (balanceImage.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ message: "Balance image exceeds 5MB limit." }, { status: 400 })
+    }
+    if (momoReceiptImage) {
+      if (!ALLOWED_MIME_TYPES.includes(momoReceiptImage.type)) {
+        return NextResponse.json({ message: "Invalid file type. Only JPEG, PNG, and WebP are allowed." }, { status: 400 })
+      }
+      if (momoReceiptImage.size > MAX_FILE_SIZE) {
+        return NextResponse.json({ message: "Receipt image exceeds 5MB limit." }, { status: 400 })
+      }
+    }
+
     // Upload balance image
     const balanceFileName = `${userId}/${orderId}/balance-${Date.now()}.${balanceImage.name.split(".").pop()}`
     const balanceBuffer = await balanceImage.arrayBuffer()
@@ -67,7 +86,7 @@ export async function POST(request: NextRequest) {
     const { error: balanceUploadError } = await supabase.storage
       .from("complaint-evidence")
       .upload(balanceFileName, balanceBuffer, {
-        contentType: balanceImage.type,
+        contentType: ALLOWED_MIME_TYPES.includes(balanceImage.type) ? balanceImage.type : "application/octet-stream",
         upsert: false,
       })
 
@@ -92,7 +111,7 @@ export async function POST(request: NextRequest) {
       const { error: momoUploadError } = await supabase.storage
         .from("complaint-evidence")
         .upload(momoFileName, momoBuffer, {
-          contentType: momoReceiptImage.type,
+          contentType: ALLOWED_MIME_TYPES.includes(momoReceiptImage.type) ? momoReceiptImage.type : "application/octet-stream",
           upsert: false,
         })
 
