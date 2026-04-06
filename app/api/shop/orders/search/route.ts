@@ -5,19 +5,26 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-export async function POST(request: NextRequest) {
-  try {
-    // Verify authenticated user
-    const authHeader = request.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const token = authHeader.slice(7)
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+import { applyRateLimit } from "@/lib/rate-limiter"
+import { RATE_LIMITS } from "@/lib/rate-limit-config"
 
+export async function POST(request: NextRequest) {
+  // Apply search rate limiting (e.g. 30/min max)
+  const rateLimit = await applyRateLimit(
+    request,
+    'search_orders',
+    RATE_LIMITS.SEARCH.maxRequests,
+    RATE_LIMITS.SEARCH.windowMs
+  )
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: RATE_LIMITS.SEARCH.message },
+      { status: 429 }
+    )
+  }
+
+  try {
     const { phone, shopId } = await request.json()
 
     if (!phone || !shopId) {
@@ -27,16 +34,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify the authenticated user owns this shop
+    // Verify the shop exists, no user_id enforcement needed for public search
     const { data: shop } = await supabase
       .from("user_shops")
       .select("id")
       .eq("id", shopId)
-      .eq("user_id", user.id)
       .single()
 
     if (!shop) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      return NextResponse.json({ error: "Invalid shop ID" }, { status: 404 })
     }
 
     const { data: dataOrders } = await supabase

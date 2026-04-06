@@ -103,6 +103,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // TARGET-LEVEL RATE LIMITING: Prevent SMS/Email bombing
+    // Count requests for this exact user in the last hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const { count, error: countError } = await supabaseServiceRole
+      .from("password_reset_requests")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("created_at", oneHourAgo)
+
+    if (!countError && count !== null && count >= 3) {
+      // Target hit rate limit. Silently drop to confuse attackers and save SMS bounds.
+      console.warn(`[FORGOT-PASSWORD] Target rate limit exceeded for user: ${user.id}`)
+      await new Promise(resolve => setTimeout(resolve, 500))
+      return NextResponse.json(
+        { 
+          success: true, 
+          message: "If an account matches that contact information, a password reset link has been sent.",
+          methods: { email: contact.includes('@'), sms: !contact.includes('@') }
+        },
+        { status: 200 }
+      )
+    }
+
     // Insert reset token (expires in 5 minutes)
     const expiresAt = new Date()
     expiresAt.setMinutes(expiresAt.getMinutes() + 5)
