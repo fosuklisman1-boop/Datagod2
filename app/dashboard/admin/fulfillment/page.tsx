@@ -118,14 +118,14 @@ export default function AdminFulfillmentPage() {
     }
   }
 
-  const handleDelete = async (logId: string) => {
-    if (!confirm("Are you sure you want to delete this log? It won't be retried again.")) return;
+  const handleBulkDeleteFailed = async () => {
+    if (!confirm("Are you sure you want to permanently delete ALL failed fulfillment logs? This action cannot be undone.")) return;
 
     try {
-      setDeleting(logId)
+      setDeleting("bulk")
       const { data: { session } } = await supabase.auth.getSession()
       
-      const response = await fetch(`/api/admin/fulfillment/logs?id=${logId}`, {
+      const response = await fetch(`/api/admin/fulfillment/logs?bulk=failed`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${session?.access_token}`,
@@ -135,10 +135,10 @@ export default function AdminFulfillmentPage() {
       const data = await response.json()
 
       if (data.success) {
-        toast.success("Log deleted successfully")
+        toast.success("Failed logs cleared successfully")
         loadFulfillments()
       } else {
-        toast.error(data.error || "Failed to delete log")
+        toast.error(data.error || "Failed to clear logs")
       }
     } catch (error) {
       console.error("Error:", error)
@@ -319,6 +319,15 @@ export default function AdminFulfillmentPage() {
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </Button>
+              <Button 
+                onClick={handleBulkDeleteFailed} 
+                size="sm" 
+                variant="destructive"
+                disabled={deleting === "bulk"}
+              >
+                {deleting === "bulk" ? <Clock className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                Clear Failed Logs
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -392,22 +401,11 @@ export default function AdminFulfillmentPage() {
                                 <Button
                                   size="sm"
                                   onClick={() => handleRetry(fulfillment.order_id)}
-                                  disabled={retrying === fulfillment.order_id || deleting === fulfillment.id}
+                                  disabled={retrying === fulfillment.order_id || deleting === "bulk"}
                                 >
                                   {retrying === fulfillment.order_id ? "Retrying..." : "Retry"}
                                 </Button>
                               )}
-                            {fulfillment.status === "failed" && (
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleDelete(fulfillment.id)}
-                                disabled={deleting === fulfillment.id || retrying === fulfillment.order_id}
-                                title="Delete failed log"
-                              >
-                                {deleting === fulfillment.id ? <Clock className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                              </Button>
-                            )}
                           </div>
                         </td>
                       </tr>

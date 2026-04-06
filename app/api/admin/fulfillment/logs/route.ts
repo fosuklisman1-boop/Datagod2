@@ -89,10 +89,28 @@ export async function DELETE(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
+    const bulk = searchParams.get("bulk")
+
+    if (bulk === "failed") {
+      const { error } = await supabase
+        .from("fulfillment_logs")
+        .delete()
+        .eq("status", "failed")
+
+      if (error) {
+        console.error("[FULFILLMENT-LOGS] Error bulk deleting failed logs:", error)
+        return NextResponse.json(
+          { error: "Failed to bulk delete logs" },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({ success: true, message: "Bulk deleted successfully" })
+    }
 
     if (!id) {
       return NextResponse.json(
-        { error: "Log ID is required" },
+        { error: "Log ID or bulk param is required" },
         { status: 400 }
       )
     }
