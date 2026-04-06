@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
     let verifiedBasePrice: number
     let verifiedProfitMargin: number
     let verifiedTotalPrice: number
+    let verifiedSize: string = ""
 
     // Check if this is a sub-agent shop
     const { data: shopData, error: shopError } = await supabase
@@ -100,7 +101,7 @@ export async function POST(request: NextRequest) {
         // Fallback to sub_agent_catalog
         const { data: catalogEntry } = await supabase
           .from("sub_agent_catalog")
-          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(price, dealer_price)")
+          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(size, price, dealer_price)")
           .eq("id", shop_package_id)
           .single()
 
@@ -126,6 +127,8 @@ export async function POST(request: NextRequest) {
           const adminPrice = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
             ? pkg.dealer_price
             : (pkg?.price || 0)
+
+          verifiedSize = pkg?.size || ""
 
           const margin = catalogEntry.wholesale_margin ?? 0
           verifiedBasePrice = adminPrice + margin
@@ -160,7 +163,7 @@ export async function POST(request: NextRequest) {
 
       const { data: shopPkg, error: shopPkgError } = await supabase
         .from("shop_packages")
-        .select("profit_margin, packages(price, dealer_price)")
+        .select("profit_margin, packages(size, price, dealer_price)")
         .eq("id", shop_package_id)
         .single()
 
@@ -171,12 +174,16 @@ export async function POST(request: NextRequest) {
 
       const pkgPrice = (shopPkg.packages as any)?.price || 0
       const dealerPrice = (shopPkg.packages as any)?.dealer_price
+      verifiedSize = (shopPkg.packages as any)?.size || ""
 
       // If dealer, use dealer_price as base cost
       verifiedBasePrice = isDealer && dealerPrice && dealerPrice > 0 ? dealerPrice : pkgPrice
       verifiedProfitMargin = shopPkg.profit_margin || 0
       verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
     }
+
+    // Force server-side verified size to prevent injection/manipulation
+    const finalVolumeGb = verifiedSize ? parseInt(verifiedSize.toString().replace(/[^0-9]/g, "")) || volume_gb : volume_gb
 
     // Validate client-provided prices match server-verified prices
     const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
@@ -363,7 +370,7 @@ export async function POST(request: NextRequest) {
           shop_package_id: finalShopPackageId,
           package_id,
           network,
-          volume_gb,
+          volume_gb: finalVolumeGb,
           base_price: finalBasePrice,
           profit_amount: finalProfitAmount,
           total_price: finalTotalPrice,
