@@ -71,7 +71,7 @@ export const authService = {
 
   async logout() {
     try {
-      const { error } = await supabase.auth.signOut()
+      const { error } = await supabase.auth.signOut({ scope: "global" })
       if (error) throw error
     } catch (error) {
       console.error("Logout error:", error)

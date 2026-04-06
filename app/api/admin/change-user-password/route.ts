@@ -40,6 +40,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Invalidate all active sessions for the user after password change
+    await supabaseAdmin.auth.admin.signOut(userId)
+
     return NextResponse.json({ success: true, message: "Password updated successfully" })
   } catch (error: any) {
     console.error("Error changing user password:", error)
