@@ -11,6 +11,12 @@ export const RATE_LIMITS = {
         message: 'Too many signup attempts. Please try again later.',
     },
 
+    PASSWORD_RESET: {
+        maxRequests: 3,
+        windowMs: 60 * 60 * 1000, // 1 hour
+        message: 'Too many password reset requests. Please check your email or phone, or try again later.',
+    },
+
     // Public endpoints
     PUBLIC_PACKAGES: {
         maxRequests: 60,

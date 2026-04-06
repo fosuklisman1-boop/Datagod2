@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -122,6 +123,19 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[AFA-SUBMIT] AFA order created:", afaOrder.id)
+
+    // Send SMS confirmation to registrant's phone number
+    try {
+      await sendSMS({
+        phone: phoneNumber,
+        message: SMSTemplates.afaRegistration(fullName, orderCode, amount.toString()),
+        type: "afa_registration",
+      })
+      console.log("[AFA-SUBMIT] Confirmation SMS sent to:", phoneNumber)
+    } catch (smsError) {
+      console.warn("[AFA-SUBMIT] Failed to send confirmation SMS:", smsError)
+      // Non-blocking — don't fail the response
+    }
 
     // Create transaction record
     console.log("[AFA-SUBMIT] Creating transaction record")

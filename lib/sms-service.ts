@@ -40,34 +40,39 @@ interface SendSMSResponse {
 // SMS Templates
 export const SMSTemplates = {
   walletTopUpInitiated: (amount: string, ref: string) =>
-    `DATAGOD: Wallet top-up of GHS ${amount} initiated. Ref: ${ref}. Processing...`,
+    `DATAGOD: Your wallet top-up of GHS ${amount} has been initiated. Reference: ${ref}. We are processing your request.`,
 
   walletTopUpSuccess: (amount: string, balance: string) =>
-    `DATAGOD: ✓ Wallet topped up by GHS ${amount}. New balance: GHS ${balance}`,
+    `DATAGOD: Your wallet has been credited with GHS ${amount}. Available balance: GHS ${balance}. Thank you for topping up.`,
 
   walletTopUpFailed: (amount: string) =>
-    `DATAGOD: ✗ Wallet top-up failed. GHS ${amount}. Try again or contact support.`,
+    `DATAGOD: We were unable to process your wallet top-up of GHS ${amount}. Please try again or contact our support team for assistance.`,
 
   orderCreated: (orderId: string, network: string, volume: string, amount: string) =>
-    `DATAGOD: Order confirmed! ID: ${orderId} | ${network} ${volume}GB | GHS ${amount} | Status: Pending payment`,
+    `DATAGOD: Order Received. Your ${network} ${volume}GB data order (Ref: ${orderId}) for GHS ${amount} has been placed successfully. Awaiting payment confirmation.`,
 
-  orderPaymentConfirmed: (orderId: string, network: string, volume: string, amount: string) =>
-    `DATAGOD: ✓ Payment confirmed for order ${orderId}! ${network} ${volume}GB - GHS ${amount}. Processing...`,
+  // Wallet/dashboard order confirmation (no shop involved)
+  orderPaymentConfirmed: (network: string, volume: string, phone: string) =>
+    `You have successfully placed an order of ${network} ${volume}GB to ${phone}. If delayed over 2 hours, contact support.`,
 
-  orderDelivered: (orderId: string) =>
-    `DATAGOD: Order #${orderId} delivered. Thank you for shopping with us!`,
+  // Storefront order confirmation (includes shop name and owner contact)
+  shopOrderConfirmed: (shopName: string, network: string, volume: string, phone: string, ownerPhone: string) =>
+    `${shopName}: You have successfully placed an order of ${network} ${volume}GB to ${phone}. If delayed over 2 hours, contact shop owner: ${ownerPhone}`,
+
+  orderDelivered: (orderId: string, network: string, volume: string) =>
+    `DATAGOD: Order Delivered. Your ${network} ${volume}GB data bundle (Ref: ${orderId}) has been successfully delivered. Thank you for choosing DATAGOD.`,
 
   withdrawalApproved: (amount: string, ref: string) =>
-    `DATAGOD: Withdrawal approved! GHS ${amount} will be transferred. Ref: ${ref}`,
+    `DATAGOD: Withdrawal Approved. Your withdrawal request of GHS ${amount} has been approved and will be transferred to your account shortly. Reference: ${ref}.`,
 
   withdrawalRejected: (amount: string) =>
-    `DATAGOD: Withdrawal request GHS ${amount} rejected. Contact support.`,
+    `DATAGOD: Withdrawal Update. Your withdrawal request of GHS ${amount} could not be processed at this time. Please contact our support team for further assistance.`,
 
   verificationCode: (code: string) =>
-    `DATAGOD: Your verification code is ${code}. Valid for 10 minutes.`,
+    `DATAGOD: Your verification code is ${code}. This code is valid for 10 minutes. Do not share it with anyone.`,
 
   passwordReset: (link: string) =>
-    `DATAGOD: Click to reset password: ${link}. Valid for 1 hour. Don't share!`,
+    `DATAGOD: A password reset was requested for your account. Use this link to proceed: ${link}. Valid for 1 hour. If you did not request this, please ignore this message.`,
 
   // Admin notifications
   fulfillmentFailed: (orderId: string, phone: string, network: string, sizeGb: string, reason: string) =>
@@ -83,39 +88,47 @@ export const SMSTemplates = {
 
   // Admin credit/debit notifications to user
   adminCredited: (amount: string, balance: string) =>
-    `DATAGOD: ✓ Your wallet has been credited GHS ${amount} by admin. New balance: GHS ${balance}`,
+    `DATAGOD: Account Update. Your wallet has been credited with GHS ${amount} by the administrator. Available balance: GHS ${balance}.`,
 
   adminDebited: (amount: string, balance: string) =>
-    `DATAGOD: Your wallet has been debited GHS ${amount} by admin. New balance: GHS ${balance}`,
+    `DATAGOD: Account Update. Your wallet has been debited GHS ${amount} by the administrator. Available balance: GHS ${balance}. Contact support if you have any concerns.`,
 
   // Dealer subscription notifications
   subscriptionSuccess: (planName: string, endDate: string) =>
-    `DATAGOD: ✓ Subscription activated! Plan: ${planName}. Valid until ${endDate}. Enjoy dealer privileges!`,
+    `DATAGOD: Subscription Activated. Your ${planName} plan is now active and valid until ${endDate}. Your dealer privileges have been unlocked. Thank you for your commitment.`,
 
   subscriptionExpiry1Day: (planName: string, endDate: string) =>
-    `DATAGOD: Your ${planName} subscription expires in 1 day (${endDate}). Renew now to keep dealer access.`,
+    `DATAGOD: Subscription Reminder. Your ${planName} plan expires in 1 day on ${endDate}. Renew now to maintain uninterrupted dealer access.`,
 
   subscriptionExpiry12Hours: (planName: string, endDate: string) =>
-    `DATAGOD: ⚠️ Your ${planName} subscription expires in 12 hours (${endDate}). Renew to avoid interruption.`,
+    `DATAGOD: Subscription Alert. Your ${planName} plan expires in 12 hours on ${endDate}. Please renew promptly to avoid any interruption to your services.`,
 
   subscriptionExpiry6Hours: (planName: string, endDate: string) =>
-    `DATAGOD: ⚠️ URGENT: Your ${planName} subscription expires in 6 hours (${endDate}). Renew now!`,
+    `DATAGOD: Urgent - Subscription Expiring. Your ${planName} plan expires in 6 hours on ${endDate}. Immediate renewal is required to avoid loss of access.`,
 
   subscriptionExpiry1Hour: (planName: string, endDate: string) =>
-    `DATAGOD: 🚨 CRITICAL: Your ${planName} subscription expires in 1 hour (${endDate}). Renew immediately!`,
+    `DATAGOD: Final Notice. Your ${planName} plan expires in 1 hour on ${endDate}. Please renew immediately to avoid suspension of your dealer account.`,
 
   userSuspended: (reason?: string) =>
-    `DATAGOD: Your account has been suspended.${reason ? ` Reason: ${reason}` : ""} Contact support for inquiries.`,
+    `DATAGOD: Account Suspended. Your DATAGOD account has been suspended.${reason ? ` Reason: ${reason}.` : ""} Please contact our support team if you believe this is an error.`,
 
   userUnsuspended: () =>
-    `DATAGOD: ✓ Your account has been restored. You can now log in to your dashboard.`,
+    `DATAGOD: Account Restored. Your DATAGOD account has been reactivated. You may now log in to your dashboard and resume your activities.`,
 
   // Airtime specific notifications
   airtimeBeneficiaryNotification: (shopName: string, network: string, amount: string, phone: string, ref: string) =>
-    `${shopName}: You have successfully purchased ${network} GHS ${amount} airtime to ${phone}. Reference;${ref}`,
+    `${shopName}: Your airtime purchase has been processed. GHS ${amount} of ${network} airtime has been sent to ${phone}. Reference: ${ref}. Thank you for your order.`,
 
   adminAirtimeOrderNotification: (source: string, phone: string, amount: string, network: string) =>
-    `NEW AIRTIME ORDER:\nSource : ${source}\nReceiver : ${phone}\nAmount: GHS ${amount}\nNetwork: ${network}`,
+    `[NEW ORDER] Airtime\nSource: ${source}\nRecipient: ${phone}\nAmount: GHS ${amount}\nNetwork: ${network}`,
+
+  // AFA registration confirmation
+  afaRegistration: (fullName: string, orderCode: string, amount: string) =>
+    `DATAGOD: Your AFA registration for ${fullName} (Ref: ${orderCode}) has been received. Amount: GHS ${amount}. You will be contacted once the registration is processed.`,
+
+  // AFA registration completion
+  afaCompleted: (fullName: string, orderCode: string) =>
+    `DATAGOD: Good news! Your AFA registration for ${fullName} (Ref: ${orderCode}) has been completed successfully. Thank you for registering with us.`,
 }
 
 /**

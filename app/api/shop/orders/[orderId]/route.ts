@@ -10,23 +10,13 @@ export async function GET(
   { params }: { params: Promise<{ orderId: string }> }
 ) {
   try {
-    // Verify authenticated user
-    const authHeader = request.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const token = authHeader.slice(7)
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     const { orderId } = await params
     if (!orderId) {
       return NextResponse.json({ error: "Order ID is required" }, { status: 400 })
     }
 
-    // Fetch order
+    // Fetch order — public endpoint: the UUID order ID acts as a tamper-proof
+    // access key, so customers can view their own order after Paystack redirects them.
     const { data: order, error } = await supabase
       .from("shop_orders")
       .select("*")
@@ -40,29 +30,27 @@ export async function GET(
       throw new Error(`Failed to fetch order: ${error.message}`)
     }
 
-    // Verify the authenticated user owns the shop this order belongs to
+    // Fetch shop owner contact info so customer knows who to contact
     const { data: shop } = await supabase
       .from("user_shops")
       .select("user_id")
       .eq("id", order.shop_id)
       .single()
 
-    if (!shop || shop.user_id !== user.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
+    let shopOwner: { email?: string; phone?: string } = {}
+    if (shop?.user_id) {
+      const { data: userData } = await supabase
+        .from("users")
+        .select("phone_number")
+        .eq("id", shop.user_id)
+        .single()
 
-    // Fetch shop owner contact info (same user, safe to return)
-    const { data: userData } = await supabase
-      .from("users")
-      .select("phone_number")
-      .eq("id", user.id)
-      .single()
+      const { data: authData } = await supabase.auth.admin.getUserById(shop.user_id)
 
-    const { data: authData } = await supabase.auth.admin.getUserById(user.id)
-
-    const shopOwner = {
-      email: authData?.user?.email || undefined,
-      phone: userData?.phone_number || undefined,
+      shopOwner = {
+        email: authData?.user?.email || undefined,
+        phone: userData?.phone_number || undefined,
+      }
     }
 
     return NextResponse.json({ success: true, order, shopOwner })

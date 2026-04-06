@@ -138,16 +138,7 @@ export async function POST(request: NextRequest) {
  * Handle order completion notifications and profits
  */
 async function handleOrderCompleted(traceId: string, mtnOrderId: string, tracking: any) {
-    // Send success SMS
-    try {
-        await sendSMS({
-            phone: tracking.recipient_phone,
-            message: SMSTemplates.orderDelivered(mtnOrderId),
-            type: "order_delivered",
-        })
-    } catch (e) {
-        log("warn", "Webhook.DataKazina", "Failed to send success SMS", { traceId, error: String(e) })
-    }
+    // No customer SMS on delivery — email only
 
     // Send success Email
     try {
@@ -189,22 +180,24 @@ async function handleOrderCompleted(traceId: string, mtnOrderId: string, trackin
  * Handle order failure notifications
  */
 async function handleOrderFailed(traceId: string, mtnOrderId: string, message: string, tracking: any) {
-    // Send failure SMS
+    // Notify admins only of failure (not customer)
     try {
         const orderId = tracking.shop_order_id || tracking.order_id || mtnOrderId
-        await sendSMS({
-            phone: tracking.recipient_phone,
-            message: SMSTemplates.fulfillmentFailed(
+        const { notifyAdmins } = await import("@/lib/sms-service")
+        await notifyAdmins(
+            SMSTemplates.fulfillmentFailed(
                 String(orderId).substring(0, 8),
                 tracking.recipient_phone,
                 "MTN",
                 tracking.size_gb?.toString() || "Unknown",
                 message
             ),
-            type: "fulfillment_failed",
-        })
+            "fulfillment_failure",
+            String(orderId),
+            true // skip email fallback — handled separately
+        )
     } catch (e) {
-        log("warn", "Webhook.DataKazina", "Failed to send failure SMS", { traceId, error: String(e) })
+        log("warn", "Webhook.DataKazina", "Failed to notify admins of failure", { traceId, error: String(e) })
     }
 }
 

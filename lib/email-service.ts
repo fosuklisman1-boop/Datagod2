@@ -638,6 +638,23 @@ export const EmailTemplates = {
     `, "Account Status Update", true),
   }),
 
+  passwordReset: (resetLink: string) => ({
+    subject: "Reset Your Password",
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🔑</span>
+        <h2>Password Reset Request</h2>
+        <p>A request has been made to reset your password. This link will expire in 5 minutes.</p>
+      </div>
+      
+      <a href="${resetLink}" class="button-primary">Reset Password</a>
+      
+      <p style="margin-top: 20px; font-size: 13px; color: #6b7280; text-align: center;">
+        If you didn't request this, you can safely ignore this email.
+      </p>
+    `, "Reset Password", true),
+  }),
+
   userUnsuspended: (email: string) => ({
     subject: "Account Restored",
     html: wrapHtml(`

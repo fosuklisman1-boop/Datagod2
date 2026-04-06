@@ -161,11 +161,15 @@ export async function processManualFulfillment(
           await supabase.from(tableName).update({ [statusField]: "pending_download", updated_at: new Date().toISOString() }).eq("id", orderId)
 
           // Notifications on failure
-          sendSMS({
-            phone,
-            message: SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || "Codecraft", volumeGb.toString(), codecraftResponse.message || "Failed"),
-            type: "fulfillment_failed"
-          }).catch(e => console.error(`${logPrefix} SMS Error:`, e))
+          // Notify admins of failure (not customer)
+          import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+            notifyAdmins(
+              SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || "Codecraft", volumeGb.toString(), codecraftResponse.message || "Failed"),
+              "fulfillment_failure",
+              orderId,
+              true
+            ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
+          })
 
           return { success: false, message: codecraftResponse.message || "Codecraft API Error", orderId }
         }
@@ -215,11 +219,15 @@ export async function processManualFulfillment(
       }
 
       // Notifications on failure (simplified for background)
-      sendSMS({
-        phone,
-        message: SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, "MTN", volumeGb.toString(), mtnResponse.message || "Failed"),
-        type: "fulfillment_failed"
-      }).catch(e => console.error(`${logPrefix} SMS Error:`, e))
+      // Notify admins of failure (not customer)
+      import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+        notifyAdmins(
+          SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, "MTN", volumeGb.toString(), mtnResponse.message || "Failed"),
+          "fulfillment_failure",
+          orderId,
+          true
+        ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
+      })
 
       return { success: false, message: mtnResponse.message || "MTN API Error", orderId }
     }
@@ -252,7 +260,7 @@ export async function processManualFulfillment(
     // Notifications on success
     sendSMS({
       phone,
-      message: SMSTemplates.orderPaymentConfirmed(orderId.substring(0, 8), "MTN", Math.round(volumeGb).toString(), "0"),
+      message: SMSTemplates.orderPaymentConfirmed("MTN", Math.round(volumeGb).toString(), phone),
       type: "order_fulfilled"
     }).catch((e: any) => console.error(`${logPrefix} SMS Error:`, e))
 

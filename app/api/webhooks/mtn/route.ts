@@ -211,20 +211,7 @@ async function handleOrderCompleted(
     .single()
 
   if (tracking) {
-    // Send success SMS to customer
-    try {
-      const sizeMB = order.size_mb
-      const sizeDisplay = sizeMB >= 1000 ? `${(sizeMB / 1000).toFixed(1)}GB` : `${sizeMB}MB`
-
-      await sendSMS({
-        phone: tracking.recipient_phone,
-        message: SMSTemplates.orderDelivered(order.id.toString()),
-        type: "order_delivered",
-      })
-      log("info", "Webhook", "Sent success SMS", { traceId, phone: tracking.recipient_phone })
-    } catch (smsError) {
-      log("warn", "Webhook", "Failed to send success SMS", { traceId, error: String(smsError) })
-    }
+    // No customer SMS on delivery — email only
 
     // Send success Email
     try {
@@ -287,23 +274,25 @@ async function handleOrderFailed(
     .single()
 
   if (tracking) {
-    // Send failure SMS to customer
+    // Notify admins only of failure (not customer)
     try {
       const orderId = tracking.shop_order_id || tracking.order_id || order.id.toString()
-      await sendSMS({
-        phone: tracking.recipient_phone,
-        message: SMSTemplates.fulfillmentFailed(
+      const { notifyAdmins } = await import("@/lib/sms-service")
+      await notifyAdmins(
+        SMSTemplates.fulfillmentFailed(
           orderId.substring(0, 8),
           tracking.recipient_phone,
           order.network,
           (order.size_mb / 1000).toString(),
           order.message || "Order could not be processed"
         ),
-        type: "fulfillment_failed",
-      })
-      log("info", "Webhook", "Sent failure SMS", { traceId, phone: tracking.recipient_phone })
+        "fulfillment_failure",
+        orderId,
+        true // skip email fallback — email is handled separately
+      )
+      log("info", "Webhook", "Notified admins of failure", { traceId })
     } catch (smsError) {
-      log("warn", "Webhook", "Failed to send failure SMS", { traceId, error: String(smsError) })
+      log("warn", "Webhook", "Failed to notify admins of failure", { traceId, error: String(smsError) })
     }
 
     // Send failure Email

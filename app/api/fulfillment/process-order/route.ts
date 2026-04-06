@@ -281,21 +281,23 @@ async function handleMTNAutoFulfillment(
         console.error("[FULFILLMENT] Failed to save initial failure tracking:", trackError)
       }
 
-      // Send error SMS to customer
+      // Notify admins of failure (not customer)
       try {
-        await sendSMS({
-          phone: phoneNumber,
-          message: SMSTemplates.fulfillmentFailed(
+        const { notifyAdmins } = await import("@/lib/sms-service")
+        await notifyAdmins(
+          SMSTemplates.fulfillmentFailed(
             shopOrderId.substring(0, 8),
             phoneNumber,
             network,
             volumeGb.toString(),
             mtnResponse.message || "Order could not be processed"
           ),
-          type: "fulfillment_failed",
-        })
+          "fulfillment_failure",
+          shopOrderId,
+          true
+        )
       } catch (smsError) {
-        console.error("[FULFILLMENT] Failed to send error SMS:", smsError)
+        console.error("[FULFILLMENT] Failed to notify admins of failure:", smsError)
       }
 
       // Send error Email
@@ -378,14 +380,52 @@ async function handleMTNAutoFulfillment(
 
     // Send success SMS with order tracking info
     try {
-      await sendSMS({
-        phone: phoneNumber,
-        message: SMSTemplates.orderPaymentConfirmed(
-          mtnResponse.order_id?.toString() || shopOrderId.substring(0, 8),
+      // Fetch shop info to determine if this is a storefront order
+      const { data: shopOrder } = await supabase
+        .from("shop_orders")
+        .select("shop_id, customer_phone")
+        .eq("id", shopOrderId)
+        .single()
+
+      let smsMessage: string
+
+      if (shopOrder?.shop_id) {
+        // Storefront order — fetch shop name and owner phone
+        const { data: shopInfo } = await supabase
+          .from("user_shops")
+          .select("shop_name, user_id")
+          .eq("id", shopOrder.shop_id)
+          .single()
+
+        let ownerPhone = "support"
+        if (shopInfo?.user_id) {
+          const { data: ownerData } = await supabase
+            .from("users")
+            .select("phone_number")
+            .eq("id", shopInfo.user_id)
+            .single()
+          if (ownerData?.phone_number) ownerPhone = ownerData.phone_number
+        }
+
+        smsMessage = SMSTemplates.shopOrderConfirmed(
+          shopInfo?.shop_name || "DATAGOD",
           network,
           volumeGb.toString(),
-          "Paid"
-        ),
+          phoneNumber,
+          ownerPhone
+        )
+      } else {
+        // Wallet/dashboard order
+        smsMessage = SMSTemplates.orderPaymentConfirmed(
+          network,
+          volumeGb.toString(),
+          phoneNumber
+        )
+      }
+
+      await sendSMS({
+        phone: phoneNumber,
+        message: smsMessage,
         type: "order_confirmed",
       })
     } catch (smsError) {

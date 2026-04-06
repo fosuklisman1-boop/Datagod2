@@ -1,40 +1,43 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Mail, MessageCircle } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { supportSettingsService } from "@/lib/support-settings-service"
+import { Input } from "@/components/ui/input"
+import { ArrowLeft, Loader2, CheckCircle2 } from "lucide-react"
 
 export default function ForgotPasswordPage() {
-  const [supportSettings, setSupportSettings] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const [contact, setContact] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [error, setError] = useState("")
 
-  useEffect(() => {
-    loadSupportSettings()
-  }, [])
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError("")
+    setSuccess(false)
 
-  const loadSupportSettings = async () => {
     try {
-      const settings = await supportSettingsService.getSupportSettings()
-      setSupportSettings(settings)
-    } catch (error) {
-      console.error("Error loading support settings:", error)
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to request password reset")
+      }
+
+      setSuccess(true)
+    } catch (err: any) {
+      setError(err.message || "Something went wrong")
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleWhatsAppContact = () => {
-    if (!supportSettings?.support_whatsapp) return
-    const message = "Hi, I need help resetting my password."
-    const url = supportSettingsService.formatWhatsAppURL(
-      supportSettings.support_whatsapp,
-      message
-    )
-    window.open(url, "_blank")
   }
 
   return (
@@ -46,53 +49,69 @@ export default function ForgotPasswordPage() {
               <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6 rounded-lg object-cover" />
             </div>
           </div>
-          <CardTitle>Password Reset</CardTitle>
+          <CardTitle>Reset Password</CardTitle>
           <CardDescription>
-            Contact our support team to reset your password
+            Enter your registered email or phone number
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {!loading && supportSettings && (
-            <>
-              <Alert className="border-green-300 bg-green-50">
-                <MessageCircle className="h-4 w-4 text-green-600" />
-                <AlertDescription className="text-sm text-green-700 mt-2">
-                  <p className="font-semibold mb-3">Contact us via WhatsApp:</p>
-                  <Button
-                    onClick={handleWhatsAppContact}
-                    className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
-                  >
-                    <MessageCircle className="w-4 h-4 mr-2" />
-                    Chat on WhatsApp
-                  </Button>
-                  <p className="text-xs mt-3">
-                    Our support team will verify your identity and reset your password.
-                  </p>
-                </AlertDescription>
-              </Alert>
-
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="font-semibold text-gray-900 mb-2">What to tell our support team:</h3>
-                <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                  <li>Your registered email address</li>
-                  <li>Your full name</li>
-                  <li>Subject: "Password Reset Request"</li>
-                </ul>
+        <CardContent className="space-y-4 pt-4">
+          {success ? (
+            <div className="text-center space-y-4 px-2">
+              <div className="flex justify-center">
+                <CheckCircle2 className="h-12 w-12 text-emerald-500" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900">Registration Checked</h3>
+              <p className="text-sm text-gray-500">
+                If an account matches <span className="font-semibold">{contact}</span>, a password reset link has been sent. The link will expire in 5 minutes.
+              </p>
+              <Button 
+                variant="outline" 
+                className="w-full mt-4"
+                onClick={() => {
+                  setSuccess(false)
+                  setContact("")
+                }}
+              >
+                Try a different account
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Input
+                  id="contact"
+                  placeholder="name@example.com or 055XXXXXXX"
+                  value={contact}
+                  onChange={(e) => setContact(e.target.value)}
+                  className="w-full"
+                  required
+                />
               </div>
 
-              {supportSettings.support_email && (
-                <Alert className="border-blue-300 bg-blue-50">
-                  <Mail className="h-4 w-4 text-blue-600" />
-                  <AlertDescription className="text-xs text-blue-700 mt-2">
-                    <p className="font-semibold mb-1">Prefer email?</p>
-                    <p>Email: <a href={`mailto:${supportSettings.support_email}`} className="underline font-semibold hover:no-underline">{supportSettings.support_email}</a></p>
-                  </AlertDescription>
-                </Alert>
+              {error && (
+                <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
+                  {error}
+                </div>
               )}
-            </>
+
+              <Button
+                type="submit"
+                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                disabled={loading || !contact}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending Reset Link...
+                  </>
+                ) : (
+                  "Send Reset Link"
+                )}
+              </Button>
+            </form>
           )}
 
-          <div className="text-center">
+          <div className="text-center mt-6">
             <Link href="/auth/login" className="text-sm text-indigo-600 hover:underline flex items-center justify-center gap-1">
               <ArrowLeft className="w-3 h-3" /> Back to Login
             </Link>

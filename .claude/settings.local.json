@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(grep -A 10 \"shop_profits.*UPDATE\\\\|shop_profits.*FOR UPDATE\" /b/data/Datagod2/migrations/*.sql)"
+    ]
+  }
+}
