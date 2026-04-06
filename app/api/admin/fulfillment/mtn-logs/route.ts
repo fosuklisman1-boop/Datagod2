@@ -119,7 +119,7 @@ export async function DELETE(request: NextRequest) {
       const { error } = await supabase
         .from("mtn_fulfillment_tracking")
         .delete()
-        .eq("status", "failed")
+        .in("status", ["failed", "error"])
 
       if (error) {
         console.error("[MTN-LOGS] Error bulk deleting failed logs:", error)
