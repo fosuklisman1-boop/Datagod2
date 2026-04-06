@@ -10,12 +10,24 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sync-mtn-status/datakazina",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/verify-pending-payments",
       "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/cron/sync-codecraft-status",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-subscription-expiry",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/check-subscriptions",
+      "schedule": "0 * * * *"
     }
   ]
 }

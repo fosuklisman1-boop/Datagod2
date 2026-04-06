@@ -55,10 +55,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if order is in blacklist queue
+    // Check if order is in blacklist queue and get true details
     const { data: orderData, error: orderError } = await supabase
       .from("shop_orders")
-      .select("queue")
+      .select("queue, network, volume_gb, customer_phone")
       .eq("id", shop_order_id)
       .single()
 
@@ -95,23 +95,28 @@ export async function POST(request: NextRequest) {
 
     // Check if MTN auto-fulfillment is enabled
     const autoFulfillmentEnabled = await isAutoFulfillmentEnabled()
-    const normalizedPhone = normalizePhoneNumber(phone_number)
+    // OVERRIDE client-provided payload with database-verified values
+    const verifiedNetwork = orderData.network || network
+    const verifiedVolumeGb = orderData.volume_gb || volume_gb
+    const verifiedPhonePrefix = orderData.customer_phone || phone_number
+    
+    const normalizedPhone = normalizePhoneNumber(verifiedPhonePrefix)
 
     // Check if this is an MTN order
-    const isMTNNetwork = network.toUpperCase() === "MTN"
+    const isMTNNetwork = verifiedNetwork.toUpperCase() === "MTN"
 
     if (isMTNNetwork && autoFulfillmentEnabled) {
       // AUTO-FULFILL: Send to MTN API immediately
       console.log("[FULFILLMENT] MTN auto-fulfillment ENABLED - Processing via MTN API")
-      return await handleMTNAutoFulfillment(shop_order_id, network, normalizedPhone, volume_gb, customer_name)
+      return await handleMTNAutoFulfillment(shop_order_id, verifiedNetwork, normalizedPhone, Number(verifiedVolumeGb), customer_name)
     } else if (isMTNNetwork && !autoFulfillmentEnabled) {
       // MANUAL: Queue for download
       console.log("[FULFILLMENT] MTN auto-fulfillment DISABLED - Queuing for manual download")
-      return await handleMTNManualFulfillment(shop_order_id, network, normalizedPhone, volume_gb)
+      return await handleMTNManualFulfillment(shop_order_id, verifiedNetwork, normalizedPhone, Number(verifiedVolumeGb))
     } else {
       // Check if it's a Codecraft network
       const fulfillableNetworks = ["AT - ISHARE", "AT-ISHARE", "TELECEL", "AT - BIGTIME", "AT-BIGTIME"]
-      const normalizedNetwork = network.toUpperCase().trim()
+      const normalizedNetwork = verifiedNetwork.toUpperCase().trim()
       const isCodecraft = fulfillableNetworks.includes(normalizedNetwork)
 
       if (isCodecraft) {
@@ -150,15 +155,15 @@ export async function POST(request: NextRequest) {
           // Import dynamically to avoid top-level issues
           const { atishareService } = await import("@/lib/at-ishare-service")
           
-          const sizeGbStr = volume_gb.toString().replace(/[^0-9]/g, "")
+          const sizeGbStr = verifiedVolumeGb.toString().replace(/[^0-9]/g, "")
           const sizeGb = parseInt(sizeGbStr) || 0
-          const networkLower = network.toLowerCase()
+          const networkLower = verifiedNetwork.toLowerCase()
           const isBigTime = networkLower.includes("bigtime")
           const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
           
           // Trigger Codecraft fulfillment asynchronously
           atishareService.fulfillOrder({
-            phoneNumber: phone_number,
+            phoneNumber: verifiedPhonePrefix,
             sizeGb,
             orderId: shop_order_id,
             network: apiNetwork,
@@ -177,7 +182,7 @@ export async function POST(request: NextRequest) {
       }
 
       // If not auto-fulfillable or auto is disabled, queue for manual
-      console.log(`[FULFILLMENT] Network ${network} queued for manual fulfillment`)
+      console.log(`[FULFILLMENT] Network ${verifiedNetwork} queued for manual fulfillment`)
       const { error: updateError } = await supabase
         .from("shop_orders")
         .update({
@@ -197,7 +202,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `${network} order queued for manual fulfillment`,
+        message: `${verifiedNetwork} order queued for manual fulfillment`,
         fulfillment_method: "manual",
       })
     }

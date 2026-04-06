@@ -133,10 +133,10 @@ export async function POST(request: NextRequest) {
 
     const userRole = userData?.role || "user"
 
-    // Get the package to validate price
+    // Get the package to validate price and size
     const { data: packageData, error: packageError } = await supabaseAdmin
       .from("packages")
-      .select("price, dealer_price")
+      .select("size, price, dealer_price")
       .eq("id", packageId)
       .single()
 
@@ -150,9 +150,12 @@ export async function POST(request: NextRequest) {
       validatedPrice = packageData.dealer_price
     }
 
-    console.log(`[PURCHASE] User role: ${userRole}, Validated price: ${validatedPrice}, Client price: ${price}`)
+    // Force server-side verified size to prevent injection/manipulation
+    const verifiedSize = packageData.size
 
-    // Use validated price (ignore client-sent price for security)
+    console.log(`[PURCHASE] User role: ${userRole}, Validated price: ${validatedPrice}, Client size: ${size}, Verified size: ${verifiedSize}`)
+
+    // Use validated price and verified size (ignore client-sent ones for security)
 
     // Check if wallet has enough balance
     if (wallet.balance < validatedPrice) {
@@ -218,7 +221,7 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           package_id: packageId,
           network,
-          size,
+          size: verifiedSize,
           price: validatedPrice,
           phone_number: phoneNumber,
           status: orderStatus,
@@ -257,7 +260,7 @@ export async function POST(request: NextRequest) {
           amount: validatedPrice,
           balance_before: balanceBefore,
           balance_after: newBalance,
-          description: `Data purchase: ${network} ${size}`,
+          description: `Data purchase: ${network} ${verifiedSize}`,
           reference_id: order[0].id,
           status: "completed",
           created_at: new Date().toISOString(),
@@ -281,9 +284,9 @@ export async function POST(request: NextRequest) {
           shopId: shop.id,
           phoneNumber,
           orderId: order[0].id,
-          amount: price,
+          amount: validatedPrice,
           network,
-          sizeGb: parseInt(size.toString().replace(/[^0-9]/g, "")) || 0,
+          sizeGb: parseInt(verifiedSize.toString().replace(/[^0-9]/g, "")) || 0,
         })
       }
     } catch (trackingError) {
@@ -311,13 +314,12 @@ export async function POST(request: NextRequest) {
         console.log(`[FULFILLMENT] Starting fulfillment trigger for ${network} order ${order[0].id} to ${phoneNumber}`)
         console.log(`[FULFILLMENT] Raw size value:`, size, `(type: ${typeof size})`)
 
-        // Parse size - handle different formats: "100GB", "100", 100, etc.
         let sizeGb = 0
-        if (typeof size === "number") {
-          sizeGb = size
-        } else if (typeof size === "string") {
+        if (typeof verifiedSize === "number") {
+          sizeGb = verifiedSize
+        } else if (typeof verifiedSize === "string") {
           // Extract digits from string like "100GB", "100 GB", etc.
-          const digits = size.replace(/[^0-9]/g, "")
+          const digits = verifiedSize.replace(/[^0-9]/g, "")
           sizeGb = parseInt(digits) || 0
         }
 
@@ -397,7 +399,7 @@ export async function POST(request: NextRequest) {
               // Continue if blacklist check fails
             }
 
-            const sizeGb = parseInt(size.toString().replace(/[^0-9]/g, "")) || 0
+            const sizeGb = parseInt(verifiedSize.toString().replace(/[^0-9]/g, "")) || 0
             const normalizedPhone = normalizePhoneNumber(phoneNumber)
             console.log(`[FULFILLMENT] Calling MTN API for order ${order[0].id}: ${normalizedPhone}, ${sizeGb}GB`)
 
@@ -451,7 +453,7 @@ export async function POST(request: NextRequest) {
           {
             user_id: userId,
             title: notificationData.title,
-            message: `${notificationData.message} Order: ${network} - ${size}GB. Order Code: ${order[0].order_code}`,
+            message: `${notificationData.message} Order: ${network} - ${verifiedSize}GB. Order Code: ${order[0].order_code}`,
             type: notificationData.type,
             reference_id: notificationData.reference_id,
             action_url: `/dashboard/my-orders?orderId=${order[0].id}`,
@@ -470,7 +472,7 @@ export async function POST(request: NextRequest) {
 
     // Send SMS about successful purchase
     try {
-      const smsMessage = `You have successfully placed an order of ${network} ${size}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
+      const smsMessage = `You have successfully placed an order of ${network} ${verifiedSize}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
 
       await sendSMS({
         phone: phoneNumber,
@@ -490,8 +492,8 @@ export async function POST(request: NextRequest) {
           const payload = EmailTemplates.orderPaymentConfirmed(
             order[0].id,
             network,
-            size.toString(),
-            price.toFixed(2)
+            verifiedSize.toString(),
+            validatedPrice.toFixed(2)
           );
           sendEmail({
             to: [{ email: userEmail, name: user?.user_metadata?.first_name || "User" }],

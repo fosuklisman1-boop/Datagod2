@@ -111,7 +111,8 @@ export async function POST(request: NextRequest) {
           ? pkg.dealer_price
           : pkg.price
       } else {
-        console.warn(`[BULK-ORDERS] Could not find package for ${network} ${order.volume_gb}GB`)
+        console.warn(`[BULK-ORDERS] SECURITY ALERT: Could not find package for ${network} ${order.volume_gb}GB`)
+        throw new Error(`Invalid package size: ${order.volume_gb}GB for ${network}`)
       }
 
       return {
