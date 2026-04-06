@@ -20,7 +20,8 @@ import {
   Send,
   ExternalLink,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
@@ -70,6 +71,7 @@ export default function MTNFulfillmentLogsPage() {
   const [retrying, setRetrying] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
 
@@ -116,6 +118,37 @@ export default function MTNFulfillmentLogsPage() {
       toast.error("Error loading MTN logs")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleBulkDeleteFailed = async () => {
+    if (!confirm("Are you sure you want to permanently delete ALL failed fulfillment logs? This action cannot be undone.")) return;
+
+    try {
+      setDeleting("bulk")
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return;
+
+      const response = await fetch(`/api/admin/fulfillment/mtn-logs?bulk=failed`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (data.success || response.ok) {
+        toast.success("Failed logs cleared successfully")
+        loadLogs()
+      } else {
+        toast.error(data.error || "Failed to clear logs")
+      }
+    } catch (error) {
+      console.error("Error clearing logs:", error)
+      toast.error("Error clearing logs")
+    } finally {
+      setDeleting(null)
     }
   }
 
@@ -333,6 +366,19 @@ export default function MTNFulfillmentLogsPage() {
                 <RefreshCw className="w-4 h-4 mr-2" />
               )}
               Sync Pending ({summary.pending + summary.processing})
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDeleteFailed}
+              disabled={deleting === "bulk" || summary.failed === 0}
+              className="w-full sm:w-auto"
+            >
+              {deleting === "bulk" ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
+              Clear Failed Logs
             </Button>
             <Button onClick={loadLogs} disabled={loading} className="w-full sm:w-auto">
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />

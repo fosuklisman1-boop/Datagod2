@@ -102,3 +102,36 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+
+/**
+ * DELETE /api/admin/fulfillment/mtn-logs
+ * Bulk delete failed fulfillment logs to clear out the cron queue
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) return errorResponse
+
+    const { searchParams } = new URL(request.url)
+    const bulk = searchParams.get("bulk")
+
+    if (bulk === "failed") {
+      const { error } = await supabase
+        .from("mtn_fulfillment_tracking")
+        .delete()
+        .eq("status", "failed")
+
+      if (error) {
+        console.error("[MTN-LOGS] Error bulk deleting failed logs:", error)
+        return NextResponse.json({ error: "Failed to bulk delete logs" }, { status: 500 })
+      }
+
+      return NextResponse.json({ success: true, message: "Bulk deleted successfully" })
+    }
+
+    return NextResponse.json({ error: "Invalid delete operation" }, { status: 400 })
+  } catch (error) {
+    console.error("[MTN-LOGS] Error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
