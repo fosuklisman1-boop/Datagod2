@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
+import { verifyCronAuth } from "@/lib/cron-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -29,6 +30,12 @@ function sleep(ms: number): Promise<void> {
  * Uses individual polling to ensure high reliability.
  */
 export async function GET(request: NextRequest) {
+    // Verify cron authorization (CRON_SECRET)
+    const { authorized, errorResponse } = verifyCronAuth(request)
+    if (!authorized && errorResponse) {
+        return errorResponse
+    }
+
     try {
         console.log("[CRON-DATAKAZINA] Starting status sync...")
 

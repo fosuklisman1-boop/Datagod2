@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { RefreshCw, Download, AlertCircle, CheckCircle, Clock, XCircle } from "lucide-react"
+import { RefreshCw, Download, AlertCircle, CheckCircle, Clock, XCircle, Trash2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -43,6 +43,7 @@ export default function AdminFulfillmentPage() {
   const [filter, setFilter] = useState<"all" | "success" | "failed" | "pending" | "processing">("all")
   const [searchPhone, setSearchPhone] = useState("")
   const [retrying, setRetrying] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
     loadFulfillments()
@@ -114,6 +115,36 @@ export default function AdminFulfillmentPage() {
       toast.error("An error occurred")
     } finally {
       setRetrying(null)
+    }
+  }
+
+  const handleDelete = async (logId: string) => {
+    if (!confirm("Are you sure you want to delete this log? It won't be retried again.")) return;
+
+    try {
+      setDeleting(logId)
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      const response = await fetch(`/api/admin/fulfillment/logs?id=${logId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        toast.success("Log deleted successfully")
+        loadFulfillments()
+      } else {
+        toast.error(data.error || "Failed to delete log")
+      }
+    } catch (error) {
+      console.error("Error:", error)
+      toast.error("An error occurred")
+    } finally {
+      setDeleting(null)
     }
   }
 
@@ -355,16 +386,29 @@ export default function AdminFulfillmentPage() {
                           )}
                         </td>
                         <td className="py-3 px-4">
-                          {fulfillment.status === "failed" &&
-                            fulfillment.attempt_number < fulfillment.max_attempts && (
+                          <div className="flex gap-2 items-center">
+                            {fulfillment.status === "failed" &&
+                              fulfillment.attempt_number < fulfillment.max_attempts && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleRetry(fulfillment.order_id)}
+                                  disabled={retrying === fulfillment.order_id || deleting === fulfillment.id}
+                                >
+                                  {retrying === fulfillment.order_id ? "Retrying..." : "Retry"}
+                                </Button>
+                              )}
+                            {fulfillment.status === "failed" && (
                               <Button
                                 size="sm"
-                                onClick={() => handleRetry(fulfillment.order_id)}
-                                disabled={retrying === fulfillment.order_id}
+                                variant="destructive"
+                                onClick={() => handleDelete(fulfillment.id)}
+                                disabled={deleting === fulfillment.id || retrying === fulfillment.order_id}
+                                title="Delete failed log"
                               >
-                                {retrying === fulfillment.order_id ? "Retrying..." : "Retry"}
+                                {deleting === fulfillment.id ? <Clock className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                               </Button>
                             )}
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -74,3 +74,48 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+
+/**
+ * DELETE /api/admin/fulfillment/logs
+ * Delete a fulfillment log by ID (mostly to clean up failed ones to stop cron fetches)
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    // Verify admin access
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) {
+      return errorResponse
+    }
+
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get("id")
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Log ID is required" },
+        { status: 400 }
+      )
+    }
+
+    const { error } = await supabase
+      .from("fulfillment_logs")
+      .delete()
+      .eq("id", id)
+
+    if (error) {
+      console.error("[FULFILLMENT-LOGS] Error deleting log:", error)
+      return NextResponse.json(
+        { error: "Failed to delete log" },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("[FULFILLMENT-LOGS] Error:", error)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}
