@@ -119,7 +119,10 @@ export default function OrderPaymentStatusPage() {
       // Bulk operations typically target pending/processing orders
       params.append("status", "pending,processing")
 
-      const response = await fetch(`/api/admin/orders/all?${params.toString()}`)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`/api/admin/orders/all?${params.toString()}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
+      })
       if (response.ok) {
         const result = await response.json()
         setGlobalBulkCount(result.count || 0)
@@ -252,7 +255,10 @@ export default function OrderPaymentStatusPage() {
         // it's helpful to show what they're targeting.
       }
 
-      const response = await fetch(`/api/admin/orders/all?${params.toString()}`)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`/api/admin/orders/all?${params.toString()}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
+      })
 
       if (!response.ok) {
         const errorData = await response.json()
