@@ -8,7 +8,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
-  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  const { isAdmin, userId: adminId, userEmail: adminEmail, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
   try {
@@ -71,8 +71,8 @@ export async function POST(request: NextRequest) {
       batch_time: batchTime,
       orders: netOrders,
       order_count: netOrders.length,
-      downloaded_by: adminUser.id,
-      downloaded_by_email: adminUser.email
+      downloaded_by: adminId,
+      downloaded_by_email: adminEmail
     }))
 
     // 5. Insert batches
