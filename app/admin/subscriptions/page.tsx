@@ -45,9 +45,15 @@ export default function AdminSubscriptionsPage() {
     const checkAdminAccess = async () => {
         try {
             const { data: { user } } = await supabase.auth.getUser()
-            const role = user?.user_metadata?.role
+            if (!user) { router.push("/dashboard"); return }
 
-            if (role !== "admin") {
+            let isAdminUser = user?.user_metadata?.role === "admin"
+            if (!isAdminUser) {
+                const { data: userData } = await supabase.from("users").select("role").eq("id", user.id).single()
+                isAdminUser = userData?.role === "admin"
+            }
+
+            if (!isAdminUser) {
                 toast.error("Unauthorized access")
                 router.push("/dashboard")
                 return
@@ -60,6 +66,7 @@ export default function AdminSubscriptionsPage() {
             router.push("/dashboard")
         }
     }
+
 
     const loadPlans = async () => {
         try {
