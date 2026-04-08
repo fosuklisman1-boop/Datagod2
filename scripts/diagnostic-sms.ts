@@ -1,5 +1,5 @@
 
-import { sendSMS, SMSTemplates } from './lib/sms-service';
+import { sendSMS, SMSTemplates } from '@/lib/sms-service';
 
 async function testSMS() {
   console.log('Testing SMS notification system...');

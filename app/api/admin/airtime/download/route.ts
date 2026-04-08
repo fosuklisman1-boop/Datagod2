@@ -3,11 +3,11 @@ import { createClient } from "@supabase/supabase-js"
 import * as XLSX from "xlsx"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const supabase = createClient(supabaseUrl, serviceRoleKey)
-
 export async function POST(request: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  const supabase = createClient(supabaseUrl, serviceRoleKey)
+
   const { isAdmin, userId: adminId, userEmail: adminEmail, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
