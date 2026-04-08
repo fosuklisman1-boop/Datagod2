@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
  * POST - Update auto-fulfillment setting
  */
 export async function POST(request: NextRequest) {
-  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  const { isAdmin, userId: adminId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
   try {
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
           value: newValue,
           description: "Controls whether AT-iShare and Telecel orders are auto-fulfilled via Code Craft API or sent to admin queue",
           updated_at: new Date().toISOString(),
-          updated_by: user.id
+          updated_by: adminId
         },
         { onConflict: "key" }
       )
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
       throw error
     }
 
-    console.log(`[AUTO-FULFILLMENT] Setting updated by admin ${user.id}: enabled=${enabled}`)
+    console.log(`[AUTO-FULFILLMENT] Setting updated by admin ${adminId}: enabled=${enabled}`)
 
     return NextResponse.json({
       success: true,
