@@ -9,20 +9,23 @@ import { toast } from "sonner"
  * Admins are defined by having role = "admin" in user_metadata OR users table
  */
 export function useIsAdmin() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (authLoading) return
+
     if (!user) {
       setIsAdmin(false)
       setLoading(false)
       return
     }
 
+    setLoading(true)
     checkAdminStatus()
-  }, [user?.id, user?.user_metadata])
+  }, [user?.id, user?.user_metadata, authLoading])
 
   const checkAdminStatus = async () => {
     try {
