@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { supabase } from "@/lib/supabase"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -103,7 +104,10 @@ export default function AdminApiManagementPage() {
   const fetchKeys = async () => {
     try {
       setLoading(true)
-      const res = await fetch("/api/admin/api-keys")
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/api-keys", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
       const data = await res.json()
       if (data.keys) setKeys(data.keys)
     } catch (error) {
@@ -193,7 +197,11 @@ export default function AdminApiManagementPage() {
   const globalKillKeys = async () => {
     setIsKilling(true)
     try {
-      const res = await fetch("/api/admin/api-keys/global-kill", { method: "POST" })
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/api-keys/global-kill", {
+        method: "POST",
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
       if (res.ok) {
         toast.success("Global Kill Switch activated: All API keys disabled securely", { duration: 5000 })
         fetchKeys()

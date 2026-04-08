@@ -446,7 +446,7 @@ export async function POST(request: NextRequest) {
 
     // Send notification about successful purchase
     try {
-      const notificationData = notificationTemplates.paymentSuccess(price, order[0].id)
+      const notificationData = notificationTemplates.paymentSuccess(validatedPrice, order[0].id)
       const { error: notifError } = await supabaseAdmin
         .from("notifications")
         .insert([

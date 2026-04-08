@@ -1,5 +1,6 @@
 import { NextResponse, NextRequest } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -22,6 +23,9 @@ function normalizeNetwork(network: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
     const searchParams = request.nextUrl.searchParams
     const searchQuery = searchParams.get("search") || ""

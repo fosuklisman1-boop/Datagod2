@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 /**
  * Admin API endpoint to sync all shop balances
@@ -122,34 +123,11 @@ async function syncShopBalance(supabase: any, shopId: string) {
 }
 
 export async function GET(req: NextRequest) {
+    const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+    if (!isAdmin) return errorResponse
+
     try {
-        // Verify admin access
-        const authHeader = req.headers.get("Authorization")
-        if (!authHeader?.startsWith("Bearer ")) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-        }
-
-        const token = authHeader.slice(7)
         const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
-        const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token)
-
-        if (userError || !user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-        }
-
-        // Check if user is admin
-        const isAdmin = user.user_metadata?.role === "admin"
-        if (!isAdmin) {
-            const { data: userData } = await supabaseClient
-                .from("users")
-                .select("role")
-                .eq("id", user.id)
-                .single()
-
-            if (userData?.role !== "admin") {
-                return NextResponse.json({ error: "Admin access required" }, { status: 403 })
-            }
-        }
 
         // Get all shops
         const { data: shops, error: shopsError } = await supabaseClient

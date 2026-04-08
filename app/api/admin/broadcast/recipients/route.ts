@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 export const dynamic = "force-dynamic"
 
@@ -7,38 +8,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function GET(req: NextRequest) {
+    const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+    if (!isAdmin) return errorResponse
+
     try {
-        // 1. Auth Check (Manual verification since auth-helpers is not installed)
-        const authHeader = req.headers.get("Authorization")
-        if (!authHeader?.startsWith("Bearer ")) {
-            return NextResponse.json({ error: "Unauthorized: Missing auth token" }, { status: 401 })
-        }
-
-        const token = authHeader.slice(7)
-        const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
-        const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token)
-
-        if (authError || !user) {
-            return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
-        }
-
-        // Check if admin
-        let isAdmin = user.user_metadata?.role === "admin"
-        if (!isAdmin) {
-            // Fallback check in users table
-            const { data: userData } = await supabaseClient
-                .from("users")
-                .select("role")
-                .eq("id", user.id)
-                .single()
-
-            if (userData?.role === "admin") isAdmin = true
-        }
-
-        if (!isAdmin) {
-            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-        }
-
         // 2. Initialize Admin Client to bypass RLS
         const adminClient = createClient(supabaseUrl, serviceRoleKey, {
             auth: {

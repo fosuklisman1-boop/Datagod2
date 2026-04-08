@@ -13,9 +13,6 @@ const supabase = createClient(
  * List all API keys for the authenticated user (via session)
  */
 export async function GET(request: NextRequest) {
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  // We need to verify via the session cookie
   const authHeader = request.headers.get("Authorization")
   const token = authHeader?.replace("Bearer ", "")
   if (!token) {
@@ -45,11 +42,6 @@ export async function GET(request: NextRequest) {
  * Generate a new API key. Key is returned only once.
  */
 export async function POST(request: NextRequest) {
-  const rateLimit = await applyRateLimit(request, "api_key_generate", 5, 60 * 60 * 1000)
-  if (!rateLimit.allowed) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
-
   const authHeader = request.headers.get("Authorization")
   const token = authHeader?.replace("Bearer ", "")
   if (!token) {
@@ -59,6 +51,12 @@ export async function POST(request: NextRequest) {
   const { data: { user: sessionUser } } = await supabase.auth.getUser(token)
   if (!sessionUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  // Rate limit keyed to user ID after auth
+  const rateLimit = await applyRateLimit(request, "api_key_generate", 5, 60 * 60 * 1000, sessionUser.id)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
   // Check user role (only dealers and admins can generate keys)
@@ -90,7 +88,8 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json()
-  const name = body.name?.trim() || "API Key"
+  const rawName = typeof body.name === "string" ? body.name.trim() : ""
+  const name = rawName.slice(0, 100) || "API Key"
 
   const { key, prefix, hash } = generateApiKey()
 

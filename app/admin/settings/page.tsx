@@ -183,7 +183,10 @@ export default function AdminSettingsPage() {
         }
 
         // Load MTN provider setting
-        const providerResponse = await fetch("/api/admin/settings/mtn-provider")
+        const { data: { session } } = await supabase.auth.getSession()
+        const providerResponse = await fetch("/api/admin/settings/mtn-provider", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
         const providerData = await providerResponse.json()
         if (providerData.provider) {
           setMtnProvider(providerData.provider)

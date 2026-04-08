@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,6 +14,9 @@ const supabase = createClient(
  * user_api_logs.user_id references auth.users which PostgREST cannot traverse.
  */
 export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   const { searchParams } = new URL(request.url)
   const userId = searchParams.get("userId")
   const apiKeyId = searchParams.get("apiKeyId")

@@ -164,7 +164,10 @@ export default function OrderPaymentStatusPage() {
   const loadPendingMTNOrders = async () => {
     try {
       setLoadingMTNOrders(true)
-      const response = await fetch("/api/admin/fulfillment/manual-fulfill")
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
       if (response.ok) {
         const data = await response.json()
         setPendingMTNOrders(data.orders || [])

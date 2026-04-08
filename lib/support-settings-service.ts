@@ -1,3 +1,5 @@
+import { supabase } from "@/lib/supabase"
+
 export const supportSettingsService = {
   // Get support settings
   async getSupportSettings() {
@@ -28,10 +30,12 @@ export const supportSettingsService = {
     guest_purchase_button_text?: string
   ) {
     try {
+      const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch("/api/admin/support-settings", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
           support_whatsapp,

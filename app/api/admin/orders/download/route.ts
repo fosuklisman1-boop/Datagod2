@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import * as XLSX from "xlsx"
 import { type NotificationType } from "@/lib/notification-service"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -33,30 +34,14 @@ async function isAutoFulfillmentEnabled(): Promise<boolean> {
 }
 
 export async function POST(request: NextRequest) {
+  const { isAdmin, errorResponse, userId: callerUserId, userEmail: callerEmail } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
-    // Verify user is authenticated and is an admin
-    const authHeader = request.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized: Missing auth token" }, { status: 401 })
-    }
-
-    const token = authHeader.slice(7)
-    const { data: { user: callerUser }, error: callerError } = await supabase.auth.getUser(token)
-
-    if (callerError || !callerUser) {
-      return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
-    }
-
-    // Check if caller is admin
-    if (callerUser.user_metadata?.role !== "admin") {
-      console.warn(`[DOWNLOAD] Unauthorized attempt by user ${callerUser.id}. Not an admin.`)
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-    }
-
     const { orderIds: providedIds, orderType, isRedownload, filters } = await request.json()
     let orderIds = providedIds || []
 
-    console.log("[DOWNLOAD] Admin", callerUser.id, "downloading. Filters:", !!filters, "OrderIds count:", orderIds.length)
+    console.log("[DOWNLOAD] Admin", callerUserId, "downloading. Filters:", !!filters, "OrderIds count:", orderIds.length)
 
     // Check if auto-fulfillment is enabled (affects which networks can be downloaded)
     const autoFulfillEnabled = await isAutoFulfillmentEnabled()
@@ -278,8 +263,8 @@ export async function POST(request: NextRequest) {
       orders: networkOrders,
       order_count: networkOrders.length,
       created_at: batchTime,
-      downloaded_by: callerUser.id,
-      downloaded_by_email: callerUser.email || "Unknown"
+      downloaded_by: callerUserId,
+      downloaded_by_email: callerEmail || "Unknown"
     }))
 
     // Insert batch records

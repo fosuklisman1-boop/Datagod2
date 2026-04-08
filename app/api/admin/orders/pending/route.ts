@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -70,7 +71,10 @@ async function isMTNAutoFulfillmentEnabled(): Promise<boolean> {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
     console.log("Fetching pending orders (bulk + shop orders)...")
     

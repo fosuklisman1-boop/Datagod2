@@ -41,6 +41,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
+    const amount = parseFloat(airtimeAmount || bodyAmount)
+    if (!isFinite(amount) || amount <= 0) {
+      return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
+    }
+
     const cleanPhone = beneficiaryPhone.replace(/\s/g, "")
     // Prefer passed network (manual selection), fallback to detection
     const network = passedNetwork || detectNetwork(cleanPhone)
@@ -50,7 +55,6 @@ export async function POST(request: NextRequest) {
     }
 
     const networkKey = network.toLowerCase().replace(/\s/g, "_")
-    const amount = parseFloat(airtimeAmount || bodyAmount)
 
     // Find Shop and Merchant
     const { data: shop } = await supabase

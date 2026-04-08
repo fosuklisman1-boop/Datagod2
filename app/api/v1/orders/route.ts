@@ -101,15 +101,33 @@ export async function POST(request: NextRequest) {
     }, { status: 400 })
   }
 
-  // 1. Fetch pricing from global packages table based on role
-  // Database stores size as just "1", "2", "5" etc (string)
+  // Validate volume_gb is a positive integer
+  const volumeGb = Number(volume_gb)
+  if (!Number.isInteger(volumeGb) || volumeGb <= 0 || volumeGb > 1000) {
+    return NextResponse.json({ success: false, error: "volume_gb must be a positive integer" }, { status: 400 })
+  }
+
+  // Validate recipient is a plausible phone number (digits, +, spaces only, 7-15 chars)
+  const cleanRecipient = String(recipient).replace(/\s/g, "")
+  if (!/^\+?[0-9]{7,15}$/.test(cleanRecipient)) {
+    return NextResponse.json({ success: false, error: "Invalid recipient phone number" }, { status: 400 })
+  }
+
+  // Validate reference length to prevent DB bloat / injection attempts
+  if (typeof reference !== "string" || reference.length < 3 || reference.length > 100) {
+    return NextResponse.json({ success: false, error: "reference must be a string between 3 and 100 characters" }, { status: 400 })
+  }
+
+  // Sanitize network — strip SQL LIKE wildcards to prevent ilike injection
+  const sanitizedNetwork = String(network).replace(/[%_]/g, "")
+
   // 1. Fetch pricing from global packages table based on role
   // Database stores size as just "1", "2", "5" etc (string)
   const { data: pkg } = await supabase
     .from("packages")
     .select("id, price, dealer_price")
-    .ilike("network", network)
-    .eq("size", volume_gb.toString())
+    .ilike("network", sanitizedNetwork)
+    .eq("size", volumeGb.toString())
     .eq("active", true)
     .single()
 
@@ -120,16 +138,16 @@ export async function POST(request: NextRequest) {
   const orderPrice = user.role === "dealer" && pkg.dealer_price > 0 ? Number(pkg.dealer_price) : Number(pkg.price)
 
   // --- 2 & 3 & 5. Atomic Order Placement ---
-  const description = `API Data Purchase: ${network.toUpperCase()} ${volume_gb}GB (${recipient})`
-  
+  const description = `API Data Purchase: ${sanitizedNetwork.toUpperCase()} ${volumeGb}GB (${cleanRecipient})`
+
   const { data: result, error: rpcError } = await supabase.rpc('place_api_order', {
     p_user_id: user.id,
     p_api_key_id: user.api_key_id,
     p_package_id: pkg.id,
-    p_network: network,
-    p_volume_gb: volume_gb,
+    p_network: sanitizedNetwork,
+    p_volume_gb: volumeGb,
     p_price: orderPrice,
-    p_recipient_phone: recipient,
+    p_recipient_phone: cleanRecipient,
     p_api_reference: reference,
     p_description: description
   }) as { data: { success: boolean; order_id: string; new_balance: number; error?: string; required?: number } | null; error: any }
@@ -172,8 +190,8 @@ export async function POST(request: NextRequest) {
   }).catch(() => {})
 
   // --- 4. Trigger Asynchronous Fulfillment ---
-  const normalizedNetwork = network.trim().toLowerCase()
-  
+  const normalizedNetwork = sanitizedNetwork.trim().toLowerCase()
+
   // A. MTN Fulfillment
   if (normalizedNetwork === "mtn") {
     (async () => {
@@ -181,9 +199,9 @@ export async function POST(request: NextRequest) {
         const mtnAuto = await isMTNAutoEnabled()
         if (mtnAuto) {
           const mtnRequest = {
-            recipient_phone: normalizePhoneNumber(recipient),
+            recipient_phone: normalizePhoneNumber(cleanRecipient),
             network: "MTN" as const,
-            size_gb: volume_gb,
+            size_gb: volumeGb,
           }
           const mtnResult = await createMTNOrder(mtnRequest)
           if (orderId && mtnResult.order_id) {
@@ -210,8 +228,8 @@ export async function POST(request: NextRequest) {
           const apiNetwork = normalizedNetwork.includes("telecel") ? "TELECEL" : "AT"
           
           atishareService.fulfillOrder({
-            phoneNumber: recipient,
-            sizeGb: volume_gb,
+            phoneNumber: cleanRecipient,
+            sizeGb: volumeGb,
             orderId: orderId,
             network: apiNetwork,
             orderType: "api",
@@ -230,10 +248,10 @@ export async function POST(request: NextRequest) {
     order: {
       id: orderId,
       reference,
-      network,
-      volume_gb,
+      network: sanitizedNetwork,
+      volume_gb: volumeGb,
       price: orderPrice,
-      recipient,
+      recipient: cleanRecipient,
       status: "pending",
       created_at: orderCreatedAt,
     }

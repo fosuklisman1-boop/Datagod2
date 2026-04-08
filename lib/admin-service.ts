@@ -453,7 +453,12 @@ export const adminShopService = {
   // Get shop details with orders
   async getShopDetails(shopId: string) {
     try {
-      const response = await fetch(`/api/admin/shops/${shopId}`)
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: HeadersInit = {}
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`
+      }
+      const response = await fetch(`/api/admin/shops/${shopId}`, { headers })
       if (!response.ok) {
         throw new Error("Failed to fetch shop details")
       }

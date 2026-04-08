@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(xargs grep:*)",
-      "Bash(grep -A 10 \"shop_profits.*UPDATE\\\\|shop_profits.*FOR UPDATE\" /b/data/Datagod2/migrations/*.sql)"
+      "Bash(grep -A 10 \"shop_profits.*UPDATE\\\\|shop_profits.*FOR UPDATE\" /b/data/Datagod2/migrations/*.sql)",
+      "Bash(grep -rn \"fetch\\(\\\\\"/api/admin[^\\\\\"]*\\\\\", { method\" --include=\"*.tsx\" --include=\"*.ts\")"
     ]
   }
 }

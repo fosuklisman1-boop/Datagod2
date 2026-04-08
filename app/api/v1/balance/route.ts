@@ -15,21 +15,21 @@ const supabase = createClient(
 export async function GET(request: NextRequest) {
   const start = Date.now()
 
-  // Rate limit: 60 requests per minute per API key
-  const rateLimit = await applyRateLimit(request, "v1_balance", 60, 60 * 1000)
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { success: false, error: "Rate limit exceeded. Max 60 requests/minute." },
-      { status: 429 }
-    )
-  }
-
-  // Authenticate
+  // Authenticate first — rate limit keyed to user ID not IP
   const user = await authenticateApiKey(request)
   if (!user) {
     return NextResponse.json(
       { success: false, error: "Invalid or missing API key" },
       { status: 401 }
+    )
+  }
+
+  const rateLimitCount = user.rate_limit_per_min || 60
+  const rateLimit = await applyRateLimit(request, "v1_balance", rateLimitCount, 60 * 1000, user.id)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { success: false, error: `Rate limit exceeded. Max ${rateLimitCount} requests/minute.` },
+      { status: 429 }
     )
   }
 

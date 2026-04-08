@@ -2,36 +2,17 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(req: NextRequest) {
+    const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+    if (!isAdmin) return errorResponse
+
     try {
-        const authHeader = req.headers.get("Authorization")
-        if (!authHeader?.startsWith("Bearer ")) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-        }
-
-        const token = authHeader.slice(7)
         const supabase = createClient(supabaseUrl, serviceRoleKey)
-        const { data: { user: caller }, error: authError } = await supabase.auth.getUser(token)
-
-        if (authError || !caller) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-        }
-
-        // Verify admin
-        const { data: profile } = await supabase
-            .from("users")
-            .select("role")
-            .eq("id", caller.id)
-            .single()
-
-        if (profile?.role !== "admin" && caller.user_metadata?.role !== "admin") {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-        }
-
         const { broadcastId, limit = 50 } = await req.json()
 
         if (!broadcastId) {

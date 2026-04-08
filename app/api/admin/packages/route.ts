@@ -1,34 +1,26 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+// Allowed fields for package create/update (prevents mass assignment)
+const ALLOWED_PACKAGE_FIELDS = ["name", "network", "size", "price", "dealer_price", "active", "description", "category"]
+
 export async function POST(req: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+  if (!isAdmin) return errorResponse
+
   try {
-    // Verify user is authenticated and is an admin
-    const authHeader = req.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized: Missing auth token" }, { status: 401 })
-    }
-
-    const token = authHeader.slice(7)
-    const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
-    const { data: { user: callerUser }, error: callerError } = await supabaseClient.auth.getUser(token)
-
-    if (callerError || !callerUser) {
-      return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
-    }
-
-    // Check if caller is admin
-    if (callerUser.user_metadata?.role !== "admin") {
-      console.warn(`[PACKAGES] Unauthorized attempt by user ${callerUser.id}. Not an admin.`)
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-    }
-
     const { packageData, packageId, isUpdate } = await req.json()
 
-    if (!packageData) {
+    // Whitelist fields to prevent mass assignment
+    const safeData = packageData
+      ? Object.fromEntries(Object.entries(packageData).filter(([k]) => ALLOWED_PACKAGE_FIELDS.includes(k)))
+      : null
+
+    if (!safeData || Object.keys(safeData).length === 0) {
       return NextResponse.json({ error: "Package data is required" }, { status: 400 })
     }
 
@@ -44,7 +36,7 @@ export async function POST(req: NextRequest) {
       // Update package
       const { data, error } = await adminClient
         .from("packages")
-        .update(packageData)
+        .update(safeData)
         .eq("id", packageId)
         .select()
 
@@ -58,7 +50,7 @@ export async function POST(req: NextRequest) {
       // Create package
       const { data, error } = await adminClient
         .from("packages")
-        .insert([packageData])
+        .insert([safeData])
         .select()
 
       if (error) {

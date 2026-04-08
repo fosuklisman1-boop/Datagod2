@@ -1,39 +1,12 @@
 import { supabase } from "@/lib/supabase"
 import { NextRequest, NextResponse } from "next/server"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
-    const authHeader = request.headers.get("authorization")
-    
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Extract token from Bearer header
-    const token = authHeader.slice(7)
-
-    // Verify the token and get user
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const role = user.user_metadata?.role
-    if (role !== "admin") {
-      return NextResponse.json(
-        { error: "Forbidden" },
-        { status: 403 }
-      )
-    }
-
     // Get pending orders from both tables with payment verified
     // 1. Bulk user orders (orders table with status='pending')
     // Note: All pending bulk orders are already paid (wallet was deducted at creation)

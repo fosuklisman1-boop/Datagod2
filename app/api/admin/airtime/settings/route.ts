@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,18 +25,10 @@ const AIRTIME_SETTING_KEYS = [
 ]
 
 export async function GET(request: NextRequest) {
-  try {
-    // Auth — admin only
-    const authHeader = request.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const token = authHeader.slice(7)
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user || user.user_metadata?.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
 
+  try {
     const { data, error } = await supabase
       .from("admin_settings")
       .select("key, value")
@@ -57,18 +50,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  try {
-    // Auth — admin only
-    const authHeader = request.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const token = authHeader.slice(7)
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user || user.user_metadata?.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
 
+  try {
     const { settings } = await request.json()
     if (!settings) return NextResponse.json({ error: "No settings provided" }, { status: 400 })
 

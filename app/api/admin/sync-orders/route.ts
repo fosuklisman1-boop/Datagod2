@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -25,6 +26,9 @@ function isCodeCraftNetwork(network: string): boolean {
  * Only syncs AT-iShare, Telecel, and AT-BigTime orders (NOT MTN)
  */
 export async function POST(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
     console.log("[SYNC-ORDERS] Starting sync of CodeCraft orders...")
 

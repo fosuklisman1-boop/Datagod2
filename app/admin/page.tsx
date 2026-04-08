@@ -10,6 +10,7 @@ import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loade
 import { useAdminProtected } from "@/hooks/use-admin"
 import { adminDashboardService } from "@/lib/admin-service"
 import { toast } from "sonner"
+import { supabase } from "@/lib/supabase"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -77,7 +78,11 @@ export default function AdminDashboardPage() {
   const cleanupOldBatches = async () => {
     try {
       // Silently cleanup completed download batches older than 14 days
-      await fetch("/api/admin/batches/cleanup", { method: "GET" })
+      const { data: { session } } = await supabase.auth.getSession()
+      await fetch("/api/admin/batches/cleanup", {
+        method: "GET",
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
     } catch (error) {
       // Silently fail - this is a background task
       console.error("Background batch cleanup failed:", error)

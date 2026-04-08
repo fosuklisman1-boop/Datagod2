@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -8,7 +9,10 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
  * API endpoint to cleanup completed download batches older than 14 days
  * Called automatically when admin loads dashboard
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
     console.log("[BATCH-CLEANUP] Starting cleanup of old completed batches...")
 
@@ -45,6 +49,6 @@ export async function GET() {
   }
 }
 
-export async function POST() {
-  return GET()
+export async function POST(request: NextRequest) {
+  return GET(request)
 }

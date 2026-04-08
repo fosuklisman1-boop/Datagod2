@@ -111,7 +111,10 @@ export default function AdminOrdersPage() {
   const loadAutoFulfillmentSetting = async () => {
     try {
       setLoadingAutoFulfillment(true)
-      const response = await fetch("/api/admin/settings/auto-fulfillment")
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/settings/auto-fulfillment", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
       if (response.ok) {
         const data = await response.json()
         setAutoFulfillmentEnabled(data.setting?.enabled ?? true)
@@ -202,7 +205,10 @@ export default function AdminOrdersPage() {
     try {
       setLoadingPending(true)
       console.log("Fetching pending orders from API...")
-      const response = await fetch("/api/admin/orders/pending")
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/orders/pending", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -229,7 +235,10 @@ export default function AdminOrdersPage() {
     try {
       setLoadingDownloaded(true)
       console.log("Fetching downloaded batches from API...")
-      const response = await fetch("/api/admin/orders/batches")
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/orders/batches", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -297,7 +306,10 @@ export default function AdminOrdersPage() {
   const loadPendingMTNOrders = async () => {
     try {
       setLoadingMTNOrders(true)
-      const response = await fetch("/api/admin/fulfillment/manual-fulfill")
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -419,7 +431,10 @@ export default function AdminOrdersPage() {
       setDownloading(true)
 
       // Fetch fresh pending orders to include any new orders that came in
-      const pendingResponse = await fetch("/api/admin/orders/pending")
+      const { data: { session: pendingSession } } = await supabase.auth.getSession()
+      const pendingResponse = await fetch("/api/admin/orders/pending", {
+        headers: pendingSession?.access_token ? { Authorization: `Bearer ${pendingSession.access_token}` } : {},
+      })
       if (!pendingResponse.ok) {
         throw new Error("Failed to fetch latest orders")
       }

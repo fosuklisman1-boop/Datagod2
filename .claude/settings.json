@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")"
+      "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")",
+      "Bash(grep -rn \"fetch\\(\\\\\"/api/admin/orders/pending\\\\\"\\\\|fetch\\(\\\\`/api/admin/orders/pending\\\\|fetch\\(\\\\\"/api/admin/orders/batches\\\\\"\\\\|fetch\\(\\\\\"/api/admin/batch\\\\|fetch\\(\\\\\"/api/admin/shop-orders/pending\\\\\"\\\\|fetch\\(\\\\\"/api/admin/debug\\\\|fetch\\(\\\\\"/api/admin/support-settings\\\\\"\\\\|fetch\\(\\\\\"/api/admin/christmas\\\\\"\\\\|fetch\\(\\\\\"/api/admin/test-email\\\\\"\\\\|fetch\\(\\\\\"/api/admin/settings/auto-fulfillment\\\\\"\" --include=\"*.tsx\" --include=\"*.ts\")"
     ]
   }
 }

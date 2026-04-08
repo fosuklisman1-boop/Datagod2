@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,20 +15,8 @@ const supabase = createClient(
  * Cross-references wallet_payments to only fix orders Paystack confirmed.
  */
 export async function POST(request: NextRequest) {
-  // Admin auth check
-  const authHeader = request.headers.get("authorization")
-  if (!authHeader?.startsWith("Bearer ")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-  const token = authHeader.substring(7)
-  const { data: { user }, error: userError } = await supabase.auth.getUser(token)
-  if (userError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-  const isAdmin = user.user_metadata?.role === "admin"
-  if (!isAdmin) {
-    return NextResponse.json({ error: "Admin access required" }, { status: 403 })
-  }
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
 
   try {
     console.log("[BACKFILL] Starting airtime payment status backfill...")
@@ -126,15 +115,8 @@ export async function POST(request: NextRequest) {
  * Preview — shows affected orders without fixing them
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization")
-  if (!authHeader?.startsWith("Bearer ")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-  const token = authHeader.substring(7)
-  const { data: { user }, error: userError } = await supabase.auth.getUser(token)
-  if (userError || !user || user.user_metadata?.role !== "admin") {
-    return NextResponse.json({ error: "Admin access required" }, { status: 403 })
-  }
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
 
   const { data: affectedOrders, error } = await supabase
     .from("airtime_orders")

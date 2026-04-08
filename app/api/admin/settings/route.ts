@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 // Force dynamic to prevent caching - announcements need fresh data
 export const dynamic = 'force-dynamic'
@@ -98,37 +99,10 @@ export async function GET(request: NextRequest) {
 
 // UPDATE settings
 export async function PUT(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
-    // Verify admin authorization
-    const authHeader = request.headers.get("authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "No authorization token" },
-        { status: 401 }
-      )
-    }
-
-    const token = authHeader.split(" ")[1]
-
-    // Verify user is admin
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token)
-
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: "Invalid token" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin via user_metadata
-    const role = user.user_metadata?.role
-    if (role !== "admin") {
-      return NextResponse.json(
-        { error: "User is not an admin" },
-        { status: 403 }
-      )
-    }
-
     const body = await request.json()
     console.log("[SETTINGS-API] Received update body:", JSON.stringify(body, null, 2))
 

@@ -106,8 +106,13 @@ export async function POST(request: NextRequest) {
         merchantRoleFeeRate = merchantFeeSetting?.rate ?? 5
       }
     } else {
-      // Buying direct (no shop)
-      const isUserDealer = user.user_metadata?.role === "dealer" || user.user_metadata?.role === "sub_agent"
+      // Buying direct (no shop) — role must come from DB, not user_metadata
+      const { data: userProfile } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", user.id)
+        .single()
+      const isUserDealer = userProfile?.role === "dealer" || userProfile?.role === "sub_agent"
       const feeKey = isUserDealer ? `airtime_fee_${networkKey}_dealer` : `airtime_fee_${networkKey}_customer`
       const feeSetting = await getAdminSetting(feeKey)
       merchantRoleFeeRate = feeSetting?.rate ?? 5

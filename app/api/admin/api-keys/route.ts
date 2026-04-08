@@ -100,7 +100,13 @@ export async function PATCH(request: NextRequest) {
 
   const updateData: any = { updated_at: new Date().toISOString() }
   if (typeof is_active === "boolean") updateData.is_active = is_active
-  if (typeof rate_limit_per_min === "number") updateData.rate_limit_per_min = rate_limit_per_min
+  if (rate_limit_per_min !== undefined) {
+    const rateLimit = Number(rate_limit_per_min)
+    if (!Number.isInteger(rateLimit) || rateLimit < 1 || rateLimit > 10000) {
+      return NextResponse.json({ error: "rate_limit_per_min must be an integer between 1 and 10000" }, { status: 400 })
+    }
+    updateData.rate_limit_per_min = rateLimit
+  }
 
   const { error } = await supabase
     .from("user_api_keys")

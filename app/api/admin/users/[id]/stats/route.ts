@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -42,37 +43,11 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+  if (!isAdmin) return errorResponse
+
   try {
     const { id: userId } = await params
-
-    // Verify admin access
-    const authHeader = req.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const token = authHeader.slice(7)
-    const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
-    const { data: { user: callerUser }, error: callerError } = await supabaseClient.auth.getUser(token)
-
-    if (callerError || !callerUser) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Check if caller is admin
-    let isAdmin = callerUser.user_metadata?.role === "admin"
-    if (!isAdmin) {
-      const { data: userData } = await supabaseClient
-        .from("users")
-        .select("role")
-        .eq("id", callerUser.id)
-        .single()
-      isAdmin = userData?.role === "admin"
-    }
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
-    }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },

@@ -1,29 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function GET(request: NextRequest) {
-  try {
-    // Check if admin (optional - for security)
-    const authHeader = request.headers.get("Authorization")
-    let isAdmin = false
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
 
-    if (authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.slice(7)
-      const { data: { user } } = await supabase.auth.getUser(token)
-      if (user) {
-        const { data: userData } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", user.id)
-          .single()
-        isAdmin = userData?.role === "admin" || user.user_metadata?.role === "admin"
-      }
-    }
+  try {
 
     // Get phone from query params
     const { searchParams } = new URL(request.url)
@@ -50,17 +38,7 @@ export async function GET(request: NextRequest) {
         success: true,
         message: "SMS Test Endpoint - Add ?phone=0XXXXXXXXX to send a test SMS",
         envCheck,
-        isAdmin,
       })
-    }
-
-    // Only allow sending if admin or in development
-    if (!isAdmin && process.env.NODE_ENV === "production") {
-      return NextResponse.json({
-        success: false,
-        error: "Admin access required to send test SMS in production",
-        envCheck,
-      }, { status: 403 })
     }
 
     console.log("[SMS-TEST] Sending test SMS to:", phone)
@@ -90,32 +68,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
-    // Check if admin
-    const authHeader = request.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const token = authHeader.slice(7)
-    const { data: { user } } = await supabase.auth.getUser(token)
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const { data: userData } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .single()
-
-    const isAdmin = userData?.role === "admin" || user.user_metadata?.role === "admin"
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
-    }
-
     const body = await request.json()
     const { phone, message } = body
 
@@ -130,7 +86,6 @@ export async function POST(request: NextRequest) {
       message: message || "DATAGOD Test: SMS service is working! 🎉",
       type: "admin_test",
       reference: `ADMIN-TEST-${Date.now()}`,
-      userId: user.id,
     })
 
     return NextResponse.json({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -7,29 +8,10 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 // POST: Update a user's role (Admin only)
 export async function POST(request: NextRequest) {
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) return errorResponse
+
     try {
-        const authHeader = request.headers.get("Authorization")
-        if (!authHeader?.startsWith("Bearer ")) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-        }
-
-        const token = authHeader.slice(7)
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-
-        if (authError || !user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-        }
-
-        // Verify requesting user is an admin (dual check: metadata + DB)
-        const adminRole = user.user_metadata?.role
-        if (adminRole !== "admin") {
-            return NextResponse.json({ error: "Admin access required" }, { status: 403 })
-        }
-        const { data: dbUser } = await supabase.from("users").select("role").eq("id", user.id).single()
-        if (dbUser?.role !== "admin") {
-            return NextResponse.json({ error: "Admin access required" }, { status: 403 })
-        }
-
         const body = await request.json()
         const { userId, role, newRole } = body
         const targetRole = newRole || role  // Support both 'role' and 'newRole'
