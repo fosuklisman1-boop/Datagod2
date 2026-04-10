@@ -22,16 +22,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from("user_api_keys")
-    .select(`
-      id,
-      name,
-      key_prefix,
-      is_active,
-      last_used_at,
-      created_at,
-      rate_limit_per_min,
-      user_id
-    `)
+    .select("*")
     .order("created_at", { ascending: false })
 
   if (userId) {
@@ -42,7 +33,7 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     console.error("[ADMIN API KEYS] Fetch error:", error)
-    return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 })
+    return NextResponse.json({ error: error.message || "Failed to fetch API keys" }, { status: 500 })
   }
 
   if (!keys || keys.length === 0) {
@@ -72,8 +63,9 @@ export async function GET(request: NextRequest) {
     return acc
   }, {})
 
-  const enrichedKeys = keys.map(k => ({
+  const enrichedKeys = keys.map((k: any) => ({
     ...k,
+    rate_limit_per_min: k.rate_limit_per_min ?? 60,
     user: userMap[k.user_id] || { email: "Unknown", first_name: "Deleted", last_name: "User" }
   }))
 
