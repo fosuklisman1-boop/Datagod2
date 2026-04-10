@@ -16,6 +16,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
     }
 
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!UUID_REGEX.test(userId)) {
+      return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })
+    }
+
     // Create admin client with service role
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: {

@@ -20,6 +20,22 @@ export async function POST(req: NextRequest) {
         if (action === "init") {
             const { channels, recipients, subject, message, targetDescription } = body
 
+            if (!subject || typeof subject !== "string" || subject.trim().length === 0) {
+              return NextResponse.json({ error: "subject is required" }, { status: 400 })
+            }
+            if (subject.length > 200) {
+              return NextResponse.json({ error: "subject must be 200 characters or fewer" }, { status: 400 })
+            }
+            if (!message || typeof message !== "string" || message.trim().length === 0) {
+              return NextResponse.json({ error: "message is required" }, { status: 400 })
+            }
+            if (message.length > 5000) {
+              return NextResponse.json({ error: "message must be 5000 characters or fewer" }, { status: 400 })
+            }
+            if (!recipients || typeof recipients !== "object") {
+              return NextResponse.json({ error: "recipients is required" }, { status: 400 })
+            }
+
             const { data: broadcastLog, error: logError } = await supabase
                 .from("broadcast_logs")
                 .insert({
@@ -48,6 +64,16 @@ export async function POST(req: NextRequest) {
         if (action === "batch") {
             const { broadcastId, recipients, channels, subject, message } = body
             // recipients: array of { id, email, phone, name }
+
+            if (!Array.isArray(recipients)) {
+              return NextResponse.json({ error: "recipients must be an array" }, { status: 400 })
+            }
+            if (recipients.length > 1000) {
+              return NextResponse.json({ error: "recipients batch cannot exceed 1000 items" }, { status: 400 })
+            }
+            if (message && message.length > 5000) {
+              return NextResponse.json({ error: "message must be 5000 characters or fewer" }, { status: 400 })
+            }
 
             const batchResults = {
                 sms: { sent: 0, failed: 0 },

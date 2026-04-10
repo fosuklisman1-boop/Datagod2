@@ -56,7 +56,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const orderDetails = JSON.parse(orderDetailsStr)
+    if (description.length > 5000) {
+      return NextResponse.json({ message: "Description must be 5000 characters or fewer" }, { status: 400 })
+    }
+
+    if (!["low", "medium", "high", "urgent"].includes(priority)) {
+      return NextResponse.json({ message: "Invalid priority value" }, { status: 400 })
+    }
+
+    let orderDetails: any
+    try {
+      orderDetails = JSON.parse(orderDetailsStr)
+    } catch {
+      return NextResponse.json({ message: "Invalid orderDetails format" }, { status: 400 })
+    }
 
     // Validate uploaded files
     const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"]

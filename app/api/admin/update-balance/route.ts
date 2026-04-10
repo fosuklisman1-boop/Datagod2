@@ -25,6 +25,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!UUID_REGEX.test(userId)) {
+      return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })
+    }
+    if (typeof amount !== "number" || !isFinite(amount) || amount <= 0) {
+      return NextResponse.json({ error: "amount must be a positive number" }, { status: 400 })
+    }
+    if (amount > 50000) {
+      return NextResponse.json({ error: "amount exceeds maximum allowed (50000)" }, { status: 400 })
+    }
+    if (type !== "credit" && type !== "debit") {
+      return NextResponse.json({ error: "type must be 'credit' or 'debit'" }, { status: 400 })
+    }
+
     // Get current wallet balance (select only needed columns)
     const { data: wallet, error: walletError } = await supabase
       .from("wallets")

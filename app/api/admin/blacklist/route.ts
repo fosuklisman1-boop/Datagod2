@@ -19,9 +19,10 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
-    const search = searchParams.get("search") || ""
-    const limit = parseInt(searchParams.get("limit") || "1000")
-    const offset = parseInt(searchParams.get("offset") || "0")
+    const rawSearch = searchParams.get("search") || ""
+    const search = rawSearch.slice(0, 100)
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100") || 100, 500)
+    const offset = Math.max(parseInt(searchParams.get("offset") || "0") || 0, 0)
 
     let query = supabase
       .from("blacklisted_phone_numbers")

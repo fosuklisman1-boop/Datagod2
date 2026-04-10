@@ -89,12 +89,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
 
     // Pagination
-    const page = parseInt(searchParams.get("page") || "1")
-    const limit = parseInt(searchParams.get("limit") || "50")
+    const page = Math.max(parseInt(searchParams.get("page") || "1") || 1, 1)
+    const limit = Math.min(parseInt(searchParams.get("limit") || "50") || 50, 200)
     const offset = (page - 1) * limit
 
     // Filters
-    const search = searchParams.get("search") || ""
+    const search = (searchParams.get("search") || "").slice(0, 100)
     const status = searchParams.get("status") || ""
     const paymentType = searchParams.get("paymentType") || ""
     const startDate = searchParams.get("startDate") || ""

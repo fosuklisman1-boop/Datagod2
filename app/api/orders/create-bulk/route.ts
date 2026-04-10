@@ -37,7 +37,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!network) {
+    if (orders.length > 500) {
+      return NextResponse.json(
+        { error: "Bulk orders cannot exceed 500 items per request" },
+        { status: 400 }
+      )
+    }
+
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i]
+      if (!o || typeof o !== "object") {
+        return NextResponse.json({ error: `Order at index ${i} is invalid` }, { status: 400 })
+      }
+      if (typeof o.phone_number !== "string" || !/^\+?[0-9]{7,15}$/.test(o.phone_number.replace(/\s/g, ""))) {
+        return NextResponse.json({ error: `Order at index ${i} has an invalid phone_number` }, { status: 400 })
+      }
+      if (typeof o.volume_gb !== "number" || o.volume_gb <= 0 || o.volume_gb > 1000) {
+        return NextResponse.json({ error: `Order at index ${i} has an invalid volume_gb` }, { status: 400 })
+      }
+    }
+
+    if (!network || typeof network !== "string" || network.length > 50) {
       return NextResponse.json(
         { error: "Network is required" },
         { status: 400 }
