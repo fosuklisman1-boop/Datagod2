@@ -22,8 +22,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Search, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, Wallet, CheckCircle, Banknote } from "lucide-react"
+import { Search, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, Wallet, CheckCircle, Banknote, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { useAdminProtected } from "@/hooks/use-admin"
 
 // Format currency helper
 const formatCurrency = (amount: number | null | undefined) => {
@@ -83,6 +84,7 @@ const defaultStats: Stats = {
 }
 
 export default function AdminProfitsHistoryPage() {
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [profits, setProfits] = useState<ProfitRecord[]>([])
   const [stats, setStats] = useState<Stats>(defaultStats)
   const [loading, setLoading] = useState(true)
@@ -218,6 +220,20 @@ export default function AdminProfitsHistoryPage() {
     setStatusFilter("all")
     setStartDate("")
     setEndDate("")
+  }
+
+  if (adminLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!isAdmin) {
+    return null
   }
 
   return (

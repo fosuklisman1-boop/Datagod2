@@ -32,6 +32,7 @@ import {
 import { Search, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, Wallet, ShoppingCart, TrendingUp, MoreHorizontal, Check, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { adminPaymentService } from "@/lib/admin-service"
+import { useAdminProtected } from "@/hooks/use-admin"
 
 // Safe format currency helper
 const formatCurrency = (amount: number | null | undefined) => {
@@ -86,6 +87,7 @@ const defaultStats: Stats = {
 }
 
 export default function PaymentAttemptsPage() {
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [attempts, setAttempts] = useState<PaymentAttempt[]>([])
   const [stats, setStats] = useState<Stats>(defaultStats)
   const [loading, setLoading] = useState(true)
@@ -218,6 +220,20 @@ export default function PaymentAttemptsPage() {
   }
 
   const conversionRate = stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(1) : "0.0"
+
+  if (adminLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!isAdmin) {
+    return null
+  }
 
   return (
     <DashboardLayout>

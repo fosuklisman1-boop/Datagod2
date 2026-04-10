@@ -23,8 +23,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Search, ArrowUpCircle, ArrowDownCircle, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
+import { Search, ArrowUpCircle, ArrowDownCircle, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { useAdminProtected } from "@/hooks/use-admin"
 
 // Format currency helper - handles null/undefined
 const formatCurrency = (amount: number | null | undefined) => {
@@ -70,6 +71,7 @@ const defaultStats: Stats = {
 }
 
 export default function AdminTransactionsPage() {
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [stats, setStats] = useState<Stats>(defaultStats)
   const [loading, setLoading] = useState(true)
@@ -229,6 +231,20 @@ export default function AdminTransactionsPage() {
     setStatusFilter("all")
     setStartDate("")
     setEndDate("")
+  }
+
+  if (adminLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!isAdmin) {
+    return null
   }
 
   return (

@@ -10,8 +10,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, AlertCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { useAdminProtected } from "@/hooks/use-admin"
 
 export default function AFASettingsPage() {
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [price, setPrice] = useState("50.00")
   const [description, setDescription] = useState("")
   const [loading, setLoading] = useState(false)
@@ -85,6 +87,20 @@ export default function AFASettingsPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (adminLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!isAdmin) {
+    return null
   }
 
   return (

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/hooks/use-auth"
+import { useAdminProtected } from "@/hooks/use-admin"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -48,7 +48,7 @@ interface ParentShop {
 }
 
 export default function SubAgentProfitsPage() {
-    const { user, loading: authLoading } = useAuth()
+    const { isAdmin, loading: adminLoading } = useAdminProtected()
     const router = useRouter()
     const [parentShops, setParentShops] = useState<ParentShop[]>([])
     const [loading, setLoading] = useState(true)
@@ -56,10 +56,10 @@ export default function SubAgentProfitsPage() {
     const [expandedShops, setExpandedShops] = useState<Set<string>>(new Set())
 
     useEffect(() => {
-        if (!authLoading && user) {
+        if (!adminLoading && isAdmin) {
             loadData()
         }
-    }, [user, authLoading])
+    }, [isAdmin, adminLoading])
 
     const loadData = async () => {
         try {
@@ -117,7 +117,7 @@ export default function SubAgentProfitsPage() {
     const totalEarned = parentShops.reduce((sum, s) => sum + s.total_earned_from_subagents, 0)
     const totalOrders = parentShops.reduce((sum, s) => sum + s.total_orders_from_subagents, 0)
 
-    if (authLoading || loading) {
+    if (adminLoading || loading) {
         return (
             <DashboardLayout>
                 <div className="flex items-center justify-center min-h-[400px]">

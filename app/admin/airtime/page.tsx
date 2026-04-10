@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText } from "lucide-react"
 import { toast } from "sonner"
+import { useAdminProtected } from "@/hooks/use-admin"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -62,6 +63,7 @@ const STATUS_CLASSES: Record<string, string> = {
 }
 
 export default function AdminAirtimePage() {
+  const { isAdmin, loading: adminLoading } = useAdminProtected()
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<"pending" | "downloaded" | "history">("pending")
   const [orders, setOrders]       = useState<AirtimeOrder[]>([])
@@ -296,6 +298,20 @@ export default function AdminAirtimePage() {
   }
 
   const filteredBatches = getFilteredBatches()
+
+  if (adminLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!isAdmin) {
+    return null
+  }
 
   return (
     <DashboardLayout>
