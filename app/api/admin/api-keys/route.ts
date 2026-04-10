@@ -2,10 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 /**
  * GET /api/admin/api-keys
@@ -14,6 +12,10 @@ const supabase = createClient(
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
 
   const { searchParams } = new URL(request.url)
   const userId = searchParams.get("userId")
@@ -80,6 +82,10 @@ export async function PATCH(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
   const { searchParams } = new URL(request.url)
   const keyId = searchParams.get("id")
 
@@ -122,6 +128,10 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
 
   const { searchParams } = new URL(request.url)
   const keyId = searchParams.get("id")
