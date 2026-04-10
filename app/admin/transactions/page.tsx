@@ -26,6 +26,7 @@ import {
 import { Search, ArrowUpCircle, ArrowDownCircle, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { supabase } from "@/lib/supabase"
 
 // Format currency helper - handles null/undefined
 const formatCurrency = (amount: number | null | undefined) => {
@@ -106,7 +107,10 @@ export default function AdminTransactionsPage() {
       if (startDate) params.append("startDate", startDate)
       if (endDate) params.append("endDate", endDate)
 
-      const response = await fetch(`/api/admin/transactions?${params}`)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`/api/admin/transactions?${params}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
       const data = await response.json()
 
       if (!response.ok) {
@@ -153,7 +157,10 @@ export default function AdminTransactionsPage() {
       if (endDate) params.append("endDate", endDate)
       params.append("limit", "10000") // Get all matching transactions
 
-      const response = await fetch(`/api/admin/transactions?${params}`)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`/api/admin/transactions?${params}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
       const data = await response.json()
 
       if (!response.ok) throw new Error(data.error)

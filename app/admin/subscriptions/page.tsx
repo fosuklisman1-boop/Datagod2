@@ -78,6 +78,7 @@ export default function AdminSubscriptionsPage() {
 
             const response = await fetch("/api/admin/subscription-plans", { headers })
             const data = await response.json()
+            if (!response.ok) throw new Error(data.error || "Failed to load plans")
             if (data.plans) {
                 setPlans(data.plans)
             }

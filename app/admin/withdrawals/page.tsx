@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { CheckCircle, XCircle, Clock, AlertCircle, Copy, Loader2 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
 interface WithdrawalRequest {
@@ -54,8 +55,11 @@ export default function WithdrawalsPage() {
     try {
       setLoading(true)
       
-      const response = await fetch(`/api/admin/withdrawals/list?status=${filterStatus}`)
-      
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`/api/admin/withdrawals/list?status=${filterStatus}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+
       if (!response.ok) {
         throw new Error("Failed to fetch withdrawals")
       }
@@ -76,9 +80,13 @@ export default function WithdrawalsPage() {
     try {
       setApprovalLoading(true)
 
+      const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch("/api/admin/withdrawals/approve", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ withdrawalId }),
       })
 
@@ -108,9 +116,13 @@ export default function WithdrawalsPage() {
     try {
       setApprovalLoading(true)
 
+      const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch("/api/admin/withdrawals/reject", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ withdrawalId, reason: rejectionReason }),
       })
 

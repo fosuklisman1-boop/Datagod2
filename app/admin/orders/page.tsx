@@ -169,8 +169,10 @@ export default function AdminOrdersPage() {
       setSyncingWithCodeCraft(true)
       toast.info("Syncing CodeCraft orders (AT-iShare, Telecel, BigTime)... MTN orders are skipped.")
 
+      const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch("/api/admin/sync-orders", {
         method: "POST",
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
       })
 
       const data = await response.json()
@@ -265,9 +267,13 @@ export default function AdminOrdersPage() {
       if (allOrderIds.length > 0) {
         console.log("[LOADED-ORDERS] Fetching current statuses for", allOrderIds.length, "orders")
         try {
+          const { data: { session: statusSession } } = await supabase.auth.getSession()
           const statusResponse = await fetch("/api/admin/orders/batch-statuses", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(statusSession?.access_token ? { Authorization: `Bearer ${statusSession.access_token}` } : {}),
+            },
             body: JSON.stringify({ orderIds: allOrderIds })
           })
 
