@@ -21,6 +21,43 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "User ID is required" }, { status: 400 })
         }
 
+        const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        if (!UUID_REGEX.test(userId)) {
+            return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })
+        }
+
+        if (email !== undefined) {
+            if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                return NextResponse.json({ error: "Invalid email format" }, { status: 400 })
+            }
+            if (email.length > 254) {
+                return NextResponse.json({ error: "Email must be 254 characters or fewer" }, { status: 400 })
+            }
+        }
+
+        if (phoneNumber !== undefined && phoneNumber !== null && phoneNumber !== "") {
+            if (typeof phoneNumber !== "string" || !/^\+?[0-9]{7,15}$/.test(phoneNumber.replace(/\s/g, ""))) {
+                return NextResponse.json({ error: "Invalid phone number format" }, { status: 400 })
+            }
+        }
+
+        if (firstName !== undefined && (typeof firstName !== "string" || firstName.length > 100)) {
+            return NextResponse.json({ error: "firstName must be a string of 100 characters or fewer" }, { status: 400 })
+        }
+
+        if (lastName !== undefined && (typeof lastName !== "string" || lastName.length > 100)) {
+            return NextResponse.json({ error: "lastName must be a string of 100 characters or fewer" }, { status: 400 })
+        }
+
+        if (password !== undefined) {
+            if (typeof password !== "string" || password.length < 8) {
+                return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
+            }
+            if (password.length > 128) {
+                return NextResponse.json({ error: "Password must be 128 characters or fewer" }, { status: 400 })
+            }
+        }
+
         // Create admin client with service role
         const adminClient = createClient(supabaseUrl, serviceRoleKey, {
             auth: {

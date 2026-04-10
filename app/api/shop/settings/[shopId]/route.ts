@@ -94,20 +94,37 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const body = await request.json()
-    const { 
-      whatsapp_link, 
-      announcement_enabled, 
-      announcement_title, 
-      announcement_message 
+    const {
+      whatsapp_link,
+      announcement_enabled,
+      announcement_title,
+      announcement_message
     } = body
 
     console.log(`[SHOP-SETTINGS] Received whatsapp_link: ${whatsapp_link}`)
-    
-    // We don't make whatsapp_link strictly required anymore if they're just updating announcements,
-    // but we should ensure the payload has at least some fields.
 
-    // Accept any format for WhatsApp link (phone number, URL, etc.)
-    console.log("[SHOP-SETTINGS] WhatsApp link validated (any format accepted)")
+    if (whatsapp_link !== undefined && whatsapp_link !== null && whatsapp_link !== "") {
+      if (typeof whatsapp_link !== "string") {
+        return NextResponse.json({ error: "whatsapp_link must be a string" }, { status: 400 })
+      }
+      if (whatsapp_link.length > 500) {
+        return NextResponse.json({ error: "whatsapp_link must be 500 characters or fewer" }, { status: 400 })
+      }
+      // Accept URLs or phone numbers (digits with optional + prefix)
+      const isUrl = /^https?:\/\//i.test(whatsapp_link)
+      const isPhone = /^\+?[0-9]{7,15}$/.test(whatsapp_link.replace(/\s/g, ""))
+      if (!isUrl && !isPhone) {
+        return NextResponse.json({ error: "whatsapp_link must be a valid URL or phone number" }, { status: 400 })
+      }
+    }
+
+    if (announcement_title !== undefined && typeof announcement_title === "string" && announcement_title.length > 200) {
+      return NextResponse.json({ error: "announcement_title must be 200 characters or fewer" }, { status: 400 })
+    }
+
+    if (announcement_message !== undefined && typeof announcement_message === "string" && announcement_message.length > 2000) {
+      return NextResponse.json({ error: "announcement_message must be 2000 characters or fewer" }, { status: 400 })
+    }
 
     // Get existing settings
     const { data: existingSettings } = await supabase

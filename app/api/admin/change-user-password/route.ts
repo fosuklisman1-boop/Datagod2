@@ -22,9 +22,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (newPassword.length < 6) {
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!UUID_REGEX.test(userId)) {
+      return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })
+    }
+
+    if (typeof newPassword !== "string" || newPassword.length < 8) {
       return NextResponse.json(
-        { error: "Password must be at least 6 characters" },
+        { error: "Password must be at least 8 characters" },
+        { status: 400 }
+      )
+    }
+
+    if (newPassword.length > 128) {
+      return NextResponse.json(
+        { error: "Password must be 128 characters or fewer" },
         { status: 400 }
       )
     }

@@ -23,6 +23,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const ALLOWED_STATUSES = ["pending", "processing", "completed", "failed", "cancelled", "blacklisted", "refunded"]
+    if (!ALLOWED_STATUSES.includes(status)) {
+      return NextResponse.json(
+        { error: `Invalid status. Must be one of: ${ALLOWED_STATUSES.join(", ")}` },
+        { status: 400 }
+      )
+    }
+
+    if (orderIds.length > 5000) {
+      return NextResponse.json(
+        { error: "Cannot update more than 5000 orders at once" },
+        { status: 400 }
+      )
+    }
+
+    if (filters) {
+      if (filters.date && !/^\d{4}-\d{2}-\d{2}$/.test(filters.date)) {
+        return NextResponse.json(
+          { error: "filters.date must be in YYYY-MM-DD format" },
+          { status: 400 }
+        )
+      }
+      const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "Telecel", "all"]
+      if (filters.network && !ALLOWED_NETWORKS.includes(filters.network)) {
+        return NextResponse.json(
+          { error: `Invalid filters.network. Must be one of: ${ALLOWED_NETWORKS.join(", ")}` },
+          { status: 400 }
+        )
+      }
+    }
+
     // If filters are provided, fetch IDs from the database (Global Update)
     if (filters && orderIds.length === 0) {
       console.log(`[BULK-UPDATE] Fetching IDs from filters:`, filters)

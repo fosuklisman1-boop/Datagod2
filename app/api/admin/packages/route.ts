@@ -24,6 +24,38 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Package data is required" }, { status: 400 })
     }
 
+    const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "Telecel"]
+    if (safeData.network !== undefined && !ALLOWED_NETWORKS.includes(safeData.network as string)) {
+      return NextResponse.json({ error: `Invalid network. Must be one of: ${ALLOWED_NETWORKS.join(", ")}` }, { status: 400 })
+    }
+
+    if (safeData.name !== undefined) {
+      if (typeof safeData.name !== "string" || safeData.name.trim().length === 0) {
+        return NextResponse.json({ error: "name must be a non-empty string" }, { status: 400 })
+      }
+      if (safeData.name.length > 200) {
+        return NextResponse.json({ error: "name must be 200 characters or fewer" }, { status: 400 })
+      }
+    }
+
+    if (safeData.price !== undefined) {
+      if (typeof safeData.price !== "number" || !isFinite(safeData.price) || safeData.price <= 0) {
+        return NextResponse.json({ error: "price must be a positive number" }, { status: 400 })
+      }
+    }
+
+    if (safeData.dealer_price !== undefined) {
+      if (typeof safeData.dealer_price !== "number" || !isFinite(safeData.dealer_price) || safeData.dealer_price < 0) {
+        return NextResponse.json({ error: "dealer_price must be a non-negative number" }, { status: 400 })
+      }
+    }
+
+    if (safeData.size !== undefined) {
+      if (typeof safeData.size !== "number" || !isFinite(safeData.size) || safeData.size <= 0) {
+        return NextResponse.json({ error: "size must be a positive number" }, { status: 400 })
+      }
+    }
+
     // Create admin client with service role
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
