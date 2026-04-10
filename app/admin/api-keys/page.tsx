@@ -101,9 +101,10 @@ export default function AdminApiManagementPage() {
   const [selectedLog, setSelectedLog] = useState<ApiLog | null>(null)
   const [isKilling, setIsKilling] = useState(false)
 
-  const getAuthHeaders = async () => {
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
     const { data: { session } } = await supabase.auth.getSession()
-    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
+    if (session?.access_token) return { Authorization: `Bearer ${session.access_token}` }
+    return {}
   }
 
   const fetchKeys = async () => {
