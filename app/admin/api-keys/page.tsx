@@ -101,17 +101,21 @@ export default function AdminApiManagementPage() {
   const [selectedLog, setSelectedLog] = useState<ApiLog | null>(null)
   const [isKilling, setIsKilling] = useState(false)
 
+  const getAuthHeaders = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
+  }
+
   const fetchKeys = async () => {
     try {
       setLoading(true)
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch("/api/admin/api-keys", {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      })
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch("/api/admin/api-keys", { headers: authHeaders })
       const data = await res.json()
-      if (data.keys) setKeys(data.keys)
+      if (!res.ok) throw new Error(data.error || "Failed to fetch API keys")
+      setKeys(data.keys || [])
     } catch (error) {
-      toast.error("Failed to fetch API keys")
+      toast.error(error instanceof Error ? error.message : "Failed to fetch API keys")
     } finally {
       setLoading(false)
     }
@@ -123,12 +127,14 @@ export default function AdminApiManagementPage() {
       const params = new URLSearchParams({ limit: "50" })
       if (searchTerm) params.append("search", searchTerm)
       if (statusFilter && statusFilter !== "all") params.append("statusFilter", statusFilter)
-      
-      const res = await fetch(`/api/admin/api-logs?${params.toString()}`)
+
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch(`/api/admin/api-logs?${params.toString()}`, { headers: authHeaders })
       const data = await res.json()
-      if (data.logs) setLogs(data.logs)
+      if (!res.ok) throw new Error(data.error || "Failed to fetch API logs")
+      setLogs(data.logs || [])
     } catch (error) {
-      toast.error("Failed to fetch API logs")
+      toast.error(error instanceof Error ? error.message : "Failed to fetch API logs")
     } finally {
       setLogsLoading(false)
     }
@@ -151,14 +157,18 @@ export default function AdminApiManagementPage() {
 
   const toggleKey = async (id: string, currentStatus: boolean) => {
     try {
+      const authHeaders = await getAuthHeaders()
       const res = await fetch(`/api/admin/api-keys?id=${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...authHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ is_active: !currentStatus }),
       })
       if (res.ok) {
         setKeys(keys.map(k => k.id === id ? { ...k, is_active: !currentStatus } : k))
         toast.success(`Key ${!currentStatus ? 'enabled' : 'disabled'} successfully`)
+      } else {
+        const data = await res.json()
+        toast.error(data.error || "Failed to update key status")
       }
     } catch (error) {
       toast.error("Failed to update key status")
@@ -168,10 +178,14 @@ export default function AdminApiManagementPage() {
   const deleteKey = async (id: string) => {
     if (!confirm("Are you sure you want to permanently delete this API key? This cannot be undone.")) return
     try {
-      const res = await fetch(`/api/admin/api-keys?id=${id}`, { method: "DELETE" })
+      const authHeaders = await getAuthHeaders()
+      const res = await fetch(`/api/admin/api-keys?id=${id}`, { method: "DELETE", headers: authHeaders })
       if (res.ok) {
         setKeys(keys.filter(k => k.id !== id))
         toast.success("API key deleted permanently")
+      } else {
+        const data = await res.json()
+        toast.error(data.error || "Failed to delete API key")
       }
     } catch (error) {
       toast.error("Failed to delete API key")
@@ -180,14 +194,18 @@ export default function AdminApiManagementPage() {
 
   const updateRateLimit = async (id: string, limit: number) => {
     try {
+      const authHeaders = await getAuthHeaders()
       const res = await fetch(`/api/admin/api-keys?id=${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...authHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ rate_limit_per_min: limit }),
       })
       if (res.ok) {
         toast.success("Rate limit updated")
-        fetchKeys() // Refresh to get correct data
+        fetchKeys()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || "Failed to update rate limit")
       }
     } catch (error) {
       toast.error("Failed to update rate limit")
