@@ -12,13 +12,13 @@ const MOOLRE_BASE = "https://api.moolre.com/open/transact"
 
 const NETWORK_TO_CHANNEL: Record<string, number> = {
   MTN: 1,
-  mtn: 1,
-  Telecel: 6,
-  telecel: 6,
+  TELECEL: 6,
   AT: 7,
-  at: 7,
-  AirtelTigo: 7,
-  airteltigo: 7,
+  AIRTELTIGO: 7,
+}
+
+function getChannel(network: string): number | undefined {
+  return NETWORK_TO_CHANNEL[network.toUpperCase()]
 }
 
 function getMoolreHeaders() {
@@ -55,7 +55,7 @@ export async function validateAccountName(
   phone: string,
   network: string
 ): Promise<MoolreValidateResult> {
-  const channel = NETWORK_TO_CHANNEL[network]
+  const channel = getChannel(network)
   if (!channel) {
     return { accountName: null, error: `Unsupported network: ${network}` }
   }
@@ -119,7 +119,7 @@ export async function initiateTransfer(params: {
   externalref: string  // withdrawal request UUID
   reference?: string   // human-readable memo shown to recipient
 }): Promise<MoolreTransferResult | null> {
-  const channel = NETWORK_TO_CHANNEL[params.network]
+  const channel = getChannel(params.network)
   if (!channel) {
     console.error(`[MOOLRE-TRANSFER] Unknown network: ${params.network}`)
     return null
