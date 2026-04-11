@@ -136,26 +136,36 @@ export async function initiateTransfer(params: {
     const json = await response.json()
     console.log(`[MOOLRE-TRANSFER] ExternalRef: ${params.externalref}, HTTP: ${response.status}, Response:`, json)
 
-    // Handle HTTP 400 error responses from Moolre (insufficient balance, invalid account, etc.)
-    if (!response.ok) {
-      const code = json.code || ""
-      const message = Array.isArray(json.message) ? json.message[0] : (json.message || "Transfer rejected")
-      const isInsufficientBalance = code === "400_INSUFFICIENT_BALANCE" ||
-        String(message).toLowerCase().includes("insufficient")
+    const data = json.data
+    console.log("[MOOLRE-TRANSFER] Raw data field:", data)
 
-      console.error(`[MOOLRE-TRANSFER] HTTP ${response.status} error:`, json)
+    // Extract error info from response body regardless of HTTP status code
+    // Moolre may return 200 with an error body
+    const code = String(json.code || "")
+    const message = Array.isArray(json.message) ? json.message[0] : String(json.message || "")
+
+    const isInsufficientBalance = code === "400_INSUFFICIENT_BALANCE" ||
+      message.toLowerCase().includes("insufficient") ||
+      message.toLowerCase().includes("balance")
+
+    // Error if: HTTP error, OR Moolre top-level status != 1 with no data object
+    const isErrorResponse = !response.ok ||
+      isInsufficientBalance ||
+      code.startsWith("400") ||
+      code.startsWith("500") ||
+      (String(json.status) !== "1" && !data)
+
+    if (isErrorResponse) {
+      console.error(`[MOOLRE-TRANSFER] Error response (HTTP ${response.status}, code: ${code}):`, json)
       return {
         txstatus: 2,
         transactionId: "",
         externalref: params.externalref,
         fee: 0,
         insufficientBalance: isInsufficientBalance,
-        errorMessage: String(message),
+        errorMessage: message || (code ? `Error: ${code}` : "Transfer rejected by provider"),
       }
     }
-
-    const data = json.data
-    console.log("[MOOLRE-TRANSFER] Raw data field:", data)
 
     // txstatus may be on data or at the top level depending on Moolre response variant
     const rawTxstatus = data?.txstatus ?? json.txstatus
