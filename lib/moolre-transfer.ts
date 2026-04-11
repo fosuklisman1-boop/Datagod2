@@ -73,8 +73,16 @@ export async function validateAccountName(
       }),
     })
 
-    const json = await response.json()
-    console.log(`[MOOLRE-VALIDATE] Phone: ${phone}, Network: ${network}, Response:`, json)
+    const rawText = await response.text()
+    console.log(`[MOOLRE-VALIDATE] Phone: ${phone}, Network: ${network}, Channel: ${channel}, HTTP: ${response.status}, Raw: ${rawText}`)
+
+    let json: any
+    try {
+      json = JSON.parse(rawText)
+    } catch {
+      console.error(`[MOOLRE-VALIDATE] Non-JSON response for channel ${channel}: ${rawText.slice(0, 200)}`)
+      return { accountName: null, error: `Unexpected response from payment provider (HTTP ${response.status})` }
+    }
 
     if (json.status === 1 && json.data) {
       return { accountName: json.data as string }
@@ -133,11 +141,25 @@ export async function initiateTransfer(params: {
       }),
     })
 
-    const json = await response.json()
-    console.log(`[MOOLRE-TRANSFER] ExternalRef: ${params.externalref}, HTTP: ${response.status}, Response:`, json)
+    const rawText = await response.text()
+    console.log(`[MOOLRE-TRANSFER] ExternalRef: ${params.externalref}, HTTP: ${response.status}, Network: ${params.network}, Channel: ${channel}, Raw response: ${rawText}`)
+
+    let json: any
+    try {
+      json = JSON.parse(rawText)
+    } catch {
+      // Moolre returned non-JSON (HTML error page, plain text, etc.)
+      console.error(`[MOOLRE-TRANSFER] Non-JSON response for channel ${channel} (${params.network}): ${rawText.slice(0, 200)}`)
+      return {
+        txstatus: 2,
+        transactionId: "",
+        externalref: params.externalref,
+        fee: 0,
+        errorMessage: `Unexpected response from payment provider (HTTP ${response.status})`,
+      }
+    }
 
     const data = json.data
-    console.log("[MOOLRE-TRANSFER] Raw data field:", data)
 
     // Extract error info from response body regardless of HTTP status code
     // Moolre may return 200 with an error body
@@ -212,11 +234,18 @@ export async function getTransferStatus(externalref: string): Promise<MoolreStat
       }),
     })
 
-    const json = await response.json()
-    console.log(`[MOOLRE-STATUS] ExternalRef: ${externalref}, Response:`, json)
+    const rawText = await response.text()
+    console.log(`[MOOLRE-STATUS] ExternalRef: ${externalref}, HTTP: ${response.status}, Raw: ${rawText}`)
+
+    let json: any
+    try {
+      json = JSON.parse(rawText)
+    } catch {
+      console.error(`[MOOLRE-STATUS] Non-JSON response: ${rawText.slice(0, 200)}`)
+      return null
+    }
 
     const data = json.data
-    console.log("[MOOLRE-STATUS] Raw data field:", data)
 
     const rawTxstatus = data?.txstatus ?? json.txstatus
     const txstatus = rawTxstatus !== undefined && rawTxstatus !== null
