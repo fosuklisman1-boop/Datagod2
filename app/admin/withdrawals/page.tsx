@@ -148,6 +148,29 @@ export default function WithdrawalsPage() {
     }
   }
 
+  const resetProcessing = async (withdrawalId: string) => {
+    try {
+      setActionLoadingId(withdrawalId)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/withdrawals/reset-processing", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ withdrawalId }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to reset")
+      toast.success("Withdrawal reset to pending — admin can now re-approve")
+      loadWithdrawals()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to reset withdrawal")
+    } finally {
+      setActionLoadingId(null)
+    }
+  }
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "approved":
@@ -430,11 +453,24 @@ export default function WithdrawalsPage() {
                         </div>
                       )}
 
-                      {/* Processing notice */}
+                      {/* Processing notice + reset */}
                       {withdrawal.status === "processing" && (
-                        <div className="mb-3 bg-blue-50 p-3 rounded border border-blue-200 flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin text-blue-500 shrink-0" />
-                          <p className="text-xs text-blue-700">Transfer in progress — awaiting MoMo confirmation. Cron will update automatically.</p>
+                        <div className="mb-3 bg-blue-50 p-3 rounded border border-blue-200 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-blue-500 shrink-0" />
+                            <p className="text-xs text-blue-700">Transfer in progress — awaiting MoMo confirmation. Cron checks every 5 min.</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={actionLoadingId === withdrawal.id}
+                            onClick={() => resetProcessing(withdrawal.id)}
+                            className="w-full text-xs border-orange-300 text-orange-600 hover:bg-orange-50"
+                          >
+                            {actionLoadingId === withdrawal.id
+                              ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Resetting...</>
+                              : "↺ Reset to Pending (stuck transfer)"}
+                          </Button>
                         </div>
                       )}
 

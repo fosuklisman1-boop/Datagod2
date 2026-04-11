@@ -130,7 +130,27 @@ export async function GET(request: NextRequest) {
       const statusResult = await getTransferStatus(withdrawal.moolre_external_ref)
 
       if (!statusResult) {
+        // Can't reach Moolre API at all — skip, try next run
         console.warn(`[CRON-STATUS] Could not reach Moolre for withdrawal ${withdrawal.id}`)
+        pending++
+        continue
+      }
+
+      // txstatus=3 with no transactionId means Moolre has no record of this transfer.
+      // This happens when the transfer was never actually initiated (e.g. insufficient balance
+      // rejected before Moolre created a transaction). Reset to pending so admin can retry.
+      if (statusResult.txstatus === 3 && !statusResult.transactionId && !withdrawal.moolre_transfer_id) {
+        await supabase
+          .from("withdrawal_requests")
+          .update({
+            status: "pending",
+            moolre_external_ref: null,
+            transfer_attempted_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", withdrawal.id)
+
+        console.warn(`[CRON-STATUS] No Moolre record found — reset to pending: ${withdrawal.id}`)
         pending++
         continue
       }
