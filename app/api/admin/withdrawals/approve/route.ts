@@ -74,7 +74,7 @@ async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
 
     // In-app notification
     const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawalId)
-    await supabase.from("notifications").insert([{
+    const { error: notifError } = await supabase.from("notifications").insert([{
       user_id: shop.user_id,
       title: notificationData.title,
       message: notificationData.message,
@@ -82,7 +82,8 @@ async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
       reference_id: notificationData.reference_id,
       action_url: `/dashboard/shop-dashboard`,
       read: false,
-    }]).catch(err => console.warn("[NOTIFICATION] Failed:", err))
+    }])
+    if (notifError) console.warn("[NOTIFICATION] Failed:", notifError)
 
     // SMS + Email
     const { data: userData } = await supabase

@@ -65,7 +65,7 @@ async function notifyCompletion(withdrawal: any) {
     if (!shop) return
 
     const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawal.id)
-    await supabase.from("notifications").insert([{
+    const { error: notifError } = await supabase.from("notifications").insert([{
       user_id: shop.user_id,
       title: notificationData.title,
       message: notificationData.message,
@@ -73,7 +73,8 @@ async function notifyCompletion(withdrawal: any) {
       reference_id: notificationData.reference_id,
       action_url: `/dashboard/shop-dashboard`,
       read: false,
-    }]).catch(err => console.warn("[CRON-NOTIFY] Notification error:", err))
+    }])
+    if (notifError) console.warn("[CRON-NOTIFY] Notification error:", notifError)
 
     const { data: userData } = await supabase
       .from("users")
