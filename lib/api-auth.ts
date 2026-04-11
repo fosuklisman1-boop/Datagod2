@@ -97,6 +97,8 @@ export async function logApiRequest({
   statusCode,
   request,
   durationMs,
+  requestPayload,
+  responsePayload,
 }: {
   userId: string
   apiKeyId: string
@@ -105,6 +107,8 @@ export async function logApiRequest({
   statusCode: number
   request: NextRequest
   durationMs?: number
+  requestPayload?: Record<string, unknown>
+  responsePayload?: Record<string, unknown>
 }): Promise<void> {
   const ip =
     request.headers.get("cf-connecting-ip") ||
@@ -121,6 +125,8 @@ export async function logApiRequest({
     ip_address: ip,
     user_agent: request.headers.get("user-agent"),
     duration_ms: durationMs,
+    request_payload: requestPayload ?? null,
+    response_payload: responsePayload ?? null,
     created_at: new Date().toISOString(),
   })
 }

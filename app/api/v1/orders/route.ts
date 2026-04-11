@@ -44,7 +44,20 @@ export async function GET(request: NextRequest) {
     .single()
 
   const statusCode = order ? 200 : 404
-  logApiRequest({ userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/orders", statusCode, request, durationMs: Date.now() - start }).catch(() => {})
+  const responsePayload = order
+    ? { reference: order.api_reference, network: order.network, volume_gb: order.volume_gb, status: order.status }
+    : { error: "Order not found" }
+  logApiRequest({
+    userId: user.id,
+    apiKeyId: user.api_key_id,
+    method: "GET",
+    endpoint: "/api/v1/orders",
+    statusCode,
+    request,
+    durationMs: Date.now() - start,
+    requestPayload: { reference },
+    responsePayload,
+  }).catch(() => {})
 
   if (!order) {
     return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
@@ -154,23 +167,28 @@ export async function POST(request: NextRequest) {
 
   const durationMs = Date.now() - start
 
+  // Sanitized request payload for logging (strip no-log fields, keep what's useful)
+  const loggedRequest = { network: sanitizedNetwork, volume_gb: volumeGb, recipient: cleanRecipient, reference }
+
   if (rpcError || !result || !result.success) {
     const errorMsg = result?.error || rpcError?.message || "Failed to place order"
-    const status = result?.error === 'Insufficient balance' ? 402 : 
+    const status = result?.error === 'Insufficient balance' ? 402 :
                    result?.error === 'Duplicate reference' ? 409 : 500
-    
-    logApiRequest({ 
-      userId: user.id, 
-      apiKeyId: user.api_key_id, 
-      method: "POST", 
-      endpoint: "/api/v1/orders", 
-      statusCode: status, 
-      request, 
-      durationMs 
+
+    logApiRequest({
+      userId: user.id,
+      apiKeyId: user.api_key_id,
+      method: "POST",
+      endpoint: "/api/v1/orders",
+      statusCode: status,
+      request,
+      durationMs,
+      requestPayload: loggedRequest,
+      responsePayload: { error: errorMsg, required: result?.required },
     }).catch(() => {})
 
-    return NextResponse.json({ 
-      success: false, 
+    return NextResponse.json({
+      success: false,
       error: errorMsg,
       required: result?.required
     }, { status })
@@ -178,15 +196,17 @@ export async function POST(request: NextRequest) {
 
   const { order_id: orderId, new_balance: newBalance } = result!
   const orderCreatedAt = new Date().toISOString()
-  
-  logApiRequest({ 
-    userId: user.id, 
-    apiKeyId: user.api_key_id, 
-    method: "POST", 
-    endpoint: "/api/v1/orders", 
-    statusCode: 201, 
-    request, 
-     durationMs 
+
+  logApiRequest({
+    userId: user.id,
+    apiKeyId: user.api_key_id,
+    method: "POST",
+    endpoint: "/api/v1/orders",
+    statusCode: 201,
+    request,
+    durationMs,
+    requestPayload: loggedRequest,
+    responsePayload: { success: true, order_id: orderId, network: sanitizedNetwork, volume_gb: volumeGb, price: orderPrice, status: "pending" },
   }).catch(() => {})
 
   // --- 4. Trigger Asynchronous Fulfillment ---
