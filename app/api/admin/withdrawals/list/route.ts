@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     let baseQuery = supabase
       .from("withdrawal_requests")
-      .select("id, shop_id, user_id, amount, fee_amount, net_amount, status, created_at, updated_at, account_details, withdrawal_method, reference_code, rejection_reason")
+      .select("id, shop_id, user_id, amount, fee_amount, net_amount, status, created_at, updated_at, account_details, withdrawal_method, reference_code, rejection_reason, moolre_transfer_id, moolre_external_ref, moolre_fee, transfer_attempted_at, transfer_completed_at")
 
     if (status !== "all") {
       baseQuery = baseQuery.eq("status", status)

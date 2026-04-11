@@ -319,7 +319,7 @@ export default function ShopDashboardPage() {
     )
   }
 
-  const pendingWithdrawals = withdrawals.filter(w => w.status === "pending")
+  const pendingWithdrawals = withdrawals.filter(w => w.status === "pending" || w.status === "processing")
   const completedWithdrawals = withdrawals.filter(w => w.status === "completed")
 
   return (
@@ -481,10 +481,12 @@ export default function ShopDashboardPage() {
         {/* Withdraw Button */}
         {balance > 0 && !showWithdrawalForm && (
           <>
-            {withdrawals.some(w => w.status === "pending") ? (
+            {withdrawals.some(w => w.status === "pending" || w.status === "processing") ? (
               <div className="w-full p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <p className="text-yellow-800 text-sm font-medium">
-                  ⏳ You have a pending withdrawal request. Please wait for it to be approved or rejected before requesting another.
+                  {withdrawals.some(w => w.status === "processing")
+                    ? "⏳ Your withdrawal is being transferred. It will complete automatically."
+                    : "⏳ You have a pending withdrawal request. Please wait for it to be approved or rejected before requesting another."}
                 </p>
               </div>
             ) : (
