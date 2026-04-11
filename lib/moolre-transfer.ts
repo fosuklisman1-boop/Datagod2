@@ -3,9 +3,9 @@
  * Docs: https://docs.moolre.com
  *
  * Required env vars:
- *   MOOLRE_API_USER       — your Moolre username
- *   MOOLRE_API_KEY        — your Moolre API key
- *   MOOLRE_ACCOUNT_NUMBER — your Moolre source account number
+ *   MOOLRE_TRANSFER_USER    — your Moolre username
+ *   MOOLRE_TRANSFER_KEY     — your Moolre API key (X-API-KEY header)
+ *   MOOLRE_TRANSFER_ACCOUNT — your Moolre source account number
  */
 
 const MOOLRE_BASE = "https://api.moolre.com/open/transact"
@@ -22,10 +22,10 @@ const NETWORK_TO_CHANNEL: Record<string, number> = {
 }
 
 function getMoolreHeaders() {
-  const apiUser = process.env.MOOLRE_API_USER
-  const apiKey = process.env.MOOLRE_API_KEY
+  const apiUser = process.env.MOOLRE_TRANSFER_USER
+  const apiKey = process.env.MOOLRE_TRANSFER_KEY
   if (!apiUser || !apiKey) {
-    throw new Error("MOOLRE_API_USER and MOOLRE_API_KEY environment variables are required")
+    throw new Error("MOOLRE_TRANSFER_USER and MOOLRE_TRANSFER_KEY environment variables are required")
   }
   return {
     "X-API-USER": apiUser,
@@ -35,9 +35,9 @@ function getMoolreHeaders() {
 }
 
 function getMoolreAccountNumber(): string {
-  const accountNumber = process.env.MOOLRE_ACCOUNT_NUMBER
+  const accountNumber = process.env.MOOLRE_TRANSFER_ACCOUNT
   if (!accountNumber) {
-    throw new Error("MOOLRE_ACCOUNT_NUMBER environment variable is required")
+    throw new Error("MOOLRE_TRANSFER_ACCOUNT environment variable is required")
   }
   return accountNumber
 }
