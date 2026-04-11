@@ -98,7 +98,7 @@ export async function applyRateLimit(
         .insert({
           endpoint: endpointName,
           identifier,
-          limit: maxRequests,
+          request_limit: maxRequests,
           window_seconds: Math.round(windowMs / 1000),
           blocked_at: new Date().toISOString(),
         })

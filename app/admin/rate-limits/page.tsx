@@ -15,7 +15,7 @@ interface RateLimitBlock {
   id: string
   endpoint: string
   identifier: string
-  limit: number
+  request_limit: number
   window_seconds: number
   blocked_at: string
 }
@@ -216,7 +216,7 @@ export default function RateLimitsPage() {
                             </span>
                           </td>
                           <td className="py-3 pr-4 text-gray-600">
-                            {block.limit} / {block.window_seconds}s
+                            {block.request_limit} / {block.window_seconds}s
                           </td>
                           <td className="py-3 pr-4 text-gray-500 text-xs">
                             {new Date(block.blocked_at).toLocaleString()}
