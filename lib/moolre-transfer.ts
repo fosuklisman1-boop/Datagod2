@@ -135,16 +135,23 @@ export async function initiateTransfer(params: {
     console.log(`[MOOLRE-TRANSFER] ExternalRef: ${params.externalref}, Response:`, json)
 
     const data = json.data
-    if (!data) {
-      console.warn("[MOOLRE-TRANSFER] No data in response:", json)
-      return null
+    console.log("[MOOLRE-TRANSFER] Raw data field:", data)
+
+    // txstatus may be on data or at the top level depending on Moolre response variant
+    const rawTxstatus = data?.txstatus ?? json.txstatus
+    const txstatus = rawTxstatus !== undefined && rawTxstatus !== null
+      ? Number(rawTxstatus)
+      : Number(json.status) === 1 ? 1 : 3  // fall back to top-level status, unknown=3
+
+    if (isNaN(txstatus)) {
+      console.warn("[MOOLRE-TRANSFER] Could not parse txstatus, treating as unknown:", json)
     }
 
     return {
-      txstatus: Number(data.txstatus),
-      transactionId: String(data.transactionid || ""),
-      externalref: String(data.externalref || params.externalref),
-      fee: parseFloat(data.amountfee || "0"),
+      txstatus,
+      transactionId: String(data?.transactionid ?? json.transactionid ?? ""),
+      externalref: String(data?.externalref ?? json.externalref ?? params.externalref),
+      fee: parseFloat(String(data?.amountfee ?? json.amountfee ?? "0")),
     }
   } catch (error) {
     console.error("[MOOLRE-TRANSFER] Error:", error)
@@ -179,15 +186,17 @@ export async function getTransferStatus(externalref: string): Promise<MoolreStat
     console.log(`[MOOLRE-STATUS] ExternalRef: ${externalref}, Response:`, json)
 
     const data = json.data
-    if (!data) {
-      console.warn("[MOOLRE-STATUS] No data in response:", json)
-      return null
-    }
+    console.log("[MOOLRE-STATUS] Raw data field:", data)
+
+    const rawTxstatus = data?.txstatus ?? json.txstatus
+    const txstatus = rawTxstatus !== undefined && rawTxstatus !== null
+      ? Number(rawTxstatus)
+      : Number(json.status) === 1 ? 1 : 3
 
     return {
-      txstatus: Number(data.txstatus),
-      transactionId: String(data.transactionid || ""),
-      externalref: String(data.externalref || externalref),
+      txstatus,
+      transactionId: String(data?.transactionid ?? json.transactionid ?? ""),
+      externalref: String(data?.externalref ?? json.externalref ?? externalref),
     }
   } catch (error) {
     console.error("[MOOLRE-STATUS] Error:", error)

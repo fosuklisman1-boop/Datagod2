@@ -268,21 +268,41 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // txstatus=2 (failed) or txstatus=3 (unknown)
+    if (result.txstatus === 2) {
+      // Moolre explicitly confirmed failure — safe to revert
+      await supabase
+        .from("withdrawal_requests")
+        .update({
+          transfer_attempted_at: null,
+          moolre_external_ref: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", withdrawalId)
+
+      console.error(`[WITHDRAWAL-APPROVE] Transfer explicitly failed: ${withdrawalId}`)
+      return NextResponse.json(
+        { error: "Transfer failed. Withdrawal remains pending." },
+        { status: 400 }
+      )
+    }
+
+    // txstatus=3 (unknown) or NaN — per Moolre docs, never assume failure.
+    // Treat as processing so the cron polls for the real outcome.
     await supabase
       .from("withdrawal_requests")
       .update({
-        transfer_attempted_at: null,
-        moolre_external_ref: null,
+        status: "processing",
+        moolre_transfer_id: result.transactionId || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", withdrawalId)
 
-    console.error(`[WITHDRAWAL-APPROVE] Transfer failed: ${withdrawalId}, txstatus: ${result.txstatus}`)
-    return NextResponse.json(
-      { error: `Transfer failed (txstatus: ${result.txstatus}). Withdrawal remains pending.` },
-      { status: 400 }
-    )
+    console.warn(`[WITHDRAWAL-APPROVE] Unknown txstatus (${result.txstatus}), treating as processing: ${withdrawalId}`)
+    return NextResponse.json({
+      success: true,
+      status: "processing",
+      message: "Transfer status unknown — monitoring for completion automatically.",
+    })
   } catch (error) {
     console.error("[WITHDRAWAL-APPROVE] Error:", error)
     return NextResponse.json(
