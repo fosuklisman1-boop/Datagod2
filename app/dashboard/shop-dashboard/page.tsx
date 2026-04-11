@@ -223,11 +223,6 @@ export default function ShopDashboardPage() {
       return
     }
 
-    if (!withdrawalForm.accountName.trim()) {
-      toast.error("Please enter the account name")
-      return
-    }
-
     if (withdrawalForm.method === "mobile_money" && !withdrawalForm.phone) {
       toast.error("Please enter your phone number")
       return
@@ -239,6 +234,10 @@ export default function ShopDashboardPage() {
     }
 
     if (withdrawalForm.method === "bank_transfer") {
+      if (!withdrawalForm.accountName.trim()) {
+        toast.error("Please enter the account name")
+        return
+      }
       if (!withdrawalForm.bankName.trim()) {
         toast.error("Please enter the bank name")
         return
@@ -592,19 +591,16 @@ export default function ShopDashboardPage() {
               )}
 
               {withdrawalForm.method === "bank_transfer" && (
-                <div>
-                  <Label>Account Name (Full Name) *</Label>
-                  <Input
-                    value={withdrawalForm.accountName}
-                    onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountName: e.target.value })}
-                    placeholder="John Doe"
-                    className="mt-1"
-                  />
-                </div>
-              )}
-
-              {withdrawalForm.method === "bank_transfer" && (
                 <>
+                  <div>
+                    <Label>Account Name (Full Name) *</Label>
+                    <Input
+                      value={withdrawalForm.accountName}
+                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountName: e.target.value })}
+                      placeholder="John Doe"
+                      className="mt-1"
+                    />
+                  </div>
                   <div>
                     <Label>Bank Name *</Label>
                     <Input
