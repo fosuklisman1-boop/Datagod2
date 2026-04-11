@@ -562,28 +562,41 @@ export default function ShopDashboardPage() {
                   </div>
                   <div>
                     <Label>Mobile Number *</Label>
-                    <Input
-                      value={withdrawalForm.phone}
-                      onChange={(e) => {
-                        setWithdrawalForm(prev => ({ ...prev, phone: e.target.value, accountName: "" }))
-                        setNameVerified(false)
-                      }}
-                      onBlur={(e) => {
-                        if (e.target.value) {
-                          handleValidateAccount(e.target.value, withdrawalForm.network)
-                        }
-                      }}
-                      placeholder="0201234567"
-                      className="mt-1"
-                    />
-                    {isFetchingName && (
-                      <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                        <Loader2 className="h-3 w-3 animate-spin" /> Verifying account...
-                      </p>
-                    )}
+                    <div className="flex gap-2 mt-1">
+                      <Input
+                        value={withdrawalForm.phone}
+                        onChange={(e) => {
+                          setWithdrawalForm(prev => ({ ...prev, phone: e.target.value, accountName: "" }))
+                          setNameVerified(false)
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value) {
+                            handleValidateAccount(e.target.value, withdrawalForm.network)
+                          }
+                        }}
+                        placeholder="0201234567"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!withdrawalForm.phone || isFetchingName}
+                        onClick={() => handleValidateAccount(withdrawalForm.phone, withdrawalForm.network)}
+                        className="shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
+                      >
+                        {isFetchingName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Enter your number and click <span className="font-medium text-violet-600">Verify</span> to confirm the account name before submitting.
+                    </p>
                     {nameVerified && withdrawalForm.accountName && (
                       <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
                         <CheckCircle className="h-3 w-3" /> Account: {withdrawalForm.accountName}
+                      </p>
+                    )}
+                    {!nameVerified && !isFetchingName && withdrawalForm.phone && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        Account not yet verified — click Verify to proceed.
                       </p>
                     )}
                   </div>
