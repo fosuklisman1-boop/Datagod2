@@ -12,7 +12,8 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { shopService, shopOrderService, shopProfitService, withdrawalService } from "@/lib/shop-service"
-import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle } from "lucide-react"
 import { toast } from "sonner"
 
 export default function ShopDashboardPage() {
@@ -43,6 +44,8 @@ export default function ShopDashboardPage() {
   })
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isFetchingName, setIsFetchingName] = useState(false)
+  const [nameVerified, setNameVerified] = useState(false)
   const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
 
   useEffect(() => {
@@ -173,6 +176,35 @@ export default function ShopDashboardPage() {
     }
   }
 
+  const handleValidateAccount = async (phone: string, network: string) => {
+    if (!phone || !network) return
+    setIsFetchingName(true)
+    setNameVerified(false)
+    setWithdrawalForm(prev => ({ ...prev, accountName: "" }))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/user/withdrawals/validate-account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ phone, network }),
+      })
+      const data = await response.json()
+      if (response.ok && data.accountName) {
+        setWithdrawalForm(prev => ({ ...prev, accountName: data.accountName }))
+        setNameVerified(true)
+      } else {
+        toast.error(data.error || "Could not verify account. Check the phone number and network.")
+      }
+    } catch {
+      toast.error("Failed to verify account. Please try again.")
+    } finally {
+      setIsFetchingName(false)
+    }
+  }
+
   const handleWithdrawal = async () => {
     const amount = parseFloat(withdrawalForm.amount)
 
@@ -198,6 +230,11 @@ export default function ShopDashboardPage() {
 
     if (withdrawalForm.method === "mobile_money" && !withdrawalForm.phone) {
       toast.error("Please enter your phone number")
+      return
+    }
+
+    if (withdrawalForm.method === "mobile_money" && !nameVerified) {
+      toast.error("Please verify your account name before submitting")
       return
     }
 
@@ -242,6 +279,7 @@ export default function ShopDashboardPage() {
 
       toast.success("Withdrawal request submitted successfully")
       setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", accountNumber: "", network: "MTN" })
+      setNameVerified(false)
       setShowWithdrawalForm(false)
 
       // Reload withdrawals
@@ -486,20 +524,13 @@ export default function ShopDashboardPage() {
               </div>
 
               <div>
-                <Label>Account Name (Full Name) *</Label>
-                <Input
-                  value={withdrawalForm.accountName}
-                  onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountName: e.target.value })}
-                  placeholder="John Doe"
-                  className="mt-1"
-                />
-              </div>
-
-              <div>
                 <Label>Withdrawal Method *</Label>
                 <select
                   value={withdrawalForm.method}
-                  onChange={(e) => setWithdrawalForm({ ...withdrawalForm, method: e.target.value })}
+                  onChange={(e) => {
+                    setWithdrawalForm({ ...withdrawalForm, method: e.target.value, accountName: "", phone: "", network: "MTN" })
+                    setNameVerified(false)
+                  }}
                   className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                 >
                   <option value="mobile_money">Mobile Money</option>
@@ -510,26 +541,64 @@ export default function ShopDashboardPage() {
               {withdrawalForm.method === "mobile_money" && (
                 <>
                   <div>
-                    <Label>Mobile Number *</Label>
-                    <Input
-                      value={withdrawalForm.phone}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, phone: e.target.value })}
-                      placeholder="0201234567"
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
                     <Label>Network *</Label>
                     <select
                       value={withdrawalForm.network}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, network: e.target.value })}
+                      onChange={(e) => {
+                        const newNetwork = e.target.value
+                        setWithdrawalForm(prev => ({ ...prev, network: newNetwork, accountName: "" }))
+                        setNameVerified(false)
+                        if (withdrawalForm.phone) {
+                          handleValidateAccount(withdrawalForm.phone, newNetwork)
+                        }
+                      }}
                       className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                     >
                       <option value="MTN">MTN</option>
-                      <option value="TELECEL">TELECEL</option>
+                      <option value="Telecel">Telecel</option>
+                      <option value="AT">AirtelTigo (AT)</option>
                     </select>
                   </div>
+                  <div>
+                    <Label>Mobile Number *</Label>
+                    <Input
+                      value={withdrawalForm.phone}
+                      onChange={(e) => {
+                        setWithdrawalForm(prev => ({ ...prev, phone: e.target.value, accountName: "" }))
+                        setNameVerified(false)
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value) {
+                          handleValidateAccount(e.target.value, withdrawalForm.network)
+                        }
+                      }}
+                      placeholder="0201234567"
+                      className="mt-1"
+                    />
+                    {isFetchingName && (
+                      <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" /> Verifying account...
+                      </p>
+                    )}
+                    {nameVerified && withdrawalForm.accountName && (
+                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
+                        <CheckCircle className="h-3 w-3" /> Account: {withdrawalForm.accountName}
+                      </p>
+                    )}
+                  </div>
                 </>
+              )}
+
+              {withdrawalForm.method === "bank_transfer" && (
+                <div>
+                  <Label>Account Name (Full Name) *</Label>
+                  <Input
+                    value={withdrawalForm.accountName}
+                    onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountName: e.target.value })}
+                    placeholder="John Doe"
+                    className="mt-1"
+                  />
+                </div>
               )}
 
               {withdrawalForm.method === "bank_transfer" && (
@@ -589,12 +658,12 @@ export default function ShopDashboardPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={handleWithdrawal}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isFetchingName || (withdrawalForm.method === "mobile_money" && !nameVerified)}
                   className="flex-1 bg-violet-600 hover:bg-violet-700"
                 >
                   {isSubmitting ? (
                     <>
-                      <span className="animate-spin mr-2">⏳</span>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       Submitting...
                     </>
                   ) : (
@@ -602,7 +671,10 @@ export default function ShopDashboardPage() {
                   )}
                 </Button>
                 <Button
-                  onClick={() => setShowWithdrawalForm(false)}
+                  onClick={() => {
+                    setShowWithdrawalForm(false)
+                    setNameVerified(false)
+                  }}
                   variant="outline"
                   className="flex-1"
                   disabled={isSubmitting}
@@ -727,13 +799,17 @@ export default function ShopDashboardPage() {
                         <Badge className={
                           withdrawal.status === "completed"
                             ? "bg-green-600"
+                            : withdrawal.status === "processing"
+                            ? "bg-blue-500"
                             : withdrawal.status === "pending"
                             ? "bg-amber-600"
                             : withdrawal.status === "approved"
                             ? "bg-blue-600"
-                            : "bg-red-600"
+                            : withdrawal.status === "failed"
+                            ? "bg-red-600"
+                            : "bg-gray-500"
                         }>
-                          {withdrawal.status}
+                          {withdrawal.status === "processing" ? "Transferring..." : withdrawal.status}
                         </Badge>
                       </div>
                     ))}

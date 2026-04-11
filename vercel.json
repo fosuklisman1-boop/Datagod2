@@ -28,6 +28,10 @@
     {
       "path": "/api/cron/check-subscriptions",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/withdrawals-status-check",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

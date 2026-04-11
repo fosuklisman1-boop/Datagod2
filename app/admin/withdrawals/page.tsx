@@ -23,7 +23,8 @@ interface WithdrawalRequest {
   net_amount?: number
   withdrawal_method: string
   account_details: any
-  status: "pending" | "approved" | "rejected" | "completed"
+  status: "pending" | "approved" | "rejected" | "completed" | "processing" | "failed"
+  moolre_transfer_id?: string
   reference_code: string
   rejection_reason?: string
   created_at: string
@@ -96,7 +97,11 @@ export default function WithdrawalsPage() {
         throw new Error(data.error || "Failed to approve withdrawal")
       }
 
-      toast.success("Withdrawal approved successfully")
+      if (data.status === "processing") {
+        toast.success("Transfer initiated — awaiting MoMo confirmation. Will complete automatically.")
+      } else {
+        toast.success("Withdrawal approved and transferred successfully")
+      }
       setSelectedWithdrawal(null)
       loadWithdrawals()
     } catch (error) {
@@ -152,6 +157,10 @@ export default function WithdrawalsPage() {
         return <XCircle className="h-4 w-4 text-red-600" />
       case "completed":
         return <CheckCircle className="h-4 w-4 text-blue-600" />
+      case "processing":
+        return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+      case "failed":
+        return <XCircle className="h-4 w-4 text-red-500" />
       default:
         return <Clock className="h-4 w-4 text-orange-600" />
     }
@@ -167,6 +176,10 @@ export default function WithdrawalsPage() {
         return "bg-red-100 text-red-800"
       case "completed":
         return "bg-blue-100 text-blue-800"
+      case "processing":
+        return "bg-blue-50 text-blue-600"
+      case "failed":
+        return "bg-red-100 text-red-700"
       default:
         return "bg-gray-100 text-gray-800"
     }
@@ -204,7 +217,7 @@ export default function WithdrawalsPage() {
 
         {/* Filter Buttons */}
         <div className="flex flex-wrap gap-2 sm:gap-3 md:gap-4">
-          {["pending", "approved", "rejected", "completed", "all"].map((status) => (
+          {["pending", "processing", "approved", "completed", "failed", "rejected", "all"].map((status) => (
             <Button
               key={status}
               variant={filterStatus === status ? "default" : "outline"}
@@ -402,6 +415,36 @@ export default function WithdrawalsPage() {
                           </p>
                         </div>
                       </div>
+
+                      {/* Moolre Transfer ID */}
+                      {withdrawal.moolre_transfer_id && (
+                        <div className="mb-3 bg-gray-50 p-2 rounded border border-gray-200">
+                          <p className="text-xs text-gray-500">Moolre Transfer ID</p>
+                          <p className="font-mono text-xs text-gray-700">{withdrawal.moolre_transfer_id}</p>
+                        </div>
+                      )}
+
+                      {/* Old approved — manual transfer still needed */}
+                      {withdrawal.status === "approved" && !withdrawal.moolre_transfer_id && (
+                        <div className="mb-3 bg-yellow-50 p-3 rounded border border-yellow-200">
+                          <p className="text-xs text-yellow-800 font-medium">Manual transfer required — this was approved before Moolre integration. Please transfer funds manually.</p>
+                        </div>
+                      )}
+
+                      {/* Processing notice */}
+                      {withdrawal.status === "processing" && (
+                        <div className="mb-3 bg-blue-50 p-3 rounded border border-blue-200 flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-500 shrink-0" />
+                          <p className="text-xs text-blue-700">Transfer in progress — awaiting MoMo confirmation. Cron will update automatically.</p>
+                        </div>
+                      )}
+
+                      {/* Failed notice */}
+                      {withdrawal.status === "failed" && (
+                        <div className="mb-3 bg-red-50 p-3 rounded border border-red-200">
+                          <p className="text-xs text-red-700 font-medium">Transfer failed. Funds were NOT sent. The request can be re-approved after investigation.</p>
+                        </div>
+                      )}
 
                       {/* Action Buttons */}
                       {withdrawal.status === "pending" && (
