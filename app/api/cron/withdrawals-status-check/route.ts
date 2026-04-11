@@ -99,9 +99,14 @@ async function notifyCompletion(withdrawal: any) {
 
 export async function GET(request: NextRequest) {
   // Secure cron endpoint — Vercel sends Authorization: Bearer <CRON_SECRET>
-  const authHeader = request.headers.get("authorization")
+  // Fail-closed: if CRON_SECRET is unset in production, deny all requests
   const cronSecret = process.env.CRON_SECRET
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    console.error("[CRON-STATUS] CRON_SECRET env var is not set — denying all requests")
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const authHeader = request.headers.get("authorization")
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

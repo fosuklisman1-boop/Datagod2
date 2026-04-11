@@ -9,8 +9,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-/** Recalculate and sync shop_available_balance after a withdrawal completes. */
-async function syncShopBalance(shopId: string, withdrawalAmount: number) {
+/** Recalculate and sync shop_available_balance after a withdrawal completes.
+ *  Only counts "completed" withdrawals — not "approved" (manual/legacy) to avoid double-counting.
+ */
+async function syncShopBalance(shopId: string) {
   const { data: profits, error: profitError } = await supabase
     .from("shop_profits")
     .select("profit_amount, status")
@@ -29,22 +31,24 @@ async function syncShopBalance(shopId: string, withdrawalAmount: number) {
     else if (p.status === "withdrawn") withdrawnProfit += amount
   })
 
+  // Only count "completed" (Moolre confirmed) and "approved" (manual/legacy) separately.
+  // "processing" is NOT counted — funds haven't moved yet.
   const { data: completedWithdrawals } = await supabase
     .from("withdrawal_requests")
     .select("amount")
     .eq("shop_id", shopId)
     .in("status", ["completed", "approved"])
 
-  const totalCompleted = (completedWithdrawals || []).reduce(
+  const totalDeducted = (completedWithdrawals || []).reduce(
     (sum: number, w: any) => sum + (w.amount || 0),
     0
   )
 
-  const availableBalance = Math.max(0, creditedProfit - totalCompleted)
+  const availableBalance = Math.max(0, creditedProfit - totalDeducted)
 
-  console.log(`[WITHDRAWAL-APPROVE-BALANCE] Shop ${shopId}:`, {
+  console.log(`[WITHDRAWAL-BALANCE-SYNC] Shop ${shopId}:`, {
     creditedProfit,
-    totalCompleted,
+    totalDeducted,
     availableBalance,
   })
 
@@ -72,7 +76,6 @@ async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
 
     if (!shop) return
 
-    // In-app notification
     const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawalId)
     const { error: notifError } = await supabase.from("notifications").insert([{
       user_id: shop.user_id,
@@ -85,7 +88,6 @@ async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
     }])
     if (notifError) console.warn("[NOTIFICATION] Failed:", notifError)
 
-    // SMS + Email
     const { data: userData } = await supabase
       .from("users")
       .select("phone_number, email, first_name")
@@ -128,7 +130,7 @@ async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
 
     if (userData.phone_number) {
       const accountDetails = withdrawal.account_details as any
-      const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been approved and transferred to ${accountDetails?.phone || accountDetails?.account_number || "your account"}.`
+      const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been transferred to ${accountDetails?.phone || accountDetails?.account_number || "your account"}.`
       await sendSMS({
         phone: userData.phone_number,
         message: smsMessage,
@@ -148,75 +150,100 @@ export async function POST(request: NextRequest) {
   try {
     const { withdrawalId } = await request.json()
 
-    if (!withdrawalId) {
+    if (!withdrawalId || typeof withdrawalId !== "string") {
       return NextResponse.json({ error: "Withdrawal ID required" }, { status: 400 })
     }
 
-    // Fetch withdrawal — only act on pending requests
-    const { data: withdrawal, error: fetchError } = await supabase
+    // CRITICAL FIX — Anti-double-spend: atomically move status to "processing" BEFORE
+    // calling Moolre. This prevents two concurrent admin approvals from both passing
+    // the status check and initiating duplicate transfers.
+    // The update only succeeds if status is currently "pending" or "failed" — DB enforces this.
+    const { data: locked, error: lockError } = await supabase
       .from("withdrawal_requests")
-      .select("id, shop_id, amount, fee_amount, net_amount, status, user_id, account_details, withdrawal_method")
+      .update({
+        status: "processing",
+        transfer_attempted_at: new Date().toISOString(),
+        moolre_external_ref: withdrawalId,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", withdrawalId)
+      .in("status", ["pending", "failed"])
+      .select("id, shop_id, amount, fee_amount, net_amount, user_id, account_details, withdrawal_method")
       .single()
 
-    if (fetchError || !withdrawal) {
-      return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 })
-    }
+    if (lockError || !locked) {
+      // Either not found, or another request already locked it
+      const { data: existing } = await supabase
+        .from("withdrawal_requests")
+        .select("status")
+        .eq("id", withdrawalId)
+        .single()
 
-    if (withdrawal.status !== "pending" && withdrawal.status !== "failed") {
+      if (!existing) {
+        return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 })
+      }
       return NextResponse.json(
-        { error: `Cannot approve withdrawal with status: ${withdrawal.status}` },
+        { error: `Cannot approve withdrawal with status: ${existing.status}` },
         { status: 400 }
       )
     }
 
+    const withdrawal = locked
     const accountDetails = withdrawal.account_details as any
     const phone = accountDetails?.phone
     const network = accountDetails?.network
 
-    // For bank transfers, fall back to manual (old) approval path
+    // Validate amount is a positive finite number
+    const amount = Number(withdrawal.amount)
+    if (!isFinite(amount) || amount <= 0) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      return NextResponse.json({ error: "Invalid withdrawal amount" }, { status: 400 })
+    }
+
+    // For bank transfers — manual approval path (no Moolre)
     if (withdrawal.withdrawal_method === "bank_transfer" || !phone || !network) {
       await supabase
         .from("withdrawal_requests")
         .update({ status: "approved", updated_at: new Date().toISOString() })
         .eq("id", withdrawalId)
 
-      await syncShopBalance(withdrawal.shop_id, withdrawal.amount)
+      await syncShopBalance(withdrawal.shop_id)
       await notifyShopOwner(withdrawal, withdrawalId)
 
       console.log(`[WITHDRAWAL-APPROVE] Bank/manual approval: ${withdrawalId}`)
       return NextResponse.json({ success: true, message: "Withdrawal approved (manual transfer required)" })
     }
 
-    // Mark transfer as attempted — use withdrawal UUID as Moolre externalref
-    await supabase
-      .from("withdrawal_requests")
-      .update({
-        transfer_attempted_at: new Date().toISOString(),
-        moolre_external_ref: withdrawalId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", withdrawalId)
-
-    // Transfer the net amount (after fee deduction) — this is what the user actually receives.
-    // withdrawal.amount = gross requested, withdrawal.net_amount = amount after platform fee.
+    // Transfer the net amount (after fee deduction)
     const transferAmount = withdrawal.net_amount ?? withdrawal.amount
-    console.log(`[WITHDRAWAL-APPROVE] Transfer breakdown: gross=GHS ${withdrawal.amount}, fee=GHS ${withdrawal.fee_amount ?? 0}, net=GHS ${transferAmount}`)
+    if (!isFinite(Number(transferAmount)) || Number(transferAmount) <= 0) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      return NextResponse.json({ error: "Invalid transfer amount" }, { status: 400 })
+    }
+
+    console.log(`[WITHDRAWAL-APPROVE] Transfer: gross=GHS ${withdrawal.amount}, fee=GHS ${withdrawal.fee_amount ?? 0}, net=GHS ${transferAmount}`)
 
     // Initiate Moolre transfer
     const result = await initiateTransfer({
       phone,
       network,
-      amount: transferAmount,
+      amount: Number(transferAmount),
       externalref: withdrawalId,
       reference: `Datagod withdrawal ${withdrawalId.slice(0, 8)}`,
     })
 
     if (!result) {
-      // API unreachable — revert attempted_at, return 503, do not change status
+      // API unreachable — revert to pending, admin can retry
       await supabase
         .from("withdrawal_requests")
         .update({
+          status: "pending",
           transfer_attempted_at: null,
           moolre_external_ref: null,
           updated_at: new Date().toISOString(),
@@ -230,7 +257,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (result.txstatus === 1) {
-      // Transfer succeeded immediately
+      // Transfer succeeded immediately — mark completed and sync balance
       await supabase
         .from("withdrawal_requests")
         .update({
@@ -242,37 +269,19 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", withdrawalId)
 
-      await syncShopBalance(withdrawal.shop_id, withdrawal.amount)
+      await syncShopBalance(withdrawal.shop_id)
       await notifyShopOwner(withdrawal, withdrawalId)
 
       console.log(`[WITHDRAWAL-APPROVE] Completed: ${withdrawalId} — Moolre TX: ${result.transactionId}`)
       return NextResponse.json({ success: true, message: "Withdrawal approved and transferred successfully" })
     }
 
-    if (result.txstatus === 0) {
-      // Transfer is pending (MoMo prompt sent) — cron will poll and complete
-      await supabase
-        .from("withdrawal_requests")
-        .update({
-          status: "processing",
-          moolre_transfer_id: result.transactionId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", withdrawalId)
-
-      console.log(`[WITHDRAWAL-APPROVE] Processing: ${withdrawalId} — awaiting MoMo confirmation`)
-      return NextResponse.json({
-        success: true,
-        status: "processing",
-        message: "Transfer initiated. Awaiting mobile money confirmation.",
-      })
-    }
-
     if (result.txstatus === 2) {
-      // Moolre explicitly confirmed failure — safe to revert
+      // Explicit failure — revert to pending so admin can retry
       await supabase
         .from("withdrawal_requests")
         .update({
+          status: "pending",
           transfer_attempted_at: null,
           moolre_external_ref: null,
           updated_at: new Date().toISOString(),
@@ -289,22 +298,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: reason }, { status: 400 })
     }
 
-    // txstatus=3 (unknown) or NaN — per Moolre docs, never assume failure.
-    // Treat as processing so the cron polls for the real outcome.
-    await supabase
-      .from("withdrawal_requests")
-      .update({
-        status: "processing",
-        moolre_transfer_id: result.transactionId || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", withdrawalId)
+    // txstatus=0 (pending) or 3 (unknown) — already in "processing", cron will poll
+    if (result.transactionId) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({
+          moolre_transfer_id: result.transactionId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", withdrawalId)
+    }
 
-    console.warn(`[WITHDRAWAL-APPROVE] Unknown txstatus (${result.txstatus}), treating as processing: ${withdrawalId}`)
+    const isPending = result.txstatus === 0
+    console.log(`[WITHDRAWAL-APPROVE] ${isPending ? "Processing" : "Unknown status"}: ${withdrawalId}`)
     return NextResponse.json({
       success: true,
       status: "processing",
-      message: "Transfer status unknown — monitoring for completion automatically.",
+      message: isPending
+        ? "Transfer initiated. Awaiting mobile money confirmation."
+        : "Transfer status unknown — monitoring for completion automatically.",
     })
   } catch (error) {
     console.error("[WITHDRAWAL-APPROVE] Error:", error)

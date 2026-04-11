@@ -21,13 +21,27 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { phone, network } = await request.json()
+    const body = await request.json()
+    const { phone, network } = body
 
     if (!phone || !network) {
       return NextResponse.json({ error: "phone and network are required" }, { status: 400 })
     }
 
-    const result = await validateAccountName(phone, network)
+    // Validate phone is a plausible Ghanaian mobile number (9–10 digits, optional leading +233 or 0)
+    const normalizedPhone = String(phone).trim()
+    const phoneRegex = /^(?:\+233|0)?[2-9]\d{8}$/
+    if (!phoneRegex.test(normalizedPhone)) {
+      return NextResponse.json({ error: "Invalid phone number format" }, { status: 400 })
+    }
+
+    // Validate network is one of the supported values
+    const VALID_NETWORKS = ["MTN", "mtn", "Telecel", "telecel", "AT", "at"]
+    if (!VALID_NETWORKS.includes(String(network))) {
+      return NextResponse.json({ error: "Invalid network. Must be MTN, Telecel, or AT" }, { status: 400 })
+    }
+
+    const result = await validateAccountName(normalizedPhone, network)
 
     if (!result.accountName) {
       return NextResponse.json(
