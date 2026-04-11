@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 })
     }
 
-    if (withdrawal.status !== "pending") {
+    if (withdrawal.status !== "pending" && withdrawal.status !== "failed") {
       return NextResponse.json(
         { error: `Cannot approve withdrawal with status: ${withdrawal.status}` },
         { status: 400 }
