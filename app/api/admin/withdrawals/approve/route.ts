@@ -279,11 +279,14 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", withdrawalId)
 
-      console.error(`[WITHDRAWAL-APPROVE] Transfer explicitly failed: ${withdrawalId}`)
-      return NextResponse.json(
-        { error: "Transfer failed. Withdrawal remains pending." },
-        { status: 400 }
-      )
+      const reason = result.insufficientBalance
+        ? "Insufficient balance in Moolre account. Please top up and retry."
+        : result.errorMessage
+        ? `Transfer rejected: ${result.errorMessage}`
+        : "Transfer failed. Withdrawal remains pending."
+
+      console.error(`[WITHDRAWAL-APPROVE] Transfer failed: ${withdrawalId} — ${reason}`)
+      return NextResponse.json({ error: reason }, { status: 400 })
     }
 
     // txstatus=3 (unknown) or NaN — per Moolre docs, never assume failure.

@@ -95,6 +95,8 @@ export interface MoolreTransferResult {
   transactionId: string  // Moolre's internal ID
   externalref: string    // echoed back — matches what we sent
   fee: number            // amountfee charged
+  insufficientBalance?: boolean  // true when Moolre wallet has no funds
+  errorMessage?: string          // Moolre's raw error text
 }
 
 /**
@@ -132,7 +134,25 @@ export async function initiateTransfer(params: {
     })
 
     const json = await response.json()
-    console.log(`[MOOLRE-TRANSFER] ExternalRef: ${params.externalref}, Response:`, json)
+    console.log(`[MOOLRE-TRANSFER] ExternalRef: ${params.externalref}, HTTP: ${response.status}, Response:`, json)
+
+    // Handle HTTP 400 error responses from Moolre (insufficient balance, invalid account, etc.)
+    if (!response.ok) {
+      const code = json.code || ""
+      const message = Array.isArray(json.message) ? json.message[0] : (json.message || "Transfer rejected")
+      const isInsufficientBalance = code === "400_INSUFFICIENT_BALANCE" ||
+        String(message).toLowerCase().includes("insufficient")
+
+      console.error(`[MOOLRE-TRANSFER] HTTP ${response.status} error:`, json)
+      return {
+        txstatus: 2,
+        transactionId: "",
+        externalref: params.externalref,
+        fee: 0,
+        insufficientBalance: isInsufficientBalance,
+        errorMessage: String(message),
+      }
+    }
 
     const data = json.data
     console.log("[MOOLRE-TRANSFER] Raw data field:", data)
