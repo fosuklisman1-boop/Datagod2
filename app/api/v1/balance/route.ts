@@ -43,6 +43,14 @@ export async function GET(request: NextRequest) {
   const status = error ? 500 : 200
   const duration = Date.now() - start
 
+  const responsePayload = error
+    ? { error: "Failed to fetch wallet balance" }
+    : {
+        balance: wallet ? parseFloat(wallet.balance.toFixed(2)) : null,
+        total_credited: wallet ? parseFloat(wallet.total_credited.toFixed(2)) : null,
+        total_spent: wallet ? parseFloat(wallet.total_spent.toFixed(2)) : null,
+      }
+
   logApiRequest({
     userId: user.id,
     apiKeyId: user.api_key_id,
@@ -51,6 +59,7 @@ export async function GET(request: NextRequest) {
     statusCode: status,
     request,
     durationMs: duration,
+    responsePayload,
   }).catch(() => {})
 
   if (error || !wallet) {
