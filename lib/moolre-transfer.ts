@@ -46,14 +46,18 @@ function getMoolreAccountNumber(): string {
  * Validate a mobile money account name before initiating a transfer.
  * Returns the account holder name, or null if validation fails.
  */
+export interface MoolreValidateResult {
+  accountName: string | null
+  error?: string
+}
+
 export async function validateAccountName(
   phone: string,
   network: string
-): Promise<string | null> {
+): Promise<MoolreValidateResult> {
   const channel = NETWORK_TO_CHANNEL[network]
   if (!channel) {
-    console.error(`[MOOLRE] Unknown network: ${network}`)
-    return null
+    return { accountName: null, error: `Unsupported network: ${network}` }
   }
 
   try {
@@ -73,14 +77,16 @@ export async function validateAccountName(
     console.log(`[MOOLRE-VALIDATE] Phone: ${phone}, Network: ${network}, Response:`, json)
 
     if (json.status === 1 && json.data) {
-      return json.data as string
+      return { accountName: json.data as string }
     }
 
+    // Surface Moolre's actual error message
+    const moolreMessage = json.message || json.data || "Account not found"
     console.warn(`[MOOLRE-VALIDATE] Validation failed:`, json)
-    return null
+    return { accountName: null, error: String(moolreMessage) }
   } catch (error) {
     console.error("[MOOLRE-VALIDATE] Error:", error)
-    return null
+    return { accountName: null, error: "Could not reach payment provider" }
   }
 }
 

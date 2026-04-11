@@ -27,16 +27,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "phone and network are required" }, { status: 400 })
     }
 
-    const accountName = await validateAccountName(phone, network)
+    const result = await validateAccountName(phone, network)
 
-    if (!accountName) {
+    if (!result.accountName) {
       return NextResponse.json(
-        { error: "Could not verify account. Check the phone number and network." },
+        { error: result.error || "Could not verify account" },
         { status: 400 }
       )
     }
 
-    return NextResponse.json({ accountName })
+    return NextResponse.json({ accountName: result.accountName })
   } catch (error) {
     console.error("[VALIDATE-ACCOUNT] Error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
