@@ -36,6 +36,7 @@ import {
   Sparkles,
   Smartphone,
   Activity,
+  Shield,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -560,6 +561,29 @@ export function Sidebar() {
                     <Activity className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "API Control"}
+                </Button>
+              </Link>
+
+              <Link href="/admin/rate-limits" onClick={() => handleNavigation("/admin/rate-limits")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/rate-limits" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/rate-limits" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/rate-limits" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Rate Limits" : undefined}
+                  disabled={loadingPath === "/admin/rate-limits"}
+                >
+                  {loadingPath === "/admin/rate-limits" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Shield className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Rate Limits"}
                 </Button>
               </Link>
 
