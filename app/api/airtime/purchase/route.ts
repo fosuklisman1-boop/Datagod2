@@ -56,13 +56,17 @@ export async function POST(request: NextRequest) {
     if (!network || !beneficiaryPhone || !airtimeAmount) {
       return NextResponse.json({ error: "network, beneficiaryPhone, and airtimeAmount are required" }, { status: 400 })
     }
+    const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "Telecel"]
+    if (!ALLOWED_NETWORKS.includes(network)) {
+      return NextResponse.json({ error: "Invalid network. Must be MTN, AirtelTigo, or Telecel" }, { status: 400 })
+    }
     const cleanPhone = beneficiaryPhone.replace(/\s/g, "")
     if (!/^\d{10}$/.test(cleanPhone)) {
       return NextResponse.json({ error: "Phone number must be exactly 10 digits" }, { status: 400 })
     }
     const amount = parseFloat(airtimeAmount)
-    if (isNaN(amount) || amount <= 0) {
-      return NextResponse.json({ error: "Invalid airtime amount" }, { status: 400 })
+    if (isNaN(amount) || amount <= 0 || amount > 1000) {
+      return NextResponse.json({ error: "Airtime amount must be between GHS 0.01 and GHS 1000" }, { status: 400 })
     }
 
     // 4. Check network-specific enable flag

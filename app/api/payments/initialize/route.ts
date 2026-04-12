@@ -31,7 +31,15 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { amount, email, userId, shopId, orderId, shopSlug, type, planId, orderType } = body
+    const { amount, email, shopId, orderId, shopSlug, type, planId, orderType } = body
+
+    // Extract userId from JWT (not from request body — prevents spoofing)
+    let userId: string | undefined
+    const authHeader = request.headers.get("Authorization")
+    if (authHeader?.startsWith("Bearer ")) {
+      const { data: { user } } = await supabase.auth.getUser(authHeader.substring(7))
+      if (user) userId = user.id
+    }
 
     console.log("[PAYMENT-INIT] Request received:", { userId, amount, orderType })
 
@@ -52,13 +60,12 @@ export async function POST(request: NextRequest) {
 
     // Fetch user role for admin bypass - check users table (source of truth)
     let isAdmin = false
-    if (userId && userId.length > 20) {
+    if (userId) {
       try {
         const { data: userData } = await supabase.from("users").select("role").eq("id", userId).single()
         isAdmin = userData?.role === 'admin'
       } catch (err) {
         console.warn(`[PAYMENT-INIT] Could not verify user status for ${userId}:`, err)
-        // Default to non-admin on any auth error
       }
     }
 
@@ -135,11 +142,19 @@ export async function POST(request: NextRequest) {
       finalAmount = Number(plan.price)
       console.log(`[PAYMENT-INIT] ✓ Plan price verified: ${finalAmount}`)
     } else {
-      // For Wallet Top-up (no orderId), we require amount
+      // For Wallet Top-up (no orderId), we require amount with reasonable bounds
       if (!amount || typeof amount !== "number" || amount <= 0) {
         console.warn("[PAYMENT-INIT] Invalid amount for top-up:", amount)
         return NextResponse.json(
           { error: "Amount must be a positive number" },
+          { status: 400 }
+        )
+      }
+      const MAX_TOPUP = isAdmin ? 100_000 : 10_000
+      if (amount > MAX_TOPUP) {
+        console.warn(`[PAYMENT-INIT] Top-up amount ${amount} exceeds max ${MAX_TOPUP} for user ${userId}`)
+        return NextResponse.json(
+          { error: `Maximum top-up amount is GHS ${MAX_TOPUP.toLocaleString()}` },
           { status: 400 }
         )
       }
