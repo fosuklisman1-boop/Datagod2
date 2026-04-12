@@ -15,27 +15,22 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY || ""
     )
 
-    // Use RPC for all heavy calculations
-    const { data: stats, error: rpcError } = await supabase.rpc("get_admin_dashboard_stats")
+    // Use RPC for all heavy calculations including airtime
+    const { data: stats, error: rpcError } = await supabase.rpc("get_admin_dashboard_stats_v2")
 
     if (rpcError) {
       console.error("[ADMIN-STATS] RPC Error:", rpcError)
-      throw rpcError
+      return NextResponse.json(
+        { error: "Failed to fetch dashboard stats. Please ensure migrations are run." },
+        { status: 500 }
+      )
     }
 
-    // Fetch airtime stats separately and merge
-    const { data: airtimeData, error: airtimeError } = await supabase
-      .from("airtime_orders")
-      .select("status, total_paid")
-
-    const airtimeStats = (airtimeData || []).reduce((acc, order) => {
-      acc.totalAirtimeOrders++
-      if (order.status === 'completed') {
-        acc.completedAirtimeOrders++
-        acc.airtimeRevenue += (order.total_paid || 0)
-      }
-      return acc
-    }, { totalAirtimeOrders: 0, completedAirtimeOrders: 0, airtimeRevenue: 0 })
+    const airtimeStats = {
+      totalAirtimeOrders: stats.airtimeTotalOrders || 0,
+      completedAirtimeOrders: stats.airtimeCompletedOrders || 0,
+      airtimeRevenue: stats.airtimeRevenue || 0
+    }
 
     return NextResponse.json(
       {
@@ -43,7 +38,7 @@ export async function GET(request: NextRequest) {
         totalOrders: stats.totalOrders + airtimeStats.totalAirtimeOrders,
         completedOrders: stats.completedOrders + airtimeStats.completedAirtimeOrders,
         totalRevenue: stats.totalRevenue + airtimeStats.airtimeRevenue,
-        airtimeStats, // Optional: send detailed airtime stats too
+        airtimeStats,
         successRate: (stats.totalOrders + airtimeStats.totalAirtimeOrders) 
           ? (((stats.completedOrders + airtimeStats.completedAirtimeOrders) / (stats.totalOrders + airtimeStats.totalAirtimeOrders)) * 100).toFixed(2) 
           : 0,

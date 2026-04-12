@@ -70,7 +70,7 @@ export async function GET(
     const [ordersRes, profitsRes, balanceRes] = await Promise.all([
       supabase
         .from("shop_orders")
-        .select("id, shop_id, customer_phone, network, volume_gb, transaction_id, order_status, payment_status, created_at")
+        .select("id, shop_id, customer_email, customer_phone, customer_name, network, volume_gb, total_price, profit_amount, transaction_id, order_status, payment_status, created_at, reference_code")
         .eq("shop_id", shopId)
         .order("created_at", { ascending: false })
         .limit(50),

@@ -573,50 +573,17 @@ export const withdrawalService = {
 
     // Check current available balance before creating withdrawal
     try {
-      // Fetch all profits with pagination
-      const profits = await shopProfitService.fetchAllProfits(shopId, "profit_amount, status")
+      // Use optimized RPC for balance check to avoid heavy loops
+      const { data: balanceData, error: balanceError } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: shopId })
+      
+      if (balanceError) throw balanceError
 
-      // Calculate credited profit only
-      const breakdown = {
-        creditedProfit: 0,
-      }
-
-      profits?.forEach((p: any) => {
-        const amount = p.profit_amount || 0
-        if (p.status === "credited") {
-          breakdown.creditedProfit += amount
-        }
-      })
-
-      // Get approved withdrawals with pagination
-      let allWithdrawals: any[] = []
-      let wOffset = 0
-      const wBatchSize = 1000
-      let hasMoreW = true
-
-      while (hasMoreW) {
-        const { data: wData, error: wError } = await supabase
-          .from("withdrawal_requests")
-          .select("amount")
-          .eq("shop_id", shopId)
-          .in("status", ["approved", "completed"])
-          .range(wOffset, wOffset + wBatchSize - 1)
-
-        if (wError) break
-
-        if (wData && wData.length > 0) {
-          allWithdrawals = allWithdrawals.concat(wData)
-          wOffset += wBatchSize
-          hasMoreW = wData.length === wBatchSize
-        } else {
-          hasMoreW = false
-        }
-      }
-
-      const totalApprovedWithdrawals = allWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
-
-      // Current available balance = credited profit - approved withdrawals
-      const currentAvailableBalance = breakdown.creditedProfit - totalApprovedWithdrawals
+      // Use the pre-aggregated credited_profit and withdrawn_profit from the RPC
+      const creditedProfit = balanceData?.credited_profit || 0
+      const totalWithdrawn = balanceData?.withdrawn_profit || 0
+      
+      // Current available balance
+      const currentAvailableBalance = creditedProfit - totalWithdrawn
 
       // Check if requested withdrawal amount exceeds available balance
       if (withdrawalData.amount > currentAvailableBalance) {

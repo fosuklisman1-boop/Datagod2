@@ -117,9 +117,10 @@ export default function ShopDashboardPage() {
 
   const fetchCustomerStats = async (shopId: string) => {
     try {
+      const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch('/api/admin/customers/analytics', {
         headers: {
-          'Authorization': `Bearer ${user?.id}`,
+          'Authorization': `Bearer ${session?.access_token || user?.id}`,
         },
       })
 
