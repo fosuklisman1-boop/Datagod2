@@ -66,20 +66,25 @@ export async function GET(
       )
     }
 
-    // Fetch all orders and profits with pagination
-    const [orders, profits] = await Promise.all([
+    // Fetch all orders, profits and available balance
+    const [orders, profits, balanceData] = await Promise.all([
       fetchAllRecords(
         "shop_orders",
-        "id, shop_id, user_id, customer_phone, network, volume_gb, transaction_id, order_status, payment_status, created_at",
+        "id, shop_id, customer_phone, network, volume_gb, transaction_id, order_status, payment_status, created_at",
         "shop_id",
         shopId
       ),
       fetchAllRecords(
         "shop_profits",
-        "id, shop_id, shop_order_id, profit_amount, status, created_at",
+        "id, shop_id, shop_order_id, profit_amount, status, created_at, notes, adjustment_type",
         "shop_id",
         shopId
-      )
+      ),
+      supabase
+        .from("shop_available_balance")
+        .select("available_balance")
+        .eq("shop_id", shopId)
+        .maybeSingle()
     ])
 
     return NextResponse.json({
@@ -87,7 +92,8 @@ export async function GET(
       data: {
         shop,
         orders: orders || [],
-        profits: profits || []
+        profits: profits || [],
+        available_balance: balanceData.data?.available_balance || 0
       }
     })
   } catch (error: any) {

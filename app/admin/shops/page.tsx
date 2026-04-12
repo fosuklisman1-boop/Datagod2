@@ -6,8 +6,9 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CheckCircle, XCircle, Eye } from "lucide-react"
+import { CheckCircle, XCircle, Eye, TrendingDown } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { adminShopService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
@@ -297,17 +298,95 @@ export default function AdminShopsPage() {
                 <div>
                   <h3 className="font-semibold mb-3">Orders & Revenue</h3>
                   <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div className="bg-blue-50 p-3 rounded-lg">
-                      <p className="text-gray-600">Total Orders</p>
-                      <p className="text-xl font-bold text-blue-600">{shopDetails.orders.length}</p>
+                    <div className="bg-blue-50 p-3 rounded-lg text-center">
+                      <p className="text-gray-600 text-[10px] uppercase font-bold tracking-wider mb-1">Total Orders</p>
+                      <p className="text-xl font-bold text-blue-600 font-mono italic">{shopDetails.orders.length}</p>
                     </div>
-                    <div className="bg-emerald-50 p-3 rounded-lg">
-                      <p className="text-gray-600">Total Revenue</p>
-                      <p className="text-xl font-bold text-emerald-600">GHS {(shopDetails.orders.reduce((sum: number, o: any) => sum + (o.total_price || 0), 0)).toFixed(2)}</p>
+                    <div className="bg-emerald-50 p-3 rounded-lg text-center hover:shadow-inner transition-all border border-emerald-100/50">
+                      <p className="text-gray-600 text-[10px] uppercase font-bold tracking-wider mb-1">Total Revenue</p>
+                      <p className="text-xl font-bold text-emerald-600 font-mono tracking-tighter tabular-nums">GHS {(shopDetails.orders.reduce((sum: number, o: any) => sum + (o.total_price || 0), 0)).toFixed(2)}</p>
                     </div>
-                    <div className="bg-purple-50 p-3 rounded-lg">
-                      <p className="text-gray-600">Total Profits</p>
-                      <p className="text-xl font-bold text-purple-600">GHS {(shopDetails.profits.reduce((sum: number, p: any) => sum + p.profit_amount, 0)).toFixed(2)}</p>
+                    <div className="bg-purple-50 p-3 rounded-lg text-center ring-1 ring-purple-100 ring-offset-2">
+                      <p className="text-gray-600 text-[10px] uppercase font-bold tracking-wider mb-1">Profit Balance</p>
+                      <p className="text-xl font-bold text-purple-600 font-mono tracking-tighter tabular-nums underline decoration-purple-200 decoration-wavy underline-offset-4">GHS {Number(shopDetails.available_balance || 0).toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Manual Balance Adjustment */}
+                <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50/80 via-white to-violet-50/80 border border-indigo-100/50 shadow-sm transition-all duration-300 hover:shadow-md group">
+                  <h3 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                    <div className="p-1 rounded bg-indigo-100 group-hover:bg-indigo-200 transition-colors">
+                      <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
+                    </div>
+                    Manual Balance Adjustment
+                  </h3>
+                  <div className="grid gap-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Amount (GHS)</label>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          className="font-mono h-9 border-indigo-100 focus:border-indigo-300 focus:ring-indigo-200 transition-all bg-white/50"
+                          id="manual-adj-amount"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Description / Reason</label>
+                        <Input
+                          placeholder="Reason for adjustment..."
+                          className="h-9 border-indigo-100 focus:border-indigo-300 focus:ring-indigo-200 transition-all bg-white/50"
+                          id="manual-adj-notes"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2.5">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
+                        onClick={async () => {
+                          const amount = (document.getElementById("manual-adj-amount") as HTMLInputElement).value
+                          const notes = (document.getElementById("manual-adj-notes") as HTMLInputElement).value
+                          if (!amount || Number(amount) <= 0) { toast.error("Please enter a valid amount"); return }
+                          if (!confirm(`Credit account with GHS ${amount}?`)) return
+                          
+                          try {
+                            const res = await adminShopService.manualBalanceAdjustment(selectedShop!.id, Number(amount), "credit", notes)
+                            toast.success("Balance credited successfully")
+                            handleViewDetails(selectedShop!) // Refresh details
+                            ;(document.getElementById("manual-adj-amount") as HTMLInputElement).value = ""
+                            ;(document.getElementById("manual-adj-notes") as HTMLInputElement).value = ""
+                          } catch (err: any) {
+                            toast.error(err.message || "Failed to adjust balance")
+                          }
+                        }}
+                      >
+                        Credit Account
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
+                        onClick={async () => {
+                          const amount = (document.getElementById("manual-adj-amount") as HTMLInputElement).value
+                          const notes = (document.getElementById("manual-adj-notes") as HTMLInputElement).value
+                          if (!amount || Number(amount) <= 0) { toast.error("Please enter a valid amount"); return }
+                          if (!confirm(`Debit account by GHS ${amount}?`)) return
+                          
+                          try {
+                            const res = await adminShopService.manualBalanceAdjustment(selectedShop!.id, Number(amount), "debit", notes)
+                            toast.success("Balance debited successfully")
+                            handleViewDetails(selectedShop!) // Refresh details
+                            ;(document.getElementById("manual-adj-amount") as HTMLInputElement).value = ""
+                            ;(document.getElementById("manual-adj-notes") as HTMLInputElement).value = ""
+                          } catch (err: any) {
+                            toast.error(err.message || "Failed to adjust balance")
+                          }
+                        }}
+                      >
+                        Debit Account
+                      </Button>
                     </div>
                   </div>
                 </div>
