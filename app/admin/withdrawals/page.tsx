@@ -107,6 +107,30 @@ export default function WithdrawalsPage() {
     }
   }
 
+  const completeWithdrawal = async (withdrawalId: string) => {
+    if (!confirm("Mark this withdrawal as completed? This confirms the money has been sent and cannot be undone.")) return
+    try {
+      setApprovalLoading(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/withdrawals/complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ withdrawalId }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to complete withdrawal")
+      toast.success("Withdrawal marked as completed")
+      loadWithdrawals()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to complete withdrawal")
+    } finally {
+      setApprovalLoading(false)
+    }
+  }
+
   const rejectWithdrawal = async (withdrawalId: string) => {
     if (!rejectionReason.trim()) {
       toast.error("Please provide a rejection reason")
@@ -422,6 +446,18 @@ export default function WithdrawalsPage() {
                             className="flex-1 text-sm border-red-300 text-red-600 hover:bg-red-50"
                           >
                             ✕ Reject
+                          </Button>
+                        </div>
+                      )}
+
+                      {withdrawal.status === "approved" && (
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => completeWithdrawal(withdrawal.id)}
+                            disabled={approvalLoading}
+                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                          >
+                            {approvalLoading ? "Processing..." : "✓ Mark as Completed"}
                           </Button>
                         </div>
                       )}

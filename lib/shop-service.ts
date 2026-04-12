@@ -520,19 +520,9 @@ export const shopProfitService = {
       // Available balance = credited profit - approved withdrawals
       const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
 
-      // Delete existing record and insert fresh (more reliable than upsert)
-      const deleteResult = await supabase
+      const { error: upsertError } = await supabase
         .from("shop_available_balance")
-        .delete()
-        .eq("shop_id", shopId)
-
-      if (deleteResult.error) {
-        console.warn("Warning deleting old balance:", deleteResult.error)
-      }
-
-      const { error: insertError } = await supabase
-        .from("shop_available_balance")
-        .insert([
+        .upsert(
           {
             shop_id: shopId,
             available_balance: availableBalance,
@@ -540,13 +530,13 @@ export const shopProfitService = {
             withdrawn_amount: breakdown.withdrawnProfit,
             credited_profit: breakdown.creditedProfit,
             withdrawn_profit: breakdown.withdrawnProfit,
-            created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          }
-        ])
+          },
+          { onConflict: "shop_id" }
+        )
 
-      if (insertError) {
-        console.error("Error syncing available balance:", insertError)
+      if (upsertError) {
+        console.error("Error syncing available balance:", upsertError)
         // Don't throw - this is just a sync, shouldn't block main operations
       }
     } catch (error) {
@@ -595,20 +585,28 @@ export const withdrawalService = {
       throw new Error("Minimum withdrawal amount is GHS 5.00")
     }
 
-    // Check if there's already a pending withdrawal request
+    // Block new withdrawals if any are pending OR approved (in-flight)
     try {
-      const { data: pendingRequests, error: pendingError } = await supabase
+      const { data: inflightRequests, error: pendingError } = await supabase
         .from("withdrawal_requests")
-        .select("id, amount")
+        .select("id, amount, status")
         .eq("shop_id", shopId)
-        .eq("status", "pending")
+        .in("status", ["pending", "approved"])
 
-      if (!pendingError && pendingRequests && pendingRequests.length > 0) {
-        const totalPending = pendingRequests.reduce((sum, w) => sum + (w.amount || 0), 0)
-        throw new Error(`You already have a pending withdrawal request for GHS ${totalPending.toFixed(2)}. Please wait for it to be approved or rejected before requesting another.`)
+      if (!pendingError && inflightRequests && inflightRequests.length > 0) {
+        const pending  = inflightRequests.filter(w => w.status === "pending")
+        const approved = inflightRequests.filter(w => w.status === "approved")
+        if (approved.length > 0) {
+          const total = approved.reduce((s, w) => s + (w.amount || 0), 0)
+          throw new Error(`You have an approved withdrawal of GHS ${total.toFixed(2)} that has not been completed yet. Please wait for it to be marked as completed before requesting another.`)
+        }
+        if (pending.length > 0) {
+          const total = pending.reduce((s, w) => s + (w.amount || 0), 0)
+          throw new Error(`You already have a pending withdrawal request for GHS ${total.toFixed(2)}. Please wait for it to be approved or rejected before requesting another.`)
+        }
       }
     } catch (error) {
-      if (error instanceof Error && error.message.includes("pending withdrawal")) {
+      if (error instanceof Error && (error.message.includes("pending withdrawal") || error.message.includes("approved withdrawal"))) {
         throw error
       }
       console.warn(`[WITHDRAWAL-CREATE] Warning checking pending requests:`, error)

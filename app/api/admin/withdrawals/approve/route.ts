@@ -165,80 +165,84 @@ export async function POST(request: NextRequest) {
       // Don't fail the approval if notification fails
     }
 
-    // Sync available balance after approval
+    // Sync available balance after approval (paginated to handle > 1000 profit records)
     try {
-      const { data: profits, error: profitError } = await supabase
-        .from("shop_profits")
-        .select("profit_amount, status")
-        .eq("shop_id", withdrawal.shop_id)
+      let allProfits: any[] = []
+      let profitOffset = 0
+      const profitBatch = 1000
+      while (true) {
+        const { data: batch, error } = await supabase
+          .from("shop_profits")
+          .select("profit_amount, status")
+          .eq("shop_id", withdrawal.shop_id)
+          .range(profitOffset, profitOffset + profitBatch - 1)
+        if (error) throw error
+        if (!batch || batch.length === 0) break
+        allProfits = allProfits.concat(batch)
+        if (batch.length < profitBatch) break
+        profitOffset += profitBatch
+      }
 
-      if (!profitError && profits) {
-        // Calculate totals by status
-        const breakdown = {
-          totalProfit: 0,
-          creditedProfit: 0,
-          withdrawnProfit: 0,
-        }
+      const breakdown = { totalProfit: 0, creditedProfit: 0, withdrawnProfit: 0 }
+      allProfits.forEach((p: any) => {
+        const amount = p.profit_amount || 0
+        breakdown.totalProfit += amount
+        if (p.status === "credited")  breakdown.creditedProfit  += amount
+        if (p.status === "withdrawn") breakdown.withdrawnProfit += amount
+      })
 
-        profits.forEach((p: any) => {
-          const amount = p.profit_amount || 0
-          breakdown.totalProfit += amount
-
-          if (p.status === "credited") {
-            breakdown.creditedProfit += amount
-          } else if (p.status === "withdrawn") {
-            breakdown.withdrawnProfit += amount
-          }
-        })
-
-        // Query remaining approved withdrawals (including this one which is now approved)
-        const { data: approvedWithdrawals, error: withdrawalError } = await supabase
+      // Get all approved withdrawals (paginated)
+      let allApproved: any[] = []
+      let wOffset = 0
+      while (true) {
+        const { data: batch, error } = await supabase
           .from("withdrawal_requests")
           .select("amount")
           .eq("shop_id", withdrawal.shop_id)
           .eq("status", "approved")
+          .range(wOffset, wOffset + 999)
+        if (error) break
+        if (!batch || batch.length === 0) break
+        allApproved = allApproved.concat(batch)
+        if (batch.length < 1000) break
+        wOffset += 1000
+      }
+      const totalApprovedWithdrawals = allApproved.reduce((s, w) => s + (w.amount || 0), 0)
 
-        let totalApprovedWithdrawals = 0
-        if (!withdrawalError && approvedWithdrawals) {
-          totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
-        }
+      // Available balance = credited profit - approved withdrawals (includes this one now)
+      const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
 
-        // Available balance = credited profit - approved withdrawals
-        const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+      // Store balance_after on the withdrawal record for history tracking
+      await supabase
+        .from("withdrawal_requests")
+        .update({ balance_after: availableBalance })
+        .eq("id", withdrawalId)
 
-        // Store balance_after on the withdrawal record for history tracking
-        await supabase
-          .from("withdrawal_requests")
-          .update({ balance_after: availableBalance })
-          .eq("id", withdrawalId)
+      console.log(`[WITHDRAWAL-APPROVE-BALANCE] Shop ${withdrawal.shop_id}:`, {
+        creditedProfit: breakdown.creditedProfit,
+        totalApprovedWithdrawals,
+        availableBalance,
+      })
 
-        console.log(`[WITHDRAWAL-APPROVE-BALANCE] Shop ${withdrawal.shop_id}:`, {
-          creditedProfit: breakdown.creditedProfit,
-          totalApprovedWithdrawals,
-          calculation: `${breakdown.creditedProfit} - ${totalApprovedWithdrawals}`,
-          availableBalance,
-          approvedWithdrawalAmount: withdrawal.amount,
-        })
-
-        // Delete and insert fresh balance record
-        await supabase
-          .from("shop_available_balance")
-          .delete()
-          .eq("shop_id", withdrawal.shop_id)
-
-        await supabase
-          .from("shop_available_balance")
-          .insert([{
+      // Upsert balance (atomic — no delete/insert race condition)
+      const { error: upsertError } = await supabase
+        .from("shop_available_balance")
+        .upsert(
+          {
             shop_id: withdrawal.shop_id,
             available_balance: availableBalance,
             total_profit: breakdown.totalProfit,
             withdrawn_amount: breakdown.withdrawnProfit,
             credited_profit: breakdown.creditedProfit,
             withdrawn_profit: breakdown.withdrawnProfit,
-            created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          }])
+          },
+          { onConflict: "shop_id" }
+        )
 
+      if (upsertError) {
+        console.error(`[WITHDRAWAL-APPROVE] Balance upsert failed:`, upsertError)
+      } else {
         console.log(`[WITHDRAWAL-APPROVE] Balance synced for shop: ${withdrawal.shop_id} - Available: GHS ${availableBalance.toFixed(2)}`)
       }
     } catch (syncError) {
