@@ -321,6 +321,11 @@ export async function POST(request: NextRequest) {
 
       // 3. Handle Wallet Top-up (if not an order or dealer upgrade)
       if (!paymentData.order_id && !isDealerUpgrade) {
+        if (!paymentData.user_id) {
+          console.error(`[WEBHOOK] ❌ CRITICAL: Wallet top-up failed for reference ${reference}. User ID is NULL in the database. This usually means the payment was initialized without an Authorization header or by a guest user.`)
+          return NextResponse.json({ received: true }) // Still return 200 to Paystack
+        }
+
         const creditAmount = (amount / 100) - (paymentData.fee || 0)
         const { data: rpcData, error: rpcError } = await supabase.rpc("credit_wallet_safely", {
           p_user_id: paymentData.user_id,
