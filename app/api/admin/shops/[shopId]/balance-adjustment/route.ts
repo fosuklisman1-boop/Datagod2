@@ -8,15 +8,15 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 /**
- * POST /api/admin/shops/[id]/balance-adjustment
+ * POST /api/admin/shops/[shopId]/balance-adjustment
  * Manually credit or debit a shop's profit balance.
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ shopId: string }> }
 ) {
   try {
-    const { id: shopId } = await params
+    const { shopId } = await params
     const { isAdmin, userEmail, errorResponse } = await verifyAdminAccess(request)
     if (!isAdmin) return errorResponse
 
