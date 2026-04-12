@@ -665,6 +665,9 @@ export const withdrawalService = {
       if (withdrawalData.amount > currentAvailableBalance) {
         throw new Error(`Insufficient balance. Available: GHS ${currentAvailableBalance.toFixed(2)}, Requested: GHS ${withdrawalData.amount.toFixed(2)}`)
       }
+
+      // Store balance_before for history tracking
+      ;(withdrawalData as any)._balanceBefore = currentAvailableBalance
     } catch (error) {
       if (error instanceof Error && error.message.includes("Insufficient balance")) {
         throw error
@@ -698,16 +701,20 @@ export const withdrawalService = {
     console.log(`  Withdrawal Fee (${withdrawalFeePercentage * 100}%): GHS ${feeAmount}`)
     console.log(`  Net Amount (Shop Receives): GHS ${netAmount}`)
 
+    const balanceBefore = (withdrawalData as any)._balanceBefore
+    const { _balanceBefore, ...cleanWithdrawalData } = withdrawalData as any
+
     const { data, error } = await supabase
       .from("withdrawal_requests")
       .insert([{
         user_id: userId,
         shop_id: shopId,
-        ...withdrawalData,
+        ...cleanWithdrawalData,
         status: "pending",
         reference_code: `WD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
         fee_amount: feeAmount,
-        net_amount: netAmount
+        net_amount: netAmount,
+        balance_before: balanceBefore ?? null,
       }])
       .select()
 

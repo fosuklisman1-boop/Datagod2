@@ -206,6 +206,12 @@ export async function POST(request: NextRequest) {
         // Available balance = credited profit - approved withdrawals
         const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
 
+        // Store balance_after on the withdrawal record for history tracking
+        await supabase
+          .from("withdrawal_requests")
+          .update({ balance_after: availableBalance })
+          .eq("id", withdrawalId)
+
         console.log(`[WITHDRAWAL-APPROVE-BALANCE] Shop ${withdrawal.shop_id}:`, {
           creditedProfit: breakdown.creditedProfit,
           totalApprovedWithdrawals,
