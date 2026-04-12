@@ -587,6 +587,29 @@ export function Sidebar() {
                 </Button>
               </Link>
 
+              <Link href="/admin/withdrawal-history" onClick={() => handleNavigation("/admin/withdrawal-history")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/withdrawal-history" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/withdrawal-history" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/withdrawal-history" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Withdrawal History" : undefined}
+                  disabled={loadingPath === "/admin/withdrawal-history"}
+                >
+                  {loadingPath === "/admin/withdrawal-history" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <History className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Withdrawal History"}
+                </Button>
+              </Link>
+
               <Link href="/admin/airtime" onClick={() => handleNavigation("/admin/airtime")}>
                 <Button
                   variant="ghost"

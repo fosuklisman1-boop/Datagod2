@@ -12,8 +12,9 @@ export async function DELETE(req: NextRequest) {
 
     const { userId } = await req.json()
 
-    if (!userId) {
-      return NextResponse.json({ error: "User ID is required" }, { status: 400 })
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!userId || !UUID_RE.test(userId)) {
+      return NextResponse.json({ error: "Valid user ID is required" }, { status: 400 })
     }
 
     // Create Supabase client with service role for admin operations
