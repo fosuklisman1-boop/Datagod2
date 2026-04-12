@@ -85,12 +85,12 @@ async function syncShopBalance(shopId: string) {
             }
         })
 
-        // Get approved withdrawals
+        // Get approved and completed withdrawals
         const { data: approvedWithdrawals, error: withdrawalError } = await supabase
             .from("withdrawal_requests")
             .select("amount")
             .eq("shop_id", shopId)
-            .eq("status", "approved")
+            .in("status", ["approved", "completed"])
 
         let totalApprovedWithdrawals = 0
         if (!withdrawalError && approvedWithdrawals) {
@@ -98,7 +98,7 @@ async function syncShopBalance(shopId: string) {
         }
 
         // Available balance = credited profit - approved withdrawals
-        const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+        const availableBalance = breakdown.creditedProfit - totalApprovedWithdrawals
 
         // Delete existing record and insert fresh
         await supabase

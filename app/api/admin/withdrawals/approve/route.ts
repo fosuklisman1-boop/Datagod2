@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
           .from("withdrawal_requests")
           .select("amount")
           .eq("shop_id", withdrawal.shop_id)
-          .eq("status", "approved")
+          .in("status", ["approved", "completed"])
           .range(wOffset, wOffset + 999)
         if (error) break
         if (!batch || batch.length === 0) break
@@ -248,7 +248,7 @@ export async function POST(request: NextRequest) {
       const totalApprovedWithdrawals = allApproved.reduce((s, w) => s + (w.amount || 0), 0)
 
       // Available balance = credited profit - approved withdrawals (includes this one now)
-      const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+      const availableBalance = breakdown.creditedProfit - totalApprovedWithdrawals
 
       // Store balance_after on the withdrawal record for history tracking
       await supabase

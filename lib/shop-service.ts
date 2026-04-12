@@ -417,15 +417,24 @@ export const shopProfitService = {
     // Get pending and credited profits from shop_profits table (paginated)
     const profits = await this.fetchAllProfits(shopId, "profit_amount, status")
 
-    // Sum all pending profits (not yet withdrawn)
-    const availableBalance = profits?.reduce((sum: number, p: any) => {
+    // Sum all credited/pending profits
+    const totalProfits = profits?.reduce((sum: number, p: any) => {
       if (p.status === "pending" || p.status === "credited") {
         return sum + (p.profit_amount || 0)
       }
       return sum
     }, 0) || 0
 
-    return Math.max(0, availableBalance)
+    // Deduct approved and completed withdrawals
+    const { data: withdrawals } = await supabase
+      .from("withdrawal_requests")
+      .select("amount")
+      .eq("shop_id", shopId)
+      .in("status", ["approved", "completed"])
+    
+    const totalWithdrawals = withdrawals?.reduce((sum, w) => sum + (w.amount || 0), 0) || 0
+
+    return totalProfits - totalWithdrawals
   },
 
   // Get total profit (sum of all profit_amount from completed orders)
@@ -505,12 +514,12 @@ export const shopProfitService = {
         }
       })
 
-      // Get approved withdrawals to subtract from available balance
+      // Get approved or completed withdrawals to subtract from available balance
       const { data: approvedWithdrawals, error: withdrawalError } = await supabase
         .from("withdrawal_requests")
         .select("amount")
         .eq("shop_id", shopId)
-        .eq("status", "approved")
+        .in("status", ["approved", "completed"])
 
       let totalApprovedWithdrawals = 0
       if (!withdrawalError && approvedWithdrawals) {
@@ -518,7 +527,7 @@ export const shopProfitService = {
       }
 
       // Available balance = credited profit - approved withdrawals
-      const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+      const availableBalance = breakdown.creditedProfit - totalApprovedWithdrawals
 
       const { error: upsertError } = await supabase
         .from("shop_available_balance")
@@ -640,7 +649,7 @@ export const withdrawalService = {
           .from("withdrawal_requests")
           .select("amount")
           .eq("shop_id", shopId)
-          .eq("status", "approved")
+          .in("status", ["approved", "completed"])
           .range(wOffset, wOffset + wBatchSize - 1)
 
         if (wError) break
@@ -657,7 +666,7 @@ export const withdrawalService = {
       const totalApprovedWithdrawals = allWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
 
       // Current available balance = credited profit - approved withdrawals
-      const currentAvailableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+      const currentAvailableBalance = breakdown.creditedProfit - totalApprovedWithdrawals
 
       // Check if requested withdrawal amount exceeds available balance
       if (withdrawalData.amount > currentAvailableBalance) {
