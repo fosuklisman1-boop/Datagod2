@@ -44,7 +44,7 @@ async function syncShopBalance(shopId: string) {
     0
   )
 
-  const availableBalance = Math.max(0, creditedProfit - totalDeducted)
+  const availableBalance = creditedProfit - totalDeducted
 
   console.log(`[WITHDRAWAL-BALANCE-SYNC] Shop ${shopId}:`, {
     creditedProfit,
@@ -52,17 +52,16 @@ async function syncShopBalance(shopId: string) {
     availableBalance,
   })
 
-  await supabase.from("shop_available_balance").delete().eq("shop_id", shopId)
-  await supabase.from("shop_available_balance").insert([{
+  // Upsert balance (more robust than delete/insert)
+  await supabase.from("shop_available_balance").upsert({
     shop_id: shopId,
     available_balance: availableBalance,
     total_profit: totalProfit,
-    withdrawn_amount: withdrawnProfit,
+    withdrawn_amount: totalDeducted, // Total we've confirmed as out
     credited_profit: creditedProfit,
-    withdrawn_profit: withdrawnProfit,
-    created_at: new Date().toISOString(),
+    withdrawn_profit: withdrawnProfit, // Records marked as "withdrawn" (historical)
     updated_at: new Date().toISOString(),
-  }])
+  }, { onConflict: "shop_id" })
 }
 
 /** Send in-app notification + SMS to the shop owner. */
@@ -285,8 +284,6 @@ export async function POST(request: NextRequest) {
       }
     } catch (syncError) {
       console.warn(`[WITHDRAWAL-APPROVE] Warning syncing balance:`, syncError)
-    }
-
     }
 
     // For bank transfers — manual approval path (no Moolre)
