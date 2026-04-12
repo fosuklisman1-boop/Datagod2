@@ -92,29 +92,37 @@ export interface MoolreValidateResult {
 }
 
 export async function validateAccountName(
-  phone: string,
-  network: string
+  receiver: string,        // phone for MoMo, account number for bank
+  network: string,         // MTN/TELECEL/AT or "BANK"
+  sublistid?: string       // bank ID — required when network="BANK"
 ): Promise<MoolreValidateResult> {
   const channel = getChannel(network)
   if (!channel) {
     return { accountName: null, error: `Unsupported network: ${network}` }
   }
 
+  const body: Record<string, any> = {
+    type: 1,
+    receiver,
+    channel,
+    currency: "GHS",
+    accountnumber: getMoolreAccountNumber(),
+  }
+
+  // Bank validation requires sublistid
+  if (channel === 2 && sublistid) {
+    body.sublistid = sublistid
+  }
+
   try {
     const response = await fetch(`${MOOLRE_BASE}/validate`, {
       method: "POST",
       headers: getMoolreHeaders(),
-      body: JSON.stringify({
-        type: 1,
-        receiver: phone,
-        channel,
-        currency: "GHS",
-        accountnumber: getMoolreAccountNumber(),
-      }),
+      body: JSON.stringify(body),
     })
 
     const rawText = await response.text()
-    console.log(`[MOOLRE-VALIDATE] Phone: ${phone}, Network: ${network}, Channel: ${channel}, HTTP: ${response.status}, Raw: ${rawText}`)
+    console.log(`[MOOLRE-VALIDATE] Receiver: ${receiver}, Network: ${network}, Channel: ${channel}, HTTP: ${response.status}, Raw: ${rawText}`)
 
     let json: any
     try {

@@ -47,6 +47,8 @@ export default function ShopDashboardPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isFetchingName, setIsFetchingName] = useState(false)
   const [nameVerified, setNameVerified] = useState(false)
+  const [bankVerified, setBankVerified] = useState(false)
+  const [isFetchingBankName, setIsFetchingBankName] = useState(false)
   const [banks, setBanks] = useState<{ name: string; sublistid: string }[]>([])
   const [loadingBanks, setLoadingBanks] = useState(false)
   const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
@@ -227,6 +229,39 @@ export default function ShopDashboardPage() {
     }
   }
 
+  const handleValidateBankAccount = async () => {
+    const { accountNumber, bankSublistId } = withdrawalForm
+    if (!accountNumber || !bankSublistId) {
+      toast.error("Please select a bank and enter the account number")
+      return
+    }
+    setIsFetchingBankName(true)
+    setBankVerified(false)
+    setWithdrawalForm(prev => ({ ...prev, accountName: "" }))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/user/withdrawals/validate-account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ network: "BANK", accountNumber, sublistid: bankSublistId }),
+      })
+      const data = await response.json()
+      if (response.ok && data.accountName) {
+        setWithdrawalForm(prev => ({ ...prev, accountName: data.accountName }))
+        setBankVerified(true)
+      } else {
+        toast.error(data.error || "Could not verify bank account. Check the account number and bank.")
+      }
+    } catch {
+      toast.error("Failed to verify bank account. Please try again.")
+    } finally {
+      setIsFetchingBankName(false)
+    }
+  }
+
   const handleWithdrawal = async () => {
     const amount = parseFloat(withdrawalForm.amount)
 
@@ -256,16 +291,16 @@ export default function ShopDashboardPage() {
     }
 
     if (withdrawalForm.method === "bank_transfer") {
-      if (!withdrawalForm.accountName.trim()) {
-        toast.error("Please enter the account name")
-        return
-      }
       if (!withdrawalForm.bankName.trim() && !withdrawalForm.bankSublistId) {
         toast.error("Please select a bank")
         return
       }
       if (!withdrawalForm.accountNumber.trim()) {
         toast.error("Please enter the account number")
+        return
+      }
+      if (!bankVerified) {
+        toast.error("Please verify your bank account before submitting")
         return
       }
     }
@@ -302,6 +337,7 @@ export default function ShopDashboardPage() {
       toast.success("Withdrawal request submitted successfully")
       setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", bankSublistId: "", accountNumber: "", network: "MTN" })
       setNameVerified(false)
+      setBankVerified(false)
       setShowWithdrawalForm(false)
 
       // Reload withdrawals
@@ -554,6 +590,7 @@ export default function ShopDashboardPage() {
                   onChange={(e) => {
                     setWithdrawalForm({ ...withdrawalForm, method: e.target.value, accountName: "", phone: "", network: "MTN", bankName: "", bankSublistId: "" })
                     setNameVerified(false)
+                    setBankVerified(false)
                     if (e.target.value === "bank_transfer") fetchBanks()
                   }}
                   className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
@@ -630,15 +667,6 @@ export default function ShopDashboardPage() {
               {withdrawalForm.method === "bank_transfer" && (
                 <>
                   <div>
-                    <Label>Account Name (Full Name) *</Label>
-                    <Input
-                      value={withdrawalForm.accountName}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountName: e.target.value })}
-                      placeholder="John Doe"
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
                     <Label>Bank *</Label>
                     {loadingBanks ? (
                       <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
@@ -653,7 +681,9 @@ export default function ShopDashboardPage() {
                             ...withdrawalForm,
                             bankSublistId: e.target.value,
                             bankName: selected?.name ?? "",
+                            accountName: "",
                           })
+                          setBankVerified(false)
                         }}
                         className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                       >
@@ -673,12 +703,39 @@ export default function ShopDashboardPage() {
                   </div>
                   <div>
                     <Label>Account Number *</Label>
-                    <Input
-                      value={withdrawalForm.accountNumber}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountNumber: e.target.value })}
-                      placeholder="1234567890"
-                      className="mt-1"
-                    />
+                    <div className="flex gap-2 mt-1">
+                      <Input
+                        value={withdrawalForm.accountNumber}
+                        onChange={(e) => {
+                          setWithdrawalForm(prev => ({ ...prev, accountNumber: e.target.value, accountName: "" }))
+                          setBankVerified(false)
+                        }}
+                        placeholder="1234567890"
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!withdrawalForm.accountNumber || !withdrawalForm.bankSublistId || isFetchingBankName}
+                        onClick={handleValidateBankAccount}
+                        className="shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
+                      >
+                        {isFetchingBankName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Select your bank, enter account number, then click <span className="font-medium text-violet-600">Verify</span> to confirm.
+                    </p>
+                    {bankVerified && withdrawalForm.accountName && (
+                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
+                        <CheckCircle className="h-3 w-3" /> Account: {withdrawalForm.accountName}
+                      </p>
+                    )}
+                    {!bankVerified && !isFetchingBankName && withdrawalForm.accountNumber && withdrawalForm.bankSublistId && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        Account not yet verified — click Verify to proceed.
+                      </p>
+                    )}
                   </div>
                 </>
               )}
@@ -717,7 +774,7 @@ export default function ShopDashboardPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={handleWithdrawal}
-                  disabled={isSubmitting || isFetchingName || (withdrawalForm.method === "mobile_money" && !nameVerified)}
+                  disabled={isSubmitting || isFetchingName || isFetchingBankName || (withdrawalForm.method === "mobile_money" && !nameVerified) || (withdrawalForm.method === "bank_transfer" && !bankVerified)}
                   className="flex-1 bg-violet-600 hover:bg-violet-700"
                 >
                   {isSubmitting ? (
@@ -733,6 +790,7 @@ export default function ShopDashboardPage() {
                   onClick={() => {
                     setShowWithdrawalForm(false)
                     setNameVerified(false)
+                    setBankVerified(false)
                   }}
                   variant="outline"
                   className="flex-1"

@@ -22,9 +22,28 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { phone, network } = body
+    const { phone, network, accountNumber, sublistid } = body
 
-    if (!phone || !network) {
+    if (!network) {
+      return NextResponse.json({ error: "network is required" }, { status: 400 })
+    }
+
+    const isBankValidation = String(network).toUpperCase() === "BANK"
+
+    if (isBankValidation) {
+      // Bank account validation
+      if (!accountNumber || !sublistid) {
+        return NextResponse.json({ error: "accountNumber and sublistid are required for bank validation" }, { status: 400 })
+      }
+      const result = await validateAccountName(String(accountNumber).trim(), "BANK", String(sublistid))
+      if (!result.accountName) {
+        return NextResponse.json({ error: result.error || "Could not verify bank account" }, { status: 400 })
+      }
+      return NextResponse.json({ accountName: result.accountName })
+    }
+
+    // Mobile money validation
+    if (!phone) {
       return NextResponse.json({ error: "phone and network are required" }, { status: 400 })
     }
 
