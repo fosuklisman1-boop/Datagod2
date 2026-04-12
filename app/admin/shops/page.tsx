@@ -33,6 +33,7 @@ export default function AdminShopsPage() {
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null)
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [shopDetails, setShopDetails] = useState<any>(null)
+  const [searchQuery, setSearchQuery] = useState("")
 
   useEffect(() => {
     checkAdminAccess()
@@ -213,7 +214,15 @@ export default function AdminShopsPage() {
           </TabsContent>
 
           {/* All Shops Tab */}
-          <TabsContent value="all">
+          <TabsContent value="all" className="space-y-4">
+            <div className="flex items-center gap-2 max-w-sm">
+              <Input 
+                placeholder="Search shops by name or slug..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-white/50 backdrop-blur border-violet-200"
+              />
+            </div>
             <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
               <CardHeader>
                 <CardTitle>All Shops</CardTitle>
@@ -231,7 +240,12 @@ export default function AdminShopsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-violet-100/40">
-                      {allShops.map((shop) => (
+                      {allShops
+                        .filter(shop => 
+                          shop.shop_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          shop.shop_slug.toLowerCase().includes(searchQuery.toLowerCase())
+                        )
+                        .map((shop) => (
                         <tr key={shop.id} className="hover:bg-violet-100/30 backdrop-blur transition-colors">
                           <td className="px-6 py-4 font-medium text-gray-900">{shop.shop_name}</td>
                           <td className="px-6 py-4 text-sm text-gray-600"><code className="font-mono">{shop.shop_slug}</code></td>
