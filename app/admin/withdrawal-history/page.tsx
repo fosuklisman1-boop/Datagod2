@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { RefreshCw, Loader2, History, Search, ArrowRight, TrendingDown } from "lucide-react"
+import { RefreshCw, Loader2, History, Search, TrendingDown, RotateCcw } from "lucide-react"
 
 interface Withdrawal {
   id: string
@@ -55,6 +55,33 @@ export default function WithdrawalHistoryPage() {
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState("all")
   const [search, setSearch] = useState("")
+  const [recalibrating, setRecalibrating] = useState(false)
+
+  const recalibrateBalances = async () => {
+    if (!confirm("This will recalculate and fix the available balance for ALL shops. Continue?")) return
+    setRecalibrating(true)
+    try {
+      const headers = await getAuthHeaders()
+      const res = await fetch("/api/admin/withdrawals/recalibrate", {
+        method: "POST",
+        headers,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Recalibration failed")
+      const { summary, changes } = data
+      toast.success(
+        `Fixed ${summary.balancesChanged} shop balances (${summary.updated} shops processed)`
+      )
+      if (changes?.length > 0) {
+        console.table(changes)
+      }
+      fetchWithdrawals()
+    } catch (err: any) {
+      toast.error(err.message || "Recalibration failed")
+    } finally {
+      setRecalibrating(false)
+    }
+  }
 
   const fetchWithdrawals = useCallback(async () => {
     setLoading(true)
@@ -126,10 +153,25 @@ export default function WithdrawalHistoryPage() {
               All withdrawal requests from shop owners with balance snapshots.
             </p>
           </div>
-          <Button variant="outline" onClick={fetchWithdrawals} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={recalibrateBalances}
+              disabled={recalibrating}
+              className="border-orange-300 text-orange-600 hover:bg-orange-50"
+            >
+              {recalibrating ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RotateCcw className="w-4 h-4 mr-2" />
+              )}
+              Fix All Balances
+            </Button>
+            <Button variant="outline" onClick={fetchWithdrawals} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
