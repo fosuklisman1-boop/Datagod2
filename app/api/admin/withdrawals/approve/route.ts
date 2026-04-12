@@ -202,52 +202,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid withdrawal amount" }, { status: 400 })
     }
 
-    // Sync available balance after approval (paginated to handle > 1000 profit records)
+    // Sync available balance after approval - OPTIMIZED
     try {
-      let allProfits: any[] = []
-      let profitOffset = 0
-      const profitBatch = 1000
-      while (true) {
-        const { data: batch, error } = await supabase
-          .from("shop_profits")
-          .select("profit_amount, status")
-          .eq("shop_id", withdrawal.shop_id)
-          .range(profitOffset, profitOffset + profitBatch - 1)
-        if (error) throw error
-        if (!batch || batch.length === 0) break
-        allProfits = allProfits.concat(batch)
-        if (batch.length < profitBatch) break
-        profitOffset += profitBatch
-      }
-
-      const breakdown = { totalProfit: 0, creditedProfit: 0, withdrawnProfit: 0 }
-      allProfits.forEach((p: any) => {
-        const amount = p.profit_amount || 0
-        breakdown.totalProfit += amount
-        if (p.status === "credited")  breakdown.creditedProfit  += amount
-        if (p.status === "withdrawn") breakdown.withdrawnProfit += amount
+      const { data: breakdown, error: rpcError } = await supabase.rpc("get_shop_balance_breakdown", {
+        p_shop_id: withdrawal.shop_id
       })
 
-      // Get all approved withdrawals (paginated)
-      let allApproved: any[] = []
-      let wOffset = 0
-      while (true) {
-        const { data: batch, error } = await supabase
-          .from("withdrawal_requests")
-          .select("amount")
-          .eq("shop_id", withdrawal.shop_id)
-          .in("status", ["approved", "completed"])
-          .range(wOffset, wOffset + 999)
-        if (error) break
-        if (!batch || batch.length === 0) break
-        allApproved = allApproved.concat(batch)
-        if (batch.length < 1000) break
-        wOffset += 1000
+      if (rpcError || !breakdown) {
+        throw new Error(rpcError?.message || "Failed to get balance breakdown")
       }
-      const totalApprovedWithdrawals = allApproved.reduce((s, w) => s + (w.amount || 0), 0)
 
-      // Available balance = credited profit - approved withdrawals (includes this one now)
-      const availableBalance = breakdown.creditedProfit - totalApprovedWithdrawals
+      // Available balance = credited profit - approved withdrawals
+      const availableBalance = Number(breakdown.credited_p) - Number(breakdown.total_w)
 
       // Store balance_after on the withdrawal record for history tracking
       await supabase
@@ -256,32 +222,28 @@ export async function POST(request: NextRequest) {
         .eq("id", withdrawalId)
 
       console.log(`[WITHDRAWAL-APPROVE-BALANCE] Shop ${withdrawal.shop_id}:`, {
-        creditedProfit: breakdown.creditedProfit,
-        totalApprovedWithdrawals,
+        creditedProfit: breakdown.credited_p,
+        totalApprovedWithdrawals: breakdown.total_w,
         availableBalance,
       })
 
-      // Upsert balance (atomic — no delete/insert race condition)
-      const { error: upsertError } = await supabase
+      // Upsert balance table
+      await supabase
         .from("shop_available_balance")
         .upsert(
           {
             shop_id: withdrawal.shop_id,
             available_balance: availableBalance,
-            total_profit: breakdown.totalProfit,
-            withdrawn_amount: breakdown.withdrawnProfit,
-            credited_profit: breakdown.creditedProfit,
-            withdrawn_profit: breakdown.withdrawnProfit,
+            total_profit: breakdown.total_p,
+            withdrawn_amount: breakdown.total_w,
+            credited_profit: breakdown.credited_p,
+            withdrawn_profit: breakdown.withdrawn_p,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "shop_id" }
         )
 
-      if (upsertError) {
-        console.error(`[WITHDRAWAL-APPROVE] Balance upsert failed:`, upsertError)
-      } else {
-        console.log(`[WITHDRAWAL-APPROVE] Balance synced for shop: ${withdrawal.shop_id} - Available: GHS ${availableBalance.toFixed(2)}`)
-      }
+      console.log(`[WITHDRAWAL-APPROVE] Balance synced for shop: ${withdrawal.shop_id}`)
     } catch (syncError) {
       console.warn(`[WITHDRAWAL-APPROVE] Warning syncing balance:`, syncError)
     }

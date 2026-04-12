@@ -66,20 +66,20 @@ export async function GET(
       )
     }
 
-    // Fetch all orders, profits and available balance
-    const [orders, profits, balanceData] = await Promise.all([
-      fetchAllRecords(
-        "shop_orders",
-        "id, shop_id, customer_phone, network, volume_gb, transaction_id, order_status, payment_status, created_at",
-        "shop_id",
-        shopId
-      ),
-      fetchAllRecords(
-        "shop_profits",
-        "id, shop_id, shop_order_id, profit_amount, status, created_at, notes, adjustment_type",
-        "shop_id",
-        shopId
-      ),
+    // Fetch recent orders (last 50), profits (last 50), and available balance
+    const [ordersRes, profitsRes, balanceRes] = await Promise.all([
+      supabase
+        .from("shop_orders")
+        .select("id, shop_id, customer_phone, network, volume_gb, transaction_id, order_status, payment_status, created_at")
+        .eq("shop_id", shopId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+      supabase
+        .from("shop_profits")
+        .select("id, shop_id, shop_order_id, profit_amount, status, created_at, notes, adjustment_type")
+        .eq("shop_id", shopId)
+        .order("created_at", { ascending: false })
+        .limit(50),
       supabase
         .from("shop_available_balance")
         .select("available_balance")
@@ -91,9 +91,9 @@ export async function GET(
       success: true,
       data: {
         shop,
-        orders: orders || [],
-        profits: profits || [],
-        available_balance: balanceData.data?.available_balance || 0
+        orders: ordersRes.data || [],
+        profits: profitsRes.data || [],
+        available_balance: balanceRes.data?.available_balance || 0
       }
     })
   } catch (error: any) {
