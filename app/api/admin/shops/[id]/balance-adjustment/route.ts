@@ -13,10 +13,10 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const shopId = params.id
+    const { id: shopId } = await params
     const { isAdmin, userEmail, errorResponse } = await verifyAdminAccess(request)
     if (!isAdmin) return errorResponse
 
