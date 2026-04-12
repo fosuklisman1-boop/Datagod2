@@ -9,19 +9,6 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-/** Recalculate and sync shop_available_balance using the optimized RPC. */
-async function syncShopBalance(shopId: string) {
-  try {
-    const { data: breakdown, error: rpcError } = await supabase.rpc("get_shop_balance_breakdown", {
-      p_shop_id: shopId
-    })
-
-    if (rpcError || !breakdown) {
-      console.error(`[WITHDRAWAL-BALANCE-SYNC] RPC error for shop ${shopId}:`, rpcError)
-      return
-    }
-
-    const creditedProfit = Number(breakdown.credited_p) || 0
     const totalWithdrawn  = Number(breakdown.total_w) || 0
     const availableBalance = creditedProfit - totalWithdrawn
 
@@ -207,8 +194,6 @@ export async function POST(request: NextRequest) {
         .from("withdrawal_requests")
         .update({ status: "approved", updated_at: new Date().toISOString() })
         .eq("id", withdrawalId)
-
-      await syncShopBalance(withdrawal.shop_id)
       await notifyShopOwner(withdrawal, withdrawalId)
 
       console.log(`[WITHDRAWAL-APPROVE] Bank/manual approval: ${withdrawalId}`)
@@ -267,7 +252,6 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", withdrawalId)
 
-      await syncShopBalance(withdrawal.shop_id)
       await notifyShopOwner(withdrawal, withdrawalId)
 
       console.log(`[WITHDRAWAL-APPROVE] Completed: ${withdrawalId} — Moolre TX: ${result.transactionId}`)

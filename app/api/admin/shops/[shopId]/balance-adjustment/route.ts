@@ -56,13 +56,8 @@ export async function POST(
       return NextResponse.json({ error: "Failed to record adjustment" }, { status: 500 })
     }
 
-    // 2. Sync the summary balance table
-    try {
-      await shopProfitService.syncAvailableBalance(shopId)
-    } catch (syncError) {
-      console.error("[BALANCE-ADJUSTMENT] Sync warning:", syncError)
-      // We don't fail the request here since the profit record was successfully saved
-    }
+    // 2. The DB Trigger (sync_shop_balance) will automatically update the available balance
+    // immediately upon insertion into shop_profits. No manual JS sync needed.
 
     return NextResponse.json({
       success: true,

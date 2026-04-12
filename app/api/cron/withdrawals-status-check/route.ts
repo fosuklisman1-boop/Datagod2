@@ -9,50 +9,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-async function syncShopBalance(shopId: string) {
-  const { data: profits } = await supabase
-    .from("shop_profits")
-    .select("profit_amount, status")
-    .eq("shop_id", shopId)
-
-  if (!profits) return
-
-  let creditedProfit = 0
-  let totalProfit = 0
-  let withdrawnProfit = 0
-
-  profits.forEach((p: any) => {
-    const amount = p.profit_amount || 0
-    totalProfit += amount
-    if (p.status === "credited") creditedProfit += amount
-    else if (p.status === "withdrawn") withdrawnProfit += amount
-  })
-
-  const { data: completedWithdrawals } = await supabase
-    .from("withdrawal_requests")
-    .select("amount")
-    .eq("shop_id", shopId)
-    .in("status", ["completed", "approved"])
-
-  const totalCompleted = (completedWithdrawals || []).reduce(
-    (sum: number, w: any) => sum + (w.amount || 0),
-    0
-  )
-
-  const availableBalance = Math.max(0, creditedProfit - totalCompleted)
-
-  await supabase.from("shop_available_balance").delete().eq("shop_id", shopId)
-  await supabase.from("shop_available_balance").insert([{
-    shop_id: shopId,
-    available_balance: availableBalance,
-    total_profit: totalProfit,
-    withdrawn_amount: withdrawnProfit,
-    credited_profit: creditedProfit,
-    withdrawn_profit: withdrawnProfit,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }])
-}
 
 async function notifyCompletion(withdrawal: any) {
   try {
@@ -172,7 +128,6 @@ export async function GET(request: NextRequest) {
           })
           .eq("id", withdrawal.id)
 
-        await syncShopBalance(withdrawal.shop_id)
         await notifyCompletion(withdrawal)
 
         console.log(`[CRON-STATUS] Completed: ${withdrawal.id} — TX: ${statusResult.transactionId}`)

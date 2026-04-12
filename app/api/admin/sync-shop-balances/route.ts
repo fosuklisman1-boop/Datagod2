@@ -13,109 +13,19 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-// Helper to fetch all profits with pagination
-async function fetchAllProfits(supabase: any, shopId: string) {
-    let allRecords: any[] = []
-    let offset = 0
-    const batchSize = 1000
-    let hasMore = true
-
-    while (hasMore) {
-        const { data, error } = await supabase
-            .from("shop_profits")
-            .select("profit_amount, status")
-            .eq("shop_id", shopId)
-            .range(offset, offset + batchSize - 1)
-
-        if (error) break
-
-        if (data && data.length > 0) {
-            allRecords = allRecords.concat(data)
-            offset += batchSize
-            hasMore = data.length === batchSize
-        } else {
-            hasMore = false
-        }
-    }
-
-    return allRecords
-}
-
-async function syncShopBalance(supabase: any, shopId: string) {
+async function syncShopBalance(supabaseClient: any, shopId: string) {
     try {
-        // Get all profits with pagination
-        const profits = await fetchAllProfits(supabase, shopId)
-
-        // Calculate totals by status
-        const breakdown = {
-            totalProfit: 0,
-            creditedProfit: 0,
-            withdrawnProfit: 0,
-            pendingProfit: 0,
-        }
-
-        profits.forEach((p: any) => {
-            const amount = p.profit_amount || 0
-            breakdown.totalProfit += amount
-
-            if (p.status === "credited") {
-                breakdown.creditedProfit += amount
-            } else if (p.status === "withdrawn") {
-                breakdown.withdrawnProfit += amount
-            } else if (p.status === "pending") {
-                breakdown.pendingProfit += amount
-            }
+        // Just call the Postgres function directly via RPC
+        const { error } = await supabaseClient.rpc("sync_shop_balance", {
+            p_shop_id: shopId
         })
 
-        // Get approved and completed withdrawals
-        const { data: approvedWithdrawals } = await supabase
-            .from("withdrawal_requests")
-            .select("amount")
-            .eq("shop_id", shopId)
-            .in("status", ["approved", "completed"])
-
-        let totalApprovedWithdrawals = 0
-        if (approvedWithdrawals) {
-            totalApprovedWithdrawals = approvedWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
-        }
-
-        // Available balance = credited profit - approved withdrawals
-        const availableBalance = breakdown.creditedProfit - totalApprovedWithdrawals
-
-        // Delete existing record and insert fresh
-        await supabase
-            .from("shop_available_balance")
-            .delete()
-            .eq("shop_id", shopId)
-
-        const { error: insertError } = await supabase
-            .from("shop_available_balance")
-            .insert([
-                {
-                    shop_id: shopId,
-                    available_balance: availableBalance,
-                    total_profit: breakdown.totalProfit,
-                    pending_profit: breakdown.pendingProfit,
-                    credited_profit: breakdown.creditedProfit,
-                    withdrawn_profit: breakdown.withdrawnProfit,
-                    withdrawn_amount: breakdown.withdrawnProfit,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                }
-            ])
-
-        if (insertError) {
-            return { success: false, error: insertError.message }
+        if (error) {
+            return { success: false, error: error.message }
         }
 
         return {
             success: true,
-            breakdown: {
-                total: breakdown.totalProfit,
-                credited: breakdown.creditedProfit,
-                pending: breakdown.pendingProfit,
-                available: availableBalance
-            }
         }
     } catch (error: any) {
         return { success: false, error: error.message }
