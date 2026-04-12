@@ -550,14 +550,14 @@ export const withdrawalService = {
         .from("withdrawal_requests")
         .select("id, amount, status")
         .eq("shop_id", shopId)
-        .in("status", ["pending", "approved"])
+        .in("status", ["pending", "processing"])
 
       if (!pendingError && inflightRequests && inflightRequests.length > 0) {
-        const pending  = inflightRequests.filter(w => w.status === "pending")
-        const approved = inflightRequests.filter(w => w.status === "approved")
-        if (approved.length > 0) {
-          const total = approved.reduce((s, w) => s + (w.amount || 0), 0)
-          throw new Error(`You have an approved withdrawal of GHS ${total.toFixed(2)} that has not been completed yet. Please wait for it to be marked as completed before requesting another.`)
+        const processing = inflightRequests.filter(w => w.status === "processing")
+        const pending    = inflightRequests.filter(w => w.status === "pending")
+        if (processing.length > 0) {
+          const total = processing.reduce((s, w) => s + (w.amount || 0), 0)
+          throw new Error(`You have a transfer in progress for GHS ${total.toFixed(2)}. Please wait for it to complete before requesting another.`)
         }
         if (pending.length > 0) {
           const total = pending.reduce((s, w) => s + (w.amount || 0), 0)
@@ -565,7 +565,7 @@ export const withdrawalService = {
         }
       }
     } catch (error) {
-      if (error instanceof Error && (error.message.includes("pending withdrawal") || error.message.includes("approved withdrawal"))) {
+      if (error instanceof Error && (error.message.includes("pending withdrawal") || error.message.includes("transfer in progress"))) {
         throw error
       }
       console.warn(`[WITHDRAWAL-CREATE] Warning checking pending requests:`, error)
