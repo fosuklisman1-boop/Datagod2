@@ -177,24 +177,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid withdrawal amount" }, { status: 400 })
     }
 
-    // Stamp balance_after on the withdrawal record for audit history.
-    // At this point the withdrawal is in "processing" status, so total_w (which only
-    // counts approved/completed) does NOT include this withdrawal yet. We must subtract
-    // the withdrawal amount manually to get the true post-deduction balance.
+    // Stamp balance_after + concurrent overdraft guard.
+    // total_w only counts approved/completed, so processing withdrawals (including this one)
+    // are not yet reflected. We fetch all processing amounts for this shop to detect
+    // simultaneous approvals that together exceed available balance.
     try {
-      const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", {
-        p_shop_id: withdrawal.shop_id
-      })
+      const [breakdownResult, processingResult] = await Promise.all([
+        supabase.rpc("get_shop_balance_breakdown", { p_shop_id: withdrawal.shop_id }),
+        supabase
+          .from("withdrawal_requests")
+          .select("amount")
+          .eq("shop_id", withdrawal.shop_id)
+          .eq("status", "processing"),
+      ])
+
+      const breakdown = breakdownResult.data
       if (breakdown) {
-        const balanceBeforeDeduction = Number(breakdown.credited_p) - Number(breakdown.total_w)
-        const balanceAfter = balanceBeforeDeduction - amount
+        const availableBalance = Number(breakdown.credited_p) - Number(breakdown.total_w)
+        const totalProcessing = (processingResult.data ?? []).reduce(
+          (sum: number, r: any) => sum + Number(r.amount), 0
+        )
+
+        // If all currently-processing withdrawals (including this one) exceed balance, revert
+        if (totalProcessing > availableBalance + 0.001) {
+          await supabase
+            .from("withdrawal_requests")
+            .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+            .eq("id", withdrawalId)
+          console.warn(`[WITHDRAWAL-APPROVE] Overdraft guard triggered: processing=GHS ${totalProcessing.toFixed(2)}, available=GHS ${availableBalance.toFixed(2)}`)
+          return NextResponse.json(
+            { error: `Insufficient balance. GHS ${availableBalance.toFixed(2)} available but GHS ${totalProcessing.toFixed(2)} already committed across concurrent approvals.` },
+            { status: 400 }
+          )
+        }
+
+        // Stamp balance_after for audit trail
+        const balanceAfter = availableBalance - amount
         await supabase
           .from("withdrawal_requests")
           .update({ balance_after: balanceAfter })
           .eq("id", withdrawalId)
       }
     } catch (stampError) {
-      console.warn(`[WITHDRAWAL-APPROVE] Warning stamping balance_after:`, stampError)
+      console.warn(`[WITHDRAWAL-APPROVE] Warning in balance guard/stamp:`, stampError)
+      // Non-fatal: continue with transfer even if guard check fails
     }
 
 
