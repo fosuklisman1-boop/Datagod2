@@ -343,7 +343,7 @@ export default function ShopDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">
-                GHS {balance.toFixed(2)}
+                GHS {(balance || 0).toFixed(2)}
               </div>
               <p className="text-xs text-gray-500">Ready to withdraw</p>
             </CardContent>
@@ -359,7 +359,7 @@ export default function ShopDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-                GHS {totalProfit.toFixed(2)}
+                GHS {(totalProfit || 0).toFixed(2)}
               </div>
               <p className="text-xs text-gray-500">All time profit</p>
             </CardContent>
@@ -432,7 +432,7 @@ export default function ShopDashboardPage() {
                 </div>
                 <p className="text-xs text-gray-500">
                   {customerStats.total_customers > 0 
-                    ? `${customerStats.repeat_percentage.toFixed(1)}% of customers`
+                    ? `${(customerStats.repeat_percentage || 0).toFixed(1)}% of customers`
                     : "No customers yet"}
                 </p>
               </CardContent>
@@ -458,7 +458,7 @@ export default function ShopDashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
-                  GHS {customerStats.average_ltv.toFixed(2)}
+                  GHS {(customerStats.average_ltv || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-gray-500">Per customer</p>
               </CardContent>
@@ -471,7 +471,7 @@ export default function ShopDashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
-                  GHS {customerStats.total_revenue.toFixed(2)}
+                  GHS {(customerStats.total_revenue || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-gray-500">Total from customers</p>
               </CardContent>
@@ -521,7 +521,7 @@ export default function ShopDashboardPage() {
                   className="mt-1"
                 />
                 <p className="text-xs text-gray-600 mt-1">
-                  Available: GHS {balance.toFixed(2)} | Minimum: GHS 5.00
+                  Available: GHS {(balance || 0).toFixed(2)} | Minimum: GHS 5.00
                 </p>
               </div>
 
@@ -731,7 +731,7 @@ export default function ShopDashboardPage() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-semibold text-cyan-600">+GHS {order.profit_amount.toFixed(2)}</p>
+                          <p className="font-semibold text-cyan-600">+GHS {(order.profit_amount || 0).toFixed(2)}</p>
                           <Badge variant="outline" className={
                             order.order_status === "completed"
                               ? "bg-green-100 text-green-700"
@@ -768,7 +768,7 @@ export default function ShopDashboardPage() {
                         className="flex items-center justify-between p-3 bg-white/50 border border-amber-200/40 rounded-lg hover:bg-white/70"
                       >
                         <div className="flex-1">
-                          <p className="font-semibold">GHS {profitAmount.toFixed(2)}</p>
+                          <p className="font-semibold">GHS {(profitAmount || 0).toFixed(2)}</p>
                           <p className="text-sm text-gray-600">{profit.profit_type || "Order Profit"}</p>
                           <p className="text-xs text-gray-500">{new Date(profit.created_at).toLocaleDateString()}</p>
                         </div>
@@ -804,7 +804,7 @@ export default function ShopDashboardPage() {
                         className="flex items-center justify-between p-3 bg-white/50 border border-emerald-200/40 rounded-lg"
                       >
                         <div className="flex-1">
-                          <p className="font-semibold">GHS {withdrawal.amount.toFixed(2)}</p>
+                          <p className="font-semibold">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
                           <p className="text-sm text-gray-600">{withdrawal.withdrawal_method}</p>
                           <p className="text-xs text-gray-500">{new Date(withdrawal.created_at).toLocaleDateString()}</p>
                         </div>
