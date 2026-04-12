@@ -9,60 +9,42 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-/** Recalculate and sync shop_available_balance after a withdrawal completes.
- *  Only counts "completed" withdrawals — not "approved" (manual/legacy) to avoid double-counting.
- */
+/** Recalculate and sync shop_available_balance using the optimized RPC. */
 async function syncShopBalance(shopId: string) {
-  const { data: profits, error: profitError } = await supabase
-    .from("shop_profits")
-    .select("profit_amount, status")
-    .eq("shop_id", shopId)
+  try {
+    const { data: breakdown, error: rpcError } = await supabase.rpc("get_shop_balance_breakdown", {
+      p_shop_id: shopId
+    })
 
-  if (profitError || !profits) return
+    if (rpcError || !breakdown) {
+      console.error(`[WITHDRAWAL-BALANCE-SYNC] RPC error for shop ${shopId}:`, rpcError)
+      return
+    }
 
-  let creditedProfit = 0
-  let totalProfit = 0
-  let withdrawnProfit = 0
+    const creditedProfit = Number(breakdown.credited_p) || 0
+    const totalWithdrawn  = Number(breakdown.total_w) || 0
+    const availableBalance = creditedProfit - totalWithdrawn
 
-  profits.forEach((p: any) => {
-    const amount = p.profit_amount || 0
-    totalProfit += amount
-    if (p.status === "credited") creditedProfit += amount
-    else if (p.status === "withdrawn") withdrawnProfit += amount
-  })
+    console.log(`[WITHDRAWAL-BALANCE-SYNC] Shop ${shopId}:`, {
+      creditedProfit,
+      totalWithdrawn,
+      availableBalance,
+    })
 
-  // Only count "completed" (Moolre confirmed) and "approved" (manual/legacy) separately.
-  // "processing" is NOT counted — funds haven't moved yet.
-  const { data: completedWithdrawals } = await supabase
-    .from("withdrawal_requests")
-    .select("amount")
-    .eq("shop_id", shopId)
-    .in("status", ["completed", "approved"])
-
-  const totalDeducted = (completedWithdrawals || []).reduce(
-    (sum: number, w: any) => sum + (w.amount || 0),
-    0
-  )
-
-  const availableBalance = creditedProfit - totalDeducted
-
-  console.log(`[WITHDRAWAL-BALANCE-SYNC] Shop ${shopId}:`, {
-    creditedProfit,
-    totalDeducted,
-    availableBalance,
-  })
-
-  // Upsert balance (more robust than delete/insert)
-  await supabase.from("shop_available_balance").upsert({
-    shop_id: shopId,
-    available_balance: availableBalance,
-    total_profit: totalProfit,
-    withdrawn_amount: totalDeducted, // Total we've confirmed as out
-    credited_profit: creditedProfit,
-    withdrawn_profit: withdrawnProfit, // Records marked as "withdrawn" (historical)
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "shop_id" })
+    await supabase.from("shop_available_balance").upsert({
+      shop_id: shopId,
+      available_balance: availableBalance,
+      total_profit: Number(breakdown.total_p) || 0,
+      withdrawn_amount: totalWithdrawn,
+      credited_profit: creditedProfit,
+      withdrawn_profit: Number(breakdown.withdrawn_p) || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "shop_id" })
+  } catch (err) {
+    console.error(`[WITHDRAWAL-BALANCE-SYNC] Unexpected error for shop ${shopId}:`, err)
+  }
 }
+
 
 /** Send in-app notification + SMS to the shop owner. */
 async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
@@ -202,51 +184,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid withdrawal amount" }, { status: 400 })
     }
 
-    // Sync available balance after approval - OPTIMIZED
+    // Stamp balance_after on the withdrawal record for audit history
     try {
-      const { data: breakdown, error: rpcError } = await supabase.rpc("get_shop_balance_breakdown", {
+      const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", {
         p_shop_id: withdrawal.shop_id
       })
-
-      if (rpcError || !breakdown) {
-        throw new Error(rpcError?.message || "Failed to get balance breakdown")
+      if (breakdown) {
+        const balanceAfter = Number(breakdown.credited_p) - Number(breakdown.total_w)
+        await supabase
+          .from("withdrawal_requests")
+          .update({ balance_after: balanceAfter })
+          .eq("id", withdrawalId)
       }
-
-      // Available balance = credited profit - approved withdrawals
-      const availableBalance = Number(breakdown.credited_p) - Number(breakdown.total_w)
-
-      // Store balance_after on the withdrawal record for history tracking
-      await supabase
-        .from("withdrawal_requests")
-        .update({ balance_after: availableBalance })
-        .eq("id", withdrawalId)
-
-      console.log(`[WITHDRAWAL-APPROVE-BALANCE] Shop ${withdrawal.shop_id}:`, {
-        creditedProfit: breakdown.credited_p,
-        totalApprovedWithdrawals: breakdown.total_w,
-        availableBalance,
-      })
-
-      // Upsert balance table
-      await supabase
-        .from("shop_available_balance")
-        .upsert(
-          {
-            shop_id: withdrawal.shop_id,
-            available_balance: availableBalance,
-            total_profit: breakdown.total_p,
-            withdrawn_amount: breakdown.total_w,
-            credited_profit: breakdown.credited_p,
-            withdrawn_profit: breakdown.withdrawn_p,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "shop_id" }
-        )
-
-      console.log(`[WITHDRAWAL-APPROVE] Balance synced for shop: ${withdrawal.shop_id}`)
-    } catch (syncError) {
-      console.warn(`[WITHDRAWAL-APPROVE] Warning syncing balance:`, syncError)
+    } catch (stampError) {
+      console.warn(`[WITHDRAWAL-APPROVE] Warning stamping balance_after:`, stampError)
     }
+
 
     // For bank transfers — manual approval path (no Moolre)
     if (withdrawal.withdrawal_method === "bank_transfer" || !phone || !network) {

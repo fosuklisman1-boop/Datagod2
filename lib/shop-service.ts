@@ -578,9 +578,9 @@ export const withdrawalService = {
       
       if (balanceError) throw balanceError
 
-      // Use the pre-aggregated credited_profit and withdrawn_profit from the RPC
-      const creditedProfit = balanceData?.credited_profit || 0
-      const totalWithdrawn = balanceData?.withdrawn_profit || 0
+      // Use the pre-aggregated values from the RPC (short key names: credited_p, total_w)
+      const creditedProfit = Number(balanceData?.credited_p) || 0
+      const totalWithdrawn = Number(balanceData?.total_w) || 0
       
       // Current available balance
       const currentAvailableBalance = creditedProfit - totalWithdrawn
