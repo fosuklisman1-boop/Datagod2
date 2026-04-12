@@ -177,13 +177,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid withdrawal amount" }, { status: 400 })
     }
 
-    // Stamp balance_after on the withdrawal record for audit history
+    // Stamp balance_after on the withdrawal record for audit history.
+    // At this point the withdrawal is in "processing" status, so total_w (which only
+    // counts approved/completed) does NOT include this withdrawal yet. We must subtract
+    // the withdrawal amount manually to get the true post-deduction balance.
     try {
       const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", {
         p_shop_id: withdrawal.shop_id
       })
       if (breakdown) {
-        const balanceAfter = Number(breakdown.credited_p) - Number(breakdown.total_w)
+        const balanceBeforeDeduction = Number(breakdown.credited_p) - Number(breakdown.total_w)
+        const balanceAfter = balanceBeforeDeduction - amount
         await supabase
           .from("withdrawal_requests")
           .update({ balance_after: balanceAfter })
