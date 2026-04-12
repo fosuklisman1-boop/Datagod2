@@ -9,6 +9,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+async function syncShopBalance(shopId: string) {
+  try {
+    const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: shopId })
+    if (!breakdown) return
+
+    const creditedProfit   = Number(breakdown.credited_p) || 0
+    const totalWithdrawn   = Number(breakdown.total_w) || 0
+    const availableBalance = creditedProfit - totalWithdrawn
+
+    await supabase.from("shop_available_balance").upsert({
+      shop_id: shopId,
+      available_balance: availableBalance,
+      total_profit: Number(breakdown.total_p) || 0,
+      withdrawn_amount: totalWithdrawn,
+      credited_profit: creditedProfit,
+      withdrawn_profit: Number(breakdown.withdrawn_p) || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "shop_id" })
+  } catch (err) {
+    console.error(`[CRON-BALANCE-SYNC] Error syncing shop ${shopId}:`, err)
+  }
+}
 
 async function notifyCompletion(withdrawal: any) {
   try {
@@ -128,6 +150,7 @@ export async function GET(request: NextRequest) {
           })
           .eq("id", withdrawal.id)
 
+        await syncShopBalance(withdrawal.shop_id)
         await notifyCompletion(withdrawal)
 
         console.log(`[CRON-STATUS] Completed: ${withdrawal.id} — TX: ${statusResult.transactionId}`)
