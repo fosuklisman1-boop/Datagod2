@@ -486,13 +486,13 @@ export default function WithdrawalsPage() {
                       {/* Action Buttons — pending or failed (retry) */}
                       {(withdrawal.status === "pending" || withdrawal.status === "failed") && (
                         <div className="space-y-2">
-                          {withdrawal.withdrawal_method === "mobile_money" && withdrawal.net_amount && withdrawal.net_amount !== withdrawal.amount && (
+                          {(withdrawal.withdrawal_method === "mobile_money" || (withdrawal.withdrawal_method === "bank_transfer" && (withdrawal.account_details as any)?.sublistid)) && withdrawal.net_amount && withdrawal.net_amount !== withdrawal.amount && (
                             <p className="text-xs text-gray-500 text-center">
                               Moolre will send <span className="font-semibold text-gray-800">GHS {withdrawal.net_amount.toFixed(2)}</span> (after GHS {(withdrawal.fee_amount ?? 0).toFixed(2)} fee)
                             </p>
                           )}
-                          {/* Auto transfer (Moolre) — mobile money only */}
-                          {withdrawal.withdrawal_method === "mobile_money" && (
+                          {/* Auto transfer (Moolre) — mobile money + bank transfers with sublistid */}
+                          {(withdrawal.withdrawal_method === "mobile_money" || (withdrawal.withdrawal_method === "bank_transfer" && (withdrawal.account_details as any)?.sublistid)) && (
                             <Button
                               onClick={() => approveWithdrawal(withdrawal.id)}
                               disabled={actionLoadingId === withdrawal.id}
