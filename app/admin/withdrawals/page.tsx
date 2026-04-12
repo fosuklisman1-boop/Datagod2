@@ -76,7 +76,7 @@ export default function WithdrawalsPage() {
     }
   }
 
-  const approveWithdrawal = async (withdrawalId: string) => {
+  const approveWithdrawal = async (withdrawalId: string, manual = false) => {
     try {
       setActionLoadingId(withdrawalId)
 
@@ -87,7 +87,7 @@ export default function WithdrawalsPage() {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ withdrawalId }),
+        body: JSON.stringify({ withdrawalId, manual }),
       })
 
       const data = await response.json()
@@ -96,7 +96,9 @@ export default function WithdrawalsPage() {
         throw new Error(data.error || "Failed to approve withdrawal")
       }
 
-      if (data.status === "processing") {
+      if (manual) {
+        toast.success("Withdrawal manually approved — remember to transfer funds to the recipient.")
+      } else if (data.status === "processing") {
         toast.success("Transfer initiated — awaiting MoMo confirmation. Will complete automatically.")
       } else {
         toast.success("Withdrawal approved and transferred successfully")
@@ -484,20 +486,34 @@ export default function WithdrawalsPage() {
                       {/* Action Buttons — pending or failed (retry) */}
                       {(withdrawal.status === "pending" || withdrawal.status === "failed") && (
                         <div className="space-y-2">
-                          {withdrawal.net_amount && withdrawal.net_amount !== withdrawal.amount && (
+                          {withdrawal.withdrawal_method === "mobile_money" && withdrawal.net_amount && withdrawal.net_amount !== withdrawal.amount && (
                             <p className="text-xs text-gray-500 text-center">
                               Moolre will send <span className="font-semibold text-gray-800">GHS {withdrawal.net_amount.toFixed(2)}</span> (after GHS {(withdrawal.fee_amount ?? 0).toFixed(2)} fee)
                             </p>
                           )}
-                          <div className="flex gap-2">
+                          {/* Auto transfer (Moolre) — mobile money only */}
+                          {withdrawal.withdrawal_method === "mobile_money" && (
                             <Button
                               onClick={() => approveWithdrawal(withdrawal.id)}
                               disabled={actionLoadingId === withdrawal.id}
-                              className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm"
+                              className="w-full bg-green-600 hover:bg-green-700 text-white text-sm"
                             >
                               {actionLoadingId === withdrawal.id ? (
                                 <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
-                              ) : withdrawal.status === "failed" ? "↺ Retry Transfer" : "✓ Approve & Transfer"}
+                              ) : withdrawal.status === "failed" ? "↺ Retry Transfer (Auto)" : "✓ Approve & Transfer (Auto)"}
+                            </Button>
+                          )}
+                          <div className="flex gap-2">
+                            {/* Manual approve — all methods */}
+                            <Button
+                              onClick={() => approveWithdrawal(withdrawal.id, true)}
+                              disabled={actionLoadingId === withdrawal.id}
+                              variant="outline"
+                              className="flex-1 text-sm border-blue-300 text-blue-700 hover:bg-blue-50"
+                            >
+                              {actionLoadingId === withdrawal.id ? (
+                                <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
+                              ) : withdrawal.status === "failed" ? "↺ Retry (Manual)" : "✓ Manual Approve"}
                             </Button>
                             <Button
                               onClick={() => {

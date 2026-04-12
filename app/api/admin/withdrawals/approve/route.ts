@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
   if (!isAdmin) return errorResponse
 
   try {
-    const { withdrawalId } = await request.json()
+    const { withdrawalId, manual } = await request.json()
 
     if (!withdrawalId || typeof withdrawalId !== "string") {
       return NextResponse.json({ error: "Withdrawal ID required" }, { status: 400 })
@@ -193,6 +193,17 @@ export async function POST(request: NextRequest) {
       console.warn(`[WITHDRAWAL-APPROVE] Warning stamping balance_after:`, stampError)
     }
 
+
+    // Manual approval — admin will transfer funds themselves, skip Moolre entirely
+    if (manual) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "approved", updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      await notifyShopOwner(withdrawal, withdrawalId)
+      console.log(`[WITHDRAWAL-APPROVE] Manual approval: ${withdrawalId}`)
+      return NextResponse.json({ success: true, message: "Withdrawal manually approved" })
+    }
 
     // For bank transfers — manual approval path (no Moolre)
     if (withdrawal.withdrawal_method === "bank_transfer" || !phone || !network) {
