@@ -15,6 +15,7 @@ const NETWORK_TO_CHANNEL: Record<string, number> = {
   TELECEL: 6,
   AT: 7,
   AIRTELTIGO: 7,
+  BANK: 2,
 }
 
 function getChannel(network: string): number | undefined {
@@ -43,7 +44,46 @@ function getMoolreAccountNumber(): string {
 }
 
 /**
- * Validate a mobile money account name before initiating a transfer.
+ * Fetch the list of supported Ghanaian banks from Moolre.
+ * No auth headers required for this endpoint per Moolre docs.
+ * Returns [] on error — caller falls back to free-text entry.
+ */
+export interface MoolreBank {
+  name: string
+  sublistid: string
+}
+
+export async function fetchBankList(): Promise<MoolreBank[]> {
+  try {
+    const response = await fetch(
+      "https://api.moolre.com/open/transact/data?country=gha&data=banks",
+      { method: "GET" }
+    )
+    const rawText = await response.text()
+    console.log(`[MOOLRE-BANKS] HTTP: ${response.status}, Raw: ${rawText.slice(0, 500)}`)
+
+    let json: any
+    try {
+      json = JSON.parse(rawText)
+    } catch {
+      console.error("[MOOLRE-BANKS] Non-JSON response:", rawText.slice(0, 200))
+      return []
+    }
+
+    // Normalise response — log the raw shape so we can confirm field names
+    const list: any[] = Array.isArray(json) ? json : (json.data ?? json.banks ?? [])
+    return list.map((b: any) => ({
+      name: b.name ?? b.bankname ?? b.bank_name ?? String(b),
+      sublistid: String(b.id ?? b.sublistid ?? b.code ?? b.bank_id ?? ""),
+    })).filter(b => b.sublistid)
+  } catch (error) {
+    console.error("[MOOLRE-BANKS] Error:", error)
+    return []
+  }
+}
+
+/**
+ * Validate a mobile money or bank account name before initiating a transfer.
  * Returns the account holder name, or null if validation fails.
  */
 export interface MoolreValidateResult {
@@ -108,16 +148,20 @@ export interface MoolreTransferResult {
 }
 
 /**
- * Initiate a mobile money transfer.
+ * Initiate a mobile money or bank transfer.
+ * For mobile money: provide phone + network (MTN/TELECEL/AT).
+ * For bank transfers: provide accountNumber + sublistid + network="BANK".
  * Use the withdrawal request UUID as externalref to ensure idempotency.
  * Returns null if the API call itself fails (network error, auth error, etc.).
  */
 export async function initiateTransfer(params: {
-  phone: string
+  phone?: string          // receiver for mobile money
+  accountNumber?: string  // receiver for bank transfer (channel=2)
+  sublistid?: string      // bank ID — required when network="BANK"
   network: string
   amount: number
-  externalref: string  // withdrawal request UUID
-  reference?: string   // human-readable memo shown to recipient
+  externalref: string     // withdrawal request UUID
+  reference?: string      // human-readable memo shown to recipient
 }): Promise<MoolreTransferResult | null> {
   const channel = getChannel(params.network)
   if (!channel) {
@@ -125,20 +169,33 @@ export async function initiateTransfer(params: {
     return null
   }
 
+  const receiver = params.phone ?? params.accountNumber
+  if (!receiver) {
+    console.error(`[MOOLRE-TRANSFER] No receiver specified for network: ${params.network}`)
+    return null
+  }
+
+  const body: Record<string, any> = {
+    type: 1,
+    channel,
+    currency: "GHS",
+    amount: params.amount.toFixed(2),
+    receiver,
+    externalref: params.externalref,
+    reference: params.reference || `Withdrawal ${params.externalref}`,
+    accountnumber: getMoolreAccountNumber(),
+  }
+
+  // Add sublistid for bank transfers (channel=2)
+  if (channel === 2 && params.sublistid) {
+    body.sublistid = params.sublistid
+  }
+
   try {
     const response = await fetch(`${MOOLRE_BASE}/transfer`, {
       method: "POST",
       headers: getMoolreHeaders(),
-      body: JSON.stringify({
-        type: 1,
-        channel,
-        currency: "GHS",
-        amount: params.amount.toFixed(2),
-        receiver: params.phone,
-        externalref: params.externalref,
-        reference: params.reference || `Withdrawal ${params.externalref}`,
-        accountnumber: getMoolreAccountNumber(),
-      }),
+      body: JSON.stringify(body),
     })
 
     const rawText = await response.text()

@@ -209,15 +209,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, message: "Withdrawal manually approved" })
     }
 
-    // For bank transfers — manual approval path (no Moolre)
-    if (withdrawal.withdrawal_method === "bank_transfer" || !phone || !network) {
+    const isBankTransfer = withdrawal.withdrawal_method === "bank_transfer"
+    const sublistid = accountDetails?.sublistid
+
+    // Legacy bank transfer without sublistid (pre-bank-integration records) — fall back to manual
+    if (isBankTransfer && !sublistid) {
       await supabase
         .from("withdrawal_requests")
         .update({ status: "approved", updated_at: new Date().toISOString() })
         .eq("id", withdrawalId)
       await notifyShopOwner(withdrawal, withdrawalId)
+      console.log(`[WITHDRAWAL-APPROVE] Legacy bank approval (no sublistid): ${withdrawalId}`)
+      return NextResponse.json({ success: true, message: "Withdrawal approved (manual transfer required — no bank ID)" })
+    }
 
-      console.log(`[WITHDRAWAL-APPROVE] Bank/manual approval: ${withdrawalId}`)
+    // For mobile money without phone/network — should not happen but guard anyway
+    if (!isBankTransfer && (!phone || !network)) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "approved", updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      await notifyShopOwner(withdrawal, withdrawalId)
+      console.log(`[WITHDRAWAL-APPROVE] Missing phone/network, manual approval: ${withdrawalId}`)
       return NextResponse.json({ success: true, message: "Withdrawal approved (manual transfer required)" })
     }
 
@@ -231,16 +244,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid transfer amount" }, { status: 400 })
     }
 
-    console.log(`[WITHDRAWAL-APPROVE] Transfer: gross=GHS ${withdrawal.amount}, fee=GHS ${withdrawal.fee_amount ?? 0}, net=GHS ${transferAmount}`)
+    console.log(`[WITHDRAWAL-APPROVE] Transfer: method=${withdrawal.withdrawal_method}, gross=GHS ${withdrawal.amount}, fee=GHS ${withdrawal.fee_amount ?? 0}, net=GHS ${transferAmount}`)
 
-    // Initiate Moolre transfer
-    const result = await initiateTransfer({
-      phone,
-      network,
-      amount: Number(transferAmount),
-      externalref: withdrawalId,
-      reference: `Datagod withdrawal ${withdrawalId.slice(0, 8)}`,
-    })
+    // Initiate Moolre transfer — mobile money or bank (channel=2)
+    const result = await initiateTransfer(
+      isBankTransfer ? {
+        accountNumber: accountDetails?.account_number,
+        sublistid,
+        network: "BANK",
+        amount: Number(transferAmount),
+        externalref: withdrawalId,
+        reference: `Datagod withdrawal ${withdrawalId.slice(0, 8)}`,
+      } : {
+        phone,
+        network,
+        amount: Number(transferAmount),
+        externalref: withdrawalId,
+        reference: `Datagod withdrawal ${withdrawalId.slice(0, 8)}`,
+      }
+    )
 
     if (!result) {
       // API unreachable — revert to pending, admin can retry

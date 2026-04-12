@@ -39,6 +39,7 @@ export default function ShopDashboardPage() {
     phone: "",
     accountName: "",
     bankName: "",
+    bankSublistId: "",
     accountNumber: "",
     network: "MTN",
   })
@@ -46,6 +47,8 @@ export default function ShopDashboardPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isFetchingName, setIsFetchingName] = useState(false)
   const [nameVerified, setNameVerified] = useState(false)
+  const [banks, setBanks] = useState<{ name: string; sublistid: string }[]>([])
+  const [loadingBanks, setLoadingBanks] = useState(false)
   const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
 
   useEffect(() => {
@@ -63,7 +66,25 @@ export default function ShopDashboardPage() {
       }
     } catch (error) {
       console.warn("Failed to fetch withdrawal fee:", error)
-      // Continue with default fee of 0
+    }
+  }
+
+  const fetchBanks = async () => {
+    if (banks.length > 0) return // already loaded
+    setLoadingBanks(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/user/withdrawals/banks", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setBanks(Array.isArray(data) ? data : [])
+      }
+    } catch (error) {
+      console.warn("Failed to fetch bank list:", error)
+    } finally {
+      setLoadingBanks(false)
     }
   }
 
@@ -239,8 +260,8 @@ export default function ShopDashboardPage() {
         toast.error("Please enter the account name")
         return
       }
-      if (!withdrawalForm.bankName.trim()) {
-        toast.error("Please enter the bank name")
+      if (!withdrawalForm.bankName.trim() && !withdrawalForm.bankSublistId) {
+        toast.error("Please select a bank")
         return
       }
       if (!withdrawalForm.accountNumber.trim()) {
@@ -263,6 +284,7 @@ export default function ShopDashboardPage() {
         accountDetails.network = withdrawalForm.network
       } else if (withdrawalForm.method === "bank_transfer") {
         accountDetails.bank_name = withdrawalForm.bankName
+        accountDetails.sublistid = withdrawalForm.bankSublistId
         accountDetails.account_number = withdrawalForm.accountNumber
         accountDetails.account_name = withdrawalForm.accountName
       }
@@ -278,7 +300,7 @@ export default function ShopDashboardPage() {
       )
 
       toast.success("Withdrawal request submitted successfully")
-      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", accountNumber: "", network: "MTN" })
+      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", bankSublistId: "", accountNumber: "", network: "MTN" })
       setNameVerified(false)
       setShowWithdrawalForm(false)
 
@@ -530,8 +552,9 @@ export default function ShopDashboardPage() {
                 <select
                   value={withdrawalForm.method}
                   onChange={(e) => {
-                    setWithdrawalForm({ ...withdrawalForm, method: e.target.value, accountName: "", phone: "", network: "MTN" })
+                    setWithdrawalForm({ ...withdrawalForm, method: e.target.value, accountName: "", phone: "", network: "MTN", bankName: "", bankSublistId: "" })
                     setNameVerified(false)
+                    if (e.target.value === "bank_transfer") fetchBanks()
                   }}
                   className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                 >
@@ -616,13 +639,37 @@ export default function ShopDashboardPage() {
                     />
                   </div>
                   <div>
-                    <Label>Bank Name *</Label>
-                    <Input
-                      value={withdrawalForm.bankName}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, bankName: e.target.value })}
-                      placeholder="e.g., GCB, Zenith Bank"
-                      className="mt-1"
-                    />
+                    <Label>Bank *</Label>
+                    {loadingBanks ? (
+                      <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading banks...
+                      </div>
+                    ) : banks.length > 0 ? (
+                      <select
+                        value={withdrawalForm.bankSublistId}
+                        onChange={(e) => {
+                          const selected = banks.find(b => b.sublistid === e.target.value)
+                          setWithdrawalForm({
+                            ...withdrawalForm,
+                            bankSublistId: e.target.value,
+                            bankName: selected?.name ?? "",
+                          })
+                        }}
+                        className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      >
+                        <option value="">Select a bank...</option>
+                        {banks.map(b => (
+                          <option key={b.sublistid} value={b.sublistid}>{b.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        value={withdrawalForm.bankName}
+                        onChange={(e) => setWithdrawalForm({ ...withdrawalForm, bankName: e.target.value })}
+                        placeholder="e.g., GCB, Zenith Bank"
+                        className="mt-1"
+                      />
+                    )}
                   </div>
                   <div>
                     <Label>Account Number *</Label>
