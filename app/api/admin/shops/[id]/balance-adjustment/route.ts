@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { shopService } from "@/lib/shop-service"
+import { shopProfitService } from "@/lib/shop-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -58,7 +58,7 @@ export async function POST(
 
     // 2. Sync the summary balance table
     try {
-      await shopService.syncAvailableBalance(shopId)
+      await shopProfitService.syncAvailableBalance(shopId)
     } catch (syncError) {
       console.error("[BALANCE-ADJUSTMENT] Sync warning:", syncError)
       // We don't fail the request here since the profit record was successfully saved
