@@ -19,6 +19,9 @@ BEGIN
   END IF;
 END $$;
 
+-- Backfill existing rows that have NULL fulfillment_status
+UPDATE afa_orders SET fulfillment_status = 'unfulfilled' WHERE fulfillment_status IS NULL;
+
 -- Index for querying unfulfilled orders efficiently
 CREATE INDEX IF NOT EXISTS idx_afa_orders_fulfillment_status ON afa_orders(fulfillment_status);
 
