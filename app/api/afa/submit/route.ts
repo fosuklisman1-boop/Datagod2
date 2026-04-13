@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { fulfillAfaOrder, isAfaAutoFulfillmentEnabled } from "@/lib/afa-fulfillment"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -159,6 +160,20 @@ export async function POST(request: NextRequest) {
       // Don't fail the response, the order was already created
     } else {
       console.log("[AFA-SUBMIT] Transaction record created")
+    }
+
+    // Auto-fulfillment: fire-and-forget so user gets response immediately
+    try {
+      const autoFulfill = await isAfaAutoFulfillmentEnabled()
+      if (autoFulfill) {
+        console.log("[AFA-SUBMIT] Auto-fulfillment enabled — triggering Sykes registration")
+        fulfillAfaOrder(afaOrder.id).catch((err) => {
+          console.error("[AFA-SUBMIT] Auto-fulfillment error for order", afaOrder.id, err)
+        })
+      }
+    } catch (autoFulfillCheckError) {
+      console.error("[AFA-SUBMIT] Error checking auto-fulfillment setting:", autoFulfillCheckError)
+      // Non-blocking — order is still created successfully
     }
 
     console.log("[AFA-SUBMIT] Success - AFA order completed")
