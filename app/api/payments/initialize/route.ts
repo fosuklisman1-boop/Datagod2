@@ -72,6 +72,17 @@ export async function POST(request: NextRequest) {
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
 
+    // Wallet top-ups MUST have an authenticated user — otherwise the credit step
+    // has no user_id to credit and the top-up gets permanently stuck.
+    // This catches expired/missing JWTs before Paystack charges the user.
+    if (isTopup && !userId) {
+      console.warn("[PAYMENT-INIT] Blocked wallet top-up: no authenticated user (missing/expired JWT)")
+      return NextResponse.json(
+        { error: "You must be signed in to top up your wallet. Please refresh and try again." },
+        { status: 401 }
+      )
+    }
+
     // Enforce Feature Availability Toggles
     if (isTopup && settings?.wallet_topups_enabled === false && !isAdmin) {
       console.warn(`[PAYMENT-INIT] Blocked Top Up for non-admin user ${userId} because feature is disabled.`)
