@@ -75,6 +75,16 @@ export default function WalletPage() {
     }
   }, [user, authLoading, router])
 
+  // Proactively refresh JWT on wallet page load so top-up calls don't get
+  // blocked by an expired token (initialize endpoint returns 401 if user_id
+  // cannot be extracted from a stale JWT).
+  useEffect(() => {
+    supabase.auth.refreshSession().catch(() => {
+      // Refresh failure means the session is truly expired — the auth state
+      // change listener in use-auth.ts will handle the redirect to login.
+    })
+  }, [])
+
   useEffect(() => {
     if (user) {
       fetchUserAndWallet()

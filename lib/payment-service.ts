@@ -42,7 +42,10 @@ export async function initializePayment(
   try {
     console.log("[PAYMENT-SERVICE] Initializing payment with params:", params)
     
-    // Get the current session token for the Authorization header
+    // Refresh token immediately before payment to ensure the JWT sent to
+    // /api/payments/initialize is not expired (expired token causes a 401
+    // and the user gets charged without their wallet being credited).
+    await supabase.auth.refreshSession()
     const { data: { session } } = await supabase.auth.getSession()
     
     const headers: HeadersInit = {

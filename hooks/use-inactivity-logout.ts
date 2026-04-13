@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
-const INACTIVITY_TIMEOUT = 12 * 60 * 60 * 1000 // 12 hours in milliseconds
+const INACTIVITY_TIMEOUT = 4 * 60 * 60 * 1000 // 4 hours in milliseconds
 
 export function useInactivityLogout() {
   const router = useRouter()
@@ -23,16 +23,17 @@ export function useInactivityLogout() {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
       if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current)
 
-      // Set warning timeout (9 minutes)
+      // Set warning timeout (fires 1 minute before logout)
       warningTimeoutRef.current = setTimeout(() => {
         toast.warning("You will be logged out in 1 minute due to inactivity")
       }, (INACTIVITY_TIMEOUT - 60 * 1000))
 
-      // Set logout timeout (10 minutes)
+      // Set logout timeout (4 hours)
       timeoutRef.current = setTimeout(async () => {
         try {
-          // Logout user
-          await supabase.auth.signOut()
+          // Global scope revokes the refresh token server-side so the session
+          // cannot be silently re-used from another tab or device.
+          await supabase.auth.signOut({ scope: "global" })
           toast.info("You have been logged out due to inactivity")
           router.push("/auth/login")
         } catch (error) {
