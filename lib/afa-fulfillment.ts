@@ -46,9 +46,12 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
     return { success: false, message: "Order not found" }
   }
 
-  // 2. Guard: skip already-fulfilled or cancelled orders
+  // 2. Guard: skip already-fulfilled, completed, or cancelled orders
   if (order.fulfillment_status === "fulfilled") {
     return { success: false, message: "Order already fulfilled" }
+  }
+  if (order.status === "completed") {
+    return { success: false, message: "Order is already completed" }
   }
   if (order.status === "cancelled") {
     return { success: false, message: "Cannot fulfill a cancelled order" }

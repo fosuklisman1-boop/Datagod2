@@ -27,6 +27,11 @@ export async function GET(request: NextRequest) {
         occupation,
         amount,
         status,
+        fulfillment_status,
+        fulfillment_ref,
+        fulfillment_error,
+        fulfilled_at,
+        fulfillment_attempts,
         created_at
       `)
       .order("created_at", { ascending: false })
