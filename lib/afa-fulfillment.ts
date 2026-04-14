@@ -37,7 +37,7 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
   // 1. Fetch the order
   const { data: order, error: fetchError } = await supabase
     .from("afa_orders")
-    .select("id, full_name, gh_card_number, occupation, fulfillment_status, fulfillment_attempts, status")
+    .select("id, full_name, gh_card_number, occupation, phone_number, location, fulfillment_status, fulfillment_attempts, status")
     .eq("id", orderId)
     .single()
 
@@ -70,6 +70,8 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
     Full_Name: order.full_name || "",
     Ghana_Card_Number: order.gh_card_number || "",
     Occupation_type: order.occupation || "Farmer",
+    Contact: order.phone_number || "",
+    Location: order.location || "",
   })
 
   // 5. Update DB based on result

@@ -13,6 +13,8 @@ export interface AfaRegisterPayload {
   Full_Name: string
   Ghana_Card_Number: string
   Occupation_type: string
+  Contact: string
+  Location: string
 }
 
 export interface AfaRegisterResponse {
