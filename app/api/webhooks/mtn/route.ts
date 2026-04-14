@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
     await storeWebhookEvent(traceId, payload, rawBody)
 
     // Normalized event detection for provider-agnostic handling
-    const eventType = payload.event || (payload as any).type || (payload as any).event_type
+    const eventType = payload.event || (payload as any).type || (payload as any).event_type || "unknown"
     const isTest = (payload.event === "ping" || payload.event === "test" || (payload as any).type === "test_event" || (payload as any).test === true)
 
     // Check if it's a test/ping webhook from the dashboard
@@ -141,28 +141,28 @@ export async function POST(request: NextRequest) {
     // Determine the MTN order ID for logging (handle Sykes, DataKazina, and common fallbacks)
     const mtnOrderId = payload.order?.id || 
                       (payload as any).id || 
+                      (payload as any).order_id ||
                       (payload as any).order_code || 
                       (payload as any).transaction_id || 
-                      (payload as any).reference
+                      (payload as any).reference ||
+                      (payload as any).external_id
     
-    if (!eventType || !mtnOrderId) {
-      log("warn", "Webhook", "Missing required webhook fields", { traceId, payload })
-      return NextResponse.json(
-        { 
-          error: "Missing required fields", 
-          details: "Could not identify 'event'/'type' or an Order ID", 
-          received_payload: payload,
-          traceId 
-        },
-        { status: 400 }
-      )
+    // RELAXED VALIDATION: Always return 200 if we parsed the JSON, but log issues
+    if (!mtnOrderId) {
+      log("warn", "Webhook", "Empty or partial webhook received (missing ID)", { traceId, payload })
+      return NextResponse.json({ 
+        success: true, 
+        message: "Webhook acknowledged (Missing ID for processing)", 
+        traceId,
+        received_event: eventType
+      })
     }
 
     // DETECT PROVIDER AND ROUTE
     // Sykes: Has an "order" object
-    // DataKazina: Has "order_code" or "transaction_id" at top level
+    // DataKazina: Has "order_code" or "transaction_id" or "id" as number at top level
     const isSykes = !!payload.order
-    const isDataKazina = !!(payload as any).order_code || !!(payload as any).transaction_id || (!!(payload as any).type && !isSykes)
+    const isDataKazina = !isSykes && (!!(payload as any).order_code || !!(payload as any).transaction_id || typeof (payload as any).id === "number")
 
     log("info", "Webhook", `Processing ${eventType} event`, {
       traceId,
