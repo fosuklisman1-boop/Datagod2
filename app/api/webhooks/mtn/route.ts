@@ -35,13 +35,22 @@ export async function POST(request: NextRequest) {
   try {
     // Get raw body for signature verification
     const rawBody = await request.text()
+    const contentType = request.headers.get("content-type") || ""
+    
+    // Log headers (excluding potentially sensitive ones like authorization)
+    const headers: Record<string, string> = {}
+    request.headers.forEach((value, key) => {
+      if (!key.match(/auth|key|cookie|token/i)) {
+        headers[key] = value
+      }
+    })
 
     // Get signature from headers
     const signature = request.headers.get("x-webhook-signature") ||
       request.headers.get("x-signature") ||
       request.headers.get("signature")
 
-    log("info", "Webhook", "Received webhook request", { traceId, hasSignature: !!signature })
+    log("info", "Webhook", "Received webhook request", { traceId, hasSignature: !!signature, contentType, headers })
 
     // Verify webhook signature
     if (signature) {
@@ -54,31 +63,68 @@ export async function POST(request: NextRequest) {
         )
       }
       log("debug", "Webhook", "Signature verified", { traceId })
-    } else {
-      // In production, signature should be required
-      if (process.env.NODE_ENV === "production") {
-        log("warn", "Webhook", "Missing webhook signature in production", { traceId })
-        return NextResponse.json(
-          { error: "Missing signature", traceId },
-          { status: 401 }
-        )
-      }
-      log("warn", "Webhook", "No signature provided (development mode)", { traceId })
+    } else if (process.env.NODE_ENV === "production") {
+      log("warn", "Webhook", "Missing webhook signature in production", { traceId })
+      return NextResponse.json(
+        { error: "Missing signature", traceId },
+        { status: 401 }
+      )
     }
 
     // Parse webhook payload
-    let payload: MTNWebhookPayload
+    let payload: MTNWebhookPayload | null = null
+    
     try {
-      payload = JSON.parse(rawBody)
+      if (contentType.includes("application/json")) {
+        payload = JSON.parse(rawBody)
+      } else if (contentType.includes("application/x-www-form-urlencoded")) {
+        // Handle form-encoded payload (sometimes used by legacy systems)
+        const params = new URLSearchParams(rawBody)
+        const obj: any = {}
+        params.forEach((value, key) => {
+          // Attempt to parse nested fields if they look like JSON
+          try {
+            if (value.startsWith("{") || value.startsWith("[")) {
+              obj[key] = JSON.parse(value)
+            } else {
+              obj[key] = value
+            }
+          } catch {
+            obj[key] = value
+          }
+        })
+        payload = obj as MTNWebhookPayload
+      } else {
+        // Fallback: try JSON anyway if content-type is missing or generic
+        payload = JSON.parse(rawBody)
+      }
     } catch (parseError) {
-      log("error", "Webhook", "Failed to parse webhook payload", { traceId, error: String(parseError) })
+      log("error", "Webhook", "Failed to parse webhook payload", { 
+        traceId, 
+        error: String(parseError),
+        contentType,
+        bodyPrefix: rawBody.substring(0, 200)
+      })
+      
+      // Still audit the raw attempt
+      await storeWebhookEvent(traceId, { event: "parse_error" } as any, rawBody)
+      
       return NextResponse.json(
-        { error: "Invalid JSON payload", traceId },
+        { 
+          error: "Invalid payload format", 
+          details: String(parseError),
+          contentType,
+          traceId 
+        },
         { status: 400 }
       )
     }
-    // Store webhook for audit immediately so we can see what was sent even if validation fails
-    // Provide dummy values for trace ID etc. if it fails later
+
+    if (!payload) {
+        return NextResponse.json({ error: "Empty payload", traceId }, { status: 400 })
+    }
+
+    // Store webhook for audit immediately
     await storeWebhookEvent(traceId, payload, rawBody)
 
     // Check if it's a test/ping webhook from the dashboard
@@ -89,16 +135,14 @@ export async function POST(request: NextRequest) {
 
     // Some test webhooks may not include the full order object. 
     // If the event suggests a test, we should return 200.
-    if (!payload.event || (!payload.order && !(payload as any).order_id && !(payload as any).transaction_id && !(payload as any).id)) {
-      log("warn", "Webhook", "Missing required webhook fields, but storing and acking", { traceId, payload })
-      // Notice we are returning 400 with a more detailed message, but maybe 
-      // the test webhook specifically sends arbitrary payload. Let's return 200 if it's completely generic 
-      // so the dashboard tester doesn't think the endpoint is unreachabe. 
-      // Actually, if it's invalid, it's safer to return 400 with details.
+    const hasOrderInfo = !!payload.order || !!(payload as any).order_id || !!(payload as any).transaction_id || !!(payload as any).id
+    
+    if (!payload.event || !hasOrderInfo) {
+      log("warn", "Webhook", "Missing required webhook fields, but stored and acked", { traceId, payload })
       return NextResponse.json(
         { 
           error: "Missing required fields", 
-          details: "Expected 'event' and 'order.id'", 
+          details: "Expected 'event' and 'order.id' (or 'order_id'/'transaction_id')", 
           received_payload: payload,
           traceId 
         },
@@ -106,7 +150,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Determine the MTN order ID for logging (handle different potential formats of incoming payload)
+    // Determine the MTN order ID for logging
     const mtnOrderId = payload.order?.id || (payload as any).order_id || (payload as any).transaction_id || (payload as any).id
 
     log("info", "Webhook", `Processing ${payload.event || "unknown"} event`, {
