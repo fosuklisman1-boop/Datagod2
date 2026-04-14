@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     // Some test webhooks may not include the full order object. 
     // If the event suggests a test, we should return 200.
-    if (!payload.event || (!payload.order && !payload.order_id && !payload.transaction_id && !payload.id)) {
+    if (!payload.event || (!payload.order && !(payload as any).order_id && !(payload as any).transaction_id && !(payload as any).id)) {
       log("warn", "Webhook", "Missing required webhook fields, but storing and acking", { traceId, payload })
       // Notice we are returning 400 with a more detailed message, but maybe 
       // the test webhook specifically sends arbitrary payload. Let's return 200 if it's completely generic 

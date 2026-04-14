@@ -34,11 +34,12 @@ export async function POST(request: NextRequest) {
 
   // ── fulfill-pending ───────────────────────────────────────────────────────
   if (action === "fulfill-pending") {
-    const { data: orders, error: fetchError } = await supabase
+    // Fetch all orders with status=pending, then filter in JS to avoid
+    // PostgREST OR/AND precedence ambiguity with chained .eq().or()
+    const { data: allPending, error: fetchError } = await supabase
       .from("afa_orders")
-      .select("id")
+      .select("id, fulfillment_status")
       .eq("status", "pending")
-      .or("fulfillment_status.is.null,fulfillment_status.in.(unfulfilled,failed)")
       .order("created_at", { ascending: true })
 
     if (fetchError) {
@@ -46,7 +47,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: fetchError.message }, { status: 500 })
     }
 
-    if (!orders || orders.length === 0) {
+    // Only include orders that haven't been fulfilled or are in-flight
+    const orders = (allPending || []).filter(
+      (o) => !o.fulfillment_status || o.fulfillment_status === "unfulfilled" || o.fulfillment_status === "failed"
+    )
+
+    if (orders.length === 0) {
       return NextResponse.json({ success: true, message: "No unfulfilled orders found", fulfilled: 0, failed: 0 })
     }
 
