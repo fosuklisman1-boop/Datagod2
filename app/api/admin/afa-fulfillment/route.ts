@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
     const { data: orders, error: fetchError } = await supabase
       .from("afa_orders")
       .select("id")
+      .eq("status", "pending")
       .or("fulfillment_status.is.null,fulfillment_status.in.(unfulfilled,failed)")
-      .neq("status", "cancelled")
       .order("created_at", { ascending: true })
 
     if (fetchError) {
