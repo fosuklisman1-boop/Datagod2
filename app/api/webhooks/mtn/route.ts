@@ -77,24 +77,43 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    // Store webhook for audit immediately so we can see what was sent even if validation fails
+    // Provide dummy values for trace ID etc. if it fails later
+    await storeWebhookEvent(traceId, payload, rawBody)
 
-    // Validate required fields
-    if (!payload.event || !payload.order?.id) {
-      log("error", "Webhook", "Missing required webhook fields", { traceId, payload })
+    // Check if it's a test/ping webhook from the dashboard
+    if (payload.event === "ping" || payload.event === "test") {
+      log("info", "Webhook", "Received test/ping webhook", { traceId, payload })
+      return NextResponse.json({ success: true, message: "Webhook endpoint tested successfully" })
+    }
+
+    // Some test webhooks may not include the full order object. 
+    // If the event suggests a test, we should return 200.
+    if (!payload.event || (!payload.order && !payload.order_id && !payload.transaction_id && !payload.id)) {
+      log("warn", "Webhook", "Missing required webhook fields, but storing and acking", { traceId, payload })
+      // Notice we are returning 400 with a more detailed message, but maybe 
+      // the test webhook specifically sends arbitrary payload. Let's return 200 if it's completely generic 
+      // so the dashboard tester doesn't think the endpoint is unreachabe. 
+      // Actually, if it's invalid, it's safer to return 400 with details.
       return NextResponse.json(
-        { error: "Missing required fields", traceId },
+        { 
+          error: "Missing required fields", 
+          details: "Expected 'event' and 'order.id'", 
+          received_payload: payload,
+          traceId 
+        },
         { status: 400 }
       )
     }
 
-    log("info", "Webhook", `Processing ${payload.event} event`, {
-      traceId,
-      mtnOrderId: payload.order.id,
-      status: payload.order.status,
-    })
+    // Determine the MTN order ID for logging (handle different potential formats of incoming payload)
+    const mtnOrderId = payload.order?.id || (payload as any).order_id || (payload as any).transaction_id || (payload as any).id
 
-    // Store webhook for audit
-    await storeWebhookEvent(traceId, payload, rawBody)
+    log("info", "Webhook", `Processing ${payload.event || "unknown"} event`, {
+      traceId,
+      mtnOrderId,
+      status: payload.order?.status || (payload as any).status,
+    })
 
     // Handle different event types
     // API uses "order.status_changed" with status in payload.order.status
@@ -175,8 +194,8 @@ async function storeWebhookEvent(
   try {
     await supabase.from("mtn_webhook_events").insert({
       trace_id: traceId,
-      event_type: payload.event,
-      mtn_order_id: payload.order.id,
+      event_type: payload.event || "unknown",
+      mtn_order_id: payload.order?.id || (payload as any).order_id || (payload as any).transaction_id || null,
       payload: payload,
       raw_body: rawBody,
       received_at: new Date().toISOString(),
