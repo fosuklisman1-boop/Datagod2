@@ -4,6 +4,7 @@ import crypto from "crypto"
 import {
   verifyWebhookSignature,
   updateMTNOrderFromWebhook,
+  updateDataKazinaOrderFromPayload,
   MTNWebhookPayload,
 } from "@/lib/mtn-fulfillment"
 import {
@@ -127,22 +128,29 @@ export async function POST(request: NextRequest) {
     // Store webhook for audit immediately
     await storeWebhookEvent(traceId, payload, rawBody)
 
+    // Normalized event detection for provider-agnostic handling
+    const eventType = payload.event || (payload as any).type || (payload as any).event_type
+    const isTest = (payload.event === "ping" || payload.event === "test" || (payload as any).type === "test_event" || (payload as any).test === true)
+
     // Check if it's a test/ping webhook from the dashboard
-    if (payload.event === "ping" || payload.event === "test") {
-      log("info", "Webhook", "Received test/ping webhook", { traceId, payload })
-      return NextResponse.json({ success: true, message: "Webhook endpoint tested successfully" })
+    if (isTest) {
+      log("info", "Webhook", "Received test/ping webhook", { traceId, provider: payload.order ? "Sykes" : "DataKazina", payload })
+      return NextResponse.json({ success: true, message: "Webhook endpoint tested successfully", event: eventType })
     }
 
-    // Some test webhooks may not include the full order object. 
-    // If the event suggests a test, we should return 200.
-    const hasOrderInfo = !!payload.order || !!(payload as any).order_id || !!(payload as any).transaction_id || !!(payload as any).id
+    // Determine the MTN order ID for logging (handle Sykes, DataKazina, and common fallbacks)
+    const mtnOrderId = payload.order?.id || 
+                      (payload as any).id || 
+                      (payload as any).order_code || 
+                      (payload as any).transaction_id || 
+                      (payload as any).reference
     
-    if (!payload.event || !hasOrderInfo) {
-      log("warn", "Webhook", "Missing required webhook fields, but stored and acked", { traceId, payload })
+    if (!eventType || !mtnOrderId) {
+      log("warn", "Webhook", "Missing required webhook fields", { traceId, payload })
       return NextResponse.json(
         { 
           error: "Missing required fields", 
-          details: "Expected 'event' and 'order.id' (or 'order_id'/'transaction_id')", 
+          details: "Could not identify 'event'/'type' or an Order ID", 
           received_payload: payload,
           traceId 
         },
@@ -150,51 +158,52 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Determine the MTN order ID for logging
-    const mtnOrderId = payload.order?.id || (payload as any).order_id || (payload as any).transaction_id || (payload as any).id
+    // DETECT PROVIDER AND ROUTE
+    // Sykes: Has an "order" object
+    // DataKazina: Has "order_code" or "transaction_id" at top level
+    const isSykes = !!payload.order
+    const isDataKazina = !!(payload as any).order_code || !!(payload as any).transaction_id || (!!(payload as any).type && !isSykes)
 
-    log("info", "Webhook", `Processing ${payload.event || "unknown"} event`, {
+    log("info", "Webhook", `Processing ${eventType} event`, {
       traceId,
+      provider: isSykes ? "Sykes" : isDataKazina ? "DataKazina" : "Unknown",
       mtnOrderId,
       status: payload.order?.status || (payload as any).status,
     })
 
-    // Handle different event types
-    // API uses "order.status_changed" with status in payload.order.status
-    switch (payload.event) {
-      case "order.status_changed":
-        // Handle status from payload.order.status
-        if (payload.order.status === "completed") {
-          await handleOrderCompleted(traceId, payload)
-        } else if (payload.order.status === "failed") {
-          await handleOrderFailed(traceId, payload)
-        } else if (payload.order.status === "processing") {
-          await handleOrderProcessing(traceId, payload)
-        } else if (payload.order.status === "pending") {
-          await handleOrderPending(traceId, payload)
-        }
-        break
+    // Handle updates based on detected provider
+    let updateSuccess = false
+    if (isSykes) {
+      updateSuccess = await updateMTNOrderFromWebhook(payload)
+    } else if (isDataKazina) {
+      updateSuccess = await updateDataKazinaOrderFromPayload(payload as any)
+    } else {
+      log("warn", "Webhook", "Unknown provider format, attempting generic update", { traceId })
+      // Try both as a fallback
+      updateSuccess = await updateMTNOrderFromWebhook(payload) || await updateDataKazinaOrderFromPayload(payload as any)
+    }
 
-      case "order.completed":
-      case "order.success":
+    if (!updateSuccess) {
+       log("warn", "Webhook", "Order update failed (record might not exist yet)", { traceId, mtnOrderId })
+    }
+
+    // Trigger specific logic for status changes (notifications, etc.)
+    const status = (payload.order?.status || (payload as any).status || "").toLowerCase()
+
+    if (eventType === "order.status_changed" || eventType === "status_changed") {
+      if (status === "completed" || status === "delivered" || status === "success") {
         await handleOrderCompleted(traceId, payload)
-        break
-
-      case "order.failed":
-      case "order.error":
+      } else if (status === "failed" || status === "error" || status === "rejected") {
         await handleOrderFailed(traceId, payload)
-        break
-
-      case "order.processing":
+      } else if (status === "processing") {
         await handleOrderProcessing(traceId, payload)
-        break
-
-      case "order.pending":
+      } else if (status === "pending") {
         await handleOrderPending(traceId, payload)
-        break
-
-      default:
-        log("warn", "Webhook", `Unknown event type: ${payload.event}`, { traceId })
+      }
+    } else if (eventType.includes("completed") || eventType.includes("success")) {
+      await handleOrderCompleted(traceId, payload)
+    } else if (eventType.includes("failed") || eventType.includes("error")) {
+      await handleOrderFailed(traceId, payload)
     }
 
     const latency = Date.now() - startTime

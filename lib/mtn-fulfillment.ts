@@ -33,13 +33,21 @@ export interface MTNOrderResponse {
 export interface DataKazinaWebhookPayload {
   status: string
   transaction_id?: string
-  id?: string
+  id?: string | number
+  type?: string
+  order_code?: string
   reference?: string
   message?: string
   recipient_msisdn?: string
-  amount?: string
+  amount?: string | number
   incoming_api_ref?: string
   timestamp?: string
+  occurred_at?: string
+  test?: boolean
+  metadata?: {
+    message?: string
+    [key: string]: any
+  }
 }
 
 export interface MTNWebhookPayload {
