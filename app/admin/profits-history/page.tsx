@@ -25,6 +25,7 @@ import {
 import { Search, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, Wallet, CheckCircle, Banknote, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { supabase } from "@/lib/supabase"
 
 // Format currency helper
 const formatCurrency = (amount: number | null | undefined) => {
@@ -105,6 +106,9 @@ export default function AdminProfitsHistoryPage() {
   const fetchProfits = useCallback(async () => {
     setLoading(true)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("Not authenticated")
+
       const params = new URLSearchParams({
         page: page.toString(),
         limit: limit.toString(),
@@ -115,7 +119,9 @@ export default function AdminProfitsHistoryPage() {
       if (startDate) params.append("startDate", startDate)
       if (endDate) params.append("endDate", endDate)
 
-      const response = await fetch(`/api/admin/profits-history?${params}`)
+      const response = await fetch(`/api/admin/profits-history?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
       const data = await response.json()
 
       if (!response.ok) {
@@ -155,6 +161,9 @@ export default function AdminProfitsHistoryPage() {
   const handleExport = async () => {
     setExporting(true)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("Not authenticated")
+
       const params = new URLSearchParams()
       if (search) params.append("search", search)
       if (statusFilter !== "all") params.append("status", statusFilter)
@@ -162,7 +171,9 @@ export default function AdminProfitsHistoryPage() {
       if (endDate) params.append("endDate", endDate)
       params.append("limit", "10000") // Get all matching records
 
-      const response = await fetch(`/api/admin/profits-history?${params}`)
+      const response = await fetch(`/api/admin/profits-history?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
       const data = await response.json()
 
       if (!response.ok) throw new Error(data.error)
