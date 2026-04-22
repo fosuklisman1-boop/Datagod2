@@ -21,55 +21,45 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = user.id
-    const { data: orders, error: ordersError } = await supabase
-      .from("combined_orders_view")
-      .select("status")
-      .eq("shop_owner_id", userId)
 
-    if (ordersError) {
-      console.error("Error fetching orders:", ordersError)
+    // Use count-only queries per status to avoid the 1000-row default limit on PostgREST.
+    // { count: "exact", head: true } emits SELECT COUNT(*) with no row data returned.
+    const base = () =>
+      supabase
+        .from("combined_orders_view")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_owner_id", userId)
+
+    const [totalRes, completedRes, processingRes, failedRes, pendingRes] = await Promise.all([
+      base(),
+      base().eq("status", "completed"),
+      base().eq("status", "processing"),
+      base().eq("status", "failed"),
+      base().eq("status", "pending"),
+    ])
+
+    const anyError = totalRes.error || completedRes.error || processingRes.error || failedRes.error || pendingRes.error
+    if (anyError) {
+      console.error("Error fetching orders stats:", anyError)
       return NextResponse.json(
         { error: "Internal server error" },
         { status: 500 }
       )
     }
 
-    // Count statuses locally instead of making 5 separate queries
-    const statusCounts = {
-      total: orders?.length || 0,
-      completed: 0,
-      processing: 0,
-      failed: 0,
-      pending: 0,
-    }
-
-    orders?.forEach((order: any) => {
-      switch (order.status) {
-        case "completed":
-          statusCounts.completed++
-          break
-        case "processing":
-          statusCounts.processing++
-          break
-        case "failed":
-          statusCounts.failed++
-          break
-        case "pending":
-          statusCounts.pending++
-          break
-      }
-    })
-
-    const successRate = statusCounts.total > 0 
-      ? (statusCounts.completed / statusCounts.total) * 100 
-      : 0
+    const total = totalRes.count ?? 0
+    const completed = completedRes.count ?? 0
+    const processing = processingRes.count ?? 0
+    const failed = failedRes.count ?? 0
+    const pending = pendingRes.count ?? 0
+    const successRate = total > 0 ? (completed / total) * 100 : 0
 
     return NextResponse.json({
-      totalOrders: statusCounts.total,
-      completed: statusCounts.completed,
-      processing: statusCounts.processing,
-      failed: statusCounts.failed,
-      pending: statusCounts.pending,
+      totalOrders: total,
+      completed,
+      processing,
+      failed,
+      pending,
       successRate,
     })
   } catch (error) {

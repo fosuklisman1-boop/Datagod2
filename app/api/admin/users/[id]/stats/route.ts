@@ -55,9 +55,13 @@ async function getUserStatsFallback(adminClient: any, userId: string) {
   if (shopResult.data?.id) {
     const shopId = shopResult.data.id
 
-    const [balanceResult, shopOrderCounts, withdrawalRows] = await Promise.all([
+    const [balanceResult, shopOrderCounts, paidOrderCounts, completedOrderCounts, salesResult, profitCountResult, withdrawalRows] = await Promise.all([
       adminClient.from("shop_available_balance").select("*").eq("shop_id", shopId).maybeSingle(),
       adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId),
+      adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId).eq("payment_status", "paid"),
+      adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId).in("status", ["completed", "delivered", "fulfilled"]),
+      adminClient.from("shop_orders").select("total_amount").eq("shop_id", shopId).eq("payment_status", "paid").limit(10000),
+      adminClient.from("shop_profits").select("id", { count: "exact", head: true }).eq("shop_id", shopId),
       adminClient.from("withdrawal_requests")
         .select("id, amount, fee_amount, net_amount, status, withdrawal_method, created_at, reference_code")
         .eq("user_id", userId)
@@ -66,17 +70,23 @@ async function getUserStatsFallback(adminClient: any, userId: string) {
     ])
 
     const bal = balanceResult.data
+    const totalSales = (salesResult.data || []).reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0)
+
     shopStats = {
       shopId,
-      shopName:  shopResult.data.shop_name,
-      shopSlug:  shopResult.data.shop_slug,
-      createdAt: shopResult.data.created_at,
+      shopName:         shopResult.data.shop_name,
+      shopSlug:         shopResult.data.shop_slug,
+      createdAt:        shopResult.data.created_at,
       totalOrders:      shopOrderCounts.count || 0,
+      paidOrders:       paidOrderCounts.count || 0,
+      completedOrders:  completedOrderCounts.count || 0,
+      totalSales,
       availableBalance: bal?.available_balance || 0,
       withdrawnAmount:  bal?.withdrawn_profit || 0,
       totalProfit:      bal?.total_profit || 0,
       pendingProfit:    bal?.pending_profit || 0,
       creditedProfit:   bal?.credited_profit || 0,
+      profitRecords:    profitCountResult.count || 0,
     }
 
     const wRows = withdrawalRows.data || []
