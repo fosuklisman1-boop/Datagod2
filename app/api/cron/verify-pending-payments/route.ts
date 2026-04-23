@@ -13,6 +13,28 @@ const PAYSTACK_BASE_URL = "https://api.paystack.co"
 const PENDING_THRESHOLD_MINUTES = 10
 
 /**
+ * Batch-fetch the most recent WALLET- reference from wallet_payments for each order.
+ * shop_orders.reference_code (ORD-...) is an internal reference Paystack never sees.
+ */
+async function getWalletReferences(orderIds: string[]): Promise<Record<string, string>> {
+  if (orderIds.length === 0) return {}
+
+  const { data } = await supabase
+    .from("wallet_payments")
+    .select("order_id, reference, created_at")
+    .in("order_id", orderIds)
+    .order("created_at", { ascending: false })
+
+  const map: Record<string, string> = {}
+  for (const wp of data || []) {
+    if (wp.order_id && !map[wp.order_id]) {
+      map[wp.order_id] = wp.reference
+    }
+  }
+  return map
+}
+
+/**
  * Verify payment status with Paystack API
  */
 async function verifyWithPaystack(reference: string): Promise<{
@@ -159,6 +181,9 @@ export async function GET(request: NextRequest) {
 
     console.log(`[VERIFY-PAYMENT] Found ${pendingOrders.length} pending payments to verify`)
 
+    // Resolve WALLET- references — shop_orders.reference_code (ORD-...) is not known to Paystack
+    const walletRefMap = await getWalletReferences(pendingOrders.map((o) => o.id))
+
     let verified = 0
     let failed = 0
     let stillPending = 0
@@ -172,9 +197,18 @@ export async function GET(request: NextRequest) {
     }> = []
 
     for (const order of pendingOrders) {
+      const walletReference = walletRefMap[order.id]
+
+      if (!walletReference) {
+        console.log(`[VERIFY-PAYMENT] ⏭️ Order ${order.id} has no wallet_payments record, skipping`)
+        results.push({ id: order.id, reference: order.reference_code, paystack_status: "unknown", action: "no_payment_reference" })
+        stillPending++
+        continue
+      }
+
       try {
-        // Verify with Paystack
-          const paystackResult = await verifyWithPaystack(order.reference_code)
+        // Verify with Paystack using the WALLET- reference from wallet_payments
+          const paystackResult = await verifyWithPaystack(walletReference)
         console.log(`[VERIFY-PAYMENT] Order ${order.id}: Paystack status = ${paystackResult.status}`)
 
         if (paystackResult.status === "success") {
@@ -193,7 +227,7 @@ export async function GET(request: NextRequest) {
             console.log(`[VERIFY-PAYMENT] ⏭️ Order ${order.id} already processed, skipping`)
             results.push({
               id: order.id,
-                 reference: order.reference_code,
+                reference: walletReference,
               paystack_status: "success",
               action: "already_processed",
             })
@@ -217,7 +251,7 @@ export async function GET(request: NextRequest) {
             
             results.push({
               id: order.id,
-                 reference: order.reference_code,
+                reference: walletReference,
               paystack_status: "success",
               action: "payment_updated_fulfillment_exists",
               fulfillment: `Already tracked: ${existingTracking.status}`,
@@ -238,7 +272,7 @@ export async function GET(request: NextRequest) {
             console.error(`[VERIFY-PAYMENT] Failed to update order ${order.id}:`, updateError)
             results.push({
               id: order.id,
-                 reference: order.reference_code,
+                reference: walletReference,
               paystack_status: "success",
               action: "update_failed",
             })
@@ -251,13 +285,13 @@ export async function GET(request: NextRequest) {
             id: order.id,
             network: order.network,
             customer_phone: order.customer_phone,
-            volume_gb: order.volume_gb,
+            volume_gb: parseInt(String(order.volume_gb ?? "0").replace(/[^0-9]/g, "") || "0"),
             customer_name: order.customer_name,
           })
 
           results.push({
             id: order.id,
-               reference: order.reference_code,
+              reference: walletReference,
             paystack_status: "success",
             action: "verified_and_updated",
             fulfillment: fulfillmentResult.success ? "triggered" : fulfillmentResult.message,
@@ -281,7 +315,7 @@ export async function GET(request: NextRequest) {
           if (!updateError) {
             results.push({
               id: order.id,
-                 reference: order.reference_code,
+                reference: walletReference,
               paystack_status: paystackResult.status,
               action: "marked_failed",
             })
@@ -302,7 +336,7 @@ export async function GET(request: NextRequest) {
           if (!updateError) {
             results.push({
               id: order.id,
-                 reference: order.reference_code,
+                reference: walletReference,
               paystack_status: "abandoned",
               action: "marked_abandoned",
             })
@@ -314,7 +348,7 @@ export async function GET(request: NextRequest) {
           // Still pending on Paystack
           results.push({
             id: order.id,
-               reference: order.reference_code,
+              reference: walletReference,
             paystack_status: "pending",
             action: "still_pending",
           })
