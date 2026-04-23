@@ -698,6 +698,28 @@ export function Sidebar() {
                   {isOpen && "Payment Attempts"}
                 </Button>
               </Link>
+              <Link href="/admin/payment-reverify" onClick={() => handleNavigation("/admin/payment-reverify")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/payment-reverify" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/payment-reverify" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/payment-reverify" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Payment Reverify" : undefined}
+                  disabled={loadingPath === "/admin/payment-reverify"}
+                >
+                  {loadingPath === "/admin/payment-reverify" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Zap className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Payment Reverify"}
+                </Button>
+              </Link>
             </div>
           )}
 
