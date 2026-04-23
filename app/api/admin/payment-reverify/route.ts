@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
       q = q.lt("created_at", end.toISOString())
     }
 
-    q = q.order("created_at", { ascending: true })
+    q = q.order("created_at", { ascending: false })
     q = orderType === "data" ? q.range(offset, offset + limit - 1) : q.limit(fetchCap)
 
     const { data, count } = await q
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
       q = q.lt("created_at", end.toISOString())
     }
 
-    q = q.order("created_at", { ascending: true })
+    q = q.order("created_at", { ascending: false })
     q = orderType === "airtime" ? q.range(offset, offset + limit - 1) : q.limit(fetchCap)
 
     const { data, count } = await q
@@ -154,11 +154,11 @@ export async function GET(request: NextRequest) {
 
   const allOrders = merged
     .map((o) => ({ ...o, wallet_reference: walletRefMap[o.id] || null }))
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(offset, offset + limit)
 
   const totalCount = dataCount + airtimeCount
-  const oldest = allOrders[0]?.created_at || null
+  const oldest = allOrders[allOrders.length - 1]?.created_at || null
 
   return NextResponse.json({
     orders: allOrders,
