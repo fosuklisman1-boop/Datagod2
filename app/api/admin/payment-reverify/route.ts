@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
         "id, reference_code, customer_phone, customer_name, network, total_price, order_status, payment_status, created_at",
         { count: "exact" }
       )
-      .in("payment_status", ["pending", "abandoned", "failed"])
+      .eq("payment_status", "pending")
 
     if (search) q = q.or(`reference_code.ilike.%${search}%,customer_phone.ilike.%${search}%,customer_name.ilike.%${search}%`)
     if (startDate) q = q.gte("created_at", startDate)
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
         "id, reference_code, beneficiary_phone, network, total_paid, status, payment_status, created_at",
         { count: "exact" }
       )
-      .in("payment_status", ["pending", "abandoned", "failed"])
+      .eq("payment_status", "pending")
 
     if (search) q = q.or(`reference_code.ilike.%${search}%,beneficiary_phone.ilike.%${search}%`)
     if (startDate) q = q.gte("created_at", startDate)
