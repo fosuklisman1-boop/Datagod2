@@ -258,7 +258,7 @@ export default function PaymentReverifyPage() {
           <div>
             <h1 className="text-2xl font-bold">Payment Reverification</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Manually verify pending orders against Paystack and trigger fulfillment
+              Manually verify pending, abandoned, or failed orders against Paystack and trigger fulfillment
             </p>
           </div>
           <div className="flex gap-2">
@@ -286,7 +286,7 @@ export default function PaymentReverifyPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Pending</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Unresolved Orders</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">{stats.total}</p>
