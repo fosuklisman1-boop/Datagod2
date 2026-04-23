@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Upload, AlertCircle, Loader2, CheckCircle } from "lucide-react"
 import { toast } from "sonner"
 import { useAuth } from "@/hooks/use-auth"
+import { supabase } from "@/lib/supabase"
 
 interface ComplaintModalProps {
   isOpen: boolean
@@ -93,6 +94,12 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
         return
       }
 
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Not authenticated")
+        return
+      }
+
       // Upload images and create complaint
       const formData = new FormData()
       formData.append("orderId", orderId)
@@ -113,12 +120,13 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
         totalPrice: typeof orderDetails.totalPrice === 'number' ? orderDetails.totalPrice : parseFloat(String(orderDetails.totalPrice)) || 0,
         createdAt: orderDetails.createdAt || new Date().toISOString(),
       }
-      
+
       console.log("[COMPLAINT-MODAL] Submitting with order details:", orderDetailsToSend)
       formData.append("orderDetails", JSON.stringify(orderDetailsToSend))
 
       const response = await fetch("/api/complaints/create", {
         method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: formData,
       })
 

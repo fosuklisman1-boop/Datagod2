@@ -13,7 +13,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useAdminProtected } from "@/hooks/use-admin"
 import { complaintService } from "@/lib/database"
 import { notificationTemplates } from "@/lib/notification-service"
-import { AlertCircle, CheckCircle, Clock, X, Eye, MessageSquare, Loader2, Filter } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { AlertCircle, CheckCircle, Clock, X, Eye, MessageSquare, Loader2, Filter, CheckSquare, Square } from "lucide-react"
 import { toast } from "sonner"
 
 interface Complaint {
@@ -64,6 +65,10 @@ export default function AdminComplaintsPage() {
     balance_image_url?: string
     momo_receipt_url?: string
   }>({})
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBulkResolveModal, setShowBulkResolveModal] = useState(false)
+  const [bulkResolutionNotes, setBulkResolutionNotes] = useState("")
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false)
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -127,24 +132,45 @@ export default function AdminComplaintsPage() {
 
     try {
       setResolvingId(complaint.id)
-      console.log("Resolving complaint:", complaint.id, {
-        status: "resolved",
-        resolution_notes: resolutionNotes,
-        updated_at: new Date().toISOString(),
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Not authenticated")
+        return
+      }
+
+      const updateResponse = await fetch("/api/admin/complaints/update", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          complaintId: complaint.id,
+          updates: {
+            status: "resolved",
+            resolution_notes: resolutionNotes,
+            updated_at: new Date().toISOString(),
+          },
+        }),
       })
-      
-      const data = await complaintService.updateComplaint(complaint.id, {
-        status: "resolved",
-        resolution_notes: resolutionNotes,
-        updated_at: new Date().toISOString(),
-      })
+
+      if (!updateResponse.ok) {
+        const err = await updateResponse.json()
+        throw new Error(err.error || "Failed to resolve complaint")
+      }
+
+      const { complaint: data } = await updateResponse.json()
 
       // Send notification to user via admin API endpoint
       try {
         const notificationData = notificationTemplates.complaintResolved(complaint.id, resolutionNotes)
-        const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+        const notifResponse = await fetch("/api/notifications/create-admin", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
           body: JSON.stringify({
             userId: complaint.user_id,
             title: notificationData.title,
@@ -193,18 +219,45 @@ export default function AdminComplaintsPage() {
   const handleReject = async (complaint: Complaint) => {
     try {
       setResolvingId(complaint.id)
-      const data = await complaintService.updateComplaint(complaint.id, {
-        status: "rejected",
-        resolution_notes: "This complaint has been rejected by the administrator.",
-        updated_at: new Date().toISOString(),
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Not authenticated")
+        return
+      }
+
+      const updateResponse = await fetch("/api/admin/complaints/update", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          complaintId: complaint.id,
+          updates: {
+            status: "rejected",
+            resolution_notes: "This complaint has been rejected by the administrator.",
+            updated_at: new Date().toISOString(),
+          },
+        }),
       })
+
+      if (!updateResponse.ok) {
+        const err = await updateResponse.json()
+        throw new Error(err.error || "Failed to reject complaint")
+      }
+
+      const { complaint: data } = await updateResponse.json()
 
       // Send notification to user via admin API endpoint
       try {
         const notificationData = notificationTemplates.complaintRejected(complaint.id, complaint.title)
-        const notifResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/create-admin`, {
+        const notifResponse = await fetch("/api/notifications/create-admin", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
           body: JSON.stringify({
             userId: complaint.user_id,
             title: notificationData.title,
@@ -245,6 +298,175 @@ export default function AdminComplaintsPage() {
       toast.error(errorMessage)
     } finally {
       setResolvingId(null)
+    }
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const selectableIds = filteredComplaints.filter(c => c && c.id).map(c => c.id)
+    if (selectedIds.size === selectableIds.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(selectableIds))
+    }
+  }
+
+  const handleBulkResolve = async () => {
+    if (!bulkResolutionNotes.trim()) {
+      toast.error("Please enter resolution notes")
+      return
+    }
+
+    setIsBulkProcessing(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      toast.error("Not authenticated")
+      setIsBulkProcessing(false)
+      return
+    }
+
+    const ids = Array.from(selectedIds)
+    const updatedAt = new Date().toISOString()
+
+    try {
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          const res = await fetch("/api/admin/complaints/update", {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              complaintId: id,
+              updates: { status: "resolved", resolution_notes: bulkResolutionNotes, updated_at: updatedAt },
+            }),
+          })
+          if (!res.ok) throw new Error(`Failed for ${id}`)
+          const { complaint } = await res.json()
+          return complaint
+        })
+      )
+
+      // Send notifications in parallel (non-blocking)
+      Promise.all(
+        results.map(async (c) => {
+          try {
+            const notifData = notificationTemplates.complaintResolved(c.id, bulkResolutionNotes)
+            await fetch("/api/notifications/create-admin", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({
+                userId: c.user_id,
+                title: notifData.title,
+                message: notifData.message,
+                type: notifData.type,
+                reference_id: notifData.reference_id,
+                action_url: `/dashboard/complaints?id=${c.id}`,
+              }),
+            })
+          } catch { /* notification failure is non-fatal */ }
+        })
+      )
+
+      setComplaints(prev =>
+        prev.map(c => {
+          const updated = results.find(r => r.id === c.id)
+          return updated || c
+        })
+      )
+      setSelectedIds(new Set())
+      setShowBulkResolveModal(false)
+      setBulkResolutionNotes("")
+      toast.success(`${ids.length} complaint${ids.length !== 1 ? "s" : ""} resolved`)
+    } catch (error) {
+      toast.error("Some complaints could not be resolved. Please try again.")
+    } finally {
+      setIsBulkProcessing(false)
+    }
+  }
+
+  const handleBulkReject = async () => {
+    setIsBulkProcessing(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      toast.error("Not authenticated")
+      setIsBulkProcessing(false)
+      return
+    }
+
+    const ids = Array.from(selectedIds)
+    const updatedAt = new Date().toISOString()
+
+    try {
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          const res = await fetch("/api/admin/complaints/update", {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              complaintId: id,
+              updates: {
+                status: "rejected",
+                resolution_notes: "This complaint has been rejected by the administrator.",
+                updated_at: updatedAt,
+              },
+            }),
+          })
+          if (!res.ok) throw new Error(`Failed for ${id}`)
+          const { complaint } = await res.json()
+          return complaint
+        })
+      )
+
+      Promise.all(
+        results.map(async (c) => {
+          try {
+            const notifData = notificationTemplates.complaintRejected(c.id, c.title)
+            await fetch("/api/notifications/create-admin", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({
+                userId: c.user_id,
+                title: notifData.title,
+                message: notifData.message,
+                type: notifData.type,
+                reference_id: notifData.reference_id,
+                action_url: `/dashboard/complaints?id=${c.id}`,
+              }),
+            })
+          } catch { /* notification failure is non-fatal */ }
+        })
+      )
+
+      setComplaints(prev =>
+        prev.map(c => {
+          const updated = results.find(r => r.id === c.id)
+          return updated || c
+        })
+      )
+      setSelectedIds(new Set())
+      toast.success(`${ids.length} complaint${ids.length !== 1 ? "s" : ""} rejected`)
+    } catch (error) {
+      toast.error("Some complaints could not be rejected. Please try again.")
+    } finally {
+      setIsBulkProcessing(false)
     }
   }
 
@@ -437,12 +659,73 @@ export default function AdminComplaintsPage() {
         {/* Complaints List */}
         <Card>
           <CardHeader>
-            <CardTitle>All Complaints</CardTitle>
-            <CardDescription>
-              {filteredComplaints.length} complaint{filteredComplaints.length !== 1 ? "s" : ""} found
-            </CardDescription>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle>All Complaints</CardTitle>
+                <CardDescription>
+                  {filteredComplaints.length} complaint{filteredComplaints.length !== 1 ? "s" : ""} found
+                </CardDescription>
+              </div>
+              {filteredComplaints.length > 0 && !loading && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleSelectAll}
+                  className="gap-2 flex-shrink-0"
+                >
+                  {selectedIds.size === filteredComplaints.filter(c => c && c.id).length ? (
+                    <CheckSquare className="w-4 h-4" />
+                  ) : (
+                    <Square className="w-4 h-4" />
+                  )}
+                  {selectedIds.size === filteredComplaints.filter(c => c && c.id).length ? "Deselect All" : "Select All"}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
+            {/* Bulk action bar */}
+            {selectedIds.size > 0 && (
+              <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-violet-50 border border-violet-200 rounded-lg">
+                <span className="text-sm font-medium text-violet-800">
+                  {selectedIds.size} complaint{selectedIds.size !== 1 ? "s" : ""} selected
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => setShowBulkResolveModal(true)}
+                    disabled={isBulkProcessing}
+                    className="bg-green-600 hover:bg-green-700 gap-1"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Resolve Selected
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleBulkReject}
+                    disabled={isBulkProcessing}
+                    className="gap-1"
+                  >
+                    {isBulkProcessing ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <X className="w-4 h-4" />
+                    )}
+                    Reject Selected
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelectedIds(new Set())}
+                    disabled={isBulkProcessing}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin" />
@@ -457,33 +740,42 @@ export default function AdminComplaintsPage() {
                 {filteredComplaints.filter(c => c && c.id).map((complaint) => (
                   <Card
                     key={complaint.id}
-                    className="hover:shadow-md transition-shadow overflow-hidden"
+                    className={`hover:shadow-md transition-shadow overflow-hidden ${selectedIds.has(complaint.id) ? "ring-2 ring-violet-400 border-violet-300" : ""}`}
                   >
                     <CardContent className="pt-6">
                       <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-start gap-3">
-                            <div>
-                              <h3 className="font-semibold text-gray-900">{complaint?.title || 'N/A'}</h3>
-                              <p className="text-sm text-gray-600 mt-1">{complaint?.description || 'N/A'}</p>
-                              <div className="flex items-center gap-2 mt-3 flex-wrap">
-                                <Badge className={`inline-flex gap-1 ${getStatusColor(complaint?.status)}`}>
-                                  {getStatusIcon(complaint?.status)}
-                                  {(complaint?.status || 'pending').charAt(0).toUpperCase() + (complaint?.status || 'pending').slice(1)}
-                                </Badge>
-                                <Badge className={`inline-flex gap-1 ${getPriorityColor(complaint?.priority)}`}>
-                                  {(complaint?.priority || 'medium').charAt(0).toUpperCase() + (complaint?.priority || 'medium').slice(1)} Priority
-                                </Badge>
-                                {complaint?.user && (
-                                  <span className="text-xs text-gray-600">
-                                    From: <span className="font-medium">{complaint.user.email}</span>
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-xs text-gray-500 mt-2">
-                                Submitted: {complaint?.created_at ? new Date(complaint.created_at).toLocaleDateString() : 'N/A'}
-                              </p>
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <button
+                            onClick={() => toggleSelect(complaint.id)}
+                            className="mt-0.5 flex-shrink-0 text-violet-600 hover:text-violet-800"
+                            aria-label={selectedIds.has(complaint.id) ? "Deselect" : "Select"}
+                          >
+                            {selectedIds.has(complaint.id) ? (
+                              <CheckSquare className="w-5 h-5" />
+                            ) : (
+                              <Square className="w-5 h-5 text-gray-400" />
+                            )}
+                          </button>
+                          <div className="flex-1 space-y-2 min-w-0">
+                            <h3 className="font-semibold text-gray-900">{complaint?.title || 'N/A'}</h3>
+                            <p className="text-sm text-gray-600">{complaint?.description || 'N/A'}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge className={`inline-flex gap-1 ${getStatusColor(complaint?.status)}`}>
+                                {getStatusIcon(complaint?.status)}
+                                {(complaint?.status || 'pending').charAt(0).toUpperCase() + (complaint?.status || 'pending').slice(1)}
+                              </Badge>
+                              <Badge className={`inline-flex gap-1 ${getPriorityColor(complaint?.priority)}`}>
+                                {(complaint?.priority || 'medium').charAt(0).toUpperCase() + (complaint?.priority || 'medium').slice(1)} Priority
+                              </Badge>
+                              {complaint?.user && (
+                                <span className="text-xs text-gray-600">
+                                  From: <span className="font-medium">{complaint.user.email}</span>
+                                </span>
+                              )}
                             </div>
+                            <p className="text-xs text-gray-500">
+                              Submitted: {complaint?.created_at ? new Date(complaint.created_at).toLocaleDateString() : 'N/A'}
+                            </p>
                           </div>
                         </div>
                         <div className="flex gap-2 flex-shrink-0">
@@ -523,6 +815,60 @@ export default function AdminComplaintsPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Bulk Resolve Modal */}
+        <Dialog open={showBulkResolveModal} onOpenChange={setShowBulkResolveModal}>
+          <DialogContent className="max-w-md w-[95vw] sm:w-full">
+            <DialogHeader>
+              <DialogTitle>Resolve {selectedIds.size} Complaint{selectedIds.size !== 1 ? "s" : ""}</DialogTitle>
+              <DialogDescription>
+                Enter resolution notes that will be applied to all selected complaints.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div>
+                <Label htmlFor="bulk-notes" className="text-sm font-semibold">
+                  Resolution Notes *
+                </Label>
+                <textarea
+                  id="bulk-notes"
+                  value={bulkResolutionNotes}
+                  onChange={(e) => setBulkResolutionNotes(e.target.value)}
+                  placeholder="Explain how these complaints were resolved..."
+                  className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  rows={4}
+                  disabled={isBulkProcessing}
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => { setShowBulkResolveModal(false); setBulkResolutionNotes("") }}
+                  disabled={isBulkProcessing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleBulkResolve}
+                  disabled={isBulkProcessing || !bulkResolutionNotes.trim()}
+                  className="bg-green-600 hover:bg-green-700 gap-2"
+                >
+                  {isBulkProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Resolving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      Resolve {selectedIds.size} Complaint{selectedIds.size !== 1 ? "s" : ""}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Resolution Modal */}
         <Dialog open={showModal} onOpenChange={setShowModal}>
