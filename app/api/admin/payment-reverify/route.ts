@@ -152,8 +152,11 @@ export async function GET(request: NextRequest) {
   const merged = [...dataOrders, ...airtimeOrders]
   const walletRefMap = await getWalletReferences(merged.map((o) => o.id))
 
+  // Exclude orders where payment was never initialized — no WALLET- ref means
+  // Paystack has no record of them and there's nothing to verify.
   const allOrders = merged
-    .map((o) => ({ ...o, wallet_reference: walletRefMap[o.id] || null }))
+    .filter((o) => walletRefMap[o.id])
+    .map((o) => ({ ...o, wallet_reference: walletRefMap[o.id] }))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(offset, offset + limit)
 

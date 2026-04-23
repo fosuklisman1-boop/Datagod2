@@ -61,7 +61,7 @@ interface PendingOrder {
   id: string
   order_type: "data" | "airtime"
   reference_code: string       // internal ORD-/AT- ref (display only)
-  wallet_reference: string | null  // WALLET- ref used with Paystack
+  wallet_reference: string          // WALLET- ref used with Paystack
   customer_phone: string
   customer_name?: string
   network: string
@@ -413,7 +413,7 @@ export default function PaymentReverifyPage() {
                     return (
                       <TableRow key={order.id} className={result?.paystack_status === "success" && result.action !== "already_processed" ? "bg-green-50" : undefined}>
                         <TableCell>
-                          <p className="font-mono text-xs">{order.wallet_reference ?? <span className="text-muted-foreground italic">no payment ref</span>}</p>
+                          <p className="font-mono text-xs">{order.wallet_reference}</p>
                           <p className="font-mono text-xs text-muted-foreground">{order.reference_code}</p>
                         </TableCell>
                         <TableCell>
@@ -449,8 +449,7 @@ export default function PaymentReverifyPage() {
                             size="sm"
                             variant={result ? "outline" : "default"}
                             onClick={() => reverifyOrder(order)}
-                            disabled={isProcessing || bulkRunning || !order.wallet_reference}
-                            title={!order.wallet_reference ? "No payment was ever initialized for this order" : undefined}
+                            disabled={isProcessing || bulkRunning}
                             className="text-xs"
                           >
                             {isProcessing ? (
