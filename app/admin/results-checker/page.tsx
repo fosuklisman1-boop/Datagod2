@@ -243,24 +243,33 @@ export default function AdminResultsCheckerPage() {
   // ─── Settings ────────────────────────────────────────────────
 
   const loadAdminSettings = async () => {
-    const { data } = await supabase
-      .from("admin_settings")
-      .select("key, value")
-      .like("key", "results_checker_%")
-    const map: Record<string, any> = {}
-    for (const row of data ?? []) map[row.key] = row.value
-    setSettings(map)
+    if (!token) return
+    setSettingsLoading(true)
+    try {
+      const res = await fetch("/api/admin/results-checker/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (res.ok) setSettings(data.settings ?? {})
+    } finally {
+      setSettingsLoading(false)
+    }
   }
 
   const handleSaveSettings = async () => {
+    if (!token) return
     setSavingSettings(true)
     try {
-      const updates = Object.entries(settings).map(([key, value]) => ({ key, value }))
-      const { error } = await supabase.from("admin_settings").upsert(updates, { onConflict: "key" })
-      if (error) throw error
+      const res = await fetch("/api/admin/results-checker/settings", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ settings }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Failed to save settings")
       toast.success("Settings saved")
-    } catch {
-      toast.error("Failed to save settings")
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to save settings")
     } finally {
       setSavingSettings(false)
     }
