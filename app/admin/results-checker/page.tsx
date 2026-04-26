@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Upload, Package, ShoppingCart, Settings, AlertCircle, CheckCircle,
+  Upload, Download, Package, ShoppingCart, Settings, AlertCircle, CheckCircle,
   Clock, Loader2, Search, RefreshCw, XCircle, ChevronDown, ChevronUp,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -76,7 +76,9 @@ export default function AdminResultsCheckerPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Upload state
+  const [uploadMode, setUploadMode] = useState<"file" | "text">("file")
   const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvText, setCsvText] = useState("")
   const [parsePreview, setParsePreview] = useState<any[] | null>(null)
   const [parseErrors, setParseErrors] = useState<ParseError[]>([])
   const [uploading, setUploading] = useState(false)
@@ -157,25 +159,54 @@ export default function AdminResultsCheckerPage() {
 
   // ─── CSV Upload ───────────────────────────────────────────────
 
+  const TEMPLATE_CSV = `exam_board,pin,serial_number,expiry_date,notes\nWAEC,123456789,SN001,2027-01-01,Sample batch A\nBECE,987654321,SN002,2027-06-30,Sample batch A\nNOVDEC,555444333,,, `
+
+  const handleDownloadTemplate = () => {
+    const blob = new Blob([TEMPLATE_CSV], { type: "text/csv" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "voucher_upload_template.csv"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const previewCsvText = (text: string) => {
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean)
+    const startIdx = lines[0]?.toLowerCase().startsWith("exam_board") ? 1 : 0
+    const preview = lines.slice(startIdx, startIdx + 5).map(l => l.split(",").map(c => c.trim()))
+    setParsePreview(preview.length ? preview : null)
+  }
+
   const handleFileSelect = async (file: File) => {
     setCsvFile(file)
     setUploadResult(null)
     setParseErrors([])
-    setParsePreview(null)
-
     const text = await file.text()
-    const lines = text.split("\n").map(l => l.trim()).filter(Boolean)
-    const startIdx = lines[0]?.toLowerCase().startsWith("exam_board") ? 1 : 0
-    const preview = lines.slice(startIdx, startIdx + 5).map(l => l.split(",").map(c => c.trim()))
-    setParsePreview(preview)
+    previewCsvText(text)
+  }
+
+  const handleTextChange = (text: string) => {
+    setCsvText(text)
+    setUploadResult(null)
+    setParseErrors([])
+    previewCsvText(text)
   }
 
   const handleUpload = async () => {
-    if (!csvFile || !token) return
+    if (!token) return
+    const hasFile = uploadMode === "file" && csvFile
+    const hasText = uploadMode === "text" && csvText.trim()
+    if (!hasFile && !hasText) return
+
     setUploading(true)
     try {
+      const file = hasFile
+        ? csvFile!
+        : new File([csvText], "vouchers.csv", { type: "text/csv" })
+
       const formData = new FormData()
-      formData.append("file", csvFile)
+      formData.append("file", file)
       const res = await fetch("/api/admin/results-checker/upload", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -187,6 +218,7 @@ export default function AdminResultsCheckerPage() {
         setParseErrors(data.parseErrors ?? [])
         toast.success(data.message)
         setCsvFile(null)
+        setCsvText("")
         setParsePreview(null)
         loadInventory()
       } else {
@@ -410,29 +442,63 @@ export default function AdminResultsCheckerPage() {
           <TabsContent value="upload" className="space-y-4 mt-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Upload Voucher CSV</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Upload Voucher CSV</CardTitle>
+                  <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
+                    <Download className="w-4 h-4 mr-2" />Download Template
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-gray-500">
-                  CSV format: <code className="bg-gray-100 px-1 rounded text-xs">exam_board,pin,serial_number,expiry_date,notes</code>
-                  <br />Example: <code className="bg-gray-100 px-1 rounded text-xs">WAEC,123456789,SN001,2027-01-01,Batch A</code>
+                  Format: <code className="bg-gray-100 px-1 rounded text-xs">exam_board,pin,serial_number,expiry_date,notes</code>
+                  <span className="mx-2 text-gray-300">|</span>
+                  Boards: <code className="bg-gray-100 px-1 rounded text-xs">WAEC</code>{" "}
+                  <code className="bg-gray-100 px-1 rounded text-xs">BECE</code>{" "}
+                  <code className="bg-gray-100 px-1 rounded text-xs">NOVDEC</code>
                 </p>
 
-                <div
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-violet-400 transition-colors"
-                  onClick={() => document.getElementById("csv-input")?.click()}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
-                >
-                  <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                  {csvFile ? (
-                    <p className="text-sm font-medium text-violet-700">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
-                  ) : (
-                    <p className="text-sm text-gray-500">Drag &amp; drop a .csv file, or click to browse</p>
-                  )}
-                  <input id="csv-input" type="file" accept=".csv" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }} />
+                {/* Mode toggle */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setUploadMode("file")}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "file" ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                  >
+                    File Upload
+                  </button>
+                  <button
+                    onClick={() => setUploadMode("text")}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "text" ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                  >
+                    Paste / Type
+                  </button>
                 </div>
+
+                {uploadMode === "file" ? (
+                  <div
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-violet-400 transition-colors"
+                    onClick={() => document.getElementById("csv-input")?.click()}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
+                  >
+                    <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                    {csvFile ? (
+                      <p className="text-sm font-medium text-violet-700">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
+                    ) : (
+                      <p className="text-sm text-gray-500">Drag &amp; drop a .csv file, or click to browse</p>
+                    )}
+                    <input id="csv-input" type="file" accept=".csv" className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }} />
+                  </div>
+                ) : (
+                  <textarea
+                    value={csvText}
+                    onChange={e => handleTextChange(e.target.value)}
+                    placeholder={"exam_board,pin,serial_number,expiry_date,notes\nWAEC,123456789,SN001,2027-01-01,Batch A\nBECE,987654321,,, "}
+                    rows={10}
+                    className="w-full font-mono text-xs border rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-violet-400"
+                  />
+                )}
 
                 {/* Preview */}
                 {parsePreview && (
@@ -471,7 +537,11 @@ export default function AdminResultsCheckerPage() {
                   </div>
                 )}
 
-                <Button onClick={handleUpload} disabled={!csvFile || uploading} className="w-full">
+                <Button
+                  onClick={handleUpload}
+                  disabled={(uploadMode === "file" ? !csvFile : !csvText.trim()) || uploading}
+                  className="w-full"
+                >
                   {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading…</> : <><Upload className="w-4 h-4 mr-2" />Upload Vouchers</>}
                 </Button>
               </CardContent>
