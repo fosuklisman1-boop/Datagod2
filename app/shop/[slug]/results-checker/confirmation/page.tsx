@@ -2,15 +2,9 @@
 
 import { useEffect, useState, useRef } from "react"
 import { useParams, useSearchParams } from "next/navigation"
-import { createClient } from "@supabase/supabase-js"
 import { CheckCircle2, XCircle, Copy, Download, Loader2, GraduationCap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface Voucher {
   pin: string
@@ -45,32 +39,32 @@ export default function ResultsCheckerConfirmationPage() {
       }).catch(() => {})
     }
 
-    // Poll up to 6 times (9 seconds) for the order to complete
-    for (let attempt = 0; attempt < 6; attempt++) {
+    // Poll up to 10 times (~15 seconds) via server-side API — anon key is
+    // blocked by RLS on results_checker_orders for unauthenticated guests
+    for (let attempt = 0; attempt < 10; attempt++) {
       if (attempt > 0) await new Promise(r => setTimeout(r, 1500))
 
-      const { data: orderData } = await supabase
-        .from("results_checker_orders")
-        .select("*")
-        .eq("id", orderId)
-        .single()
+      try {
+        const res = await fetch(
+          `/api/shop/results-checker/order-status?orderId=${orderId}&reference=${reference}`
+        )
+        if (!res.ok) continue
+        const { order: orderData, vouchers: v } = await res.json()
 
-      if (orderData) {
-        setOrder(orderData)
-        if (orderData.status === "completed" && orderData.inventory_ids?.length) {
-          const { data: inv } = await supabase
-            .from("results_checker_inventory")
-            .select("pin, serial_number")
-            .in("id", orderData.inventory_ids)
-          const v = inv ?? []
-          setVouchers(v)
-          if (v.length > 0 && !downloadTriggered.current) {
-            downloadTriggered.current = true
-            setTimeout(() => triggerExcelDownload(orderData, v), 800)
+        if (orderData) {
+          setOrder(orderData)
+          if (orderData.status === "completed") {
+            setVouchers(v ?? [])
+            if (v?.length > 0 && !downloadTriggered.current) {
+              downloadTriggered.current = true
+              setTimeout(() => triggerExcelDownload(orderData, v), 800)
+            }
+            break
           }
-          break
+          if (orderData.status === "failed") break
         }
-        if (orderData.status === "failed") break
+      } catch {
+        // network hiccup — keep polling
       }
     }
     setLoading(false)
