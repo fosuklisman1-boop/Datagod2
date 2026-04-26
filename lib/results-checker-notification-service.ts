@@ -57,11 +57,14 @@ export async function deliverVouchers(
   await Promise.allSettled(tasks)
 
   // Update delivered_via on the order (best-effort)
-  await supabase
-    .from("results_checker_orders")
-    .update({ delivered_via: deliveredVia, updated_at: new Date().toISOString() })
-    .eq("id", order.id)
-    .catch(e => console.warn("[RC-NOTIFY] Failed to update delivered_via:", e))
+  try {
+    await supabase
+      .from("results_checker_orders")
+      .update({ delivered_via: deliveredVia, updated_at: new Date().toISOString() })
+      .eq("id", order.id)
+  } catch (e) {
+    console.warn("[RC-NOTIFY] Failed to update delivered_via:", e)
+  }
 }
 
 export async function resendVouchers(
