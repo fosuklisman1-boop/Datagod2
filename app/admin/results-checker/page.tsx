@@ -255,7 +255,7 @@ export default function AdminResultsCheckerPage() {
           const serial = lines[i] ?? ""
           const pin = lines[i + 1] ?? ""
           if (!serial && !pin) continue
-          csvLines.push(`${uploadBoard},${pin},${serial}`)
+          csvLines.push(`${pin},${serial}`)
         }
         file = new File([csvLines.join("\n")], "vouchers.csv", { type: "text/csv" })
       }
