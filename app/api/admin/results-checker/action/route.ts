@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
         reference_id: orderId,
         action_url: `/dashboard/results-checker`,
         read: false,
-      }]).catch(() => {})
+      }])
     }
 
     console.log(`[RC-ADMIN-ACTION] Order ${order.reference_code} marked as failed by admin`)
