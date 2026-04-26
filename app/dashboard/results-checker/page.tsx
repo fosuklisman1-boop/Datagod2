@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   GraduationCap, Copy, CheckCircle, Clock, AlertCircle,
-  Loader2, RefreshCw, Send, ChevronDown, ChevronUp, ShoppingCart,
+  Loader2, RefreshCw, Send, ChevronDown, ChevronUp, ShoppingCart, Download,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -65,7 +65,7 @@ export default function ResultsCheckerPage() {
   // Success modal
   const [successOrder, setSuccessOrder] = useState<RCOrder | null>(null)
   const [successVouchers, setSuccessVouchers] = useState<Array<{ pin: string; serial_number: string | null }>>([])
-  const [copiedPin, setCopiedPin] = useState<string | null>(null)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   // Order history
   const [orders, setOrders] = useState<RCOrder[]>([])
@@ -189,10 +189,49 @@ export default function ResultsCheckerPage() {
     }
   }
 
-  const handleCopyPin = (pin: string) => {
-    navigator.clipboard.writeText(pin)
-    setCopiedPin(pin)
-    setTimeout(() => setCopiedPin(null), 2000)
+  const handleCopyVoucher = (v: { pin: string; serial_number: string | null }, key: string) => {
+    const text = `Serial: ${v.serial_number ?? "N/A"}\nPIN: ${v.pin}`
+    navigator.clipboard.writeText(text)
+    setCopiedKey(key)
+    toast.success("Serial & PIN copied")
+    setTimeout(() => setCopiedKey(null), 2000)
+  }
+
+  const triggerExcelDownload = async (
+    voucherList: Array<{ pin: string; serial_number: string | null }>,
+    board: string,
+    ref: string
+  ) => {
+    try {
+      const { utils, write } = await import("xlsx")
+      const rows = [
+        ["DATAGOD — Results Checker Voucher Receipt"],
+        [],
+        ["Reference", ref],
+        ["Exam Board", board],
+        ["Quantity", voucherList.length],
+        ["Date", new Date().toLocaleString()],
+        [],
+        ["#", "Serial Number", "PIN"],
+        ...voucherList.map((v, i) => [i + 1, v.serial_number ?? "N/A", v.pin]),
+        [],
+        ["Keep these details safe. Use them on the official exam results portal."],
+      ]
+      const ws = utils.aoa_to_sheet(rows)
+      ws["!cols"] = [{ wch: 14 }, { wch: 20 }, { wch: 18 }]
+      const wb = utils.book_new()
+      utils.book_append_sheet(wb, ws, "Vouchers")
+      const buf = write(wb, { type: "array", bookType: "xlsx" })
+      const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${board}-vouchers-${ref}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.warn("Download failed:", e)
+    }
   }
 
   const handleResend = async (orderId: string, method: "sms" | "email") => {
@@ -334,17 +373,27 @@ export default function ResultsCheckerPage() {
                 <p className="text-sm text-gray-500">Ref: {successOrder.reference_code}</p>
               </CardHeader>
               <CardContent className="space-y-3">
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
+                    className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium"
+                  >
+                    <Download className="w-3.5 h-3.5" />Download receipt
+                  </button>
+                </div>
                 <div className="space-y-2">
                   {successVouchers.map((v, i) => (
-                    <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
-                      <div>
-                        <p className="text-xs text-gray-500 font-medium">Voucher {i + 1}</p>
-                        <p className="font-mono font-bold text-gray-900 tracking-wider">{v.pin}</p>
-                        {v.serial_number && <p className="text-xs text-gray-400 font-mono">Serial: {v.serial_number}</p>}
+                    <div key={i} className="flex items-start justify-between bg-gray-50 rounded-lg px-4 py-3 gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-500 font-medium mb-1">Voucher {i + 1}</p>
+                        <p className="text-xs text-gray-400">Serial Number</p>
+                        <p className="font-mono font-semibold text-gray-700 text-sm">{v.serial_number ?? "N/A"}</p>
+                        <p className="text-xs text-gray-400 mt-1">PIN</p>
+                        <p className="font-mono font-bold text-gray-900 tracking-widest text-lg">{v.pin}</p>
                       </div>
-                      <button onClick={() => handleCopyPin(v.pin)}
-                        className="p-2 hover:bg-gray-200 rounded-lg transition-colors">
-                        {copiedPin === v.pin
+                      <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
+                        className="flex-shrink-0 p-2 hover:bg-gray-200 rounded-lg transition-colors mt-1">
+                        {copiedKey === `success-${i}`
                           ? <CheckCircle className="w-4 h-4 text-green-600" />
                           : <Copy className="w-4 h-4 text-gray-500" />}
                       </button>
@@ -401,16 +450,26 @@ export default function ResultsCheckerPage() {
                     <div className="border-t px-4 py-3 bg-gray-50 space-y-3">
                       {order.status === "completed" && order.vouchers && order.vouchers.length > 0 ? (
                         <>
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => triggerExcelDownload(order.vouchers!, order.exam_board, order.reference_code)}
+                              className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium"
+                            >
+                              <Download className="w-3.5 h-3.5" />Download receipt
+                            </button>
+                          </div>
                           <div className="space-y-2">
                             {order.vouchers.map((v, i) => (
-                              <div key={i} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border">
-                                <div>
-                                  <p className="text-xs text-gray-400">Voucher {i + 1}</p>
-                                  <p className="font-mono font-bold tracking-wider">{v.pin}</p>
-                                  {v.serial_number && <p className="text-xs text-gray-400 font-mono">Serial: {v.serial_number}</p>}
+                              <div key={i} className="flex items-start justify-between bg-white rounded-lg px-3 py-2 border gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs text-gray-400 mb-1">Voucher {i + 1}</p>
+                                  <p className="text-xs text-gray-400">Serial Number</p>
+                                  <p className="font-mono font-semibold text-gray-700 text-sm">{v.serial_number ?? "N/A"}</p>
+                                  <p className="text-xs text-gray-400 mt-1">PIN</p>
+                                  <p className="font-mono font-bold tracking-widest text-base">{v.pin}</p>
                                 </div>
-                                <button onClick={() => handleCopyPin(v.pin)} className="p-2 hover:bg-gray-100 rounded-lg">
-                                  {copiedPin === v.pin
+                                <button onClick={() => handleCopyVoucher(v, `${order.id}-${i}`)} className="flex-shrink-0 p-2 hover:bg-gray-100 rounded-lg mt-1">
+                                  {copiedKey === `${order.id}-${i}`
                                     ? <CheckCircle className="w-4 h-4 text-green-600" />
                                     : <Copy className="w-4 h-4 text-gray-500" />}
                                 </button>
