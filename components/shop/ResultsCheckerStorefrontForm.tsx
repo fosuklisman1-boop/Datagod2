@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle } from "lucide-react"
+import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle, Download } from "lucide-react"
 import { toast } from "sonner"
 
 interface ResultsCheckerStorefrontFormProps {
@@ -40,7 +40,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   // Success state
   const [vouchers, setVouchers] = useState<Array<{ pin: string; serial_number: string | null }> | null>(null)
   const [orderRef, setOrderRef] = useState<string | null>(null)
-  const [copiedPin, setCopiedPin] = useState<string | null>(null)
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
 
   useEffect(() => {
     loadBoardPricing()
@@ -150,10 +150,45 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
     }
   }
 
-  const handleCopyPin = (pin: string) => {
-    navigator.clipboard.writeText(pin)
-    setCopiedPin(pin)
-    setTimeout(() => setCopiedPin(null), 2000)
+  const handleCopyVoucher = (v: { pin: string; serial_number: string | null }, idx: number) => {
+    const text = `Serial: ${v.serial_number ?? "N/A"}\nPIN: ${v.pin}`
+    navigator.clipboard.writeText(text)
+    setCopiedIdx(idx)
+    toast.success("Serial & PIN copied")
+    setTimeout(() => setCopiedIdx(null), 2000)
+  }
+
+  const triggerExcelDownload = async (voucherList: Array<{ pin: string; serial_number: string | null }>, board: string, ref: string) => {
+    try {
+      const { utils, write } = await import("xlsx")
+      const rows = [
+        ["DATAGOD — Results Checker Voucher Receipt"],
+        [],
+        ["Reference", ref],
+        ["Exam Board", board],
+        ["Quantity", voucherList.length],
+        ["Date", new Date().toLocaleString()],
+        [],
+        ["#", "Serial Number", "PIN"],
+        ...voucherList.map((v, i) => [i + 1, v.serial_number ?? "N/A", v.pin]),
+        [],
+        ["Keep these details safe. Use them on the official exam results portal."],
+      ]
+      const ws = utils.aoa_to_sheet(rows)
+      ws["!cols"] = [{ wch: 14 }, { wch: 20 }, { wch: 18 }]
+      const wb = utils.book_new()
+      utils.book_append_sheet(wb, ws, "Vouchers")
+      const buf = write(wb, { type: "array", bookType: "xlsx" })
+      const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${board}-vouchers-${ref}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.warn("Download failed:", e)
+    }
   }
 
   const totalPrice = selectedBoard && boardInfo[selectedBoard]
@@ -173,20 +208,31 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
     return (
       <div className="max-w-md mx-auto space-y-4">
         <div className="text-center">
-          <div className="text-4xl mb-2">🎓</div>
+          <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
           <h2 className="text-xl font-bold text-green-700">Vouchers Delivered!</h2>
           <p className="text-sm text-gray-500">Ref: {orderRef}</p>
+        </div>
+        <div className="flex justify-end">
+          <button
+            onClick={() => triggerExcelDownload(vouchers, selectedBoard ?? "", orderRef)}
+            className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download receipt
+          </button>
         </div>
         <div className="space-y-2">
           {vouchers.map((v, i) => (
             <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 border">
-              <div>
-                <p className="text-xs text-gray-400">Voucher {i + 1}</p>
-                <p className="font-mono font-bold tracking-wider text-gray-900">{v.pin}</p>
-                {v.serial_number && <p className="text-xs text-gray-400 font-mono">Serial: {v.serial_number}</p>}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-gray-400 mb-1">Voucher {i + 1}</p>
+                <p className="text-xs text-gray-500">Serial Number</p>
+                <p className="font-mono font-semibold text-gray-700 text-sm">{v.serial_number ?? "N/A"}</p>
+                <p className="text-xs text-gray-500 mt-1">PIN</p>
+                <p className="font-mono font-bold tracking-widest text-gray-900 text-lg">{v.pin}</p>
               </div>
-              <button onClick={() => handleCopyPin(v.pin)} className="p-2 hover:bg-gray-200 rounded-lg">
-                {copiedPin === v.pin
+              <button onClick={() => handleCopyVoucher(v, i)} className="p-2 hover:bg-gray-200 rounded-lg flex-shrink-0 ml-3">
+                {copiedIdx === i
                   ? <CheckCircle2 className="w-4 h-4 text-green-600" />
                   : <Copy className="w-4 h-4 text-gray-500" />}
               </button>

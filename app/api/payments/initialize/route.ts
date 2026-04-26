@@ -104,10 +104,10 @@ export async function POST(request: NextRequest) {
 
     // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
     if (orderId) {
-      const table = orderType === "airtime" ? "airtime_orders" : "shop_orders"
-      console.log(`[PAYMENT-INIT] ${orderType === "airtime" ? "Airtime" : "Shop"} Order detected (${orderId}). Verifying price from database...`)
+      const table = orderType === "airtime" ? "airtime_orders" : orderType === "results_checker" ? "results_checker_orders" : "shop_orders"
+      console.log(`[PAYMENT-INIT] ${orderType} order detected (${orderId}). Verifying price from database...`)
 
-      const amountColumn = orderType === "airtime" ? "total_paid" : "total_price"
+      const amountColumn = (orderType === "airtime" || orderType === "results_checker") ? "total_paid" : "total_price"
       const { data: orderData, error: orderError } = await supabase
         .from(table)
         .select(amountColumn)
@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
 
     // For airtime orders, we remove the additional Paystack fee as requested
     // The platform base fee is expected to absorb the payment processor cost.
-    const isAirtime = orderType === "airtime"
+    const isAirtime = orderType === "airtime" || orderType === "results_checker"
     const paystackFeePercentage = isAirtime ? 0 : (settings?.paystack_fee_percentage || 3.0) / 100
     
     // Use finalAmount (verified) for calculation
@@ -223,10 +223,14 @@ export async function POST(request: NextRequest) {
     // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
     const isDealerUpgradePayment = type === "dealer_upgrade"
-    const confirmationPath = orderType === "airtime" ? "airtime/confirmation" : `order-confirmation/${orderId}`
+    const confirmationPath =
+      orderType === "airtime" ? "airtime/confirmation" :
+      orderType === "results_checker" ? "results-checker/confirmation" :
+      `order-confirmation/${orderId}`
+    const appendOrderId = orderType === "airtime" || orderType === "results_checker"
     let redirectUrl: string
     if (shopId && orderId && shopSlug) {
-      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${orderType === "airtime" ? `&orderId=${orderId}` : ""}`
+      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${appendOrderId ? `&orderId=${orderId}` : ""}`
     } else if (isDealerUpgradePayment) {
       redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/upgrade?reference=${reference}`
     } else {
