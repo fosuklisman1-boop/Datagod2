@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
 
       const isDealerUpgrade = (metadata?.type === "dealer_upgrade") || (paymentData.order_type === "dealer_upgrade")
       const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
+      const isResultsChecker = (paymentData.order_type === "results_checker") || (metadata?.orderType === "results_checker")
       // CRITICAL SECURITY CHECK: Re-verify price
       const paidAmountPesewas = Math.round(amount)
       let expectedAmountGHS = Number(paymentData.amount)
@@ -103,6 +104,16 @@ export async function POST(request: NextRequest) {
 
           if (airtimeOrder) {
             verifiedTotalPrice = Number(airtimeOrder.total_paid)
+          }
+        } else if (isResultsChecker) {
+          const { data: rcOrder } = await supabase
+            .from("results_checker_orders")
+            .select("total_paid")
+            .eq("id", paymentData.order_id)
+            .single()
+
+          if (rcOrder) {
+            verifiedTotalPrice = Number(rcOrder.total_paid)
           }
         } else {
           const { data: shopOrder } = await supabase
@@ -262,6 +273,64 @@ export async function POST(request: NextRequest) {
               } else {
                 console.log(`[WEBHOOK] ✓ Airtime profit recorded: GHS ${airtimeData.merchant_commission} (balance synced by DB trigger)`)
               }
+            }
+          }
+        } else if (isResultsChecker) {
+          // Results Checker voucher guest payment
+          const { data: rcOrder } = await supabase
+            .from("results_checker_orders")
+            .select("*")
+            .eq("id", paymentData.order_id)
+            .single()
+
+          if (rcOrder) {
+            // Atomically assign and finalize vouchers
+            const { data: vouchers, error: assignError } = await supabase.rpc(
+              "assign_results_checker_vouchers",
+              { p_exam_board: rcOrder.exam_board, p_quantity: rcOrder.quantity, p_order_id: rcOrder.id }
+            )
+
+            if (assignError || !vouchers || vouchers.length < rcOrder.quantity) {
+              console.error(`[WEBHOOK] ❌ RC voucher assignment failed for order ${rcOrder.id}:`, assignError)
+              await supabase
+                .from("results_checker_orders")
+                .update({ status: "failed", payment_status: "completed", updated_at: new Date().toISOString() })
+                .eq("id", rcOrder.id)
+            } else {
+              await supabase.rpc("finalize_results_checker_sale", { p_order_id: rcOrder.id, p_user_id: null })
+
+              const inventoryIds = vouchers.map((v: { id: string }) => v.id)
+              await supabase
+                .from("results_checker_orders")
+                .update({
+                  status: "completed",
+                  payment_status: "completed",
+                  inventory_ids: inventoryIds,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", rcOrder.id)
+
+              if (rcOrder.merchant_commission > 0 && rcOrder.shop_id) {
+                const { error: rcProfitError } = await supabase.from("shop_profits").insert([{
+                  shop_id: rcOrder.shop_id,
+                  results_checker_order_id: rcOrder.id,
+                  profit_amount: rcOrder.merchant_commission,
+                  status: "credited",
+                  created_at: new Date().toISOString(),
+                }])
+                if (rcProfitError && rcProfitError.code !== "23505") {
+                  console.error("[WEBHOOK] Failed to insert RC profit record:", rcProfitError)
+                } else {
+                  console.log(`[WEBHOOK] ✓ RC profit recorded: GHS ${rcOrder.merchant_commission}`)
+                }
+              }
+
+              // Deliver vouchers to guest (non-blocking)
+              import("@/lib/results-checker-notification-service").then(({ deliverVouchers }) => {
+                return deliverVouchers(rcOrder, vouchers)
+              }).catch(e => console.warn("[WEBHOOK] RC delivery error:", e))
+
+              console.log(`[WEBHOOK] ✓ RC order ${rcOrder.reference_code} completed: ${rcOrder.quantity}x ${rcOrder.exam_board}`)
             }
           }
         }

@@ -724,6 +724,54 @@ export const EmailTemplates = {
       <a href="${APP_URL}/dashboard/wallet" class="button-secondary">Check Wallet</a>
     `, "Order Failed", true),
   }),
+
+  // ── Results Checker Templates ──────────────────────────────────
+  resultsCheckerDelivery: (
+    referenceCode: string,
+    examBoard: string,
+    quantity: number,
+    totalPaid: number,
+    pins: Array<{ pin: string; serial_number: string | null }>
+  ) => ({
+    subject: `${examBoard} Voucher${quantity > 1 ? "s" : ""} Delivered — ${referenceCode}`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🎓</span>
+        <h2>${examBoard} Results Checker Voucher${quantity > 1 ? "s" : ""}</h2>
+        <span class="badge badge-success">Delivered</span>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row"><span class="info-label">Reference</span><span class="info-value">${referenceCode}</span></div>
+        <div class="info-row"><span class="info-label">Exam Board</span><span class="info-value">${examBoard}</span></div>
+        <div class="info-row"><span class="info-label">Quantity</span><span class="info-value">${quantity}</span></div>
+        <div class="info-row"><span class="info-label">Amount Paid</span><span class="info-value">GHS ${Number(totalPaid).toFixed(2)}</span></div>
+      </div>
+
+      <h3 style="margin-top:24px;margin-bottom:12px;color:#111827;">Your Voucher${quantity > 1 ? "s" : ""}</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#1e1e2e;color:#fff;">
+            <th style="padding:10px 12px;text-align:left;border-radius:6px 0 0 6px;">#</th>
+            <th style="padding:10px 12px;text-align:left;">PIN</th>
+            <th style="padding:10px 12px;text-align:left;border-radius:0 6px 6px 0;">Serial Number</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pins.map((p, i) => `
+            <tr style="background:${i % 2 === 0 ? "#f9fafb" : "#fff"};">
+              <td style="padding:10px 12px;font-weight:700;">${i + 1}</td>
+              <td style="padding:10px 12px;font-family:monospace;font-weight:700;letter-spacing:1px;">${p.pin}</td>
+              <td style="padding:10px 12px;font-family:monospace;">${p.serial_number ?? "N/A"}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+
+      <p style="margin-top:20px;font-size:13px;color:#6b7280;">Keep these details safe. Use them on the official WAEC or BECE results portal to check your results.</p>
+      <a href="${APP_URL}/dashboard/results-checker" class="button-secondary">View Order History</a>
+    `, `${examBoard} Vouchers Delivered`, true),
+  }),
 }
 
 

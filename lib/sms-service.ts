@@ -129,6 +129,12 @@ export const SMSTemplates = {
   // AFA registration completion
   afaCompleted: (fullName: string, orderCode: string) =>
     `DATAGOD: Good news! Your AFA registration for ${fullName} (Ref: ${orderCode}) has been completed successfully. Thank you for registering with us.`,
+
+  // Results checker voucher delivery
+  resultsCheckerDelivery: (examBoard: string, ref: string, pins: Array<{ pin: string; serial_number: string | null }>) =>
+    `DATAGOD: ${examBoard} Voucher${pins.length > 1 ? "s" : ""} Ready!\nRef: ${ref}\n\n` +
+    pins.map((p, i) => `${i + 1}. PIN: ${p.pin}  Serial: ${p.serial_number ?? "N/A"}`).join("\n") +
+    `\n\nKeep these safe and use them to check your results online.`,
 }
 
 /**

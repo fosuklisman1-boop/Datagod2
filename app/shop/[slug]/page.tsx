@@ -14,15 +14,16 @@ import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { redirectToPayment } from "@/lib/payment-redirect"
-import { 
-  Store, 
-  ShoppingCart, 
-  Package, 
-  AlertCircle, 
-  AlignJustify, 
-  MessageCircle, 
-  Zap, 
+import {
+  Store,
+  ShoppingCart,
+  Package,
+  AlertCircle,
+  AlignJustify,
+  MessageCircle,
+  Zap,
   ArrowRight,
+  GraduationCap,
   CheckCircle2,
   MapPin,
   Clock,
@@ -33,6 +34,7 @@ import {
   ChevronLeft
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
+import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 
@@ -48,7 +50,7 @@ export default function ShopStorefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
-  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "about" | "track-order">("products")
+  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "vouchers" | "about" | "track-order">("products")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
     customer_name: "",
@@ -592,8 +594,8 @@ export default function ShopStorefront() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content */}
           <div className="flex-1 min-w-0">
-            {/* Products Tab (Data & Airtime) */}
-            {(activeTab === "products" || activeTab === "airtime") && (
+            {/* Products Tab (Data, Airtime & Vouchers) */}
+            {(activeTab === "products" || activeTab === "airtime" || activeTab === "vouchers") && (
               <div className="space-y-8">
                 {/* Sub-tab Switcher */}
                 <div className="flex p-1.5 bg-gray-100 rounded-2xl w-full sm:w-fit mx-auto sm:mx-0 shadow-inner">
@@ -616,6 +618,16 @@ export default function ShopStorefront() {
                   >
                     <Zap className="w-5 h-5" />
                     Buy Airtime
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("vouchers")}
+                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
+                        ? "bg-white text-violet-700 shadow-md scale-[1.02]"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                      }`}
+                  >
+                    <GraduationCap className="w-5 h-5" />
+                    Results Vouchers
                   </button>
                 </div>
 
@@ -745,10 +757,15 @@ export default function ShopStorefront() {
                       )}
                     </div>
                   </div>
-                ) : (
+                ) : activeTab === "airtime" ? (
                   /* Airtime Form Section */
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <AirtimeStorefrontForm shop={shop} shopSlug={shopSlug} />
+                  </div>
+                ) : (
+                  /* Results Checker Vouchers Section */
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <ResultsCheckerStorefrontForm shop={shop} shopSlug={shopSlug} />
                   </div>
                 )}
               </div>
