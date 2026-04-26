@@ -66,20 +66,17 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       const settingsMap: Record<string, any> = {}
       for (const row of settings ?? []) settingsMap[row.key] = row.value
 
-      // Count available inventory per board in parallel
-      const countResults = await Promise.all(
-        EXAM_BOARDS.map(board =>
-          supabase
-            .from("results_checker_inventory")
-            .select("id", { count: "exact", head: true })
-            .eq("exam_board", board)
-            .eq("status", "available")
-        )
-      )
-      const availableCounts: Record<string, number> = {}
-      EXAM_BOARDS.forEach((board, i) => {
-        availableCounts[board] = countResults[i].count ?? 0
-      })
+      // Count available inventory per board via server-side API (anon key cannot read inventory table)
+      const availableCounts: Record<string, number> = { WAEC: 0, BECE: 0, NOVDEC: 0 }
+      try {
+        const avRes = await fetch("/api/shop/results-checker/availability")
+        if (avRes.ok) {
+          const avData = await avRes.json()
+          Object.assign(availableCounts, avData.counts ?? {})
+        }
+      } catch (e) {
+        console.warn("Could not load availability counts:", e)
+      }
 
       const info: Record<string, BoardInfo> = {}
       for (const board of EXAM_BOARDS) {
