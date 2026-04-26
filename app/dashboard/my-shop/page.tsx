@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
-import { AlertCircle, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Megaphone, Loader2, Save } from "lucide-react"
+import { AlertCircle, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Megaphone, Loader2, Save, GraduationCap } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
 
@@ -48,6 +48,9 @@ export default function MyShopPage() {
   const [togglingPackageId, setTogglingPackageId] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [maxMarkups, setMaxMarkups] = useState<Record<string, number>>({ mtn: 5, telecel: 5, at: 5 })
+  const [rcMarkups, setRcMarkups] = useState({ waec: "0", bece: "0", novdec: "0" })
+  const [rcMaxMarkups, setRcMaxMarkups] = useState({ waec: 0, bece: 0, novdec: 0 })
+  const [savingRcMarkups, setSavingRcMarkups] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -126,6 +129,29 @@ export default function MyShopPage() {
           airtime_markup_telecel: userShop.airtime_markup_telecel?.toString() || "0",
           airtime_markup_at: userShop.airtime_markup_at?.toString() || "0",
         })
+
+        setRcMarkups({
+          waec:   (userShop.results_checker_markup_waec   ?? 0).toString(),
+          bece:   (userShop.results_checker_markup_bece   ?? 0).toString(),
+          novdec: (userShop.results_checker_markup_novdec ?? 0).toString(),
+        })
+
+        // Load RC max markups from admin settings
+        try {
+          const { data: rcSettings } = await supabase
+            .from("admin_settings")
+            .select("key, value")
+            .in("key", ["results_checker_max_markup_waec", "results_checker_max_markup_bece", "results_checker_max_markup_novdec"])
+          const rcMap: Record<string, any> = {}
+          for (const row of rcSettings ?? []) rcMap[row.key] = row.value
+          setRcMaxMarkups({
+            waec:   rcMap["results_checker_max_markup_waec"]?.max   ?? 0,
+            bece:   rcMap["results_checker_max_markup_bece"]?.max   ?? 0,
+            novdec: rcMap["results_checker_max_markup_novdec"]?.max ?? 0,
+          })
+        } catch (e) {
+          console.warn("Failed to load RC max markups:", e)
+        }
 
         // Load WhatsApp settings
         try {
@@ -265,6 +291,28 @@ export default function MyShopPage() {
       toast.error(errorMessage)
     } finally {
       setUpdatingShop(false)
+    }
+  }
+
+  const handleSaveRcMarkups = async () => {
+    if (!shop) return
+    setSavingRcMarkups(true)
+    try {
+      const waec   = Math.min(parseFloat(rcMarkups.waec   || "0"), rcMaxMarkups.waec)
+      const bece   = Math.min(parseFloat(rcMarkups.bece   || "0"), rcMaxMarkups.bece)
+      const novdec = Math.min(parseFloat(rcMarkups.novdec || "0"), rcMaxMarkups.novdec)
+      const updated = await shopService.updateShop(shop.id, {
+        results_checker_markup_waec:   waec,
+        results_checker_markup_bece:   bece,
+        results_checker_markup_novdec: novdec,
+      })
+      setShop(updated)
+      setRcMarkups({ waec: waec.toString(), bece: bece.toString(), novdec: novdec.toString() })
+      toast.success("Results checker markups saved")
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to save markups")
+    } finally {
+      setSavingRcMarkups(false)
     }
   }
 
@@ -915,6 +963,60 @@ export default function MyShopPage() {
               className="w-full bg-blue-600 hover:bg-blue-700"
             >
               {updatingShop ? "Saving..." : "Save Airtime Markups"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Results Checker Profit Markups Card */}
+        <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <GraduationCap className="w-5 h-5 text-violet-600" />
+              Results Checker Profit Markups
+            </CardTitle>
+            <CardDescription>Set your extra charge per voucher for WAEC, BECE &amp; NOVDEC</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {(["waec", "bece", "novdec"] as const).map(board => (
+                <div key={board}>
+                  <Label htmlFor={`rc-markup-${board}`} className="flex justify-between">
+                    <span>{board.toUpperCase()} Markup (GHS)</span>
+                    {rcMaxMarkups[board] > 0 && (
+                      <span className="text-[10px] text-violet-500 font-medium">Max: GHS {rcMaxMarkups[board].toFixed(2)}</span>
+                    )}
+                  </Label>
+                  <Input
+                    id={`rc-markup-${board}`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max={rcMaxMarkups[board] || undefined}
+                    value={rcMarkups[board]}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value) || 0
+                      if (rcMaxMarkups[board] > 0 && val > rcMaxMarkups[board]) {
+                        toast.error(`${board.toUpperCase()} markup cannot exceed GHS ${rcMaxMarkups[board].toFixed(2)}`)
+                        setRcMarkups(prev => ({ ...prev, [board]: rcMaxMarkups[board].toString() }))
+                      } else {
+                        setRcMarkups(prev => ({ ...prev, [board]: e.target.value }))
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="mt-1"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-violet-500/80 bg-violet-50/50 p-2 rounded-lg border border-violet-100/50">
+              This amount is added on top of the base voucher price. The maximum is set by the admin and enforced at checkout.
+            </p>
+            <Button
+              onClick={handleSaveRcMarkups}
+              disabled={savingRcMarkups}
+              className="w-full bg-violet-600 hover:bg-violet-700"
+            >
+              {savingRcMarkups ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Results Checker Markups"}
             </Button>
           </CardContent>
         </Card>
