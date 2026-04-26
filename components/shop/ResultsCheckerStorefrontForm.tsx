@@ -268,7 +268,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
         <h2 className="text-2xl font-black mb-2 text-gray-900 border-l-4 border-violet-600 pl-4">Results Checker Vouchers</h2>
-        <p className="text-gray-500 text-sm pl-5">WAEC · BECE · NOVDEC — instant PIN delivery</p>
+        <p className="text-gray-500 text-sm pl-5">WAEC · BECE · NOVDEC — instant serial &amp; PIN delivery</p>
       </div>
 
       {/* Board selection */}
@@ -347,7 +347,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
               <Input value={formData.customerPhone} onChange={e => setFormData(p => ({ ...p, customerPhone: e.target.value }))}
                 placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.customerPhone ? "border-red-400" : ""}`} />
               {formErrors.customerPhone && <p className="text-xs text-red-500 mt-1">{formErrors.customerPhone}</p>}
-              <p className="text-xs text-gray-400 mt-1">Voucher PINs will be sent to this number via SMS</p>
+              <p className="text-xs text-gray-400 mt-1">Voucher serial numbers &amp; PINs will be sent to this number via SMS</p>
             </div>
           </div>
 
@@ -376,7 +376,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
           <p className="text-xs text-center text-gray-400 flex items-center justify-center gap-1">
             <AlertCircle className="w-3 h-3" />
-            PINs delivered instantly by SMS &amp; email after payment
+            Serial numbers &amp; PINs delivered instantly by SMS &amp; email after payment
           </p>
         </div>
       )}
