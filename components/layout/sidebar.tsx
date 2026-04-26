@@ -37,6 +37,7 @@ import {
   Smartphone,
   Activity,
   Shield,
+  GraduationCap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -57,6 +58,7 @@ const menuItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/airtime", label: "Buy Airtime", icon: Smartphone, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/results-checker", label: "Results Checker", icon: GraduationCap, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/afa-orders", label: "AFA Orders", icon: Star, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent", "dealer"] },
@@ -653,6 +655,28 @@ export function Sidebar() {
                     <Settings className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Airtime Settings"}
+                </Button>
+              </Link>
+              <Link href="/admin/results-checker" onClick={() => handleNavigation("/admin/results-checker")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/results-checker" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/results-checker" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/results-checker" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Results Checker" : undefined}
+                  disabled={loadingPath === "/admin/results-checker"}
+                >
+                  {loadingPath === "/admin/results-checker" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <GraduationCap className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Results Checker"}
                 </Button>
               </Link>
               <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>
