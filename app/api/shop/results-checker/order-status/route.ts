@@ -24,8 +24,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 })
   }
 
-  // Validate reference matches — prevents fishing for orders by UUID alone
-  if (order.reference_code !== reference) {
+  // Validate the Paystack payment reference belongs to this order
+  const { data: payment } = await supabase
+    .from("wallet_payments")
+    .select("order_id")
+    .eq("reference", reference)
+    .single()
+
+  if (!payment || payment.order_id !== orderId) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 })
   }
 
