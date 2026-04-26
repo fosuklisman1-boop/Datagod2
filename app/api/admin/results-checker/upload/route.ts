@@ -33,7 +33,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File too large (max 5MB)" }, { status: 400 })
     }
 
-    const text = await fileToCSVText(file)
+    const board = (formData.get("board") as string | null)?.trim().toUpperCase()
+    if (!board || !["WAEC", "BECE", "NOVDEC"].includes(board)) {
+      return NextResponse.json({ error: "Valid board is required (WAEC, BECE, or NOVDEC)" }, { status: 400 })
+    }
+
+    const rawText = await fileToCSVText(file)
+    const lines = rawText.split("\n").map(l => l.trim()).filter(Boolean)
+    const hasHeader = lines[0]?.toLowerCase().startsWith("pin") || lines[0]?.toLowerCase().startsWith("exam_board")
+    const dataLines = hasHeader ? lines.slice(1) : lines
+    const text = dataLines.map(l => `${board},${l}`).join("\n")
+
     const { valid, errors } = parseVoucherCSV(text)
 
     if (valid.length === 0) {

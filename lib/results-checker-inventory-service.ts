@@ -65,8 +65,13 @@ export function parseVoucherCSV(text: string): ParseResult {
       continue
     }
 
-    if (pin.length < 4) {
-      errors.push({ row: rowNum, reason: "PIN too short (minimum 4 characters)", raw })
+    if (!/^\d{10,12}$/.test(pin)) {
+      errors.push({ row: rowNum, reason: "PIN must be 10–12 digits (numeric only)", raw })
+      continue
+    }
+
+    if (serial_number && serial_number !== "" && !/^[A-Za-z0-9]+$/.test(serial_number)) {
+      errors.push({ row: rowNum, reason: `Serial number "${serial_number}" must be alphanumeric (letters and digits only)`, raw })
       continue
     }
 

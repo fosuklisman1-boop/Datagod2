@@ -76,6 +76,7 @@ export default function AdminResultsCheckerPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Upload state
+  const [uploadBoard, setUploadBoard] = useState<string>("")
   const [uploadMode, setUploadMode] = useState<"file" | "text">("file")
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [csvText, setCsvText] = useState("")
@@ -159,16 +160,19 @@ export default function AdminResultsCheckerPage() {
 
   // ─── CSV Upload ───────────────────────────────────────────────
 
+  const PIN_REGEX = /^\d{10,12}$/
+  const SERIAL_REGEX = /^[A-Za-z0-9]+$/
+
   const handleDownloadTemplate = async () => {
     const { utils, write } = await import("xlsx")
     const rows = [
-      ["exam_board", "pin", "serial_number", "expiry_date", "notes"],
-      ["WAEC",   "123456789", "SN001", "2027-01-01", "Sample batch A"],
-      ["BECE",   "987654321", "SN002", "2027-06-30", "Sample batch A"],
-      ["NOVDEC", "555444333", "",      "",            ""],
+      ["pin", "serial_number", "expiry_date", "notes"],
+      ["123456789012", "SN001", "2027-01-01", "Sample batch A"],
+      ["987654321098", "SN002", "2027-06-30", "Sample batch A"],
+      ["555444333222", "",      "",            ""],
     ]
     const ws = utils.aoa_to_sheet(rows)
-    ws["!cols"] = [{ wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 20 }]
+    ws["!cols"] = [{ wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 20 }]
     const wb = utils.book_new()
     utils.book_append_sheet(wb, ws, "Vouchers")
     const buf = write(wb, { type: "array", bookType: "xlsx" })
@@ -181,17 +185,46 @@ export default function AdminResultsCheckerPage() {
     URL.revokeObjectURL(url)
   }
 
+  // File mode: preview first 5 rows (columns: pin, serial, expiry, notes)
   const previewCsvText = (text: string) => {
     const lines = text.split("\n").map(l => l.trim()).filter(Boolean)
-    const startIdx = lines[0]?.toLowerCase().startsWith("exam_board") ? 1 : 0
+    const startIdx = lines[0]?.toLowerCase().startsWith("pin") || lines[0]?.toLowerCase().startsWith("exam_board") ? 1 : 0
     const preview = lines.slice(startIdx, startIdx + 5).map(l => l.split(",").map(c => c.trim()))
     setParsePreview(preview.length ? preview : null)
+  }
+
+  // Text/paste mode: parse alternating serial/pin pairs
+  const previewPairText = (text: string, board: string) => {
+    const lines = text.split("\n").map(l => l.trim())
+    const previewRows: { board: string; pin: string; serial: string; error?: string }[] = []
+    const errs: ParseError[] = []
+    let rowNum = 0
+
+    for (let i = 0; i < lines.length; i += 2) {
+      const serial = lines[i] ?? ""
+      const pin = lines[i + 1] ?? ""
+      if (!serial && !pin) continue
+      rowNum++
+      if (!pin) {
+        errs.push({ row: rowNum, reason: "Missing PIN line (each serial must be followed by a PIN)", raw: serial })
+      } else if (!PIN_REGEX.test(pin)) {
+        errs.push({ row: rowNum, reason: `PIN "${pin}" must be 10–12 digits (numeric only)`, raw: `${serial}\n${pin}` })
+      } else if (serial && !SERIAL_REGEX.test(serial)) {
+        errs.push({ row: rowNum, reason: `Serial "${serial}" must be alphanumeric`, raw: `${serial}\n${pin}` })
+      } else if (previewRows.length < 5) {
+        previewRows.push({ board: board || "—", pin, serial: serial || "—" })
+      }
+    }
+
+    setParsePreview(previewRows.length ? previewRows : null)
+    setParseErrors(errs)
   }
 
   const handleFileSelect = async (file: File) => {
     setCsvFile(file)
     setUploadResult(null)
     setParseErrors([])
+    setParsePreview(null)
     const text = await file.text()
     previewCsvText(text)
   }
@@ -199,24 +232,37 @@ export default function AdminResultsCheckerPage() {
   const handleTextChange = (text: string) => {
     setCsvText(text)
     setUploadResult(null)
-    setParseErrors([])
-    previewCsvText(text)
+    previewPairText(text, uploadBoard)
   }
 
   const handleUpload = async () => {
     if (!token) return
+    if (!uploadBoard) { toast.error("Select an exam board first"); return }
     const hasFile = uploadMode === "file" && csvFile
     const hasText = uploadMode === "text" && csvText.trim()
     if (!hasFile && !hasText) return
 
     setUploading(true)
     try {
-      const file = hasFile
-        ? csvFile!
-        : new File([csvText], "vouchers.csv", { type: "text/csv" })
+      let file: File
+      if (hasFile) {
+        file = csvFile!
+      } else {
+        // Convert serial/pin pairs to CSV: board,pin,serial
+        const lines = csvText.split("\n").map(l => l.trim())
+        const csvLines: string[] = []
+        for (let i = 0; i < lines.length; i += 2) {
+          const serial = lines[i] ?? ""
+          const pin = lines[i + 1] ?? ""
+          if (!serial && !pin) continue
+          csvLines.push(`${uploadBoard},${pin},${serial}`)
+        }
+        file = new File([csvLines.join("\n")], "vouchers.csv", { type: "text/csv" })
+      }
 
       const formData = new FormData()
       formData.append("file", file)
+      formData.append("board", uploadBoard)
       const res = await fetch("/api/admin/results-checker/upload", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -453,75 +499,106 @@ export default function AdminResultsCheckerPage() {
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Upload Voucher CSV</CardTitle>
+                  <CardTitle className="text-base">Upload Vouchers</CardTitle>
                   <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
                     <Download className="w-4 h-4 mr-2" />Download Template
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-gray-500">
-                  Format: <code className="bg-gray-100 px-1 rounded text-xs">exam_board,pin,serial_number,expiry_date,notes</code>
-                  <span className="mx-2 text-gray-300">|</span>
-                  Boards: <code className="bg-gray-100 px-1 rounded text-xs">WAEC</code>{" "}
-                  <code className="bg-gray-100 px-1 rounded text-xs">BECE</code>{" "}
-                  <code className="bg-gray-100 px-1 rounded text-xs">NOVDEC</code>
-                </p>
+              <CardContent className="space-y-5">
+
+                {/* Board selector — required before upload */}
+                <div>
+                  <Label className="text-sm font-semibold text-gray-700">Exam Board <span className="text-red-500">*</span></Label>
+                  <div className="flex gap-2 mt-2">
+                    {EXAM_BOARDS.map(b => (
+                      <button key={b} onClick={() => { setUploadBoard(b); setParsePreview(null); setParseErrors([]); setUploadResult(null) }}
+                        className={`px-5 py-2 rounded-lg font-bold text-sm border-2 transition-all ${
+                          uploadBoard === b
+                            ? "border-violet-600 bg-violet-50 text-violet-700 shadow-sm"
+                            : "border-gray-200 text-gray-500 hover:border-violet-300"
+                        }`}
+                      >{b}</button>
+                    ))}
+                  </div>
+                  {!uploadBoard && <p className="text-xs text-amber-600 mt-1">Select a board to enable upload</p>}
+                </div>
 
                 {/* Mode toggle */}
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => setUploadMode("file")}
+                  <button onClick={() => { setUploadMode("file"); setParsePreview(null); setParseErrors([]) }}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "file" ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-                  >
-                    File Upload
-                  </button>
-                  <button
-                    onClick={() => setUploadMode("text")}
+                  >File Upload</button>
+                  <button onClick={() => { setUploadMode("text"); setParsePreview(null); setParseErrors([]) }}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "text" ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-                  >
-                    Paste / Type
-                  </button>
+                  >Paste / Type</button>
                 </div>
 
                 {uploadMode === "file" ? (
-                  <div
-                    className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-violet-400 transition-colors"
-                    onClick={() => document.getElementById("csv-input")?.click()}
-                    onDragOver={e => e.preventDefault()}
-                    onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
-                  >
-                    <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                    {csvFile ? (
-                      <p className="text-sm font-medium text-violet-700">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
-                    ) : (
-                      <p className="text-sm text-gray-500">Drag &amp; drop a .xlsx or .csv file, or click to browse</p>
-                    )}
-                    <input id="csv-input" type="file" accept=".csv,.xlsx,.xls" className="hidden"
-                      onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }} />
-                  </div>
+                  <>
+                    <p className="text-xs text-gray-400">File columns: <code className="bg-gray-100 px-1 rounded">pin, serial_number, expiry_date, notes</code> — no exam_board column needed</p>
+                    <div
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-violet-400 transition-colors"
+                      onClick={() => document.getElementById("csv-input")?.click()}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
+                    >
+                      <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                      {csvFile ? (
+                        <p className="text-sm font-medium text-violet-700">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
+                      ) : (
+                        <p className="text-sm text-gray-500">Drag &amp; drop a .xlsx or .csv file, or click to browse</p>
+                      )}
+                      <input id="csv-input" type="file" accept=".csv,.xlsx,.xls" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }} />
+                    </div>
+                  </>
                 ) : (
-                  <textarea
-                    value={csvText}
-                    onChange={e => handleTextChange(e.target.value)}
-                    placeholder={"exam_board,pin,serial_number,expiry_date,notes\nWAEC,123456789,SN001,2027-01-01,Batch A\nBECE,987654321,,, "}
-                    rows={10}
-                    className="w-full font-mono text-xs border rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-violet-400"
-                  />
+                  <>
+                    <p className="text-xs text-gray-400">
+                      Paste serial/PIN pairs — <strong>serial number on odd lines, PIN on even lines</strong>, repeat for each voucher.
+                      PINs must be 10–12 digits. Leave serial blank (empty line) if not available.
+                    </p>
+                    <textarea
+                      value={csvText}
+                      onChange={e => handleTextChange(e.target.value)}
+                      placeholder={"WGR1900112581\n123456789012\nWGR1900112582\n987654321098\n\n(blank serial below means no serial)\n\n456789012345"}
+                      rows={12}
+                      className="w-full font-mono text-sm border rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-violet-400"
+                    />
+                  </>
                 )}
 
                 {/* Preview */}
-                {parsePreview && (
+                {parsePreview && parsePreview.length > 0 && (
                   <div>
                     <p className="text-sm font-medium text-gray-700 mb-2">Preview (first 5 rows)</p>
                     <div className="rounded-lg border overflow-hidden">
                       <table className="w-full text-xs">
-                        <thead className="bg-gray-50"><tr>{["Board","PIN","Serial","Expiry","Notes"].map(h => <th key={h} className="px-3 py-2 text-left text-gray-500">{h}</th>)}</tr></thead>
-                        <tbody className="divide-y">
-                          {parsePreview.map((row, i) => (
-                            <tr key={i}>{row.map((cell: string, j: number) => <td key={j} className="px-3 py-2 font-mono">{cell || "—"}</td>)}</tr>
-                          ))}
-                        </tbody>
+                        {uploadMode === "text" ? (
+                          <>
+                            <thead className="bg-gray-50"><tr>{["#","Board","PIN","Serial"].map(h => <th key={h} className="px-3 py-2 text-left text-gray-500">{h}</th>)}</tr></thead>
+                            <tbody className="divide-y">
+                              {(parsePreview as any[]).map((row, i) => (
+                                <tr key={i}>
+                                  <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                                  <td className="px-3 py-2 font-semibold text-violet-700">{row.board}</td>
+                                  <td className="px-3 py-2 font-mono">{row.pin}</td>
+                                  <td className="px-3 py-2 font-mono text-gray-500">{row.serial}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </>
+                        ) : (
+                          <>
+                            <thead className="bg-gray-50"><tr>{["PIN","Serial","Expiry","Notes"].map(h => <th key={h} className="px-3 py-2 text-left text-gray-500">{h}</th>)}</tr></thead>
+                            <tbody className="divide-y">
+                              {(parsePreview as string[][]).map((row, i) => (
+                                <tr key={i}>{row.map((cell: string, j: number) => <td key={j} className="px-3 py-2 font-mono">{cell || "—"}</td>)}</tr>
+                              ))}
+                            </tbody>
+                          </>
+                        )}
                       </table>
                     </div>
                   </div>
@@ -549,7 +626,7 @@ export default function AdminResultsCheckerPage() {
 
                 <Button
                   onClick={handleUpload}
-                  disabled={(uploadMode === "file" ? !csvFile : !csvText.trim()) || uploading}
+                  disabled={!uploadBoard || (uploadMode === "file" ? !csvFile : !csvText.trim()) || uploading}
                   className="w-full"
                 >
                   {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading…</> : <><Upload className="w-4 h-4 mr-2" />Upload Vouchers</>}
