@@ -170,7 +170,7 @@ export async function POST(request: NextRequest) {
 
       // 1. Handle Shop Orders and Airtime
       if (paymentData.order_id && !isDealerUpgrade) {
-        if (!isAirtime) {
+        if (!isAirtime && !isResultsChecker) {
           // Shop Order fulfillment logic
           const { data: shopOrderData } = await supabase
             .from("shop_orders")
@@ -246,7 +246,7 @@ export async function POST(request: NextRequest) {
               }
             }
           }
-        } else {
+        } else if (isAirtime) {
           // Airtime logic
           const { data: airtimeData } = await supabase
             .from("airtime_orders")
