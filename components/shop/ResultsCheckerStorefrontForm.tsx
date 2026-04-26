@@ -21,6 +21,7 @@ interface BoardInfo {
   enabled: boolean
   shopMarkup: number
   customerPrice: number
+  availableCount: number
 }
 
 export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerStorefrontFormProps) {
@@ -65,6 +66,21 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       const settingsMap: Record<string, any> = {}
       for (const row of settings ?? []) settingsMap[row.key] = row.value
 
+      // Count available inventory per board in parallel
+      const countResults = await Promise.all(
+        EXAM_BOARDS.map(board =>
+          supabase
+            .from("results_checker_inventory")
+            .select("id", { count: "exact", head: true })
+            .eq("exam_board", board)
+            .eq("status", "available")
+        )
+      )
+      const availableCounts: Record<string, number> = {}
+      EXAM_BOARDS.forEach((board, i) => {
+        availableCounts[board] = countResults[i].count ?? 0
+      })
+
       const info: Record<string, BoardInfo> = {}
       for (const board of EXAM_BOARDS) {
         const bk = board.toLowerCase()
@@ -73,12 +89,16 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         const enabled = settingsMap[`results_checker_enabled_${bk}`]?.enabled !== false
         const rawMarkup = parseFloat(shop[`results_checker_markup_${bk}`] ?? 0)
         const shopMarkup = Math.min(rawMarkup, maxMarkup)
-        info[board] = { basePrice, maxMarkup, enabled, shopMarkup, customerPrice: parseFloat((basePrice + shopMarkup).toFixed(2)) }
+        info[board] = {
+          basePrice, maxMarkup, enabled, shopMarkup,
+          customerPrice: parseFloat((basePrice + shopMarkup).toFixed(2)),
+          availableCount: availableCounts[board],
+        }
       }
       setBoardInfo(info)
 
-      // Auto-select first enabled board
-      const first = EXAM_BOARDS.find(b => info[b]?.enabled)
+      // Auto-select first enabled board with stock
+      const first = EXAM_BOARDS.find(b => info[b]?.enabled && info[b]?.availableCount > 0)
       if (first) setSelectedBoard(first)
     } finally {
       setLoadingPrices(false)
@@ -259,9 +279,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           return (
             <Card
               key={board}
-              onClick={() => info.enabled && setSelectedBoard(board)}
+              onClick={() => info.enabled && info.availableCount > 0 && setSelectedBoard(board)}
               className={`group cursor-pointer transition-all duration-300 overflow-hidden border-0 ${
-                !info.enabled
+                !info.enabled || info.availableCount === 0
                   ? "opacity-40 cursor-not-allowed shadow-sm"
                   : selectedBoard === board
                   ? "ring-4 ring-violet-600 shadow-xl"
@@ -274,7 +294,11 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                 <p className={`font-black text-lg ${selectedBoard === board ? "text-violet-700" : "text-gray-800"}`}>{board}</p>
                 <p className="text-2xl font-black text-gray-900 mt-1">GHS {info.customerPrice.toFixed(2)}</p>
                 <p className="text-xs text-gray-400 mt-1">per voucher</p>
-                {!info.enabled && <p className="text-xs text-red-500 mt-1 font-medium">Unavailable</p>}
+                {!info.enabled
+                  ? <p className="text-xs text-red-500 mt-1 font-medium">Unavailable</p>
+                  : info.availableCount === 0
+                  ? <p className="text-xs text-red-500 mt-1 font-medium">Out of stock</p>
+                  : null}
                 {selectedBoard === board && (
                   <div className="absolute top-3 right-3">
                     <CheckCircle2 className="w-5 h-5 text-violet-600" />

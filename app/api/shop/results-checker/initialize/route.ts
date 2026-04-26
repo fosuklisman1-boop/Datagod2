@@ -46,6 +46,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `${examBoard} vouchers are currently unavailable` }, { status: 503 })
     }
 
+    // Check available inventory before creating order
+    const { count: availableCount } = await supabase
+      .from("results_checker_inventory")
+      .select("id", { count: "exact", head: true })
+      .eq("exam_board", examBoard)
+      .eq("status", "available")
+
+    if ((availableCount ?? 0) < quantity) {
+      return NextResponse.json(
+        { error: availableCount === 0
+            ? `${examBoard} vouchers are currently out of stock`
+            : `Only ${availableCount} ${examBoard} voucher${availableCount === 1 ? "" : "s"} available` },
+        { status: 409 }
+      )
+    }
+
     // Verify shop exists
     const { data: shop } = await supabase
       .from("user_shops")
