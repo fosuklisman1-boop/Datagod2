@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
 
     // For airtime orders, we remove the additional Paystack fee as requested
     // The platform base fee is expected to absorb the payment processor cost.
-    const isAirtime = orderType === "airtime" || orderType === "results_checker"
+    const isAirtime = orderType === "airtime"
     const paystackFeePercentage = isAirtime ? 0 : (settings?.paystack_fee_percentage || 3.0) / 100
     
     // Use finalAmount (verified) for calculation
@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
         fee: paystackFee,
         email,
         status: "pending",
-        payment_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType === "airtime" ? "shop_airtime" : (shopId ? "shop_order" : "wallet_topup")),
+        payment_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType === "airtime" ? "shop_airtime" : (orderType === "results_checker" ? "results_checker" : (shopId ? "shop_order" : "wallet_topup"))),
         shop_id: shopId || null,
         order_id: orderId || null,
         created_at: new Date().toISOString(),
