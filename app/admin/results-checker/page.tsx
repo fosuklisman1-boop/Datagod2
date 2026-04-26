@@ -159,14 +159,24 @@ export default function AdminResultsCheckerPage() {
 
   // ─── CSV Upload ───────────────────────────────────────────────
 
-  const TEMPLATE_CSV = `exam_board,pin,serial_number,expiry_date,notes\nWAEC,123456789,SN001,2027-01-01,Sample batch A\nBECE,987654321,SN002,2027-06-30,Sample batch A\nNOVDEC,555444333,,, `
-
-  const handleDownloadTemplate = () => {
-    const blob = new Blob([TEMPLATE_CSV], { type: "text/csv" })
+  const handleDownloadTemplate = async () => {
+    const { utils, write } = await import("xlsx")
+    const rows = [
+      ["exam_board", "pin", "serial_number", "expiry_date", "notes"],
+      ["WAEC",   "123456789", "SN001", "2027-01-01", "Sample batch A"],
+      ["BECE",   "987654321", "SN002", "2027-06-30", "Sample batch A"],
+      ["NOVDEC", "555444333", "",      "",            ""],
+    ]
+    const ws = utils.aoa_to_sheet(rows)
+    ws["!cols"] = [{ wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 20 }]
+    const wb = utils.book_new()
+    utils.book_append_sheet(wb, ws, "Vouchers")
+    const buf = write(wb, { type: "array", bookType: "xlsx" })
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = "voucher_upload_template.csv"
+    a.download = "voucher_upload_template.xlsx"
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -485,9 +495,9 @@ export default function AdminResultsCheckerPage() {
                     {csvFile ? (
                       <p className="text-sm font-medium text-violet-700">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
                     ) : (
-                      <p className="text-sm text-gray-500">Drag &amp; drop a .csv file, or click to browse</p>
+                      <p className="text-sm text-gray-500">Drag &amp; drop a .xlsx or .csv file, or click to browse</p>
                     )}
-                    <input id="csv-input" type="file" accept=".csv" className="hidden"
+                    <input id="csv-input" type="file" accept=".csv,.xlsx,.xls" className="hidden"
                       onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }} />
                   </div>
                 ) : (
