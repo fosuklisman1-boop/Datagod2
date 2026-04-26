@@ -278,8 +278,67 @@ export async function POST(request: NextRequest) {
               console.warn("[PAYMENT-VERIFY] Airtime SMS notification failed:", smsError)
             }
           }
+        } else if (paymentData.order_type === "results_checker") {
+          // 2. Handle Results Checker Orders
+          const { data: rcOrder } = await supabase
+            .from("results_checker_orders")
+            .select("*")
+            .eq("id", paymentData.order_id)
+            .single()
+
+          if (rcOrder && rcOrder.status !== "completed" && rcOrder.status !== "failed") {
+            const { data: vouchers, error: assignError } = await supabase.rpc(
+              "assign_results_checker_vouchers",
+              { p_exam_board: rcOrder.exam_board, p_quantity: rcOrder.quantity, p_order_id: rcOrder.id }
+            )
+
+            if (assignError || !vouchers || vouchers.length < rcOrder.quantity) {
+              console.error(`[PAYMENT-VERIFY] ❌ RC voucher assignment failed for order ${rcOrder.id}:`, assignError)
+              await supabase
+                .from("results_checker_orders")
+                .update({ status: "failed", payment_status: "completed", updated_at: new Date().toISOString() })
+                .eq("id", rcOrder.id)
+            } else {
+              await supabase.rpc("finalize_results_checker_sale", { p_order_id: rcOrder.id, p_user_id: null })
+
+              const inventoryIds = vouchers.map((v: { id: string }) => v.id)
+              await supabase
+                .from("results_checker_orders")
+                .update({
+                  status: "completed",
+                  payment_status: "completed",
+                  inventory_ids: inventoryIds,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", rcOrder.id)
+
+              if (rcOrder.merchant_commission > 0 && rcOrder.shop_id) {
+                await supabase.from("shop_profits").insert([{
+                  shop_id: rcOrder.shop_id,
+                  results_checker_order_id: rcOrder.id,
+                  profit_amount: rcOrder.merchant_commission,
+                  status: "credited",
+                  created_at: new Date().toISOString(),
+                }]).then(({ error }) => {
+                  if (error && error.code !== "23505") {
+                    console.error("[PAYMENT-VERIFY] Failed to insert RC profit:", error)
+                  }
+                })
+              }
+
+              // Deliver vouchers (non-blocking)
+              import("@/lib/results-checker-notification-service").then(({ deliverVouchers }) => {
+                return deliverVouchers(rcOrder, vouchers)
+              }).catch(e => console.warn("[PAYMENT-VERIFY] RC delivery error:", e))
+
+              console.log(`[PAYMENT-VERIFY] ✓ RC order ${rcOrder.reference_code} completed: ${rcOrder.quantity}x ${rcOrder.exam_board}`)
+            }
+          } else if (rcOrder?.status === "completed") {
+            console.log(`[PAYMENT-VERIFY] ℹ RC order ${rcOrder.reference_code} already completed`)
+          }
+
         } else {
-          // 2. Handle Shop Orders (Data)
+          // 3. Handle Shop Orders (Data)
           const { data: shopOrderData, error: shopOrderFetchError } = await supabase
             .from("shop_orders")
             .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_name")
