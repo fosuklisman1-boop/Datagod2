@@ -25,7 +25,6 @@ export async function GET(request: NextRequest) {
       .from("results_checker_orders")
       .select(`
         *,
-        users (email, first_name, last_name),
         user_shops (shop_name)
       `, { count: "exact" })
       .order("created_at", { ascending: false })
