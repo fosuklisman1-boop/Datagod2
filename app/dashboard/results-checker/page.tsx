@@ -150,7 +150,21 @@ export default function ResultsCheckerPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        toast.error(data.error ?? "Purchase failed")
+        if (res.status === 402) {
+          toast.error(`Insufficient wallet balance. You need GHS ${data.required?.toFixed(2) ?? "more"} — please top up first.`)
+        } else if (res.status === 409 && data.available !== undefined) {
+          toast.error(
+            data.available === 0
+              ? `${examBoard} vouchers are currently out of stock.`
+              : `Only ${data.available} ${examBoard} voucher${data.available !== 1 ? "s" : ""} left in stock — reduce your quantity.`
+          )
+        } else if (res.status === 409 && typeof data.error === "string" && data.error.includes("sold out")) {
+          toast.error("Stock ran out at checkout — your wallet has been refunded automatically.")
+        } else if (res.status === 503) {
+          toast.error(`${examBoard} vouchers are not available right now. Try a different board.`)
+        } else {
+          toast.error(data.error ?? "Purchase failed. Please try again.")
+        }
         return
       }
       setSuccessOrder({ ...data.order, vouchers: data.vouchers })
@@ -293,12 +307,12 @@ export default function ResultsCheckerPage() {
                 <Label className="text-sm font-medium">Quantity</Label>
                 <div className="flex items-center gap-3 mt-2">
                   <button onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                    className="w-9 h-9 rounded-lg border flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50">−</button>
+                    className="w-9 h-9 rounded-lg border border-gray-300 flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50">−</button>
                   <Input type="number" min="1" max="50" value={quantity}
                     onChange={e => setQuantity(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
                     className="w-20 text-center font-bold text-lg" />
                   <button onClick={() => setQuantity(q => Math.min(50, q + 1))}
-                    className="w-9 h-9 rounded-lg border flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50">+</button>
+                    className="w-9 h-9 rounded-lg border border-gray-300 flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50">+</button>
                 </div>
               </div>
 
@@ -371,7 +385,7 @@ export default function ResultsCheckerPage() {
                         <p className="font-mono font-bold text-gray-900 tracking-widest text-lg break-all">{v.pin}</p>
                       </div>
                       <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
-                        className="flex-shrink-0 p-2 hover:bg-gray-200 rounded-lg transition-colors mt-1">
+                        className="flex-shrink-0 p-2 border border-gray-200 hover:bg-gray-200 rounded-lg transition-colors mt-1">
                         {copiedKey === `success-${i}`
                           ? <CheckCircle className="w-4 h-4 text-green-600" />
                           : <Copy className="w-4 h-4 text-gray-500" />}
@@ -451,7 +465,7 @@ export default function ResultsCheckerPage() {
                                   <p className="text-xs text-gray-400 mt-1">PIN</p>
                                   <p className="font-mono font-bold tracking-widest text-base">{v.pin}</p>
                                 </div>
-                                <button onClick={() => handleCopyVoucher(v, `${order.id}-${i}`)} className="flex-shrink-0 p-2 hover:bg-gray-100 rounded-lg mt-1">
+                                <button onClick={() => handleCopyVoucher(v, `${order.id}-${i}`)} className="flex-shrink-0 p-2 border border-gray-200 hover:bg-gray-100 rounded-lg mt-1">
                                   {copiedKey === `${order.id}-${i}`
                                     ? <CheckCircle className="w-4 h-4 text-green-600" />
                                     : <Copy className="w-4 h-4 text-gray-500" />}
