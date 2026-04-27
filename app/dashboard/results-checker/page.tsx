@@ -58,7 +58,7 @@ export default function ResultsCheckerPage() {
   const [quantity, setQuantity] = useState(1)
   const [shopId, setShopId] = useState<string | undefined>(undefined)
   const [pricing, setPricing] = useState<{ unitPrice: number; totalPaid: number } | null>(null)
-  const [pricingLoading, setPricingLoading] = useState(false)
+
   const [purchasing, setPurchasing] = useState(false)
   const [boardSettings, setBoardSettings] = useState<Record<string, BoardPricing>>({})
 
@@ -87,10 +87,6 @@ export default function ResultsCheckerPage() {
     loadBoardSettings()
   }, [token])
 
-  useEffect(() => {
-    if (!token || !examBoard || !quantity) return
-    loadPricing()
-  }, [examBoard, quantity, shopId])
 
   const loadWalletBalance = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -118,26 +114,6 @@ export default function ResultsCheckerPage() {
       }
     }
     setBoardSettings(settings)
-  }
-
-  const loadPricing = async () => {
-    if (!token) return
-    setPricingLoading(true)
-    try {
-      const res = await fetch("/api/results-checker/purchase", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ examBoard, quantity, shopId, _priceCheck: true }),
-      })
-      // We can't call purchase just for pricing — derive it from board settings locally
-      const board = boardSettings[examBoard]
-      if (board) {
-        const unitPrice = board.basePrice
-        setPricing({ unitPrice, totalPaid: parseFloat((unitPrice * quantity).toFixed(2)) })
-      }
-    } finally {
-      setPricingLoading(false)
-    }
   }
 
   // Derive pricing locally from boardSettings (no API call needed)
