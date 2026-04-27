@@ -32,6 +32,7 @@ export async function deliverVouchers(
   }
 
   if (email) {
+    console.log(`[RC-NOTIFY] Sending email to ${email} for order ${order.id}`)
     tasks.push(
       import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
         const payload = EmailTemplates.resultsCheckerDelivery(
@@ -48,10 +49,13 @@ export async function deliverVouchers(
           referenceId: order.id,
           type: "results_checker_delivery",
         })
-      }).then(() => {
+      }).then((result) => {
+        console.log(`[RC-NOTIFY] ✓ Email sent to ${email}`, result)
         deliveredVia.push("email")
-      }).catch(e => console.warn("[RC-NOTIFY] Email failed:", e))
+      }).catch(e => console.warn("[RC-NOTIFY] ❌ Email failed:", e))
     )
+  } else {
+    console.warn(`[RC-NOTIFY] No email address for order ${order.id} — skipping email`)
   }
 
   await Promise.allSettled(tasks)

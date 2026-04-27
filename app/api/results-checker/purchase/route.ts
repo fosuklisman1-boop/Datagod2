@@ -97,14 +97,18 @@ export async function POST(request: NextRequest) {
     })
 
     // Attach customer contact so notification service can reach them
+    const resolvedEmail = userProfile?.email ?? user.email ?? null
+    const resolvedPhone = userProfile?.phone_number ?? null
+    console.log(`[RC-PURCHASE] Contact — email: ${resolvedEmail ?? "NONE"}, phone: ${resolvedPhone ?? "NONE"}`)
+
     const orderWithContact = {
       ...order,
-      customer_phone: userProfile?.phone_number ?? null,
-      customer_email: userProfile?.email ?? user.email ?? null,
+      customer_phone: resolvedPhone,
+      customer_email: resolvedEmail,
     }
 
     // 8. Non-blocking delivery (SMS + email)
-    Promise.allSettled([deliverVouchers(orderWithContact, vouchers)])
+    deliverVouchers(orderWithContact, vouchers)
       .catch(e => console.warn("[RC-PURCHASE] Notification error:", e))
 
     console.log(`[RC-PURCHASE] ✓ ${order.reference_code} | ${examBoard} x${quantity} | GHS ${order.total_paid} | user ${user.id}`)
