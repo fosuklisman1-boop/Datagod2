@@ -263,7 +263,7 @@ function NotificationItem({
             {!notification.read && (
               <button
                 onClick={() => onMarkAsRead(notification.id)}
-                className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1 border border-gray-300 hover:border-gray-400 rounded px-1.5 py-0.5 transition-colors"
               >
                 <Check className="w-3 h-3" />
                 <span className="hidden sm:inline">Mark read</span>
@@ -283,7 +283,7 @@ function NotificationItem({
             <button
               onClick={() => onDelete(notification.id)}
               title="Delete notification"
-              className="text-xs text-gray-500 hover:text-red-600 ml-auto sm:ml-0 flex items-center gap-1"
+              className="text-xs text-gray-500 hover:text-red-600 ml-auto sm:ml-0 flex items-center gap-1 border border-gray-300 hover:border-red-300 rounded px-1.5 py-0.5 transition-colors"
             >
               <Trash2 className="w-3 h-3" />
             </button>

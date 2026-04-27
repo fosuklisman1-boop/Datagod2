@@ -1001,7 +1001,7 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
           </CardTitle>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-xs text-violet-600 hover:underline font-medium"
+            className="text-xs text-violet-600 hover:text-violet-700 font-medium border border-violet-300 hover:border-violet-400 rounded px-2 py-0.5 transition-colors"
           >
             {expanded ? "Hide" : "Read Terms"}
           </button>
