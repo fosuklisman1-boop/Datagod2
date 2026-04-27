@@ -59,6 +59,8 @@ export default function ShopStorefront() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
+  const [termsContent, setTermsContent] = useState("")
+  const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
 
   const [showAnnouncement, setShowAnnouncement] = useState(false)
@@ -105,6 +107,13 @@ export default function ShopStorefront() {
 
         if (data.ordering_enabled !== undefined) {
           setGlobalOrderingEnabled(data.ordering_enabled)
+        }
+
+        if (data.terms_content) {
+          setTermsContent(data.terms_content)
+        }
+        if (data.terms_last_updated) {
+          setTermsLastUpdated(data.terms_last_updated)
         }
 
         if (data.packages && data.packages.length > 0) {
@@ -773,7 +782,7 @@ export default function ShopStorefront() {
 
             {/* About Tab */}
             {activeTab === "about" && (
-              <div className="space-y-6">
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <Card className="border-0 shadow-md">
                   <CardHeader className="pb-3">
                     <CardTitle>Shop Information</CardTitle>
@@ -806,6 +815,9 @@ export default function ShopStorefront() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Platform Terms of Service */}
+                <ShopTermsSection termsContent={termsContent} termsLastUpdated={termsLastUpdated} />
               </div>
             )}
 
@@ -948,6 +960,67 @@ export default function ShopStorefront() {
         message={activeAnnouncement?.message || ""}
       />
     </div >
+  )
+}
+
+function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: string; termsLastUpdated: string | null }) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (!termsContent) return null
+
+  const lines = termsContent.split("\n")
+  let intro = ""
+  const sections: Array<{ title: string; body: string }> = []
+  let current: { title: string; lines: string[] } | null = null
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    if (/^\d+\.\s/.test(trimmed)) {
+      if (current) sections.push({ title: current.title, body: current.lines.join(" ").trim() })
+      current = { title: trimmed, lines: [] }
+    } else if (current) {
+      current.lines.push(trimmed)
+    } else {
+      intro += (intro ? " " : "") + trimmed
+    }
+  }
+  if (current) sections.push({ title: current.title, body: current.lines.join(" ").trim() })
+
+  const formattedDate = termsLastUpdated
+    ? new Date(termsLastUpdated).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+    : "April 2026"
+
+  return (
+    <Card className="border-0 shadow-md">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <AlignJustify className="w-4 h-4 text-violet-600" />
+            Platform Terms of Service
+          </CardTitle>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-violet-600 hover:underline font-medium"
+          >
+            {expanded ? "Hide" : "Read Terms"}
+          </button>
+        </div>
+        {intro && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{intro}</p>}
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="space-y-3 pt-0">
+          {sections.map((s, i) => (
+            <div key={i} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-xs font-bold text-violet-700 mb-1">{s.title}</p>
+              <p className="text-xs text-gray-700 leading-relaxed">{s.body}</p>
+            </div>
+          ))}
+          <p className="text-xs text-gray-400 pt-1">Last updated: {formattedDate}</p>
+        </CardContent>
+      )}
+    </Card>
   )
 }
 

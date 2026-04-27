@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign, Power, Megaphone } from "lucide-react"
+import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign, Power, Megaphone, FileText } from "lucide-react"
 import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -69,6 +69,11 @@ export default function AdminSettingsPage() {
   // Guest purchase settings
   const [guestPurchaseUrl, setGuestPurchaseUrl] = useState("")
   const [guestPurchaseButtonText, setGuestPurchaseButtonText] = useState("Buy as Guest")
+
+  // Terms of Service
+  const [termsContent, setTermsContent] = useState("")
+  const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
+  const [savingTerms, setSavingTerms] = useState(false)
 
   const [domainUrls] = useState([
     { name: "Main App", url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000" },
@@ -161,6 +166,14 @@ export default function AdminSettingsPage() {
           setWithdrawalFeePercentage(data.withdrawal_fee_percentage)
         }
 
+        // Load terms content
+        if (data.terms_content !== undefined) {
+          setTermsContent(data.terms_content || "")
+        }
+        if (data.terms_last_updated) {
+          setTermsLastUpdated(data.terms_last_updated)
+        }
+
         // Load price adjustment settings
         if (data.price_adjustment_mtn !== undefined) {
           setPriceAdjustmentMtn(data.price_adjustment_mtn)
@@ -218,6 +231,32 @@ export default function AdminSettingsPage() {
     setCopiedUrl(url)
     toast.success("URL copied to clipboard!")
     setTimeout(() => setCopiedUrl(null), 2000)
+  }
+
+  const handleSaveTerms = async () => {
+    setSavingTerms(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+      const response = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ terms_content: termsContent }),
+      })
+      if (!response.ok) throw new Error("Failed to save terms")
+      const result = await response.json()
+      if (result.settings?.terms_last_updated) {
+        setTermsLastUpdated(result.settings.terms_last_updated)
+      }
+      toast.success("Terms of Service saved!")
+    } catch (error) {
+      toast.error("Failed to save terms")
+    } finally {
+      setSavingTerms(false)
+    }
   }
 
   const handleChristmasThemeToggle = async (enabled: boolean) => {
@@ -1329,6 +1368,66 @@ export default function AdminSettingsPage() {
               <p className="text-sm font-medium text-green-900">
                 <span className="font-bold">🎁 Theme Features:</span> Red and green color scheme, snowfall animation, Christmas decorations (🎄 🎅 ⛄ 🎁 ❄️), festive button effects, and more!
               </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Terms of Service Editor */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-violet-600" />
+              Terms of Service
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              This content appears on the public <strong>/terms</strong> page and inside shop "About" tabs.
+            </p>
+
+            {termsLastUpdated && (
+              <p className="text-xs text-gray-400">
+                Last updated: {new Date(termsLastUpdated).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </p>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="termsContent" className="text-sm font-medium">
+                Terms Content
+              </Label>
+              <p className="text-xs text-gray-500">
+                Format: Start with an intro paragraph. Number sections like "1. Section Title" on their own line, followed by the section body.
+              </p>
+              <Textarea
+                id="termsContent"
+                value={termsContent}
+                onChange={(e) => setTermsContent(e.target.value)}
+                placeholder={`Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service.\n\n1. General Account Registration & Security\nBy creating an account on DATAGOD, you agree to provide accurate information...\n\n2. Instant, Non-Refundable Delivery\nAll digital products are processed and delivered instantly upon successful payment or Wallet deduction...`}
+                className="min-h-[400px] resize-y font-mono text-sm"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                onClick={handleSaveTerms}
+                disabled={savingTerms}
+                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+              >
+                {savingTerms ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                ) : (
+                  <><Save className="w-4 h-4" /> Save Terms</>
+                )}
+              </Button>
+              <a
+                href="/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-violet-600 border border-violet-200 rounded-md hover:bg-violet-50 transition-colors"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Preview Public Page
+              </a>
             </div>
           </CardContent>
         </Card>

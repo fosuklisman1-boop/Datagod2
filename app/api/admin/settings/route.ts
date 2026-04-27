@@ -48,7 +48,8 @@ export async function GET(request: NextRequest) {
           storefront_announcement_message: "",
           signups_enabled: true,
           wallet_topups_enabled: true,
-          upgrades_enabled: true
+          upgrades_enabled: true,
+          terms_content: "",
         }])
         .select()
         .single()
@@ -72,6 +73,8 @@ export async function GET(request: NextRequest) {
           signups_enabled: true,
           wallet_topups_enabled: true,
           upgrades_enabled: true,
+          terms_content: "",
+          terms_last_updated: null,
           created_at: null,
           updated_at: null,
         })
@@ -129,8 +132,14 @@ export async function PUT(request: NextRequest) {
       'storefront_announcement_message',
       'signups_enabled',
       'wallet_topups_enabled',
-      'upgrades_enabled'
+      'upgrades_enabled',
+      'terms_content',
     ]
+
+    // Auto-stamp terms_last_updated when terms_content changes
+    if (body.terms_content !== undefined) {
+      updates.terms_last_updated = new Date().toISOString()
+    }
 
     fields.forEach(field => {
       if (body[field] !== undefined) {
@@ -228,6 +237,8 @@ export async function PUT(request: NextRequest) {
         signups_enabled: true,
         wallet_topups_enabled: true,
         upgrades_enabled: true,
+        terms_content: "",
+        terms_last_updated: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
