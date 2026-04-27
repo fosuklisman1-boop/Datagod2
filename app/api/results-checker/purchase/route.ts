@@ -5,7 +5,6 @@ import {
   isExamBoardEnabled,
   getMaxQuantity,
   getAvailableCount,
-  calculateRCPrice,
   purchaseResultsCheckerVouchers,
 } from "@/lib/results-checker-service"
 import { deliverVouchers } from "@/lib/results-checker-notification-service"
@@ -62,7 +61,7 @@ export async function POST(request: NextRequest) {
       .eq("user_id", user.id)
       .eq("exam_board", examBoard)
       .eq("quantity", quantity)
-      .neq("status", "failed")
+      .eq("status", "pending")
       .gte("created_at", thirtySecondsAgo)
       .maybeSingle()
 
