@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react"
 import { useParams, useSearchParams } from "next/navigation"
-import { CheckCircle2, XCircle, Copy, Download, Loader2, GraduationCap } from "lucide-react"
+import { CheckCircle2, XCircle, Copy, Download, Loader2, GraduationCap, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 
@@ -61,7 +61,7 @@ export default function ResultsCheckerConfirmationPage() {
             }
             break
           }
-          if (orderData.status === "failed") break
+          if (orderData.status === "failed" || orderData.status === "pending") break
         }
       } catch {
         // network hiccup — keep polling
@@ -113,7 +113,8 @@ export default function ResultsCheckerConfirmationPage() {
   }
 
   const isSuccess = order?.status === "completed"
-  const isFailed = order?.status === "failed"
+  const isFailed  = order?.status === "failed"
+  const isPending = order?.status === "pending"
 
   if (loading) {
     return (
@@ -132,21 +133,38 @@ export default function ResultsCheckerConfirmationPage() {
       <div className="w-full max-w-md space-y-6">
 
         {/* Header card */}
-        <div className={`rounded-2xl p-8 text-center ${isSuccess ? "bg-green-600" : isFailed ? "bg-red-600" : "bg-slate-700"}`}>
+        <div className={`rounded-2xl p-8 text-center ${isSuccess ? "bg-green-600" : isFailed ? "bg-red-600" : isPending ? "bg-amber-500" : "bg-slate-700"}`}>
           {isSuccess ? (
             <CheckCircle2 className="w-16 h-16 text-white mx-auto mb-4" />
           ) : isFailed ? (
             <XCircle className="w-16 h-16 text-white mx-auto mb-4" />
+          ) : isPending ? (
+            <Clock className="w-16 h-16 text-white mx-auto mb-4" />
           ) : (
             <GraduationCap className="w-16 h-16 text-white mx-auto mb-4" />
           )}
           <h1 className="text-2xl font-black text-white">
-            {isSuccess ? "Vouchers Delivered!" : isFailed ? "Order Failed" : "Processing…"}
+            {isSuccess ? "Vouchers Delivered!" : isFailed ? "Order Failed" : isPending ? "Payment Confirmed" : "Processing…"}
           </h1>
           <p className="text-white/80 text-sm mt-1">
-            {isSuccess ? `${order.exam_board} · Ref: ${order?.reference_code}` : isFailed ? "Please contact support" : "Waiting for confirmation"}
+            {isSuccess
+              ? `${order.exam_board} · Ref: ${order?.reference_code}`
+              : isFailed
+              ? "Please contact support"
+              : isPending
+              ? "Awaiting stock — your vouchers will be sent automatically"
+              : "Waiting for confirmation"}
           </p>
         </div>
+
+        {/* Awaiting stock notice */}
+        {isPending && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 space-y-1">
+            <p className="font-semibold">Your payment was received ✓</p>
+            <p>We&apos;re currently out of <strong>{order.exam_board}</strong> vouchers. Your order is queued and will be fulfilled automatically as soon as new stock is uploaded — no action needed from you.</p>
+            <p className="text-xs text-amber-600 mt-1">You&apos;ll receive your serial numbers &amp; PINs via SMS and email once ready.</p>
+          </div>
+        )}
 
         {/* Vouchers */}
         {isSuccess && vouchers.length > 0 && (

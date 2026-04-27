@@ -299,6 +299,36 @@ export async function initiateTransfer(
   }
 }
 
+/**
+ * Refund a transaction via Paystack.
+ * @param reference - The original Paystack transaction reference
+ * @param amountGhs - Optional partial refund amount in GHS. Omit for full refund.
+ * @returns Refund details from Paystack
+ */
+export async function refundTransaction(reference: string, amountGhs?: number) {
+  const body: Record<string, any> = { transaction: reference }
+  if (amountGhs !== undefined) {
+    body.amount = Math.round(amountGhs * 100) // convert GHS → pesewas
+  }
+
+  const response = await fetch(`${PAYSTACK_BASE_URL}/refund`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  })
+
+  const data: PaymentResponse = await response.json()
+
+  if (!response.ok || !data.status) {
+    throw new Error(data.message || `Refund failed (HTTP ${response.status})`)
+  }
+
+  return data.data
+}
+
 export default {
   initializePayment,
   verifyPayment,
@@ -306,4 +336,5 @@ export default {
   getCustomer,
   createTransferRecipient,
   initiateTransfer,
+  refundTransaction,
 }

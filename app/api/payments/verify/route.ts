@@ -313,10 +313,10 @@ export async function POST(request: NextRequest) {
             )
 
             if (assignError || !vouchers || vouchers.length < rcOrder.quantity) {
-              console.error(`[PAYMENT-VERIFY] ❌ RC voucher assignment failed for order ${rcOrder.id}:`, assignError)
+              console.warn(`[PAYMENT-VERIFY] ⚠ RC voucher stock exhausted for order ${rcOrder.id} — marking pending, will auto-fulfill when stock arrives`)
               await supabase
                 .from("results_checker_orders")
-                .update({ status: "failed", payment_status: "completed", updated_at: new Date().toISOString() })
+                .update({ status: "pending", payment_status: "completed", updated_at: new Date().toISOString() })
                 .eq("id", rcOrder.id)
             } else {
               await supabase.rpc("finalize_results_checker_sale", { p_order_id: rcOrder.id, p_user_id: null })
