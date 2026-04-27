@@ -283,7 +283,7 @@ export async function POST(request: NextRequest) {
             .eq("id", paymentData.order_id)
             .single()
 
-          if (rcOrder) {
+          if (rcOrder && rcOrder.status !== "completed" && rcOrder.status !== "failed") {
             // Atomically assign and finalize vouchers
             const { data: vouchers, error: assignError } = await supabase.rpc(
               "assign_results_checker_vouchers",
@@ -291,16 +291,16 @@ export async function POST(request: NextRequest) {
             )
 
             if (assignError || !vouchers || vouchers.length < rcOrder.quantity) {
-              console.error(`[WEBHOOK] ❌ RC voucher assignment failed for order ${rcOrder.id}:`, assignError)
+              console.warn(`[WEBHOOK] ⚠ RC voucher stock exhausted for order ${rcOrder.id} — marking pending`)
               await supabase
                 .from("results_checker_orders")
-                .update({ status: "failed", payment_status: "completed", updated_at: new Date().toISOString() })
+                .update({ status: "pending", payment_status: "completed", updated_at: new Date().toISOString() })
                 .eq("id", rcOrder.id)
             } else {
               await supabase.rpc("finalize_results_checker_sale", { p_order_id: rcOrder.id, p_user_id: null })
 
               const inventoryIds = vouchers.map((v: { id: string }) => v.id)
-              await supabase
+              const { error: rcUpdateErr } = await supabase
                 .from("results_checker_orders")
                 .update({
                   status: "completed",
@@ -310,6 +310,8 @@ export async function POST(request: NextRequest) {
                 })
                 .eq("id", rcOrder.id)
 
+              if (rcUpdateErr) console.error("[WEBHOOK] ❌ Failed to mark RC order completed:", rcUpdateErr)
+
               if (rcOrder.merchant_commission > 0 && rcOrder.shop_id) {
                 const { error: rcProfitError } = await supabase.from("shop_profits").insert([{
                   shop_id: rcOrder.shop_id,
@@ -317,9 +319,21 @@ export async function POST(request: NextRequest) {
                   profit_amount: rcOrder.merchant_commission,
                   status: "credited",
                   created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
                 }])
-                if (rcProfitError && rcProfitError.code !== "23505") {
-                  console.error("[WEBHOOK] Failed to insert RC profit record:", rcProfitError)
+                if (rcProfitError) {
+                  if (rcProfitError.code !== "23505") {
+                    // Fallback: insert without FK column if migration 0045 not yet applied
+                    await supabase.from("shop_profits").insert([{
+                      shop_id: rcOrder.shop_id,
+                      profit_amount: rcOrder.merchant_commission,
+                      status: "credited",
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }]).then(({ error: e }) => {
+                      if (e && e.code !== "23505") console.error("[WEBHOOK] ❌ RC profit fallback failed:", e.message)
+                    })
+                  }
                 } else {
                   console.log(`[WEBHOOK] ✓ RC profit recorded: GHS ${rcOrder.merchant_commission}`)
                 }
@@ -332,6 +346,8 @@ export async function POST(request: NextRequest) {
 
               console.log(`[WEBHOOK] ✓ RC order ${rcOrder.reference_code} completed: ${rcOrder.quantity}x ${rcOrder.exam_board}`)
             }
+          } else if (rcOrder?.status === "completed") {
+            console.log(`[WEBHOOK] ℹ RC order ${rcOrder.reference_code} already completed — skipping`)
           }
         }
       }
