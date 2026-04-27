@@ -107,8 +107,9 @@ export async function POST(request: NextRequest) {
       customer_email: resolvedEmail,
     }
 
-    // 8. Non-blocking delivery (SMS + email)
-    deliverVouchers(orderWithContact, vouchers)
+    // 8. Await delivery so the serverless function doesn't terminate before
+    //    Resend/mNotify HTTP calls complete (fire-and-forget is killed on Vercel).
+    await deliverVouchers(orderWithContact, vouchers)
       .catch(e => console.warn("[RC-PURCHASE] Notification error:", e))
 
     console.log(`[RC-PURCHASE] ✓ ${order.reference_code} | ${examBoard} x${quantity} | GHS ${order.total_paid} | user ${user.id}`)
