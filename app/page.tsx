@@ -7,7 +7,7 @@ import {
   Package, Zap, Users, ArrowRight, Lock,
   ShoppingCart, Wallet, GraduationCap, Store,
   CheckCircle2, CreditCard, Phone, UserPlus,
-  TrendingUp, Share2, Settings, Search, ChevronDown
+  TrendingUp, Share2, Settings, Search, ChevronDown, Link2, Copy, Mail
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import StorefrontRedirector from "@/components/StorefrontRedirector"
@@ -25,6 +25,7 @@ function Step({
   description: string
   mockup?: React.ReactNode
 }) {
+  const paragraphs = description.split("\n\n").filter(Boolean)
   return (
     <div className="flex gap-4">
       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 text-white text-sm font-bold flex items-center justify-center shadow">
@@ -35,7 +36,11 @@ function Step({
           <span className="text-blue-600">{icon}</span>
           <h4 className="font-semibold text-gray-900 text-sm">{title}</h4>
         </div>
-        <p className="text-sm text-gray-600 leading-relaxed mb-3">{description}</p>
+        <div className="space-y-2 mb-3">
+          {paragraphs.map((p, i) => (
+            <p key={i} className="text-sm text-gray-600 leading-relaxed">{p}</p>
+          ))}
+        </div>
         {mockup && (
           <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
             {mockup}
@@ -181,6 +186,58 @@ function MockVoucher() {
         <p className="text-[10px] text-gray-400">Serial: <span className="font-mono font-bold text-gray-900">WEC2024****</span></p>
       </div>
       <p className="text-[10px] text-gray-500">Use on waecdirect.org</p>
+    </div>
+  )
+}
+
+function MockInviteProcess() {
+  return (
+    <div className="p-3 bg-slate-50 space-y-2">
+      {/* Step A — generate invite */}
+      <div className="bg-white border border-gray-200 rounded-lg p-2.5 space-y-1.5">
+        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Dashboard → Sub-Agents</p>
+        <div className="flex gap-2">
+          <div className="flex-1 bg-gray-100 rounded px-2 py-1 text-[10px] text-gray-400">Phone (optional)</div>
+          <div className="flex-1 bg-gray-100 rounded px-2 py-1 text-[10px] text-gray-400">Email (optional)</div>
+        </div>
+        <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded py-1 text-center">
+          <span className="text-[10px] font-bold text-white">Generate Invite Link</span>
+        </div>
+      </div>
+
+      {/* Step B — copy & share link */}
+      <div className="bg-white border border-green-200 rounded-lg p-2.5 space-y-1.5">
+        <p className="text-[9px] font-bold text-green-600 uppercase tracking-widest">Invite Link Generated!</p>
+        <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded px-2 py-1">
+          <Link2 className="w-3 h-3 text-green-600 flex-shrink-0" />
+          <span className="text-[10px] text-gray-700 truncate font-mono">datagod.store/join/<span className="font-bold text-green-700">abc123</span></span>
+          <Copy className="w-3 h-3 text-gray-400 flex-shrink-0 ml-auto" />
+        </div>
+        <div className="flex gap-1.5">
+          <div className="flex-1 bg-green-500 rounded py-1 text-center">
+            <span className="text-[10px] font-bold text-white">Share on WhatsApp</span>
+          </div>
+          <div className="flex-1 bg-gray-100 rounded py-1 flex items-center justify-center gap-1">
+            <Mail className="w-3 h-3 text-gray-500" />
+            <span className="text-[10px] text-gray-600">Email</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Step C — sub-agent joins */}
+      <div className="bg-white border border-blue-200 rounded-lg p-2.5">
+        <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest mb-1">Sub-Agent Clicks Link</p>
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+            <UserPlus className="w-3 h-3 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold text-gray-800">Registers their account</p>
+            <p className="text-[9px] text-gray-400">Auto-linked to your shop ✓</p>
+          </div>
+          <CheckCircle2 className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
+        </div>
+      </div>
     </div>
   )
 }
@@ -489,8 +546,13 @@ export default function HomePage() {
                   <Step
                     number={6}
                     icon={<Users className="w-4 h-4" />}
-                    title="Add Sub-Agents (Optional)"
-                    description="Grow your network by inviting Sub-Agents under your shop. They get their own storefronts, set their own margins on top of yours, and you earn from their sales too."
+                    title="Invite Sub-Agents to Grow Your Network"
+                    description={`Go to Dashboard → Sub-Agents → click "Invite Sub-Agent". Optionally enter the person's phone number or email (so the system can notify them), then click Generate Invite Link.
+
+A unique link is created — e.g. datagod.store/join/abc123. Copy it and send it directly via WhatsApp, SMS, or email. The link expires after a set period so only your intended contact can use it.
+
+When your sub-agent clicks the link, they see a branded invite page showing your shop name. They fill in their details and create their account — which is automatically linked to your shop. They then get their own storefront, set their own selling prices on top of your prices, and their customers order from them directly. You earn on every package they sell.`}
+                    mockup={<MockInviteProcess />}
                   />
                 </div>
               </div>
