@@ -7,7 +7,7 @@ import {
   Package, Zap, Users, ArrowRight, Lock,
   ShoppingCart, Wallet, GraduationCap, Store,
   CheckCircle2, CreditCard, Phone, UserPlus,
-  TrendingUp, Share2, Settings, Search, ChevronDown, Link2, Copy, Mail
+  TrendingUp, Share2, Settings, Search, ChevronDown, Link2, Copy, Mail, Banknote
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import StorefrontRedirector from "@/components/StorefrontRedirector"
@@ -186,6 +186,48 @@ function MockVoucher() {
         <p className="text-[10px] text-gray-400">Serial: <span className="font-mono font-bold text-gray-900">WEC2024****</span></p>
       </div>
       <p className="text-[10px] text-gray-500">Use on waecdirect.org</p>
+    </div>
+  )
+}
+
+function MockWithdrawal() {
+  return (
+    <div className="p-3 bg-slate-50 space-y-2">
+      {/* Method selector */}
+      <div className="flex gap-2">
+        <div className="flex-1 border-2 border-blue-500 bg-blue-50 rounded-lg p-2 text-center">
+          <Phone className="w-3 h-3 text-blue-600 mx-auto mb-0.5" />
+          <p className="text-[9px] font-bold text-blue-700">Mobile Money</p>
+        </div>
+        <div className="flex-1 border border-gray-200 bg-white rounded-lg p-2 text-center">
+          <Banknote className="w-3 h-3 text-gray-400 mx-auto mb-0.5" />
+          <p className="text-[9px] font-bold text-gray-500">Bank Transfer</p>
+        </div>
+      </div>
+
+      {/* Amount + account */}
+      <div className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 flex items-center gap-2">
+        <span className="text-[10px] font-bold text-gray-500">GHS</span>
+        <span className="text-[11px] font-black text-gray-900">50.00</span>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+        <p className="text-[10px] text-gray-400">0241234567 · MTN MoMo</p>
+        <p className="text-[9px] text-green-600 font-semibold">✓ John Doe — Verified</p>
+      </div>
+
+      {/* Submit */}
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg py-1.5 text-center">
+        <span className="text-[10px] font-bold text-white">Request Withdrawal</span>
+      </div>
+
+      {/* Status row */}
+      <div className="bg-white border border-yellow-200 rounded-lg px-2.5 py-1.5 flex items-center justify-between">
+        <div>
+          <p className="text-[10px] font-semibold text-gray-800">GHS 50.00 → MoMo</p>
+          <p className="text-[9px] text-gray-400">Requested · up to 3 business days</p>
+        </div>
+        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 text-yellow-700">Pending</span>
+      </div>
     </div>
   )
 }
@@ -545,6 +587,17 @@ export default function HomePage() {
                   />
                   <Step
                     number={6}
+                    icon={<Banknote className="w-4 h-4" />}
+                    title="Withdraw Your Earnings"
+                    description={`Every sale made through your shop earns you your profit margin. Go to Dashboard → Shop Dashboard to see your accumulated balance.
+
+To cash out, click Request Withdrawal. Choose your payout method — Mobile Money (MTN, Telecel, AT) or Bank Transfer. Enter your account number and the system will verify your account name before you confirm.
+
+Withdrawals are subject to a small processing fee and are reviewed by the admin team. Approved funds are sent within 3 business days. You'll receive a notification when your withdrawal is approved or if more information is needed.`}
+                    mockup={<MockWithdrawal />}
+                  />
+                  <Step
+                    number={7}
                     icon={<Users className="w-4 h-4" />}
                     title="Invite Sub-Agents to Grow Your Network"
                     description={`Go to Dashboard → Sub-Agents → click "Invite Sub-Agent". Optionally enter the person's phone number or email (so the system can notify them), then click Generate Invite Link.
