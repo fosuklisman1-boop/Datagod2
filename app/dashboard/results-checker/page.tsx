@@ -341,14 +341,17 @@ export default function ResultsCheckerPage() {
 
         {/* Success Modal */}
         {successOrder && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md shadow-2xl">
-              <CardHeader className="text-center pb-2">
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div className="w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
+              {/* Header */}
+              <div className="text-center px-6 pt-6 pb-3 flex-shrink-0">
                 <div className="text-4xl mb-2">🎓</div>
-                <CardTitle className="text-lg text-green-700">Vouchers Delivered!</CardTitle>
-                <p className="text-sm text-gray-500">Ref: {successOrder.reference_code}</p>
-              </CardHeader>
-              <CardContent className="space-y-3">
+                <h2 className="text-lg font-bold text-green-700">Vouchers Delivered!</h2>
+                <p className="text-sm text-gray-500 mt-0.5">Ref: {successOrder.reference_code}</p>
+              </div>
+
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-y-auto px-6 pb-2 space-y-3">
                 <div className="flex justify-end">
                   <button
                     onClick={() => triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
@@ -359,13 +362,13 @@ export default function ResultsCheckerPage() {
                 </div>
                 <div className="space-y-2">
                   {successVouchers.map((v, i) => (
-                    <div key={i} className="flex items-start justify-between bg-gray-50 rounded-lg px-4 py-3 gap-3">
+                    <div key={i} className="flex items-start justify-between bg-gray-50 rounded-xl px-4 py-3 gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-gray-500 font-medium mb-1">Voucher {i + 1}</p>
                         <p className="text-xs text-gray-400">Serial Number</p>
-                        <p className="font-mono font-semibold text-gray-700 text-sm">{v.serial_number ?? "N/A"}</p>
+                        <p className="font-mono font-semibold text-gray-700 text-sm break-all">{v.serial_number ?? "N/A"}</p>
                         <p className="text-xs text-gray-400 mt-1">PIN</p>
-                        <p className="font-mono font-bold text-gray-900 tracking-widest text-lg">{v.pin}</p>
+                        <p className="font-mono font-bold text-gray-900 tracking-widest text-lg break-all">{v.pin}</p>
                       </div>
                       <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
                         className="flex-shrink-0 p-2 hover:bg-gray-200 rounded-lg transition-colors mt-1">
@@ -377,9 +380,13 @@ export default function ResultsCheckerPage() {
                   ))}
                 </div>
                 <p className="text-xs text-gray-400 text-center">These vouchers have also been sent to your phone &amp; email.</p>
-                <Button onClick={() => setSuccessOrder(null)} className="w-full">Done</Button>
-              </CardContent>
-            </Card>
+              </div>
+
+              {/* Sticky footer */}
+              <div className="px-6 pb-6 pt-3 flex-shrink-0">
+                <Button onClick={() => setSuccessOrder(null)} className="w-full h-12 text-base">Done</Button>
+              </div>
+            </div>
           </div>
         )}
 
