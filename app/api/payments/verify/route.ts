@@ -42,13 +42,29 @@ export async function POST(request: NextRequest) {
     console.log("[PAYMENT-VERIFY] ✓ Record found - User:", paymentData.user_id)
 
     // Safety check: if already completed, don't verify again
+    // Exception: results_checker payments may have been marked complete in wallet_payments
+    // but the order fulfillment could have failed — allow re-entry if order is still pending.
     if (paymentData.status === "completed") {
-      console.log("[PAYMENT-VERIFY] ℹ Payment already completed - skipping re-verification")
-      return NextResponse.json({
-        success: true,
-        status: "completed",
-        message: "Payment already verified and completed",
-      })
+      let skipEarly = true
+      if (paymentData.order_type === "results_checker" && paymentData.order_id) {
+        const { data: existingRcOrder } = await supabase
+          .from("results_checker_orders")
+          .select("status")
+          .eq("id", paymentData.order_id)
+          .single()
+        if (!existingRcOrder || (existingRcOrder.status !== "completed" && existingRcOrder.status !== "failed")) {
+          skipEarly = false
+          console.log("[PAYMENT-VERIFY] ℹ RC payment complete but order unfulfilled — re-running fulfillment")
+        }
+      }
+      if (skipEarly) {
+        console.log("[PAYMENT-VERIFY] ℹ Payment already completed - skipping re-verification")
+        return NextResponse.json({
+          success: true,
+          status: "completed",
+          message: "Payment already verified and completed",
+        })
+      }
     }
 
     // Verify with Paystack
@@ -85,13 +101,17 @@ export async function POST(request: NextRequest) {
 
       // If there's an order, mark it as failed too
       if (paymentData.order_id) {
-        const table = paymentData.order_type === "airtime" ? "airtime_orders" : "shop_orders"
+        const table = paymentData.order_type === "airtime"
+          ? "airtime_orders"
+          : paymentData.order_type === "results_checker"
+          ? "results_checker_orders"
+          : "shop_orders"
         const updateData: any = {
           payment_status: "failed",
           updated_at: new Date().toISOString(),
         }
-        
-        if (paymentData.order_type === "airtime") {
+
+        if (paymentData.order_type === "airtime" || paymentData.order_type === "results_checker") {
           updateData.status = "failed"
         } else {
           updateData.order_status = "failed"
@@ -302,7 +322,7 @@ export async function POST(request: NextRequest) {
               await supabase.rpc("finalize_results_checker_sale", { p_order_id: rcOrder.id, p_user_id: null })
 
               const inventoryIds = vouchers.map((v: { id: string }) => v.id)
-              await supabase
+              const { error: rcUpdateErr } = await supabase
                 .from("results_checker_orders")
                 .update({
                   status: "completed",
@@ -312,18 +332,41 @@ export async function POST(request: NextRequest) {
                 })
                 .eq("id", rcOrder.id)
 
+              if (rcUpdateErr) {
+                console.error("[PAYMENT-VERIFY] ❌ Failed to mark RC order completed:", rcUpdateErr)
+              }
+
               if (rcOrder.merchant_commission > 0 && rcOrder.shop_id) {
-                await supabase.from("shop_profits").insert([{
+                const { error: profitErr } = await supabase.from("shop_profits").insert([{
                   shop_id: rcOrder.shop_id,
                   results_checker_order_id: rcOrder.id,
                   profit_amount: rcOrder.merchant_commission,
                   status: "credited",
                   created_at: new Date().toISOString(),
-                }]).then(({ error }) => {
-                  if (error && error.code !== "23505") {
-                    console.error("[PAYMENT-VERIFY] Failed to insert RC profit:", error)
+                  updated_at: new Date().toISOString(),
+                }])
+                if (profitErr) {
+                  if (profitErr.code === "23505") {
+                    console.log("[PAYMENT-VERIFY] ℹ RC profit already recorded")
+                  } else {
+                    console.error("[PAYMENT-VERIFY] ❌ RC profit insert failed:", profitErr.message)
+                    // Fallback: insert without FK column in case migration 0045 isn't applied yet
+                    const { error: fallbackErr } = await supabase.from("shop_profits").insert([{
+                      shop_id: rcOrder.shop_id,
+                      profit_amount: rcOrder.merchant_commission,
+                      status: "credited",
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }])
+                    if (fallbackErr && fallbackErr.code !== "23505") {
+                      console.error("[PAYMENT-VERIFY] ❌ RC profit fallback also failed:", fallbackErr.message)
+                    } else {
+                      console.log(`[PAYMENT-VERIFY] ✓ RC profit recorded (fallback): GHS ${rcOrder.merchant_commission}`)
+                    }
                   }
-                })
+                } else {
+                  console.log(`[PAYMENT-VERIFY] ✓ RC profit recorded: GHS ${rcOrder.merchant_commission} for shop ${rcOrder.shop_id}`)
+                }
               }
 
               // Deliver vouchers (non-blocking)
