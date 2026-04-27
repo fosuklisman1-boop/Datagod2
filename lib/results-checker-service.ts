@@ -162,6 +162,12 @@ export async function purchaseResultsCheckerVouchers(params: {
     { p_exam_board: examBoard, p_quantity: quantity, p_order_id: order.id }
   )
 
+  if (assignError) {
+    console.error("[RC-SERVICE] ❌ assign_results_checker_vouchers RPC error:", assignError)
+  } else if (!vouchers || vouchers.length < quantity) {
+    console.warn(`[RC-SERVICE] ⚠ assign_results_checker_vouchers returned ${vouchers?.length ?? 0}/${quantity} for ${examBoard} order ${order.id}`)
+  }
+
   if (assignError || !vouchers || vouchers.length < quantity) {
     // Refund and fail order if inventory insufficient after deduction
     await supabase.rpc("credit_wallet_safely", {
