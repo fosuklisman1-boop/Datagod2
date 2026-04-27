@@ -232,7 +232,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         <div className="flex justify-end">
           <button
             onClick={() => triggerExcelDownload(vouchers, selectedBoard ?? "", orderRef)}
-            className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium"
+            className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium border border-violet-200 hover:border-violet-300 rounded-full px-2.5 py-1 transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
             Download receipt
@@ -248,7 +248,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                 <p className="text-xs text-gray-500 mt-1">PIN</p>
                 <p className="font-mono font-bold tracking-widest text-gray-900 text-lg">{v.pin}</p>
               </div>
-              <button onClick={() => handleCopyVoucher(v, i)} className="p-2 hover:bg-gray-200 rounded-lg flex-shrink-0 ml-3">
+              <button onClick={() => handleCopyVoucher(v, i)} className="p-2 border border-gray-200 hover:bg-gray-200 rounded-lg flex-shrink-0 ml-3">
                 {copiedIdx === i
                   ? <CheckCircle2 className="w-4 h-4 text-green-600" />
                   : <Copy className="w-4 h-4 text-gray-500" />}

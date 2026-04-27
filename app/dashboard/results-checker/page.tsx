@@ -369,7 +369,7 @@ export default function ResultsCheckerPage() {
                 <div className="flex justify-end">
                   <button
                     onClick={() => triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
-                    className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium"
+                    className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium border border-violet-200 hover:border-violet-300 rounded-full px-2.5 py-1 transition-colors"
                   >
                     <Download className="w-3.5 h-3.5" />Download receipt
                   </button>
