@@ -103,6 +103,10 @@ export default function AdminResultsCheckerPage() {
     supabase.auth.getSession().then(({ data }) => {
       setToken(data.session?.access_token ?? null)
     })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setToken(session?.access_token ?? null)
+    })
+    return () => subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
