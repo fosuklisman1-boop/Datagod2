@@ -12,7 +12,7 @@ interface FulfillmentRequest {
   sizeGb: number
   orderId: string
   network?: string
-  orderType?: "wallet" | "shop" | "api"  // wallet = orders table, shop = shop_orders table, api = api_orders table
+  orderType?: "wallet" | "shop" | "api" | "ussd"  // wallet = orders table, shop = shop_orders table, api = api_orders table
   isBigTime?: boolean  // true for AT-BigTime orders (uses special.php endpoint)
 }
 
@@ -793,7 +793,7 @@ class ATiShareService {
     reference?: string,
     phoneNumber?: string,
     network?: string,
-    orderType: "wallet" | "shop" | "api" = "wallet"
+    orderType: "wallet" | "shop" | "api" | "ussd" = "wallet"
   ): Promise<void> {
     try {
       console.log(`[CODECRAFT-LOG] Logging fulfillment attempt for order ${orderId}`)
