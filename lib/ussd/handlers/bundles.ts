@@ -351,6 +351,10 @@ export async function handleConfirm(
       }
       await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
       console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
+      if (status === 'send_otp') {
+        await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
+        console.log("[USSD-CONFIRM] OTP required — user must redial to complete:", orderId)
+      }
     } catch (err) {
       console.error("[USSD-CONFIRM] Charge failed:", err)
       await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
@@ -407,6 +411,10 @@ export async function handlePaymentMethod(
         }
         await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
         console.log("[USSD-PAYMENT_METHOD] ✓ MoMo charge initiated:", orderId, status)
+        if (status === 'send_otp') {
+          await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
+          console.log("[USSD-PAYMENT_METHOD] OTP required — user must redial to complete:", orderId)
+        }
       } catch (err) {
         console.error("[USSD-PAYMENT_METHOD] MoMo charge failed:", err)
         await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
@@ -547,13 +555,12 @@ export async function handleSubmitOtp(
       return end('OTP verification failed.\nPlease try again later.')
     }
 
-    // pay_offline, pending, success — PIN prompt is on its way
-    const localDialing = session.dialingPhone?.startsWith('+233')
-      ? '0' + session.dialingPhone.slice(4)
-      : session.dialingPhone ?? ''
-    return end(
-      `MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`
-    )
+    // OTP accepted — Paystack will fire charge.success webhook to fulfill
+    await supabase
+      .from("ussd_orders")
+      .update({ payment_status: 'pending', updated_at: new Date().toISOString() })
+      .eq("id", session.pendingOrderId)
+    return end('OTP verified!\nYour bundle will reflect\nin a few minutes.')
   } catch (err) {
     console.error("[USSD-OTP] submitOtp error:", err)
     return cont('Error verifying OTP.\nTry again:\n\n0. Cancel')

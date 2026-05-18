@@ -1,6 +1,12 @@
+import { createClient } from "@supabase/supabase-js"
 import { UzoRequest, UzoResponse } from "./types"
 import { getSession, setSession, deleteSession } from "./session"
 import { cont, end, mainMenu } from "./menus"
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 import { handleMain } from "./handlers/main"
 import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm, handlePaymentMethod, handleSubmitOtp } from "./handlers/bundles"
 import { handleStatus } from "./handlers/status"
@@ -18,8 +24,29 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     return end('Session ended.')
   }
 
-  // Initiating request — always show main menu
+  // Initiating request — check for pending OTP before showing main menu
   if (op === 1) {
+    const localPhone = msisdn.startsWith('+233') ? '0' + msisdn.slice(4)
+      : msisdn.startsWith('233') ? '0' + msisdn.slice(3)
+      : msisdn
+    const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const { data: pendingOtp } = await supabase
+      .from("ussd_orders")
+      .select("id")
+      .or(`dialing_phone.eq.${msisdn},dialing_phone.eq.${localPhone}`)
+      .eq("payment_status", "otp_required")
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (pendingOtp) {
+      await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, pendingOrderId: pendingOtp.id })
+      return cont(
+        `Pending payment.\nEnter the OTP sent\nto your number to\ncomplete payment:\n\n0. Cancel`
+      )
+    }
+
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
     return cont(mainMenu())
   }

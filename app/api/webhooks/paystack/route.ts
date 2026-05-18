@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
         const ussdOrderId: string = ussdOrder.id
         console.log("[WEBHOOK] Processing USSD order:", ussdOrderId)
 
-        if (ussdOrder.payment_status !== 'pending') {
+        if (ussdOrder.payment_status !== 'pending' && ussdOrder.payment_status !== 'otp_required') {
           console.log("[WEBHOOK] USSD order already processed:", ussdOrderId)
           return NextResponse.json({ received: true })
         }
