@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { after } from "next/server"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, mainMenu } from "../menus"
 import { getSession, setSession } from "../session"
@@ -238,38 +239,39 @@ export async function handleConfirm(
 
   // Resolve email for Paystack
   const email = await resolveEmail(dialingPhone!)
+  const orderId = order.id
 
-  // Initiate Paystack mobile money charge
-  try {
-    await chargeMobileMoney({
-      email,
-      amount: verifiedPrice,
-      phone: dialingPhone!,
-      provider: paystackProvider as 'mtn' | 'vod' | 'atl',
-      reference: order.id,
-      metadata: {
-        source: 'ussd',
-        ussd_order_id: order.id,
-        recipient_phone: recipientPhone,
-        network,
-        package_size: bundleSize,
-      },
-    })
-  } catch (err) {
-    console.error("[USSD-CONFIRM] Paystack charge failed:", err)
-    // Mark order as failed
-    await supabase
-      .from("ussd_orders")
-      .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
-      .eq("id", order.id)
-    return end('Payment initiation failed. Please try again.')
-  }
-
-  // Store reference on order
-  await supabase
-    .from("ussd_orders")
-    .update({ paystack_reference: order.id, updated_at: new Date().toISOString() })
-    .eq("id", order.id)
+  // Fire charge 3 seconds after the USSD session closes
+  after(async () => {
+    await new Promise(resolve => setTimeout(resolve, 3000))
+    try {
+      await chargeMobileMoney({
+        email,
+        amount: verifiedPrice,
+        phone: dialingPhone!,
+        provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+        reference: orderId,
+        metadata: {
+          source: 'ussd',
+          ussd_order_id: orderId,
+          recipient_phone: recipientPhone,
+          network,
+          package_size: bundleSize,
+        },
+      })
+      await supabase
+        .from("ussd_orders")
+        .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
+        .eq("id", orderId)
+      console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId)
+    } catch (err) {
+      console.error("[USSD-CONFIRM] Delayed charge failed:", err)
+      await supabase
+        .from("ussd_orders")
+        .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+        .eq("id", orderId)
+    }
+  })
 
   const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
 
