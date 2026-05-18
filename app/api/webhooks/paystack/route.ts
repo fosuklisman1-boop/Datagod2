@@ -125,16 +125,30 @@ export async function POST(request: NextRequest) {
             .eq("id", ussdOrderId)
         }
 
-        // SMS confirmation to recipient
+        // SMS to recipient
         try {
           await sendSMS({
             phone: ussdOrder.recipient_phone,
-            message: `Your ${ussdOrder.package_size} ${ussdOrder.network} bundle is on its way! Order: ${ussdOrderId.slice(0, 8)}`,
+            message: `DATAGOD: Your ${ussdOrder.package_size} ${ussdOrder.network} bundle is on its way! It will reflect in a few minutes.`,
             type: 'order_confirmation',
             reference: ussdOrderId,
           })
         } catch (smsErr) {
-          console.warn("[WEBHOOK] USSD SMS failed:", smsErr)
+          console.warn("[WEBHOOK] USSD recipient SMS failed:", smsErr)
+        }
+
+        // SMS to payer (dialing phone) if different from recipient
+        if (ussdOrder.dialing_phone && ussdOrder.dialing_phone !== ussdOrder.recipient_phone) {
+          try {
+            await sendSMS({
+              phone: ussdOrder.dialing_phone,
+              message: `DATAGOD: Payment confirmed. ${ussdOrder.package_size} ${ussdOrder.network} bundle sent to ${ussdOrder.recipient_phone?.slice(-4).padStart(ussdOrder.recipient_phone.length, '*')}. Thank you!`,
+              type: 'order_confirmation',
+              reference: ussdOrderId,
+            })
+          } catch (smsErr) {
+            console.warn("[WEBHOOK] USSD payer SMS failed:", smsErr)
+          }
         }
 
         return NextResponse.json({ received: true })
@@ -143,7 +157,7 @@ export async function POST(request: NextRequest) {
       // Handle USSD AFA orders (no wallet_payments record; reference IS the order UUID)
       const { data: ussdAfaOrder } = await supabase
         .from("ussd_afa_orders")
-        .select("id, amount, payment_status")
+        .select("id, amount, payment_status, dialing_phone")
         .eq("id", reference)
         .maybeSingle()
 
@@ -177,6 +191,18 @@ export async function POST(request: NextRequest) {
           }
         } catch (fErr) {
           console.error("[WEBHOOK] Failed to trigger USSD AFA fulfillment:", fErr)
+        }
+
+        // SMS to payer confirming registration received
+        try {
+          await sendSMS({
+            phone: ussdAfaOrder.dialing_phone,
+            message: `DATAGOD: Your AFA registration payment has been received and is being processed. Registration takes 12-24hrs to reflect. Thank you!`,
+            type: 'order_confirmation',
+            reference: ussdAfaOrder.id,
+          })
+        } catch (smsErr) {
+          console.warn("[WEBHOOK] USSD AFA SMS failed:", smsErr)
         }
 
         return NextResponse.json({ received: true })
