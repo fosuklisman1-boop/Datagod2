@@ -557,7 +557,8 @@ export async function handleSubmitOtp(
       return end('OTP verification failed.\nPlease try again later.')
     }
 
-    // OTP accepted — Paystack will fire charge.success webhook to fulfill
+    // OTP accepted — wait briefly for Paystack to dispatch the MoMo push
+    await new Promise(r => setTimeout(r, 3000))
     await supabase
       .from("ussd_orders")
       .update({ payment_status: 'pending', updated_at: new Date().toISOString() })
