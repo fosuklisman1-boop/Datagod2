@@ -556,7 +556,7 @@ export async function handleSubmitOtp(
       ? '0' + session.dialingPhone.slice(4)
       : session.dialingPhone ?? ''
     return end(
-      `OTP verified!\nApprove the prompt sent\nto ${localDialing}.`
+      `MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`
     )
   } catch (err) {
     console.error("[USSD-OTP] submitOtp error:", err)
