@@ -86,12 +86,11 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Underpayment" }, { status: 400 })
         }
 
-        // Mark payment completed
+        // Mark payment completed — leave order_status as pending until fulfillment resolves
         await supabase
           .from("ussd_orders")
           .update({
             payment_status: 'completed',
-            order_status: 'processing',
             paystack_reference: reference,
             updated_at: new Date().toISOString(),
           })
@@ -120,10 +119,9 @@ export async function POST(request: NextRequest) {
           }
         } catch (fErr) {
           console.error("[WEBHOOK] Failed to trigger USSD fulfillment:", fErr)
-          // Payment succeeded — keep as processing so admin can manually fulfill
           await supabase
             .from("ussd_orders")
-            .update({ order_status: 'processing', updated_at: new Date().toISOString() })
+            .update({ order_status: 'pending', updated_at: new Date().toISOString() })
             .eq("id", ussdOrderId)
         }
 

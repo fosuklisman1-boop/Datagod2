@@ -62,7 +62,7 @@ export async function fulfillUssdOrder(
       if (!mtnResponse.success || !mtnResponse.order_id) {
         console.error("[USSD-FULFILL] MTN API failed:", mtnResponse.message)
         // Mark processing (not failed) — payment succeeded, admin must manually deliver
-        await markUssdOrderStatus(orderId, 'processing')
+        await markUssdOrderStatus(orderId, 'pending')
         try {
           await saveMTNTracking(orderId, "FAILED_INIT_" + Date.now(), orderRequest, mtnResponse, "ussd", mtnResponse.provider || "datakazina")
         } catch { /* non-fatal */ }
@@ -115,7 +115,7 @@ export async function fulfillUssdOrder(
         console.log("[USSD-FULFILL] ✓ Codecraft fulfilled:", orderId)
       }).catch(async (err: any) => {
         console.error("[USSD-FULFILL] Codecraft error:", err)
-        await markUssdOrderStatus(orderId, 'failed')
+        await markUssdOrderStatus(orderId, 'pending')
       })
 
       // Return immediately — Codecraft fulfillment is async
