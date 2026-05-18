@@ -174,6 +174,6 @@ export async function handleAfaConfirm(
   })
 
   return end(
-    `GHS ${afaPrice!.toFixed(2)} AFA payment\nprompt will be sent\nto ${localPhone}.\nApprove to complete\nregistration.`
+    `MoMo authorization has been sent to your number (${localPhone}). AFA registration takes 12hrs to 24hrs to reflect, so please have patience.`
   )
 }

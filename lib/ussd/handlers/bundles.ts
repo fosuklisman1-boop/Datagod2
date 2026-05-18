@@ -291,8 +291,7 @@ export async function handleConfirm(
   })
 
   return end(
-    `GHS ${verifiedPrice.toFixed(2)} payment prompt\nwill be sent to ${localDialing}.\n` +
-    `Approve it to get\n${bundleSize} ${network} on ${recipientPhone}.`
+    `MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`
   )
 }
 
