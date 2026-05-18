@@ -356,8 +356,8 @@ export async function handleConfirm(
       return cont(otpPrompt())
     }
 
-    return end(
-      `MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`
+    return cont(
+      `MoMo prompt sent to\n${localDialing}\nApprove to complete.\n\n0. Done`
     )
   } catch (err) {
     console.error("[USSD-CONFIRM] Charge failed:", err)
@@ -416,7 +416,9 @@ export async function handlePaymentMethod(
         return cont(otpPrompt())
       }
 
-      return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
+      return cont(
+        `MoMo prompt sent to\n${localDialing}\nApprove to complete.\n\n0. Done`
+      )
     } catch (err) {
       console.error("[USSD-PAYMENT_METHOD] MoMo charge failed:", err)
       await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
