@@ -16,7 +16,34 @@ function truncate(msg: string): string {
 }
 
 export function mainMenu(): string {
-  return 'Welcome to Datagod\n1. Buy Data Bundle\n2. Check Order Status\n0. Exit'
+  return 'Welcome to Datagod\n1. Buy Data Bundle\n2. AFA Registration\n0. Exit'
+}
+
+export function afaEnterNamePrompt(): string {
+  return 'AFA Registration\nEnter your full\nname:\n\n0. Back'
+}
+
+export function afaEnterCardPrompt(): string {
+  return 'Enter your Ghana\nCard Number:\n(e.g. GHA-12345-6)\n\n0. Back'
+}
+
+export function afaEnterLocationPrompt(): string {
+  return 'Enter your city\nor town:\n(e.g. Accra)\n\n0. Back'
+}
+
+export function afaEnterRegionPrompt(): string {
+  return 'Enter your region:\n(e.g. Ashanti,\nGreater Accra)\n\n0. Back'
+}
+
+export function afaConfirmMenu(name: string, card: string, price: number, localPhone: string): string {
+  return (
+    `AFA Registration\n` +
+    `${name}\n` +
+    `Card: ${card}\n` +
+    `GHS ${price.toFixed(2)} from\n` +
+    `${localPhone}\n\n` +
+    `1. Pay now\n2. Cancel`
+  )
 }
 
 export function networkMenu(): string {

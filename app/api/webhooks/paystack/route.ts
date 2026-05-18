@@ -140,6 +140,48 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ received: true })
       }
 
+      // Handle USSD AFA orders (no wallet_payments record; reference IS the order UUID)
+      const { data: ussdAfaOrder } = await supabase
+        .from("ussd_afa_orders")
+        .select("id, amount, payment_status")
+        .eq("id", reference)
+        .maybeSingle()
+
+      if (ussdAfaOrder) {
+        console.log("[WEBHOOK] Processing USSD AFA order:", ussdAfaOrder.id)
+
+        if (ussdAfaOrder.payment_status !== 'pending') {
+          console.log("[WEBHOOK] USSD AFA order already processed:", ussdAfaOrder.id)
+          return NextResponse.json({ received: true })
+        }
+
+        const paidGhs = amount / 100
+        const expectedGhs = Number(ussdAfaOrder.amount)
+        if (paidGhs < expectedGhs - 0.01) {
+          console.error(`[WEBHOOK] USSD AFA underpayment! Paid: ${paidGhs}, Expected: ${expectedGhs}`)
+          return NextResponse.json({ error: "Underpayment" }, { status: 400 })
+        }
+
+        await supabase
+          .from("ussd_afa_orders")
+          .update({ payment_status: 'completed', paystack_reference: reference, updated_at: new Date().toISOString() })
+          .eq("id", ussdAfaOrder.id)
+
+        try {
+          const { fulfillUssdAfaOrder } = await import("@/lib/ussd/fulfill-afa")
+          const result = await fulfillUssdAfaOrder(ussdAfaOrder.id)
+          if (result.success) {
+            console.log("[WEBHOOK] ✓ USSD AFA fulfilled:", ussdAfaOrder.id)
+          } else {
+            console.error("[WEBHOOK] USSD AFA fulfillment failed:", result.message)
+          }
+        } catch (fErr) {
+          console.error("[WEBHOOK] Failed to trigger USSD AFA fulfillment:", fErr)
+        }
+
+        return NextResponse.json({ received: true })
+      }
+
       // Find and update payment record (for non-USSD payments)
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")
@@ -541,6 +583,24 @@ export async function POST(request: NextRequest) {
         }
       } catch (e) {
         console.warn("[WEBHOOK] Failed to update failed USSD order:", e)
+      }
+
+      // Handle failed USSD AFA charges
+      try {
+        const { data: afaOrder } = await supabase
+          .from("ussd_afa_orders")
+          .select("id")
+          .eq("id", reference)
+          .maybeSingle()
+        if (afaOrder) {
+          await supabase
+            .from("ussd_afa_orders")
+            .update({ payment_status: 'failed', order_status: 'failed', updated_at: new Date().toISOString() })
+            .eq("id", afaOrder.id)
+          console.log("[WEBHOOK] USSD AFA order marked failed:", afaOrder.id)
+        }
+      } catch (e) {
+        console.warn("[WEBHOOK] Failed to update failed USSD AFA order:", e)
       }
 
       await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference)

@@ -4,6 +4,7 @@ import { cont, end, mainMenu } from "./menus"
 import { handleMain } from "./handlers/main"
 import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm, handleSubmitOtp } from "./handlers/bundles"
 import { handleStatus } from "./handlers/status"
+import { handleAfaEnterName, handleAfaEnterCard, handleAfaEnterLocation, handleAfaEnterRegion, handleAfaConfirm } from "./handlers/afa"
 
 const TERMINATE_THRESHOLD = 29
 
@@ -55,6 +56,21 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'CHECK_STATUS':
       return handleStatus(input, sessionID, session)
+
+    case 'AFA_ENTER_NAME':
+      return handleAfaEnterName(input, sessionID, session)
+
+    case 'AFA_ENTER_CARD':
+      return handleAfaEnterCard(input, sessionID, session)
+
+    case 'AFA_ENTER_LOCATION':
+      return handleAfaEnterLocation(input, sessionID, session)
+
+    case 'AFA_ENTER_REGION':
+      return handleAfaEnterRegion(input, sessionID, session)
+
+    case 'AFA_CONFIRM_AFA':
+      return handleAfaConfirm(input, sessionID, session)
 
     default:
       await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })

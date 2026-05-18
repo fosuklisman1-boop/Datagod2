@@ -21,6 +21,11 @@ export type USSDStep =
   | 'CONFIRM'
   | 'SUBMIT_OTP'
   | 'CHECK_STATUS'
+  | 'AFA_ENTER_NAME'
+  | 'AFA_ENTER_CARD'
+  | 'AFA_ENTER_LOCATION'
+  | 'AFA_ENTER_REGION'
+  | 'AFA_CONFIRM_AFA'
 
 export interface BundleOption {
   id: string
@@ -41,4 +46,11 @@ export interface USSDSession {
   bundleTotal?: number       // total bundle count for this network
   recipientPhone?: string
   pendingOrderId?: string  // set when Paystack returns send_otp; used by SUBMIT_OTP step
+  // AFA registration fields
+  afaFullName?: string
+  afaGhCard?: string
+  afaLocation?: string
+  afaRegion?: string
+  afaOrderId?: string
+  afaPrice?: number
 }
