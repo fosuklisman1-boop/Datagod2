@@ -356,6 +356,7 @@ export async function handleConfirm(
       return cont(otpPrompt())
     }
 
+    await setSession(sessionId, { step: 'MAIN', dialingPhone })
     return cont(
       `MoMo prompt sent to\n${localDialing}\nApprove to complete.\n\n0. Done`
     )
@@ -416,6 +417,7 @@ export async function handlePaymentMethod(
         return cont(otpPrompt())
       }
 
+      await setSession(sessionId, { step: 'MAIN', dialingPhone })
       return cont(
         `MoMo prompt sent to\n${localDialing}\nApprove to complete.\n\n0. Done`
       )
