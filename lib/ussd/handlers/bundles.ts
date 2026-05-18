@@ -241,6 +241,9 @@ export async function handleConfirm(
   const orderId = order.id
   const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
 
+  // 2-second pause before charge so the "Pay Now" response reaches the handset first
+  await new Promise(r => setTimeout(r, 2000))
+
   // Fire charge synchronously within the session so we can handle send_otp
   try {
     const { status } = await chargeMobileMoney({
