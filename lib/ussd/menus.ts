@@ -16,7 +16,7 @@ function truncate(msg: string): string {
 }
 
 export function mainMenu(): string {
-  return 'DataGod USSD\n1. Buy Data Bundle\n2. Check Order Status\n0. Exit'
+  return 'Welcome to Datagod\n1. Buy Data Bundle\n2. Check Order Status\n0. Exit'
 }
 
 export function networkMenu(): string {
