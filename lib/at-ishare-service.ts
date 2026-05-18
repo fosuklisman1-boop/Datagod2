@@ -369,7 +369,7 @@ class ATiShareService {
   async verifyAndUpdateStatus(
     orderId: string, 
     network: string, 
-    orderType: "wallet" | "shop" | "api",
+    orderType: "wallet" | "shop" | "api" | "ussd",
     isBigTime: boolean = false,
     externalReference?: string  // Code Craft's order ID if different from ours
   ): Promise<{ actualStatus: string; message?: string }> {
