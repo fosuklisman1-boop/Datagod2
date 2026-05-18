@@ -259,14 +259,16 @@ export async function handleConfirm(
     })
 
     // Record in payment_attempts so admin payment pages can track this charge
-    await supabase.from("payment_attempts").insert({
-      reference: orderId,
-      amount: verifiedPrice,
-      email,
-      status: 'pending',
-      payment_type: 'ussd',
-      order_id: orderId,
-    }).catch(() => { /* non-fatal */ })
+    try {
+      await supabase.from("payment_attempts").insert({
+        reference: orderId,
+        amount: verifiedPrice,
+        email,
+        status: 'pending',
+        payment_type: 'ussd',
+        order_id: orderId,
+      })
+    } catch { /* non-fatal */ }
 
     await supabase
       .from("ussd_orders")
