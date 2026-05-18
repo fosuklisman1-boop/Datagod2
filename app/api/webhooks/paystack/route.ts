@@ -59,7 +59,103 @@ export async function POST(request: NextRequest) {
         hasMetadata: !!metadata
       })
 
-      // Find and update payment record
+      // Handle USSD orders first — they don't create wallet_payments records
+      if (metadata?.source === 'ussd' && metadata?.ussd_order_id) {
+        const ussdOrderId: string = metadata.ussd_order_id
+        console.log("[WEBHOOK] Processing USSD order:", ussdOrderId)
+
+        const { data: ussdOrder, error: ussdFetchErr } = await supabase
+          .from("ussd_orders")
+          .select("*")
+          .eq("id", ussdOrderId)
+          .single()
+
+        if (ussdFetchErr || !ussdOrder) {
+          console.error("[WEBHOOK] USSD order not found:", ussdOrderId, ussdFetchErr)
+          return NextResponse.json({ received: true })
+        }
+
+        if (ussdOrder.payment_status !== 'pending') {
+          console.log("[WEBHOOK] USSD order already processed:", ussdOrderId)
+          return NextResponse.json({ received: true })
+        }
+
+        // Verify amount matches (security check)
+        const paidGhs = amount / 100
+        const expectedGhs = Number(ussdOrder.amount)
+        if (paidGhs < expectedGhs - 0.01) {
+          console.error(`[WEBHOOK] USSD underpayment! Paid: ${paidGhs}, Expected: ${expectedGhs}`)
+          return NextResponse.json({ error: "Underpayment" }, { status: 400 })
+        }
+
+        // Mark payment completed
+        await supabase
+          .from("ussd_orders")
+          .update({
+            payment_status: 'completed',
+            order_status: 'processing',
+            paystack_reference: reference,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", ussdOrderId)
+
+        // Trigger fulfillment via the unified endpoint
+        try {
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+          const digits = ussdOrder.package_size?.replace(/[^0-9]/g, '') ?? '0'
+          const sizeGb = parseInt(digits) || 0
+
+          console.log(`[WEBHOOK] Triggering USSD fulfillment for order ${ussdOrderId}`)
+          const fulfillRes = await fetch(`${baseUrl}/api/fulfillment/process-order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ussd_order_id: ussdOrderId,
+              network: ussdOrder.network,
+              phone_number: ussdOrder.recipient_phone,
+              volume_gb: sizeGb,
+              customer_name: "USSD Customer",
+            }),
+          })
+
+          if (fulfillRes.ok) {
+            console.log("[WEBHOOK] ✓ USSD fulfillment triggered")
+            await supabase
+              .from("ussd_orders")
+              .update({ order_status: 'completed', updated_at: new Date().toISOString() })
+              .eq("id", ussdOrderId)
+          } else {
+            const errBody = await fulfillRes.json().catch(() => ({}))
+            console.error("[WEBHOOK] USSD fulfillment error:", errBody)
+            await supabase
+              .from("ussd_orders")
+              .update({ order_status: 'failed', updated_at: new Date().toISOString() })
+              .eq("id", ussdOrderId)
+          }
+        } catch (fErr) {
+          console.error("[WEBHOOK] Failed to trigger USSD fulfillment:", fErr)
+          await supabase
+            .from("ussd_orders")
+            .update({ order_status: 'failed', updated_at: new Date().toISOString() })
+            .eq("id", ussdOrderId)
+        }
+
+        // SMS confirmation to recipient
+        try {
+          await sendSMS({
+            phone: ussdOrder.recipient_phone,
+            message: `Your ${ussdOrder.package_size} ${ussdOrder.network} bundle is on its way! Order: ${ussdOrderId.slice(0, 8)}`,
+            type: 'order_confirmation',
+            reference: ussdOrderId,
+          })
+        } catch (smsErr) {
+          console.warn("[WEBHOOK] USSD SMS failed:", smsErr)
+        }
+
+        return NextResponse.json({ received: true })
+      }
+
+      // Find and update payment record (for non-USSD payments)
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")
         .select("id, user_id, status, shop_id, order_id, order_type, fee, reference, amount")
@@ -438,6 +534,25 @@ export async function POST(request: NextRequest) {
       }
     } else if (event.event === "charge.failed") {
       const { reference, gateway_response } = event.data
+
+      // Handle failed USSD charges
+      try {
+        const { data: ussdOrder } = await supabase
+          .from("ussd_orders")
+          .select("id")
+          .eq("paystack_reference", reference)
+          .maybeSingle()
+        if (ussdOrder) {
+          await supabase
+            .from("ussd_orders")
+            .update({ payment_status: 'failed', order_status: 'failed', updated_at: new Date().toISOString() })
+            .eq("id", ussdOrder.id)
+          console.log("[WEBHOOK] USSD order marked failed:", ussdOrder.id)
+        }
+      } catch (e) {
+        console.warn("[WEBHOOK] Failed to update failed USSD order:", e)
+      }
+
       await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference)
       await supabase.from("payment_attempts").update({ status: "failed", gateway_response: gateway_response || "failed" }).eq("reference", reference)
     }

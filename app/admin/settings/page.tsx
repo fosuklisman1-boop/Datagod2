@@ -37,6 +37,10 @@ export default function AdminSettingsPage() {
   const [walletTopupsEnabled, setWalletTopupsEnabled] = useState(true)
   const [upgradesEnabled, setUpgradesEnabled] = useState(true)
 
+  // USSD price tier
+  const [ussdPriceTier, setUssdPriceTier] = useState<"regular" | "dealer">("regular")
+  const [savingUssdTier, setSavingUssdTier] = useState(false)
+
   // MTN Provider settings
   const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina">("sykes")
   const [savingProvider, setSavingProvider] = useState(false)
@@ -174,6 +178,11 @@ export default function AdminSettingsPage() {
           setTermsLastUpdated(data.terms_last_updated)
         }
 
+        // Load USSD price tier
+        if (data.ussd_price_tier) {
+          setUssdPriceTier(data.ussd_price_tier as "regular" | "dealer")
+        }
+
         // Load price adjustment settings
         if (data.price_adjustment_mtn !== undefined) {
           setPriceAdjustmentMtn(data.price_adjustment_mtn)
@@ -293,6 +302,29 @@ export default function AdminSettingsPage() {
       toast.error(errorMessage)
     } finally {
       setSavingChristmasTheme(false)
+    }
+  }
+
+  const handleUssdPriceTierChange = async (tier: "regular" | "dealer") => {
+    setSavingUssdTier(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+      const response = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ ussd_price_tier: tier }),
+      })
+      if (!response.ok) throw new Error("Failed to update USSD price tier")
+      setUssdPriceTier(tier)
+      toast.success(`USSD price tier set to ${tier === 'dealer' ? 'Dealer' : 'Regular'} pricing`)
+    } catch (error) {
+      toast.error("Failed to update USSD price tier")
+    } finally {
+      setSavingUssdTier(false)
     }
   }
 
@@ -637,6 +669,56 @@ export default function AdminSettingsPage() {
         </Card>
 
         <AirtimeSettingsCard />
+
+        {/* USSD Settings */}
+        <Card className="mb-6 border-green-200 bg-green-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-green-800">
+              <Power className="w-5 h-5" />
+              USSD Storefront Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-green-900">
+              Configure pricing for the USSD self-service storefront (*code#).
+            </p>
+            <div className="space-y-2">
+              <p className="font-medium text-gray-900 text-sm">Price Tier</p>
+              <p className="text-xs text-gray-600">
+                Dealer pricing uses <code>dealer_price</code> from each package. Falls back to regular price if dealer price is not set.
+              </p>
+              <div className="flex gap-3 mt-2">
+                <button
+                  onClick={() => handleUssdPriceTierChange("regular")}
+                  disabled={savingUssdTier}
+                  className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-medium transition-colors ${
+                    ussdPriceTier === "regular"
+                      ? "border-green-600 bg-green-600 text-white"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-green-400"
+                  }`}
+                >
+                  Regular Price
+                </button>
+                <button
+                  onClick={() => handleUssdPriceTierChange("dealer")}
+                  disabled={savingUssdTier}
+                  className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-medium transition-colors ${
+                    ussdPriceTier === "dealer"
+                      ? "border-green-600 bg-green-600 text-white"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-green-400"
+                  }`}
+                >
+                  Dealer Price
+                </button>
+              </div>
+              {savingUssdTier && (
+                <p className="text-xs text-green-700 flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Saving...
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

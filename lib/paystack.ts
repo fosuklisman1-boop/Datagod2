@@ -329,6 +329,59 @@ export async function refundTransaction(reference: string, amountGhs?: number) {
   return data.data
 }
 
+interface ChargeMobileMoneyParams {
+  email: string
+  amount: number        // in GHS — converted to pesewas internally
+  phone: string         // e.g. "0244123456" or "+233244123456"
+  provider: 'mtn' | 'vod' | 'atl'
+  reference: string
+  metadata?: Record<string, any>
+}
+
+/**
+ * Directly charge a Ghana mobile money account via Paystack.
+ * Sends a payment prompt to the customer's phone — no redirect needed.
+ * On approval the charge.success webhook fires.
+ */
+export async function chargeMobileMoney(params: ChargeMobileMoneyParams): Promise<{ status: string; reference: string }> {
+  const { email, amount, phone, provider, reference, metadata } = params
+
+  // Normalise to local format (0XXXXXXXXX) — Paystack Ghana expects this
+  let normalizedPhone = phone
+  if (normalizedPhone.startsWith('+233')) normalizedPhone = '0' + normalizedPhone.slice(4)
+  else if (normalizedPhone.startsWith('233')) normalizedPhone = '0' + normalizedPhone.slice(3)
+
+  console.log("[PAYSTACK-CHARGE] Initiating mobile money charge:")
+  console.log("  Phone:", normalizedPhone, "Provider:", provider)
+  console.log("  Amount:", amount, "GHS  Reference:", reference)
+
+  const response = await fetch(`${PAYSTACK_BASE_URL}/charge`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email,
+      amount: Math.round(amount * 100), // GHS → pesewas
+      currency: "GHS",
+      reference,
+      mobile_money: { phone: normalizedPhone, provider },
+      metadata: metadata ?? {},
+    }),
+  })
+
+  const data: PaymentResponse = await response.json()
+
+  if (!response.ok || !data.status) {
+    console.error("[PAYSTACK-CHARGE] ✗ Error:", data)
+    throw new Error(data.message || `Paystack charge failed (HTTP ${response.status})`)
+  }
+
+  console.log("[PAYSTACK-CHARGE] ✓ Charge initiated. Status:", data.data?.status)
+  return { status: data.data?.status ?? 'pending', reference }
+}
+
 export default {
   initializePayment,
   verifyPayment,
@@ -337,4 +390,5 @@ export default {
   createTransferRecipient,
   initiateTransfer,
   refundTransaction,
+  chargeMobileMoney,
 }

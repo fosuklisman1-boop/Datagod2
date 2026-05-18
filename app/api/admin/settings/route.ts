@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
           wallet_topups_enabled: true,
           upgrades_enabled: true,
           terms_content: "",
+          ussd_price_tier: "regular",
         }])
         .select()
         .single()
@@ -134,6 +135,7 @@ export async function PUT(request: NextRequest) {
       'wallet_topups_enabled',
       'upgrades_enabled',
       'terms_content',
+      'ussd_price_tier',
     ]
 
     // Auto-stamp terms_last_updated when terms_content changes
@@ -239,6 +241,7 @@ export async function PUT(request: NextRequest) {
         upgrades_enabled: true,
         terms_content: "",
         terms_last_updated: null,
+        ussd_price_tier: "regular",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
