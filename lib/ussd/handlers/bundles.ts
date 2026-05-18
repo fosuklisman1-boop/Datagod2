@@ -268,7 +268,9 @@ export async function handleConfirm(
         payment_type: 'ussd',
         order_id: orderId,
       })
-    } catch { /* non-fatal */ }
+    } catch (paErr) {
+      console.warn("[USSD-CONFIRM] payment_attempts insert failed (non-fatal):", paErr)
+    }
 
     await supabase
       .from("ussd_orders")
