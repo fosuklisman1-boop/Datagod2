@@ -1,7 +1,7 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
-import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu } from "../menus"
+import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, otpPrompt } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
@@ -336,8 +336,36 @@ export async function handleConfirm(
   // Unregistered user or insufficient balance — fire MoMo directly
   const email = await resolveEmail(dialingPhone!)
 
-  // End the session immediately so the telco releases the USSD channel and
-  // the MoMo prompt pops up as a notification. Charge fires 3s later via after().
+  // Telecel (Vodafone) requires the user to enter an OTP within the USSD session,
+  // so we charge synchronously and branch to SUBMIT_OTP if Paystack asks for it.
+  if (paystackProvider === 'vod') {
+    try {
+      const { status } = await chargeMobileMoney({
+        email,
+        amount: chargeAmount,
+        phone: dialingPhone!,
+        provider: 'vod',
+        reference: orderId,
+        metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+      })
+      try {
+        await supabase.from("payment_attempts").insert({ reference: orderId, amount: verifiedPrice, email, status: 'pending', payment_type: 'ussd', order_id: orderId })
+      } catch {}
+      await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
+      if (status === 'send_otp') {
+        await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
+        return cont(otpPrompt())
+      }
+    } catch (err) {
+      console.error("[USSD-CONFIRM] Telecel charge failed:", err)
+      await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
+      return end('Payment failed. Please try again.')
+    }
+    return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
+  }
+
+  // MTN / AirtelTigo — close session first so the MoMo notification pops up,
+  // then fire the charge 3 s later via after().
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
@@ -345,7 +373,7 @@ export async function handleConfirm(
         email,
         amount: chargeAmount,
         phone: dialingPhone!,
-        provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+        provider: paystackProvider as 'mtn' | 'atl',
         reference: orderId,
         metadata: {
           source: 'ussd',
@@ -417,6 +445,33 @@ export async function handlePaymentMethod(
     const chargeAmount = verifiedPrice + fee
 
     const email = await resolveEmail(dialingPhone!)
+
+    if (paystackProvider === 'vod') {
+      try {
+        const { status } = await chargeMobileMoney({
+          email,
+          amount: chargeAmount,
+          phone: dialingPhone!,
+          provider: 'vod',
+          reference: orderId,
+          metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+        })
+        try {
+          await supabase.from("payment_attempts").insert({ reference: orderId, amount: verifiedPrice, email, status: 'pending', payment_type: 'ussd', order_id: orderId })
+        } catch {}
+        await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
+        if (status === 'send_otp') {
+          await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
+          return cont(otpPrompt())
+        }
+      } catch (err) {
+        console.error("[USSD-PAYMENT_METHOD] Telecel charge failed:", err)
+        await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
+        return end('Payment failed. Please try again.')
+      }
+      return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
+    }
+
     after(async () => {
       await new Promise(r => setTimeout(r, 3000))
       try {
@@ -424,7 +479,7 @@ export async function handlePaymentMethod(
           email,
           amount: chargeAmount,
           phone: dialingPhone!,
-          provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+          provider: paystackProvider as 'mtn' | 'atl',
           reference: orderId,
           metadata: {
             source: 'ussd',
