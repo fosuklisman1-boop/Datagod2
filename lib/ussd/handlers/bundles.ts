@@ -153,22 +153,12 @@ export async function handleEnterRecipient(
     return cont('Invalid number.\nEnter a valid Ghana\nphone number:\n\n0. Back')
   }
 
-  // Fetch fee and bake it into the price stored in session so the confirm
-  // screen shows exactly what the customer will be charged.
-  const { data: feeRow } = await supabase
-    .from("app_settings")
-    .select("paystack_fee_percentage")
-    .single()
-  const feePercent = (feeRow?.paystack_fee_percentage ?? 3.0) / 100
-  const bundleFee = Math.round(session.bundlePrice! * feePercent * 100) / 100
-  const chargeAmount = session.bundlePrice! + bundleFee
-
-  await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local, bundlePrice: chargeAmount })
+  await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local })
 
   return cont(confirmMenu(
     session.network!,
     session.bundleSize!,
-    chargeAmount,
+    session.bundlePrice!,
     local,
     session.dialingPhone!
   ))
@@ -219,12 +209,12 @@ export async function handleConfirm(
   const feePercent = (settings?.paystack_fee_percentage ?? 3.0) / 100
   const useDealer = priceTier === 'dealer' && pkg.dealer_price && Number(pkg.dealer_price) > 0
   const verifiedPrice = useDealer ? Number(pkg.dealer_price) : Number(pkg.price)
-  const verifiedChargeAmount = verifiedPrice + Math.round(verifiedPrice * feePercent * 100) / 100
+  const fee = Math.round(verifiedPrice * feePercent * 100) / 100
+  const chargeAmount = verifiedPrice + fee
 
-  // bundlePrice in session is fee-inclusive (set in handleEnterRecipient)
-  if (Math.abs(verifiedChargeAmount - bundlePrice!) > 0.01) {
+  if (Math.abs(verifiedPrice - bundlePrice!) > 0.01) {
     await setSession(sessionId, { step: 'MAIN', dialingPhone })
-    return end(`Price changed to GHS ${verifiedChargeAmount.toFixed(2)}. Please restart your order.`)
+    return end(`Price changed to GHS ${verifiedPrice.toFixed(2)}. Please restart your order.`)
   }
 
   // Create pending order
@@ -237,7 +227,7 @@ export async function handleConfirm(
       paystack_provider: paystackProvider,
       package_id: bundleId,
       package_size: bundleSize,
-      amount: bundlePrice!,
+      amount: chargeAmount,
       price_tier: priceTier,
       order_status: 'pending',
       payment_status: 'pending',
@@ -262,7 +252,7 @@ export async function handleConfirm(
     try {
       const { status } = await chargeMobileMoney({
         email,
-        amount: bundlePrice!,
+        amount: chargeAmount,
         phone: dialingPhone!,
         provider: paystackProvider as 'mtn' | 'vod' | 'atl',
         reference: orderId,

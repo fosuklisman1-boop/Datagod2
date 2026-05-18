@@ -79,21 +79,20 @@ export async function handleAfaEnterRegion(
   const region = input.trim()
   if (!region) return cont(afaEnterRegionPrompt())
 
-  // Fetch AFA base price and Paystack fee together
-  const [{ data: priceRow }, { data: feeRow }] = await Promise.all([
-    supabase.from("afa_registration_prices").select("price").eq("is_active", true).single(),
-    supabase.from("app_settings").select("paystack_fee_percentage").single(),
-  ])
-  const basePrice = priceRow ? Number(priceRow.price) : 50
-  const feePercent = (feeRow?.paystack_fee_percentage ?? 3.0) / 100
-  const chargeAmount = basePrice + Math.round(basePrice * feePercent * 100) / 100
+  // Fetch current AFA price
+  const { data: priceRow } = await supabase
+    .from("afa_registration_prices")
+    .select("price")
+    .eq("is_active", true)
+    .single()
+  const price = priceRow ? Number(priceRow.price) : 50
 
   const localPhone = session.dialingPhone?.startsWith('+233')
     ? '0' + session.dialingPhone.slice(4)
     : session.dialingPhone ?? ''
 
-  await setSession(sessionId, { ...session, step: 'AFA_CONFIRM_AFA', afaRegion: region, afaPrice: chargeAmount })
-  return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, chargeAmount, localPhone))
+  await setSession(sessionId, { ...session, step: 'AFA_CONFIRM_AFA', afaRegion: region, afaPrice: price })
+  return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, price, localPhone))
 }
 
 // ── AFA_CONFIRM_AFA ───────────────────────────────────────────────────────────
@@ -116,7 +115,13 @@ export async function handleAfaConfirm(
 
   const { afaFullName, afaGhCard, afaLocation, afaRegion, afaPrice, dialingPhone } = session
 
-  // afaPrice is fee-inclusive (set in handleAfaEnterRegion)
+  const { data: feeSettings } = await supabase
+    .from("app_settings")
+    .select("paystack_fee_percentage")
+    .single()
+  const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
+  const chargeAmount = afaPrice! + Math.round(afaPrice! * feePercent * 100) / 100
+
   const { data: order, error: orderErr } = await supabase
     .from("ussd_afa_orders")
     .insert([{
@@ -126,7 +131,7 @@ export async function handleAfaConfirm(
       location: afaLocation,
       region: afaRegion,
       occupation: 'Farmer',
-      amount: afaPrice,
+      amount: chargeAmount,
       payment_status: 'pending',
       order_status: 'pending',
     }])
@@ -148,7 +153,7 @@ export async function handleAfaConfirm(
     try {
       await chargeMobileMoney({
         email,
-        amount: afaPrice!,
+        amount: chargeAmount,
         phone: dialingPhone!,
         provider: 'mtn',
         reference: orderId,
