@@ -333,84 +333,35 @@ export async function handleConfirm(
     return cont(paymentMethodMenu(verifiedPrice, session.walletBalance))
   }
 
-  // Unregistered user or insufficient balance — fire MoMo directly
+  // Unregistered user or insufficient balance — charge synchronously so we can
+  // surface an OTP prompt if Paystack requires one (can happen on any network
+  // for first-time numbers).
   const email = await resolveEmail(dialingPhone!)
-
-  // Telecel (Vodafone) requires the user to enter an OTP within the USSD session,
-  // so we charge synchronously and branch to SUBMIT_OTP if Paystack asks for it.
-  if (paystackProvider === 'vod') {
+  try {
+    const { status } = await chargeMobileMoney({
+      email,
+      amount: chargeAmount,
+      phone: dialingPhone!,
+      provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+      reference: orderId,
+      metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+    })
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount: chargeAmount,
-        phone: dialingPhone!,
-        provider: 'vod',
-        reference: orderId,
-        metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
-      })
-      try {
-        await supabase.from("payment_attempts").insert({ reference: orderId, amount: verifiedPrice, email, status: 'pending', payment_type: 'ussd', order_id: orderId })
-      } catch {}
-      await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
-      if (status === 'send_otp') {
-        await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
-        return cont(otpPrompt())
-      }
-    } catch (err) {
-      console.error("[USSD-CONFIRM] Telecel charge failed:", err)
-      await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
-      return end('Payment failed. Please try again.')
+      await supabase.from("payment_attempts").insert({ reference: orderId, amount: verifiedPrice, email, status: 'pending', payment_type: 'ussd', order_id: orderId })
+    } catch (paErr) {
+      console.warn("[USSD-CONFIRM] payment_attempts insert failed (non-fatal):", paErr)
     }
-    return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
+    await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
+    console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
+    if (status === 'send_otp') {
+      await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
+      return cont(otpPrompt())
+    }
+  } catch (err) {
+    console.error("[USSD-CONFIRM] Charge failed:", err)
+    await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
+    return end('Payment failed. Please try again.')
   }
-
-  // MTN / AirtelTigo — close session first so the MoMo notification pops up,
-  // then fire the charge 3 s later via after().
-  after(async () => {
-    await new Promise(r => setTimeout(r, 3000))
-    try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount: chargeAmount,
-        phone: dialingPhone!,
-        provider: paystackProvider as 'mtn' | 'atl',
-        reference: orderId,
-        metadata: {
-          source: 'ussd',
-          ussd_order_id: orderId,
-          recipient_phone: recipientPhone,
-          network,
-          package_size: bundleSize,
-        },
-      })
-
-      try {
-        await supabase.from("payment_attempts").insert({
-          reference: orderId,
-          amount: verifiedPrice,
-          email,
-          status: 'pending',
-          payment_type: 'ussd',
-          order_id: orderId,
-        })
-      } catch (paErr) {
-        console.warn("[USSD-CONFIRM] payment_attempts insert failed (non-fatal):", paErr)
-      }
-
-      await supabase
-        .from("ussd_orders")
-        .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
-        .eq("id", orderId)
-
-      console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
-    } catch (err) {
-      console.error("[USSD-CONFIRM] Charge failed:", err)
-      await supabase
-        .from("ussd_orders")
-        .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
-        .eq("id", orderId)
-    }
-  })
 
   return end(
     `MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`
@@ -445,78 +396,31 @@ export async function handlePaymentMethod(
     const chargeAmount = verifiedPrice + fee
 
     const email = await resolveEmail(dialingPhone!)
-
-    if (paystackProvider === 'vod') {
+    try {
+      const { status } = await chargeMobileMoney({
+        email,
+        amount: chargeAmount,
+        phone: dialingPhone!,
+        provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+        reference: orderId,
+        metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+      })
       try {
-        const { status } = await chargeMobileMoney({
-          email,
-          amount: chargeAmount,
-          phone: dialingPhone!,
-          provider: 'vod',
-          reference: orderId,
-          metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
-        })
-        try {
-          await supabase.from("payment_attempts").insert({ reference: orderId, amount: verifiedPrice, email, status: 'pending', payment_type: 'ussd', order_id: orderId })
-        } catch {}
-        await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
-        if (status === 'send_otp') {
-          await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
-          return cont(otpPrompt())
-        }
-      } catch (err) {
-        console.error("[USSD-PAYMENT_METHOD] Telecel charge failed:", err)
-        await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
-        return end('Payment failed. Please try again.')
+        await supabase.from("payment_attempts").insert({ reference: orderId, amount: verifiedPrice, email, status: 'pending', payment_type: 'ussd', order_id: orderId })
+      } catch (paErr) {
+        console.warn("[USSD-PAYMENT_METHOD] payment_attempts insert failed:", paErr)
       }
-      return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
+      await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
+      console.log("[USSD-PAYMENT_METHOD] ✓ MoMo charge initiated:", orderId, status)
+      if (status === 'send_otp') {
+        await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
+        return cont(otpPrompt())
+      }
+    } catch (err) {
+      console.error("[USSD-PAYMENT_METHOD] MoMo charge failed:", err)
+      await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
+      return end('Payment failed. Please try again.')
     }
-
-    after(async () => {
-      await new Promise(r => setTimeout(r, 3000))
-      try {
-        const { status } = await chargeMobileMoney({
-          email,
-          amount: chargeAmount,
-          phone: dialingPhone!,
-          provider: paystackProvider as 'mtn' | 'atl',
-          reference: orderId,
-          metadata: {
-            source: 'ussd',
-            ussd_order_id: orderId,
-            recipient_phone: recipientPhone,
-            network,
-            package_size: bundleSize,
-          },
-        })
-
-        try {
-          await supabase.from("payment_attempts").insert({
-            reference: orderId,
-            amount: verifiedPrice,
-            email,
-            status: 'pending',
-            payment_type: 'ussd',
-            order_id: orderId,
-          })
-        } catch (paErr) {
-          console.warn("[USSD-PAYMENT_METHOD] payment_attempts insert failed:", paErr)
-        }
-
-        await supabase
-          .from("ussd_orders")
-          .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
-          .eq("id", orderId)
-        console.log("[USSD-PAYMENT_METHOD] ✓ MoMo charge initiated:", orderId, status)
-      } catch (err) {
-        console.error("[USSD-PAYMENT_METHOD] MoMo charge failed:", err)
-        await supabase
-          .from("ussd_orders")
-          .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
-          .eq("id", orderId)
-      }
-    })
-
     return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
   }
 
