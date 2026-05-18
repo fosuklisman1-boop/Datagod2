@@ -335,6 +335,7 @@ export async function handleConfirm(
 
   const email = await resolveEmail(dialingPhone!)
   after(async () => {
+    await new Promise(r => setTimeout(r, 3000))
     try {
       const { status } = await chargeMobileMoney({
         email,
@@ -395,6 +396,7 @@ export async function handlePaymentMethod(
 
     const email = await resolveEmail(dialingPhone!)
     after(async () => {
+      await new Promise(r => setTimeout(r, 3000))
       try {
         const { status } = await chargeMobileMoney({
           email,
