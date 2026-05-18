@@ -259,6 +259,15 @@ export async function handleConfirm(
           package_size: bundleSize,
         },
       })
+      // Record in payment_attempts so the admin payment pages can track this charge
+      await supabase.from("payment_attempts").insert({
+        reference: orderId,
+        amount: verifiedPrice,
+        email,
+        status: 'pending',
+        payment_type: 'ussd',
+        order_id: orderId,
+      })
       await supabase
         .from("ussd_orders")
         .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })

@@ -61,7 +61,8 @@ export async function fulfillUssdOrder(
 
       if (!mtnResponse.success || !mtnResponse.order_id) {
         console.error("[USSD-FULFILL] MTN API failed:", mtnResponse.message)
-        await markUssdOrderStatus(orderId, 'failed')
+        // Mark processing (not failed) — payment succeeded, admin must manually deliver
+        await markUssdOrderStatus(orderId, 'processing')
         try {
           await saveMTNTracking(orderId, "FAILED_INIT_" + Date.now(), orderRequest, mtnResponse, "ussd", mtnResponse.provider || "datakazina")
         } catch { /* non-fatal */ }

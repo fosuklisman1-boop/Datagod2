@@ -97,6 +97,13 @@ export async function POST(request: NextRequest) {
           })
           .eq("id", ussdOrderId)
 
+        // Update payment_attempts record so admin pages reflect the completed status
+        await supabase
+          .from("payment_attempts")
+          .update({ status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("reference", ussdOrderId)
+          .eq("payment_type", "ussd")
+
         // Trigger fulfillment directly (avoids shop_order coupling of /api/fulfillment/process-order)
         try {
           const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
@@ -113,9 +120,10 @@ export async function POST(request: NextRequest) {
           }
         } catch (fErr) {
           console.error("[WEBHOOK] Failed to trigger USSD fulfillment:", fErr)
+          // Payment succeeded — keep as processing so admin can manually fulfill
           await supabase
             .from("ussd_orders")
-            .update({ order_status: 'failed', updated_at: new Date().toISOString() })
+            .update({ order_status: 'processing', updated_at: new Date().toISOString() })
             .eq("id", ussdOrderId)
         }
 
@@ -514,18 +522,23 @@ export async function POST(request: NextRequest) {
     } else if (event.event === "charge.failed") {
       const { reference, gateway_response } = event.data
 
-      // Handle failed USSD charges
+      // Handle failed USSD charges — look up by id since reference IS the ussd_order UUID
       try {
         const { data: ussdOrder } = await supabase
           .from("ussd_orders")
           .select("id")
-          .eq("paystack_reference", reference)
+          .eq("id", reference)
           .maybeSingle()
         if (ussdOrder) {
           await supabase
             .from("ussd_orders")
             .update({ payment_status: 'failed', order_status: 'failed', updated_at: new Date().toISOString() })
             .eq("id", ussdOrder.id)
+          await supabase
+            .from("payment_attempts")
+            .update({ status: 'failed', gateway_response: gateway_response || 'failed', updated_at: new Date().toISOString() })
+            .eq("reference", ussdOrder.id)
+            .eq("payment_type", "ussd")
           console.log("[WEBHOOK] USSD order marked failed:", ussdOrder.id)
         }
       } catch (e) {
