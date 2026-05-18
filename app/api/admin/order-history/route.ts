@@ -49,25 +49,29 @@ export async function GET(request: NextRequest) {
             .select("id, created_at, customer_phone, total_price, volume_gb, network, order_status, payment_status")
             .eq("payment_status", "completed")
 
+        // Base query for USSD Orders
+        let ussdQuery = supabase
+            .from("ussd_orders")
+            .select("id, created_at, recipient_phone, amount, package_size, network, order_status")
+            .eq("payment_status", "completed")
+
         // Apply Date Filters
         if (dateFrom) {
             bulkQuery = bulkQuery.gte("created_at", dateFrom)
             shopQuery = shopQuery.gte("created_at", dateFrom)
+            ussdQuery = ussdQuery.gte("created_at", dateFrom)
         }
         if (dateTo) {
-            // Add one day to dateTo to include the end date fully if it's just a date string (YYYY-MM-DD)
-            // If it includes time, rely on client. Assuming ISO strings or YYYY-MM-DD.
-            // If checking "for the day", client normally sends Start of Day and End of Day.
-            // We'll trust the input is properly formatted ISO or comparable.
             bulkQuery = bulkQuery.lte("created_at", dateTo)
             shopQuery = shopQuery.lte("created_at", dateTo)
+            ussdQuery = ussdQuery.lte("created_at", dateTo)
         }
 
         // Apply Network Filters
         if (network && network !== "all") {
-            // Normalize 'MTN' etc if needed, but assuming exact match for now
             bulkQuery = bulkQuery.ilike("network", `%${network}%`)
             shopQuery = shopQuery.ilike("network", `%${network}%`)
+            ussdQuery = ussdQuery.ilike("network", `%${network}%`)
         }
 
         // Helper function to fetch ALL records in batches
@@ -106,10 +110,18 @@ export async function GET(request: NextRequest) {
         // We still fetch "all" for combine/sort logic, but we could eventually paginate this at DB level too.
         // For now, keeping the list fetching logic but using the RPC for the heavy summation.
         console.log('[ORDER-HISTORY] Executing list queries...')
-        const [bulkOrders, shopOrders] = await Promise.all([
+        const [bulkOrders, shopOrders, ussdOrders] = await Promise.all([
             fetchAll(bulkQuery.order("created_at", { ascending: false })),
-            fetchAll(shopQuery.order("created_at", { ascending: false }))
+            fetchAll(shopQuery.order("created_at", { ascending: false })),
+            fetchAll(ussdQuery.order("created_at", { ascending: false }))
         ])
+
+        // USSD stats (RPC only covers bulk + shop)
+        const ussdRevenue = ussdOrders.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0)
+        const ussdVolume = ussdOrders.reduce((sum: number, o: any) => {
+            const digits = o.package_size?.toString().replace(/[^0-9.]/g, '') ?? '0'
+            return sum + (parseFloat(digits) || 0)
+        }, 0)
 
         // Combine and Normalize
         const allOrders = [
@@ -119,9 +131,9 @@ export async function GET(request: NextRequest) {
                 created_at: o.created_at,
                 phone: o.phone_number,
                 network: o.network,
-                size: o.size, // volume in GB
+                size: o.size,
                 price: o.price,
-                status: o.status // fulfillment status
+                status: o.status
             })),
             ...shopOrders.map((o: any) => ({
                 id: o.id,
@@ -132,8 +144,20 @@ export async function GET(request: NextRequest) {
                 size: o.volume_gb,
                 price: o.total_price,
                 status: o.order_status
+            })),
+            ...ussdOrders.map((o: any) => ({
+                id: o.id,
+                type: "ussd",
+                created_at: o.created_at,
+                phone: o.recipient_phone,
+                network: o.network,
+                size: o.package_size,
+                price: o.amount,
+                status: o.order_status
             }))
         ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+        const combinedTotal = totalOrders + ussdOrders.length
 
         // Pagination for the list response
         const paginatedOrders = allOrders.slice(offset, offset + limit)
@@ -141,16 +165,16 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
             success: true,
             stats: {
-                totalOrders,
-                totalVolume: Math.round(totalVolume * 100) / 100,
-                totalRevenue: Math.round(totalRevenue * 100) / 100
+                totalOrders: combinedTotal,
+                totalVolume: Math.round((totalVolume + ussdVolume) * 100) / 100,
+                totalRevenue: Math.round((totalRevenue + ussdRevenue) * 100) / 100
             },
             orders: paginatedOrders,
             pagination: {
-                total: totalOrders,
+                total: combinedTotal,
                 limit,
                 offset,
-                hasMore: offset + limit < totalOrders
+                hasMore: offset + limit < combinedTotal
             }
         })
 

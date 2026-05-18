@@ -108,9 +108,10 @@ export async function POST(request: NextRequest) {
 
     bulkOrderIds = orders.filter(o => o.type === "bulk").map(o => o.id)
     shopOrderIds = orders.filter(o => o.type === "shop").map(o => o.id)
+    let ussdOrderIds: string[] = orders.filter(o => o.type === "ussd").map(o => o.id)
     orderIds = orders.map(o => o.id)
 
-    console.log("[DOWNLOAD] Fetched orders:", orders.length, "Bulk:", bulkOrderIds.length, "Shop:", shopOrderIds.length)
+    console.log("[DOWNLOAD] Fetched orders:", orders.length, "Bulk:", bulkOrderIds.length, "Shop:", shopOrderIds.length, "USSD:", ussdOrderIds.length)
 
     if (!orders || orders.length === 0) {
       console.error("[DOWNLOAD] No orders found after querying")
@@ -174,11 +175,29 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      let actualUssdOrderIds: string[] = []
+      if (ussdOrderIds.length > 0) {
+        const { data: updatedUssd, error: ussdUpdateError } = await supabase
+          .from("ussd_orders")
+          .update({ order_status: "processing", updated_at: new Date().toISOString() })
+          .in("id", ussdOrderIds)
+          .eq("order_status", "pending")
+          .select("id")
+
+        if (ussdUpdateError) {
+          throw new Error(`Failed to update USSD order status: ${ussdUpdateError.message}`)
+        }
+
+        actualUssdOrderIds = updatedUssd?.map(o => o.id) || []
+        console.log(`[DOWNLOAD] USSD orders claimed: ${actualUssdOrderIds.length} of ${ussdOrderIds.length} requested`)
+      }
+
       // Filter the orders list to only include successfully claimed orders
-      const claimedOrderIds = new Set([...actualBulkOrderIds, ...actualShopOrderIds])
+      const claimedOrderIds = new Set([...actualBulkOrderIds, ...actualShopOrderIds, ...actualUssdOrderIds])
       orders = orders.filter((order: any) => claimedOrderIds.has(order.id))
       bulkOrderIds = actualBulkOrderIds
       shopOrderIds = actualShopOrderIds
+      ussdOrderIds = actualUssdOrderIds
 
       // Update status in the filtered orders
       orders.forEach((order: any) => {
