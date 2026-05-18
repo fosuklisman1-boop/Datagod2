@@ -1,8 +1,8 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
-import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, otpPrompt } from "../menus"
-import { getSession, setSession } from "../session"
+import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu } from "../menus"
+import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
 import { fulfillUssdOrder } from "../fulfill"
@@ -508,7 +508,7 @@ export async function handlePaymentMethod(
 
     await supabase
       .from("ussd_orders")
-      .update({ payment_status: 'completed', order_status: 'processing', updated_at: new Date().toISOString() })
+      .update({ amount: verifiedPrice, payment_status: 'completed', order_status: 'processing', updated_at: new Date().toISOString() })
       .eq("id", orderId)
 
     // Credit parent shop profit if this is a sub-agent order
@@ -568,7 +568,7 @@ export async function handlePaymentMethod(
 // ── SUBMIT_OTP ────────────────────────────────────────────────────────────────
 export async function handleSubmitOtp(
   input: string,
-  sessionId: string,
+  _sessionId: string,
   session: USSDSession
 ): Promise<UzoResponse> {
   if (input.trim() === '0') {
