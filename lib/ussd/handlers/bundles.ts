@@ -265,14 +265,17 @@ export async function handleConfirm(
   const priceTier = session.effectivePriceTier ?? 'regular'
 
   let verifiedPrice: number
+  let parentProfitAmount: number | null = null
+
   if (priceTier === 'sub_agent' && session.subAgentParentShopId) {
     const { data: catalogRow } = await supabase
       .from("sub_agent_catalog")
-      .select("parent_price")
+      .select("parent_price, wholesale_margin")
       .eq("shop_id", session.subAgentParentShopId)
       .eq("package_id", bundleId!)
       .single()
     verifiedPrice = catalogRow ? Number(catalogRow.parent_price) : Number(pkg.price)
+    parentProfitAmount = catalogRow ? Number(catalogRow.wholesale_margin) : null
   } else {
     const useDealer = priceTier === 'dealer' && pkg.dealer_price && Number(pkg.dealer_price) > 0
     verifiedPrice = useDealer ? Number(pkg.dealer_price) : Number(pkg.price)
@@ -298,6 +301,8 @@ export async function handleConfirm(
       package_size: bundleSize,
       amount: chargeAmount,
       price_tier: priceTier === 'sub_agent' ? 'sub_agent' : priceTier,
+      parent_shop_id: session.subAgentParentShopId ?? null,
+      parent_profit_amount: parentProfitAmount,
       order_status: 'pending',
       payment_status: 'pending',
     }])

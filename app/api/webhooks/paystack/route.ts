@@ -125,6 +125,24 @@ export async function POST(request: NextRequest) {
             .eq("id", ussdOrderId)
         }
 
+        // Credit parent shop profit for sub-agent orders
+        if (ussdOrder.parent_shop_id && ussdOrder.parent_profit_amount > 0) {
+          const { error: profitErr } = await supabase
+            .from("shop_profits")
+            .insert([{
+              shop_id: ussdOrder.parent_shop_id,
+              shop_order_id: ussdOrderId,
+              profit_amount: ussdOrder.parent_profit_amount,
+              status: "credited",
+              created_at: new Date().toISOString(),
+            }])
+          if (profitErr && profitErr.code !== "23505") {
+            console.error("[WEBHOOK] Failed to insert parent profit for USSD sub-agent order:", profitErr)
+          } else {
+            console.log(`[WEBHOOK] ✓ Parent shop profit credited: GHS ${ussdOrder.parent_profit_amount} for shop ${ussdOrder.parent_shop_id}`)
+          }
+        }
+
         // SMS to recipient
         try {
           await sendSMS({
