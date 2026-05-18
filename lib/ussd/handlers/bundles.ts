@@ -20,14 +20,33 @@ const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' 
   '4': { dbName: 'AT-iShare', paystackProvider: 'atl' },
 }
 
-async function fetchBundles(network: string, page: number): Promise<{ bundles: BundleOption[]; total: number; priceTier: string }> {
-  // Read price tier from app_settings
-  const { data: settings } = await supabase
-    .from("app_settings")
-    .select("ussd_price_tier")
-    .single()
-  const priceTier: string = settings?.ussd_price_tier ?? 'regular'
+async function fetchBundles(
+  network: string,
+  page: number,
+  priceTier: string,
+  parentShopId?: string
+): Promise<{ bundles: BundleOption[]; total: number }> {
+  // Sub-agents see only packages their parent has catalogued, at parent_price
+  if (priceTier === 'sub_agent' && parentShopId) {
+    const { data, count } = await supabase
+      .from("sub_agent_catalog")
+      .select("package_id, parent_price, packages!inner(id, size, network, active)", { count: 'exact' })
+      .eq("shop_id", parentShopId)
+      .eq("packages.network", network)
+      .eq("packages.active", true)
+      .order("parent_price", { ascending: true })
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
+    const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
+      id: row.packages.id,
+      size: row.packages.size,
+      price: Number(row.parent_price),
+    }))
+
+    return { bundles, total: count ?? 0 }
+  }
+
+  // Regular / dealer — query packages table directly
   const { data, count } = await supabase
     .from("packages")
     .select("id, size, price, dealer_price", { count: 'exact' })
@@ -45,7 +64,7 @@ async function fetchBundles(network: string, page: number): Promise<{ bundles: B
     }
   })
 
-  return { bundles, total: count ?? 0, priceTier }
+  return { bundles, total: count ?? 0 }
 }
 
 // ── SELECT_NETWORK ────────────────────────────────────────────────────────────
@@ -62,7 +81,42 @@ export async function handleSelectNetwork(
   const net = NETWORK_OPTIONS[input.trim()]
   if (!net) return cont(networkMenu())
 
-  const { bundles, total, priceTier } = await fetchBundles(net.dbName, 0)
+  // Resolve effective price tier from user's account role
+  const dialingPhone = session.dialingPhone ?? ''
+  const localPhone = dialingPhone.startsWith('+233') ? '0' + dialingPhone.slice(4)
+    : dialingPhone.startsWith('233') ? '0' + dialingPhone.slice(3)
+    : dialingPhone
+
+  const [{ data: userRow }, { data: settingsRow }] = await Promise.all([
+    supabase.from("users").select("id, role").eq("phone_number", localPhone).maybeSingle(),
+    supabase.from("app_settings").select("ussd_price_tier").single(),
+  ])
+
+  let effectivePriceTier: string = settingsRow?.ussd_price_tier ?? 'regular'
+  let subAgentParentShopId: string | undefined
+
+  if (userRow) {
+    if (userRow.role === 'dealer') {
+      effectivePriceTier = 'dealer'
+    } else if (userRow.role === 'sub_agent') {
+      const { data: shopRow } = await supabase
+        .from("user_shops")
+        .select("parent_shop_id")
+        .eq("user_id", userRow.id)
+        .not("parent_shop_id", "is", null)
+        .maybeSingle()
+      if (shopRow?.parent_shop_id) {
+        effectivePriceTier = 'sub_agent'
+        subAgentParentShopId = shopRow.parent_shop_id
+      } else {
+        effectivePriceTier = 'regular'
+      }
+    } else {
+      effectivePriceTier = 'regular'
+    }
+  }
+
+  const { bundles, total } = await fetchBundles(net.dbName, 0, effectivePriceTier, subAgentParentShopId)
   if (bundles.length === 0) {
     return cont(`No ${net.dbName} bundles available.\n\n${networkMenu()}`)
   }
@@ -72,6 +126,8 @@ export async function handleSelectNetwork(
     step: 'SELECT_BUNDLE',
     network: net.dbName,
     paystackProvider: net.paystackProvider,
+    effectivePriceTier,
+    subAgentParentShopId,
     bundlePage: 0,
     bundleCache: bundles,
     bundleTotal: total,
@@ -103,7 +159,7 @@ export async function handleSelectBundle(
   if (chosen === moreIndex && offset + bundles.length < total) {
     // Load next page
     const nextPage = page + 1
-    const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage)
+    const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId)
     await setSession(sessionId, {
       ...session,
       bundlePage: nextPage,
@@ -201,14 +257,27 @@ export async function handleConfirm(
     return end('Bundle no longer available. Please try again.')
   }
 
-  const { data: settings } = await supabase
+  const { data: feeSettings } = await supabase
     .from("app_settings")
-    .select("ussd_price_tier, paystack_fee_percentage")
+    .select("paystack_fee_percentage")
     .single()
-  const priceTier: string = settings?.ussd_price_tier ?? 'regular'
-  const feePercent = (settings?.paystack_fee_percentage ?? 3.0) / 100
-  const useDealer = priceTier === 'dealer' && pkg.dealer_price && Number(pkg.dealer_price) > 0
-  const verifiedPrice = useDealer ? Number(pkg.dealer_price) : Number(pkg.price)
+  const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
+  const priceTier = session.effectivePriceTier ?? 'regular'
+
+  let verifiedPrice: number
+  if (priceTier === 'sub_agent' && session.subAgentParentShopId) {
+    const { data: catalogRow } = await supabase
+      .from("sub_agent_catalog")
+      .select("parent_price")
+      .eq("shop_id", session.subAgentParentShopId)
+      .eq("package_id", bundleId!)
+      .single()
+    verifiedPrice = catalogRow ? Number(catalogRow.parent_price) : Number(pkg.price)
+  } else {
+    const useDealer = priceTier === 'dealer' && pkg.dealer_price && Number(pkg.dealer_price) > 0
+    verifiedPrice = useDealer ? Number(pkg.dealer_price) : Number(pkg.price)
+  }
+
   const fee = Math.round(verifiedPrice * feePercent * 100) / 100
   const chargeAmount = verifiedPrice + fee
 
@@ -228,7 +297,7 @@ export async function handleConfirm(
       package_id: bundleId,
       package_size: bundleSize,
       amount: chargeAmount,
-      price_tier: priceTier,
+      price_tier: priceTier === 'sub_agent' ? 'sub_agent' : priceTier,
       order_status: 'pending',
       payment_status: 'pending',
     }])

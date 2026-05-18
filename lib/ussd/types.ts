@@ -45,6 +45,8 @@ export interface USSDSession {
   bundleCache?: BundleOption[] // current page of bundles cached for selection
   bundleTotal?: number       // total bundle count for this network
   recipientPhone?: string
+  effectivePriceTier?: string       // 'dealer' | 'regular' | 'sub_agent'
+  subAgentParentShopId?: string     // set when user is a sub_agent; parent shop for catalog lookup
   pendingOrderId?: string  // set when Paystack returns send_otp; used by SUBMIT_OTP step
   // AFA registration fields
   afaFullName?: string
