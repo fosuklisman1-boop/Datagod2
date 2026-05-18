@@ -363,7 +363,7 @@ export async function handleConfirm(
   })
 
   return end(
-    `MoMo prompt has been sent to your number (${localDialing}). Please approve to complete your order.`
+    `MoMo prompt sent to ${localDialing}. Approve to complete.\n\nReceived an OTP instead? Redial and enter the code.`
   )
 }
 
@@ -562,7 +562,7 @@ export async function handleSubmitOtp(
       .from("ussd_orders")
       .update({ payment_status: 'pending', updated_at: new Date().toISOString() })
       .eq("id", session.pendingOrderId)
-    return end('OTP verified!\nYour bundle will reflect\nin a few minutes.')
+    return end('OTP verified!\nCheck your phone for\na MoMo authorization\nprompt and approve\nto complete payment.')
   } catch (err) {
     console.error("[USSD-OTP] submitOtp error:", err)
     return cont('Error verifying OTP.\nTry again:\n\n0. Cancel')
