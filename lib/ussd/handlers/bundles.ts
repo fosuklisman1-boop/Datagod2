@@ -241,8 +241,14 @@ export async function handleConfirm(
   const orderId = order.id
   const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
 
-  // 2-second pause before charge so the "Pay Now" response reaches the handset first
-  await new Promise(r => setTimeout(r, 4000))
+  // Returning users get 3s, first-timers 4s (Paystack OTP SMS needs more lead time)
+  const { count: priorCount } = await supabase
+    .from("ussd_orders")
+    .select("id", { count: 'exact', head: true })
+    .eq("dialing_phone", dialingPhone!)
+    .eq("payment_status", "completed")
+  const chargeDelay = (priorCount && priorCount > 0) ? 3000 : 4000
+  await new Promise(r => setTimeout(r, chargeDelay))
 
   // Fire charge synchronously within the session so we can handle send_otp
   try {
