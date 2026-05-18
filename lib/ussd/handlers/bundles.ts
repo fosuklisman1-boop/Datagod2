@@ -1,10 +1,9 @@
 import { createClient } from "@supabase/supabase-js"
-import { after } from "next/server"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
-import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, mainMenu } from "../menus"
+import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, mainMenu, otpPrompt } from "../menus"
 import { getSession, setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
-import { chargeMobileMoney } from "../../paystack"
+import { chargeMobileMoney, submitOtp } from "../../paystack"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -240,52 +239,102 @@ export async function handleConfirm(
   // Resolve email for Paystack
   const email = await resolveEmail(dialingPhone!)
   const orderId = order.id
+  const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
 
-  // Fire charge 3 seconds after the USSD session closes
-  after(async () => {
-    await new Promise(resolve => setTimeout(resolve, 3000))
-    try {
-      await chargeMobileMoney({
-        email,
-        amount: verifiedPrice,
-        phone: dialingPhone!,
-        provider: paystackProvider as 'mtn' | 'vod' | 'atl',
-        reference: orderId,
-        metadata: {
-          source: 'ussd',
-          ussd_order_id: orderId,
-          recipient_phone: recipientPhone,
-          network,
-          package_size: bundleSize,
-        },
-      })
-      // Record in payment_attempts so the admin payment pages can track this charge
-      await supabase.from("payment_attempts").insert({
-        reference: orderId,
-        amount: verifiedPrice,
-        email,
-        status: 'pending',
-        payment_type: 'ussd',
-        order_id: orderId,
-      })
-      await supabase
-        .from("ussd_orders")
-        .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
-        .eq("id", orderId)
-      console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId)
-    } catch (err) {
-      console.error("[USSD-CONFIRM] Delayed charge failed:", err)
+  // Fire charge synchronously within the session so we can handle send_otp
+  try {
+    const { status } = await chargeMobileMoney({
+      email,
+      amount: verifiedPrice,
+      phone: dialingPhone!,
+      provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+      reference: orderId,
+      metadata: {
+        source: 'ussd',
+        ussd_order_id: orderId,
+        recipient_phone: recipientPhone,
+        network,
+        package_size: bundleSize,
+      },
+    })
+
+    // Record in payment_attempts so admin payment pages can track this charge
+    await supabase.from("payment_attempts").insert({
+      reference: orderId,
+      amount: verifiedPrice,
+      email,
+      status: 'pending',
+      payment_type: 'ussd',
+      order_id: orderId,
+    }).catch(() => { /* non-fatal */ })
+
+    await supabase
+      .from("ussd_orders")
+      .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+
+    console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
+
+    if (status === 'send_otp') {
+      // First-time customer — Paystack sent an OTP via SMS, collect it here
+      await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
+      return cont(otpPrompt())
+    }
+
+    // pay_offline, pending, success — prompt is on its way
+    return end(
+      `GHS ${verifiedPrice.toFixed(2)} prompt sent to ${localDialing}.\n` +
+      `Approve it to get ${bundleSize} ${network} on ${recipientPhone}.`
+    )
+  } catch (err) {
+    console.error("[USSD-CONFIRM] Charge failed:", err)
+    await supabase
+      .from("ussd_orders")
+      .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+    return end('Payment initiation failed.\nPlease try again.')
+  }
+}
+
+// ── SUBMIT_OTP ────────────────────────────────────────────────────────────────
+export async function handleSubmitOtp(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === '0') {
+    await supabase
+      .from("ussd_orders")
+      .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+      .eq("id", session.pendingOrderId)
+    return end('Order cancelled.')
+  }
+
+  try {
+    const { status } = await submitOtp(session.pendingOrderId!, input.trim())
+    console.log("[USSD-OTP] submitOtp status:", status, "order:", session.pendingOrderId)
+
+    if (status === 'send_otp') {
+      return cont('Invalid OTP.\nTry again:\n\n0. Cancel')
+    }
+
+    if (status === 'failed') {
       await supabase
         .from("ussd_orders")
         .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
-        .eq("id", orderId)
+        .eq("id", session.pendingOrderId)
+      return end('OTP verification failed.\nPlease try again later.')
     }
-  })
 
-  const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
-
-  return end(
-    `GHS ${verifiedPrice.toFixed(2)} prompt sent to ${localDialing}.\n` +
-    `Approve it to get ${bundleSize} ${network} on ${recipientPhone}.`
-  )
+    // pay_offline, pending, success — PIN prompt is on its way
+    const localDialing = session.dialingPhone?.startsWith('+233')
+      ? '0' + session.dialingPhone.slice(4)
+      : session.dialingPhone ?? ''
+    return end(
+      `OTP verified!\nApprove the prompt sent\nto ${localDialing}.`
+    )
+  } catch (err) {
+    console.error("[USSD-OTP] submitOtp error:", err)
+    return cont('Error verifying OTP.\nTry again:\n\n0. Cancel')
+  }
 }

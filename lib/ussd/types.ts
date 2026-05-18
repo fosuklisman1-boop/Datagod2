@@ -19,6 +19,7 @@ export type USSDStep =
   | 'SELECT_BUNDLE'
   | 'ENTER_RECIPIENT'
   | 'CONFIRM'
+  | 'SUBMIT_OTP'
   | 'CHECK_STATUS'
 
 export interface BundleOption {
@@ -39,4 +40,5 @@ export interface USSDSession {
   bundleCache?: BundleOption[] // current page of bundles cached for selection
   bundleTotal?: number       // total bundle count for this network
   recipientPhone?: string
+  pendingOrderId?: string  // set when Paystack returns send_otp; used by SUBMIT_OTP step
 }

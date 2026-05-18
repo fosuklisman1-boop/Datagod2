@@ -382,6 +382,33 @@ export async function chargeMobileMoney(params: ChargeMobileMoneyParams): Promis
   return { status: data.data?.status ?? 'pending', reference }
 }
 
+/**
+ * Submit OTP for a pending Paystack mobile money charge.
+ * Called when the initial charge returns status "send_otp".
+ */
+export async function submitOtp(reference: string, otp: string): Promise<{ status: string; reference: string }> {
+  console.log("[PAYSTACK-OTP] Submitting OTP for reference:", reference)
+
+  const response = await fetch(`${PAYSTACK_BASE_URL}/charge/submit_otp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ otp, reference }),
+  })
+
+  const data: PaymentResponse = await response.json()
+
+  if (!response.ok || !data.status) {
+    console.error("[PAYSTACK-OTP] ✗ Error:", data)
+    throw new Error(data.message || `OTP submission failed (HTTP ${response.status})`)
+  }
+
+  console.log("[PAYSTACK-OTP] ✓ OTP submitted. Status:", data.data?.status)
+  return { status: data.data?.status ?? 'pending', reference }
+}
+
 export default {
   initializePayment,
   verifyPayment,
@@ -391,4 +418,5 @@ export default {
   initiateTransfer,
   refundTransaction,
   chargeMobileMoney,
+  submitOtp,
 }

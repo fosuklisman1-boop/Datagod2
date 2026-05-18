@@ -2,7 +2,7 @@ import { UzoRequest, UzoResponse } from "./types"
 import { getSession, setSession, deleteSession } from "./session"
 import { cont, end, mainMenu } from "./menus"
 import { handleMain } from "./handlers/main"
-import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm } from "./handlers/bundles"
+import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm, handleSubmitOtp } from "./handlers/bundles"
 import { handleStatus } from "./handlers/status"
 
 const TERMINATE_THRESHOLD = 29
@@ -49,6 +49,9 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'CONFIRM':
       return handleConfirm(input, sessionID, session)
+
+    case 'SUBMIT_OTP':
+      return handleSubmitOtp(input, sessionID, session)
 
     case 'CHECK_STATUS':
       return handleStatus(input, sessionID, session)

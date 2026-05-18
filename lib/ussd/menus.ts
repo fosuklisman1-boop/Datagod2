@@ -48,6 +48,10 @@ export function confirmMenu(network: string, size: string, price: number, recipi
   )
 }
 
+export function otpPrompt(): string {
+  return 'Enter the OTP sent\nto your phone:\n\n0. Cancel'
+}
+
 // Formats +233XXXXXXXXX → 0XXXXXXXXX for display
 function formatLocal(phone: string): string {
   if (phone.startsWith('+233')) return '0' + phone.slice(4)
