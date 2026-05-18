@@ -59,21 +59,19 @@ export async function POST(request: NextRequest) {
         hasMetadata: !!metadata
       })
 
-      // Handle USSD orders first — they don't create wallet_payments records
-      if (metadata?.source === 'ussd' && metadata?.ussd_order_id) {
-        const ussdOrderId: string = metadata.ussd_order_id
+      // Handle USSD orders first — they don't create wallet_payments records.
+      // Look up by reference directly: the Paystack reference IS the ussd_order UUID.
+      // This avoids relying on metadata, which Paystack doesn't always return
+      // in charge.success events for mobile money charges.
+      const { data: ussdOrder } = await supabase
+        .from("ussd_orders")
+        .select("*")
+        .eq("id", reference)
+        .maybeSingle()
+
+      if (ussdOrder) {
+        const ussdOrderId: string = ussdOrder.id
         console.log("[WEBHOOK] Processing USSD order:", ussdOrderId)
-
-        const { data: ussdOrder, error: ussdFetchErr } = await supabase
-          .from("ussd_orders")
-          .select("*")
-          .eq("id", ussdOrderId)
-          .single()
-
-        if (ussdFetchErr || !ussdOrder) {
-          console.error("[WEBHOOK] USSD order not found:", ussdOrderId, ussdFetchErr)
-          return NextResponse.json({ received: true })
-        }
 
         if (ussdOrder.payment_status !== 'pending') {
           console.log("[WEBHOOK] USSD order already processed:", ussdOrderId)
