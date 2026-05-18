@@ -350,19 +350,20 @@ export async function handleConfirm(
     }
     await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
     console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
+
     if (status === 'send_otp') {
       await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
       return cont(otpPrompt())
     }
+
+    return end(
+      `MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`
+    )
   } catch (err) {
     console.error("[USSD-CONFIRM] Charge failed:", err)
     await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
-    return end('Payment failed. Please try again.')
+    return end('Payment initiation failed. Please try again.')
   }
-
-  return end(
-    `MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`
-  )
 }
 
 // ── PAYMENT_METHOD ────────────────────────────────────────────────────────────
@@ -409,16 +410,18 @@ export async function handlePaymentMethod(
       }
       await supabase.from("ussd_orders").update({ paystack_reference: orderId, updated_at: new Date().toISOString() }).eq("id", orderId)
       console.log("[USSD-PAYMENT_METHOD] ✓ MoMo charge initiated:", orderId, status)
+
       if (status === 'send_otp') {
         await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
         return cont(otpPrompt())
       }
+
+      return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
     } catch (err) {
       console.error("[USSD-PAYMENT_METHOD] MoMo charge failed:", err)
       await supabase.from("ussd_orders").update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", orderId)
-      return end('Payment failed. Please try again.')
+      return end('Payment initiation failed. Please try again.')
     }
-    return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
   }
 
   if (input.trim() === '1') {
