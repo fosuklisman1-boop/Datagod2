@@ -1,3 +1,4 @@
+import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, mainMenu, otpPrompt } from "../menus"
@@ -241,33 +242,78 @@ export async function handleConfirm(
   const orderId = order.id
   const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
 
-  // Returning users get 3s, first-timers 4s (Paystack OTP SMS needs more lead time)
+  // Check if returning customer (has any prior completed USSD order)
   const { count: priorCount } = await supabase
     .from("ussd_orders")
     .select("id", { count: 'exact', head: true })
     .eq("dialing_phone", dialingPhone!)
     .eq("payment_status", "completed")
-  const chargeDelay = (priorCount && priorCount > 0) ? 3000 : 4000
-  await new Promise(r => setTimeout(r, chargeDelay))
+  const isReturning = (priorCount ?? 0) > 0
 
-  // Fire charge synchronously within the session so we can handle send_otp
-  try {
-    const { status } = await chargeMobileMoney({
-      email,
-      amount: verifiedPrice,
-      phone: dialingPhone!,
-      provider: paystackProvider as 'mtn' | 'vod' | 'atl',
-      reference: orderId,
-      metadata: {
-        source: 'ussd',
-        ussd_order_id: orderId,
-        recipient_phone: recipientPhone,
-        network,
-        package_size: bundleSize,
-      },
+  const chargeParams = {
+    email,
+    amount: verifiedPrice,
+    phone: dialingPhone!,
+    provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+    reference: orderId,
+    metadata: {
+      source: 'ussd',
+      ussd_order_id: orderId,
+      recipient_phone: recipientPhone,
+      network,
+      package_size: bundleSize,
+    },
+  }
+
+  if (isReturning) {
+    // End the USSD session first so the telco releases the channel and the
+    // MoMo prompt pops up as a notification instead of going to My Approvals.
+    // The charge fires 3s later via after(), after the response is sent.
+    after(async () => {
+      await new Promise(r => setTimeout(r, 3000))
+      try {
+        const { status } = await chargeMobileMoney(chargeParams)
+
+        try {
+          await supabase.from("payment_attempts").insert({
+            reference: orderId,
+            amount: verifiedPrice,
+            email,
+            status: 'pending',
+            payment_type: 'ussd',
+            order_id: orderId,
+          })
+        } catch (paErr) {
+          console.warn("[USSD-CONFIRM] payment_attempts insert failed (non-fatal):", paErr)
+        }
+
+        await supabase
+          .from("ussd_orders")
+          .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+
+        console.log("[USSD-CONFIRM] ✓ Returning user charge initiated, order:", orderId, "status:", status)
+      } catch (err) {
+        console.error("[USSD-CONFIRM] Charge failed for returning user:", err)
+        await supabase
+          .from("ussd_orders")
+          .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+      }
     })
 
-    // Record in payment_attempts so admin payment pages can track this charge
+    return end(
+      `GHS ${verifiedPrice.toFixed(2)} payment prompt\nwill be sent to ${localDialing}.\n` +
+      `Approve it to get\n${bundleSize} ${network} on ${recipientPhone}.`
+    )
+  }
+
+  // First-time user — fire charge synchronously so we can intercept send_otp
+  // and collect the OTP over USSD before the session closes.
+  await new Promise(r => setTimeout(r, 4000))
+  try {
+    const { status } = await chargeMobileMoney(chargeParams)
+
     try {
       await supabase.from("payment_attempts").insert({
         reference: orderId,
@@ -286,15 +332,13 @@ export async function handleConfirm(
       .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
       .eq("id", orderId)
 
-    console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
+    console.log("[USSD-CONFIRM] ✓ First-time charge initiated, order:", orderId, "status:", status)
 
     if (status === 'send_otp') {
-      // First-time customer — Paystack sent an OTP via SMS, collect it here
       await setSession(sessionId, { ...session, step: 'SUBMIT_OTP', pendingOrderId: orderId })
       return cont(otpPrompt())
     }
 
-    // pay_offline, pending, success — prompt is on its way
     return end(
       `GHS ${verifiedPrice.toFixed(2)} prompt sent to ${localDialing}.\n` +
       `Approve it to get ${bundleSize} ${network} on ${recipientPhone}.`
