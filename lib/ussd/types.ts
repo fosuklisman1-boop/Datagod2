@@ -38,7 +38,7 @@ export interface USSDSession {
   step: USSDStep
   dialingPhone?: string
   network?: string           // 'MTN' | 'Telecel' | 'AirtelTigo' | 'AT-iShare'
-  paystackProvider?: string  // 'mtn' | 'vod' | 'atl'
+  paystackProvider?: string  // 'mtn' | 'vod' | 'tgo'
   bundleId?: string
   bundleSize?: string
   bundlePrice?: number

@@ -15,11 +15,11 @@ const supabase = createClient(
 
 const PAGE_SIZE = 5
 
-const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' | 'vod' | 'atl' }> = {
+const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' | 'vod' | 'tgo' }> = {
   '1': { dbName: 'MTN', paystackProvider: 'mtn' },
   '2': { dbName: 'Telecel', paystackProvider: 'vod' },
-  '3': { dbName: 'AirtelTigo', paystackProvider: 'atl' },
-  '4': { dbName: 'AT-iShare', paystackProvider: 'atl' },
+  '3': { dbName: 'AirtelTigo', paystackProvider: 'tgo' },
+  '4': { dbName: 'AT-iShare', paystackProvider: 'tgo' },
 }
 
 async function fetchBundles(
@@ -339,7 +339,7 @@ export async function handleConfirm(
       email,
       amount: chargeAmount,
       phone: dialingPhone!,
-      provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+      provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
       reference: orderId,
       metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
     })
@@ -399,7 +399,7 @@ export async function handlePaymentMethod(
         email,
         amount: chargeAmount,
         phone: dialingPhone!,
-        provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+        provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
         reference: orderId,
         metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
       })

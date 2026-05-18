@@ -333,7 +333,7 @@ interface ChargeMobileMoneyParams {
   email: string
   amount: number        // in GHS — converted to pesewas internally
   phone: string         // e.g. "0244123456" or "+233244123456"
-  provider: 'mtn' | 'vod' | 'atl'
+  provider: 'mtn' | 'vod' | 'tgo'
   reference: string
   metadata?: Record<string, any>
 }
@@ -364,7 +364,6 @@ export async function chargeMobileMoney(params: ChargeMobileMoneyParams): Promis
     body: JSON.stringify({
       email,
       amount: Math.round(amount * 100), // GHS → pesewas
-      currency: "GHS",
       reference,
       mobile_money: { phone: normalizedPhone, provider },
       metadata: metadata ?? {},
