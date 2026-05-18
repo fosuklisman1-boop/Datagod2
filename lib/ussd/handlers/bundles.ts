@@ -3,7 +3,7 @@ import { UzoResponse, USSDSession, BundleOption } from "../types"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, mainMenu } from "../menus"
 import { getSession, setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
-import { chargeMobileMoney } from "../paystack"
+import { chargeMobileMoney } from "../../paystack"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
