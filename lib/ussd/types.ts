@@ -19,6 +19,7 @@ export type USSDStep =
   | 'SELECT_BUNDLE'
   | 'ENTER_RECIPIENT'
   | 'CONFIRM'
+  | 'PAYMENT_METHOD'
   | 'SUBMIT_OTP'
   | 'CHECK_STATUS'
   | 'AFA_ENTER_NAME'
@@ -47,7 +48,9 @@ export interface USSDSession {
   recipientPhone?: string
   effectivePriceTier?: string       // 'dealer' | 'regular' | 'sub_agent'
   subAgentParentShopId?: string     // set when user is a sub_agent; parent shop for catalog lookup
-  pendingOrderId?: string  // set when Paystack returns send_otp; used by SUBMIT_OTP step
+  userId?: string                   // registered user's DB id (if phone matched a user)
+  walletBalance?: number            // fetched at network selection for display; re-verified at payment
+  pendingOrderId?: string  // order created at CONFIRM; used by PAYMENT_METHOD + SUBMIT_OTP
   // AFA registration fields
   afaFullName?: string
   afaGhCard?: string

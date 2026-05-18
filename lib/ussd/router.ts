@@ -2,7 +2,7 @@ import { UzoRequest, UzoResponse } from "./types"
 import { getSession, setSession, deleteSession } from "./session"
 import { cont, end, mainMenu } from "./menus"
 import { handleMain } from "./handlers/main"
-import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm, handleSubmitOtp } from "./handlers/bundles"
+import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm, handlePaymentMethod, handleSubmitOtp } from "./handlers/bundles"
 import { handleStatus } from "./handlers/status"
 import { handleAfaEnterName, handleAfaEnterCard, handleAfaEnterLocation, handleAfaEnterRegion, handleAfaConfirm } from "./handlers/afa"
 
@@ -50,6 +50,9 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'CONFIRM':
       return handleConfirm(input, sessionID, session)
+
+    case 'PAYMENT_METHOD':
+      return handlePaymentMethod(input, sessionID, session)
 
     case 'SUBMIT_OTP':
       return handleSubmitOtp(input, sessionID, session)

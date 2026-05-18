@@ -1,10 +1,12 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
-import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, mainMenu, otpPrompt } from "../menus"
+import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, otpPrompt } from "../menus"
 import { getSession, setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
+import { fulfillUssdOrder } from "../fulfill"
+import { sendSMS } from "../../sms-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -94,17 +96,20 @@ export async function handleSelectNetwork(
 
   let effectivePriceTier: string = settingsRow?.ussd_price_tier ?? 'regular'
   let subAgentParentShopId: string | undefined
+  let walletBalance: number | undefined
 
   if (userRow) {
     if (userRow.role === 'dealer') {
       effectivePriceTier = 'dealer'
+      const { data: walletRow } = await supabase
+        .from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle()
+      walletBalance = walletRow ? Number(walletRow.balance) : undefined
     } else if (userRow.role === 'sub_agent') {
-      const { data: shopRow } = await supabase
-        .from("user_shops")
-        .select("parent_shop_id")
-        .eq("user_id", userRow.id)
-        .not("parent_shop_id", "is", null)
-        .maybeSingle()
+      const [{ data: shopRow }, { data: walletRow }] = await Promise.all([
+        supabase.from("user_shops").select("parent_shop_id").eq("user_id", userRow.id).not("parent_shop_id", "is", null).maybeSingle(),
+        supabase.from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle(),
+      ])
+      walletBalance = walletRow ? Number(walletRow.balance) : undefined
       if (shopRow?.parent_shop_id) {
         effectivePriceTier = 'sub_agent'
         subAgentParentShopId = shopRow.parent_shop_id
@@ -113,6 +118,9 @@ export async function handleSelectNetwork(
       }
     } else {
       effectivePriceTier = 'regular'
+      const { data: walletRow } = await supabase
+        .from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle()
+      walletBalance = walletRow ? Number(walletRow.balance) : undefined
     }
   }
 
@@ -128,6 +136,8 @@ export async function handleSelectNetwork(
     paystackProvider: net.paystackProvider,
     effectivePriceTier,
     subAgentParentShopId,
+    userId: userRow?.id,
+    walletBalance,
     bundlePage: 0,
     bundleCache: bundles,
     bundleTotal: total,
@@ -303,6 +313,7 @@ export async function handleConfirm(
       price_tier: priceTier === 'sub_agent' ? 'sub_agent' : priceTier,
       parent_shop_id: session.subAgentParentShopId ?? null,
       parent_profit_amount: parentProfitAmount,
+      shop_owner_id: session.userId ?? null,
       order_status: 'pending',
       payment_status: 'pending',
     }])
@@ -314,10 +325,16 @@ export async function handleConfirm(
     return end('Error creating order. Please try again.')
   }
 
-  // Resolve email for Paystack
-  const email = await resolveEmail(dialingPhone!)
   const orderId = order.id
   const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
+
+  if (session.userId && session.walletBalance !== undefined && session.walletBalance >= verifiedPrice) {
+    await setSession(sessionId, { ...session, step: 'PAYMENT_METHOD', pendingOrderId: orderId })
+    return cont(paymentMethodMenu(verifiedPrice, session.walletBalance))
+  }
+
+  // Unregistered user or insufficient balance — fire MoMo directly
+  const email = await resolveEmail(dialingPhone!)
 
   // End the session immediately so the telco releases the USSD channel and
   // the MoMo prompt pops up as a notification. Charge fires 3s later via after().
@@ -370,6 +387,182 @@ export async function handleConfirm(
   return end(
     `MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`
   )
+}
+
+// ── PAYMENT_METHOD ────────────────────────────────────────────────────────────
+export async function handlePaymentMethod(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  const orderId = session.pendingOrderId!
+  const verifiedPrice = session.bundlePrice!
+  const { network, paystackProvider, recipientPhone, dialingPhone, userId, bundleSize } = session
+  const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone!
+
+  if (input.trim() === '0') {
+    await supabase
+      .from("ussd_orders")
+      .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+    await setSession(sessionId, { step: 'MAIN', dialingPhone: session.dialingPhone })
+    return end('Order cancelled.')
+  }
+
+  if (input.trim() === '2') {
+    const { data: feeSettings } = await supabase
+      .from("app_settings").select("paystack_fee_percentage").single()
+    const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
+    const fee = Math.round(verifiedPrice * feePercent * 100) / 100
+    const chargeAmount = verifiedPrice + fee
+
+    const email = await resolveEmail(dialingPhone!)
+    after(async () => {
+      await new Promise(r => setTimeout(r, 3000))
+      try {
+        const { status } = await chargeMobileMoney({
+          email,
+          amount: chargeAmount,
+          phone: dialingPhone!,
+          provider: paystackProvider as 'mtn' | 'vod' | 'atl',
+          reference: orderId,
+          metadata: {
+            source: 'ussd',
+            ussd_order_id: orderId,
+            recipient_phone: recipientPhone,
+            network,
+            package_size: bundleSize,
+          },
+        })
+
+        try {
+          await supabase.from("payment_attempts").insert({
+            reference: orderId,
+            amount: verifiedPrice,
+            email,
+            status: 'pending',
+            payment_type: 'ussd',
+            order_id: orderId,
+          })
+        } catch (paErr) {
+          console.warn("[USSD-PAYMENT_METHOD] payment_attempts insert failed:", paErr)
+        }
+
+        await supabase
+          .from("ussd_orders")
+          .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+        console.log("[USSD-PAYMENT_METHOD] ✓ MoMo charge initiated:", orderId, status)
+      } catch (err) {
+        console.error("[USSD-PAYMENT_METHOD] MoMo charge failed:", err)
+        await supabase
+          .from("ussd_orders")
+          .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+      }
+    })
+
+    return end(`MoMo authorization has been sent to your number (${localDialing}). Bundles take few minutes to reflect, so please have patience.`)
+  }
+
+  if (input.trim() === '1') {
+    const { data: walletRow } = await supabase
+      .from("wallets").select("balance").eq("user_id", userId!).maybeSingle()
+    const currentBalance = walletRow ? Number(walletRow.balance) : 0
+
+    if (currentBalance < verifiedPrice) {
+      return cont(
+        `Insufficient balance.\nWallet: GHS ${currentBalance.toFixed(2)}\nNeeded: GHS ${verifiedPrice.toFixed(2)}\n\n2. Pay via MoMo\n0. Cancel`
+      )
+    }
+
+    const { data: deductResult, error: deductError } = await supabase.rpc('deduct_wallet', {
+      p_user_id: userId!,
+      p_amount: verifiedPrice,
+    })
+
+    if (deductError || !deductResult || deductResult.length === 0) {
+      return cont(
+        `Insufficient balance.\nWallet: GHS ${currentBalance.toFixed(2)}\nNeeded: GHS ${verifiedPrice.toFixed(2)}\n\n2. Pay via MoMo\n0. Cancel`
+      )
+    }
+
+    const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
+
+    try {
+      await supabase.from("transactions").insert([{
+        user_id: userId,
+        type: 'debit',
+        source: 'ussd_data_purchase',
+        amount: verifiedPrice,
+        balance_before: balanceBefore,
+        balance_after: newBalance,
+        description: `USSD data purchase: ${network} ${bundleSize}`,
+        reference_id: orderId,
+        status: 'completed',
+        created_at: new Date().toISOString(),
+      }])
+    } catch (txErr) {
+      console.warn("[USSD-WALLET] Transaction insert failed (non-fatal):", txErr)
+    }
+
+    await supabase
+      .from("ussd_orders")
+      .update({ payment_status: 'completed', order_status: 'processing', updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+
+    // Credit parent shop profit if this is a sub-agent order
+    if (session.subAgentParentShopId && session.walletBalance !== undefined) {
+      const { data: orderRow } = await supabase
+        .from("ussd_orders")
+        .select("parent_shop_id, parent_profit_amount")
+        .eq("id", orderId)
+        .single()
+      if (orderRow?.parent_shop_id && Number(orderRow.parent_profit_amount) > 0) {
+        const { error: profitErr } = await supabase
+          .from("shop_profits")
+          .insert([{
+            shop_id: orderRow.parent_shop_id,
+            ussd_order_id: orderId,
+            profit_amount: orderRow.parent_profit_amount,
+            status: 'credited',
+            created_at: new Date().toISOString(),
+          }])
+        if (profitErr) {
+          console.error("[USSD-WALLET] Failed to credit parent profit:", profitErr)
+        } else {
+          console.log(`[USSD-WALLET] ✓ Parent profit credited: GHS ${orderRow.parent_profit_amount}`)
+        }
+      }
+    }
+
+    after(async () => {
+      try {
+        await fulfillUssdOrder(orderId, network!, recipientPhone!, bundleSize!)
+      } catch (err) {
+        console.error("[USSD-WALLET] Fulfillment failed:", err)
+        await supabase
+          .from("ussd_orders")
+          .update({ order_status: 'failed', updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+      }
+
+      try {
+        await sendSMS({
+          phone: recipientPhone!,
+          message: `Your ${bundleSize} ${network} bundle is on its way! Order: ${orderId.slice(0, 8)}`,
+          type: 'order_confirmation',
+          reference: orderId,
+        })
+      } catch (smsErr) {
+        console.warn("[USSD-WALLET] SMS failed:", smsErr)
+      }
+    })
+
+    return end('Payment successful.\nYour bundle will reflect\nin a few minutes.')
+  }
+
+  return cont(paymentMethodMenu(verifiedPrice, session.walletBalance ?? 0))
 }
 
 // ── SUBMIT_OTP ────────────────────────────────────────────────────────────────

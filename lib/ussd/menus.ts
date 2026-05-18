@@ -59,6 +59,16 @@ export function bundleMenu(bundles: BundleOption[], page: number, total: number)
   return 'Select Bundle:\n' + lines.join('\n')
 }
 
+export function paymentMethodMenu(amount: number, balance: number): string {
+  return (
+    `Pay GHS ${amount.toFixed(2)}\n` +
+    `1. Datagod Wallet\n` +
+    `   (GHS ${balance.toFixed(2)})\n` +
+    `2. MoMo prompt\n` +
+    `0. Cancel`
+  )
+}
+
 export function recipientPrompt(): string {
   return 'Enter recipient number\n(who gets the data):\n\n0. Back'
 }
