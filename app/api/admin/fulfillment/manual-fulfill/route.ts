@@ -28,8 +28,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "shop_order_id is required" }, { status: 400 })
     }
 
+    // USSD orders have their own fulfillment path — bypass auto-fulfillment setting check
+    if (order_type === "ussd") {
+      const { data: ussdOrder, error: fetchErr } = await supabase
+        .from("ussd_orders")
+        .select("id, network, recipient_phone, package_size, order_status")
+        .eq("id", shop_order_id)
+        .single()
+
+      if (fetchErr || !ussdOrder) {
+        return NextResponse.json({ error: "USSD order not found" }, { status: 404 })
+      }
+
+      const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
+      const result = await fulfillUssdOrder(
+        ussdOrder.id,
+        ussdOrder.network,
+        ussdOrder.recipient_phone,
+        ussdOrder.package_size ?? "",
+        true // forceManual — bypass auto-fulfillment setting check
+      )
+
+      return NextResponse.json({
+        success: result.success,
+        message: result.message,
+      }, { status: result.success ? 200 : 400 })
+    }
+
     const { processManualFulfillment } = await import("@/lib/fulfillment-service")
-    
+
     const result = await processManualFulfillment(shop_order_id, order_type as "shop" | "bulk", provider)
 
     if (!result.success) {
@@ -96,6 +123,19 @@ export async function GET(request: NextRequest) {
       console.error("[MANUAL-FULFILL] orders fetch error:", bulkError)
     }
 
+    // 3. Fetch USSD orders (paid but awaiting fulfillment)
+    const { data: ussdOrders, count: ussdCount, error: ussdError } = await supabase
+      .from("ussd_orders")
+      .select("id, network, package_size, recipient_phone, dialing_phone, order_status, created_at, amount", { count: "exact" })
+      .in("network", ["MTN", "Telecel", "AirtelTigo", "AT-iShare"])
+      .eq("payment_status", "completed")
+      .eq("order_status", "pending")
+      .order("created_at", { ascending: false })
+
+    if (ussdError) {
+      console.error("[MANUAL-FULFILL] ussd_orders fetch error:", ussdError)
+    }
+
     // Map bulk orders to common structure
     const mappedBulk = (bulkOrders || []).map(o => ({
       id: o.id,
@@ -113,12 +153,24 @@ export async function GET(request: NextRequest) {
       type: "shop"
     }))
 
+    const mappedUssd = (ussdOrders || []).map(o => ({
+      id: o.id,
+      network: o.network,
+      volume_gb: o.package_size,
+      customer_phone: o.recipient_phone,
+      dialing_phone: o.dialing_phone,
+      customer_name: "USSD Order",
+      order_status: o.order_status,
+      created_at: o.created_at,
+      type: "ussd"
+    }))
+
     // Combine and sort by date
-    const allOrders = [...mappedShop, ...mappedBulk].sort(
+    const allOrders = [...mappedShop, ...mappedBulk, ...mappedUssd].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
 
-    const totalCount = (shopCount || 0) + (bulkCount || 0)
+    const totalCount = (shopCount || 0) + (bulkCount || 0) + (ussdCount || 0)
     const paginatedOrders = allOrders.slice(offset, offset + limit)
 
     return NextResponse.json({

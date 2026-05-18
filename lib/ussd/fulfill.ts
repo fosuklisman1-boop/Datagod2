@@ -29,9 +29,10 @@ export async function fulfillUssdOrder(
   orderId: string,
   network: string,
   recipientPhone: string,
-  packageSize: string
+  packageSize: string,
+  forceManual = false
 ): Promise<{ success: boolean; message: string }> {
-  console.log("[USSD-FULFILL] Starting fulfillment:", { orderId, network, recipientPhone, packageSize })
+  console.log("[USSD-FULFILL] Starting fulfillment:", { orderId, network, recipientPhone, packageSize, forceManual })
 
   // Blacklist check
   try {
@@ -50,7 +51,7 @@ export async function fulfillUssdOrder(
   const isMTN = networkUpper === "MTN"
 
   if (isMTN) {
-    const autoEnabled = await isAutoFulfillmentEnabled()
+    const autoEnabled = forceManual || await isAutoFulfillmentEnabled()
     if (autoEnabled) {
       const orderRequest: MTNOrderRequest = {
         recipient_phone: normalizedPhone,
@@ -95,7 +96,7 @@ export async function fulfillUssdOrder(
       .eq("key", "auto_fulfillment_enabled")
       .single()
 
-    const isAutoEnabled = globalSettings?.value?.enabled ?? true
+    const isAutoEnabled = forceManual || (globalSettings?.value?.enabled ?? true)
 
     if (isAutoEnabled) {
       const networkLower = network.toLowerCase()
