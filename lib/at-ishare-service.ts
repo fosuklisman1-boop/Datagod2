@@ -477,6 +477,11 @@ class ATiShareService {
             .from("api_orders")
             .update({ status: actualStatus, updated_at: new Date().toISOString() })
             .eq("id", orderId)
+        } else if (orderType === "ussd") {
+          await this.supabase
+            .from("ussd_orders")
+            .update({ order_status: actualStatus, updated_at: new Date().toISOString() })
+            .eq("id", orderId)
         } else {
           await this.supabase
             .from("shop_orders")

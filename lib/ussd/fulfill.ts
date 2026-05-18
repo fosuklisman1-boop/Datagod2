@@ -74,8 +74,8 @@ export async function fulfillUssdOrder(
         await saveMTNTracking(orderId, mtnResponse.order_id, orderRequest, mtnResponse, "ussd", mtnResponse.provider || "sykes")
       } catch { /* non-fatal */ }
 
-      await markUssdOrderStatus(orderId, 'completed')
-      console.log("[USSD-FULFILL] ✓ MTN fulfilled:", mtnResponse.order_id)
+      await markUssdOrderStatus(orderId, 'processing')
+      console.log("[USSD-FULFILL] ✓ MTN order placed, awaiting cron confirmation:", mtnResponse.order_id)
       return { success: true, message: "Fulfilled via MTN API" }
     } else {
       // MTN auto-fulfillment disabled — flag for manual processing
@@ -112,8 +112,8 @@ export async function fulfillUssdOrder(
         orderType: "ussd",
         isBigTime,
       }).then(async () => {
-        await markUssdOrderStatus(orderId, 'completed')
-        console.log("[USSD-FULFILL] ✓ Codecraft fulfilled:", orderId)
+        await markUssdOrderStatus(orderId, 'processing')
+        console.log("[USSD-FULFILL] ✓ Codecraft order placed, awaiting cron confirmation:", orderId)
       }).catch(async (err: any) => {
         console.error("[USSD-FULFILL] Codecraft error:", err)
         await markUssdOrderStatus(orderId, 'pending')
