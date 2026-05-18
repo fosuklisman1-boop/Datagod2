@@ -18,7 +18,7 @@ function extractGb(packageSize: string): number {
   return parseInt(digits) || 0
 }
 
-async function markUssdOrderStatus(orderId: string, status: 'completed' | 'failed' | 'processing') {
+async function markUssdOrderStatus(orderId: string, status: 'completed' | 'failed' | 'processing' | 'pending') {
   await supabase
     .from("ussd_orders")
     .update({ order_status: status, updated_at: new Date().toISOString() })
