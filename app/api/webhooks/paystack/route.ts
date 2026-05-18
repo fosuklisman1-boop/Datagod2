@@ -97,38 +97,19 @@ export async function POST(request: NextRequest) {
           })
           .eq("id", ussdOrderId)
 
-        // Trigger fulfillment via the unified endpoint
+        // Trigger fulfillment directly (avoids shop_order coupling of /api/fulfillment/process-order)
         try {
-          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
-          const digits = ussdOrder.package_size?.replace(/[^0-9]/g, '') ?? '0'
-          const sizeGb = parseInt(digits) || 0
-
-          console.log(`[WEBHOOK] Triggering USSD fulfillment for order ${ussdOrderId}`)
-          const fulfillRes = await fetch(`${baseUrl}/api/fulfillment/process-order`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ussd_order_id: ussdOrderId,
-              network: ussdOrder.network,
-              phone_number: ussdOrder.recipient_phone,
-              volume_gb: sizeGb,
-              customer_name: "USSD Customer",
-            }),
-          })
-
-          if (fulfillRes.ok) {
-            console.log("[WEBHOOK] ✓ USSD fulfillment triggered")
-            await supabase
-              .from("ussd_orders")
-              .update({ order_status: 'completed', updated_at: new Date().toISOString() })
-              .eq("id", ussdOrderId)
+          const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
+          const fulfillResult = await fulfillUssdOrder(
+            ussdOrderId,
+            ussdOrder.network,
+            ussdOrder.recipient_phone,
+            ussdOrder.package_size ?? ''
+          )
+          if (fulfillResult.success) {
+            console.log("[WEBHOOK] ✓ USSD fulfillment triggered:", fulfillResult.message)
           } else {
-            const errBody = await fulfillRes.json().catch(() => ({}))
-            console.error("[WEBHOOK] USSD fulfillment error:", errBody)
-            await supabase
-              .from("ussd_orders")
-              .update({ order_status: 'failed', updated_at: new Date().toISOString() })
-              .eq("id", ussdOrderId)
+            console.error("[WEBHOOK] USSD fulfillment failed:", fulfillResult.message)
           }
         } catch (fErr) {
           console.error("[WEBHOOK] Failed to trigger USSD fulfillment:", fErr)
