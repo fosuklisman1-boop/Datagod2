@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -31,8 +32,10 @@ interface ShopOrder {
   created_at: string
 }
 
-export default function UssdShopPage() {
+function UssdShopPageInner() {
   const { user } = useAuth()
+  const searchParams = useSearchParams()
+  const paymentHandled = useRef(false)
   const [shopCode, setShopCode] = useState<UssdShopCode | null>(null)
   const [dialCode, setDialCode] = useState("")
   const [orders, setOrders] = useState<ShopOrder[]>([])
@@ -51,6 +54,29 @@ export default function UssdShopPage() {
     if (!user) return
     loadData()
   }, [user])
+
+  useEffect(() => {
+    if (paymentHandled.current) return
+    const payment = searchParams.get("payment")
+    const reference = searchParams.get("reference")
+    if (!payment || !reference) return
+    paymentHandled.current = true
+
+    if (payment === "activation") {
+      toast.success("Activation payment received! Your shop code will be active shortly.")
+    } else if (payment === "sessions") {
+      toast.success("Session top-up payment received! Your sessions will be credited shortly.")
+    }
+
+    // Clear query params from URL without reload
+    const url = new URL(window.location.href)
+    url.searchParams.delete("payment")
+    url.searchParams.delete("reference")
+    window.history.replaceState({}, "", url.toString())
+
+    // Reload data after a short delay to let the webhook process
+    setTimeout(() => loadData(), 3000)
+  }, [searchParams])
 
   const loadData = async () => {
     setLoading(true)
@@ -457,5 +483,13 @@ export default function UssdShopPage() {
         )}
       </div>
     </DashboardLayout>
+  )
+}
+
+export default function UssdShopPage() {
+  return (
+    <Suspense>
+      <UssdShopPageInner />
+    </Suspense>
   )
 }

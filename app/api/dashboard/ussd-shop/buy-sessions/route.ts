@@ -112,8 +112,9 @@ export async function POST(request: NextRequest) {
 
   if (!purchase) return NextResponse.json({ error: "Failed to create payment record" }, { status: 500 })
 
-  await supabase.from("wallet_payments").insert([{
+  const { error: wpErr } = await supabase.from("wallet_payments").insert([{
     user_id: user.id,
+    shop_id: shop.id,
     order_id: purchase.id,
     order_type: 'ussd_shop_token',
     amount: totalAmount,
@@ -123,6 +124,12 @@ export async function POST(request: NextRequest) {
     payment_method: 'momo',
     created_at: new Date().toISOString(),
   }])
+
+  if (wpErr) {
+    console.error("[USSD-BUY-SESSIONS] wallet_payments insert failed:", wpErr)
+    await supabase.from("ussd_shop_token_purchases").update({ payment_status: 'failed' }).eq("id", purchase.id)
+    return NextResponse.json({ error: "Failed to create payment record" }, { status: 500 })
+  }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}` || "http://localhost:3000"
 
