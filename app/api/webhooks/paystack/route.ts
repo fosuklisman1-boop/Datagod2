@@ -349,6 +349,12 @@ export async function POST(request: NextRequest) {
             ussdShopOrder.recipient_phone,
             ussdShopOrder.package_size ?? ''
           )
+          // fulfillUssdOrder updates ussd_orders internally; update ussd_shop_orders separately
+          const newOrderStatus = fulfillResult.success ? 'processing' : 'pending'
+          await supabase
+            .from("ussd_shop_orders")
+            .update({ order_status: newOrderStatus, updated_at: new Date().toISOString() })
+            .eq("id", ussdShopOrder.id)
           if (fulfillResult.success) {
             console.log("[WEBHOOK] ✓ USSD shop fulfillment triggered:", fulfillResult.message)
           } else {
@@ -356,6 +362,10 @@ export async function POST(request: NextRequest) {
           }
         } catch (fErr) {
           console.error("[WEBHOOK] Failed to trigger USSD shop fulfillment:", fErr)
+          await supabase
+            .from("ussd_shop_orders")
+            .update({ order_status: 'failed', updated_at: new Date().toISOString() })
+            .eq("id", ussdShopOrder.id)
         }
 
         // SMS to recipient
