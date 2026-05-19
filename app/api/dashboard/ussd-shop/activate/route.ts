@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser(token)
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { payment_method } = await request.json()
+  const { payment_method, momo_phone } = await request.json()
   if (!['wallet', 'momo'].includes(payment_method)) {
     return NextResponse.json({ error: "payment_method must be 'wallet' or 'momo'" }, { status: 400 })
   }
@@ -103,15 +103,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, status: 'active' })
   }
 
-  // MoMo — fetch phone number
+  // MoMo — use provided number or fall back to account phone
   const { data: userRow } = await supabase
     .from("users")
     .select("phone_number")
     .eq("id", user.id)
     .single()
 
-  if (!userRow?.phone_number) {
-    return NextResponse.json({ error: "Phone number not found on your account" }, { status: 400 })
+  const chargePhone = momo_phone?.trim() || userRow?.phone_number
+  if (!chargePhone) {
+    return NextResponse.json({ error: "No phone number provided and none on your account" }, { status: 400 })
   }
 
   const { data: purchase } = await supabase
@@ -130,13 +131,13 @@ export async function POST(request: NextRequest) {
 
   if (!purchase) return NextResponse.json({ error: "Failed to create payment record" }, { status: 500 })
 
-  const email = await resolveEmail(userRow.phone_number)
+  const email = await resolveEmail(chargePhone)
 
   try {
     await chargeMobileMoney({
       email,
       amount: fee,
-      phone: userRow.phone_number,
+      phone: chargePhone,
       provider: 'mtn',
       reference: purchase.id,
       metadata: {
