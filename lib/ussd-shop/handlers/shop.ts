@@ -8,6 +8,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+const NETWORK_ORDER = ['MTN', 'Telecel', 'AirtelTigo', 'AT-iShare']
+
+function sortNetworks(nets: string[]): string[] {
+  return [...nets].sort((a, b) => {
+    const ia = NETWORK_ORDER.indexOf(a)
+    const ib = NETWORK_ORDER.indexOf(b)
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return a.localeCompare(b)
+  })
+}
+
 // ── ENTER_SHOP_CODE ───────────────────────────────────────────────────────────
 export async function handleEnterShopCode(
   input: string,
@@ -104,6 +117,9 @@ export async function handleEnterShopCode(
     return cont(invalidCodeMenu('Shop has no bundles available.'))
   }
 
+  const sortedNetworks = sortNetworks(networks)
+  console.log("[USSD-SHOP] networks for shop", shopCode.shop_id, ":", sortedNetworks)
+
   await setSession(sessionId, {
     step: 'SELECT_NETWORK',
     dialingPhone,
@@ -111,7 +127,7 @@ export async function handleEnterShopCode(
     shopId: shopCode.shop_id,
     parentShopId: parentShopId ?? undefined,
     shopName,
-    networks,
+    networks: sortedNetworks,
   })
 
   return cont(networkMenu(shopName, networks))
