@@ -26,3 +26,12 @@ CREATE POLICY "Service role full access on ussd_shop_codes"
   ON ussd_shop_codes FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "Shop owners can read their own ussd_shop_codes" ON ussd_shop_codes;
+CREATE POLICY "Shop owners can read their own ussd_shop_codes"
+  ON ussd_shop_codes FOR SELECT
+  USING (
+    shop_id IN (
+      SELECT id FROM user_shops WHERE user_id = auth.uid()
+    )
+  );
