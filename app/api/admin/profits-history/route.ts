@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
         id,
         shop_id,
         shop_order_id,
+        ussd_order_id,
+        ussd_shop_order_id,
         profit_amount,
         profit_balance_before,
         profit_balance_after,
@@ -61,6 +63,14 @@ export async function GET(request: NextRequest) {
           parent_shop_id,
           parent_profit_amount,
           profit_amount
+        ),
+        ussd_orders (
+          id,
+          network,
+          package_size,
+          amount,
+          dialing_phone,
+          paystack_reference
         )
       `, { count: "exact" })
       .order("created_at", { ascending: false })
@@ -117,6 +127,8 @@ export async function GET(request: NextRequest) {
             id,
             shop_id,
             shop_order_id,
+            ussd_order_id,
+            ussd_shop_order_id,
             profit_amount,
             profit_balance_before,
             profit_balance_after,
@@ -142,6 +154,14 @@ export async function GET(request: NextRequest) {
               parent_shop_id,
               parent_profit_amount,
               profit_amount
+            ),
+            ussd_orders (
+              id,
+              network,
+              package_size,
+              amount,
+              dialing_phone,
+              paystack_reference
             )
           `)
           .order("created_at", { ascending: false })
@@ -161,6 +181,17 @@ export async function GET(request: NextRequest) {
         { error: error.message },
         { status: 400 }
       )
+    }
+
+    // Batch-fetch ussd_shop_orders (no FK so PostgREST can't join automatically)
+    const ussdShopOrderIds = [...new Set((profits || []).map((p: any) => p.ussd_shop_order_id).filter(Boolean))]
+    let ussdShopOrdersMap: Record<string, any> = {}
+    if (ussdShopOrderIds.length > 0) {
+      const { data: ussdShopRows } = await supabase
+        .from("ussd_shop_orders")
+        .select("id, network, package_size, amount, paystack_reference, profit_amount, shop_name, customer_email, recipient_phone, dialing_phone")
+        .in("id", ussdShopOrderIds)
+      ussdShopRows?.forEach((r: any) => { ussdShopOrdersMap[r.id] = r })
     }
 
     // Fetch user details separately (since user_shops.user_id references auth.users)
@@ -187,7 +218,12 @@ export async function GET(request: NextRequest) {
         const user = usersMap[p.user_shops?.user_id] || {}
         const ownerEmail = user.email?.toLowerCase() || ""
         const ownerName = `${user.first_name || ""} ${user.last_name || ""}`.toLowerCase()
-        const orderRef = p.shop_orders?.reference_code?.toLowerCase() || ""
+        const orderRef = (
+          p.shop_orders?.reference_code ||
+          ussdShopOrdersMap[p.ussd_shop_order_id]?.paystack_reference ||
+          p.ussd_order_id ||
+          ""
+        ).toLowerCase()
 
         return shopName.includes(searchLower) ||
           ownerEmail.includes(searchLower) ||
@@ -206,21 +242,35 @@ export async function GET(request: NextRequest) {
     const flattenedProfits = filteredProfits.map((p: any) => {
       const user = usersMap[p.user_shops?.user_id] || {}
 
-      // Determine if this is a parent profit or sub-agent profit
-      // If the shop_id of the profit record equals the order's parent_shop_id, it's a parent profit
-      const orderShopId = p.shop_orders?.shop_id
-      const orderParentShopId = p.shop_orders?.parent_shop_id
-      const isParentProfit = orderParentShopId && p.shop_id === orderParentShopId
+      // Resolve the source order — whichever FK is non-null wins
+      const shopOrder = p.shop_orders ?? null
+      const ussdOrder = p.ussd_orders ?? null
+      const ussdShopOrder = ussdShopOrdersMap[p.ussd_shop_order_id] ?? null
 
-      // Get the sub-agent's profit (from the order) - this is the profit_amount on the order
-      const subAgentProfit = p.shop_orders?.profit_amount || 0
-      // Get the parent's profit (from the order) - this is the parent_profit_amount on the order  
-      const parentProfit = p.shop_orders?.parent_profit_amount || 0
+      // Unified order fields — coalesce across all three sources
+      const orderReference =
+        shopOrder?.reference_code ??
+        ussdShopOrder?.paystack_reference ??
+        ussdOrder?.paystack_reference ??
+        null
+      const orderNetwork = shopOrder?.network ?? ussdShopOrder?.network ?? ussdOrder?.network ?? null
+      const orderVolumeGb = shopOrder?.volume_gb ?? ussdShopOrder?.package_size ?? ussdOrder?.package_size ?? null
+      const orderTotalPrice = shopOrder?.total_price ?? ussdShopOrder?.amount ?? ussdOrder?.amount ?? null
+      const customerName = shopOrder?.customer_name ?? null
+      const customerPhone = shopOrder?.customer_phone ?? ussdShopOrder?.dialing_phone ?? ussdOrder?.dialing_phone ?? null
+
+      // Profit breakdown
+      const orderParentShopId = shopOrder?.parent_shop_id ?? null
+      const isParentProfit = orderParentShopId && p.shop_id === orderParentShopId
+      const subAgentProfit = shopOrder?.profit_amount ?? ussdShopOrder?.profit_amount ?? 0
+      const parentProfit = shopOrder?.parent_profit_amount ?? 0
 
       return {
         id: p.id,
         shop_id: p.shop_id,
         shop_order_id: p.shop_order_id,
+        ussd_order_id: p.ussd_order_id ?? null,
+        ussd_shop_order_id: p.ussd_shop_order_id ?? null,
         profit_amount: p.profit_amount ?? 0,
         profit_balance_before: p.profit_balance_before ?? null,
         profit_balance_after: p.profit_balance_after ?? null,
@@ -233,13 +283,13 @@ export async function GET(request: NextRequest) {
         owner_first_name: user.first_name || null,
         owner_last_name: user.last_name || null,
         owner_phone: user.phone_number || null,
-        order_reference: p.shop_orders?.reference_code || null,
-        order_network: p.shop_orders?.network || null,
-        order_volume_gb: p.shop_orders?.volume_gb || null,
-        order_total_price: p.shop_orders?.total_price || null,
-        customer_name: p.shop_orders?.customer_name || null,
-        customer_phone: p.shop_orders?.customer_phone || null,
-        // New fields for sub-agent/parent profit visibility
+        order_reference: orderReference,
+        order_network: orderNetwork,
+        order_volume_gb: orderVolumeGb,
+        order_total_price: orderTotalPrice,
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        // Sub-agent/parent profit visibility
         is_parent_profit: isParentProfit,
         is_subagent_order: !!orderParentShopId,
         sub_agent_profit: subAgentProfit,
