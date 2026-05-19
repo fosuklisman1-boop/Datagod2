@@ -1,14 +1,13 @@
 "use client"
 
-import { useEffect, useState, useRef, Suspense } from "react"
-import { useSearchParams } from "next/navigation"
+import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
-import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, CreditCard, Loader2 } from "lucide-react"
+import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 interface UssdShopCode {
@@ -32,10 +31,8 @@ interface ShopOrder {
   created_at: string
 }
 
-function UssdShopPageInner() {
+export default function UssdShopPage() {
   const { user } = useAuth()
-  const searchParams = useSearchParams()
-  const paymentHandled = useRef(false)
   const [shopCode, setShopCode] = useState<UssdShopCode | null>(null)
   const [dialCode, setDialCode] = useState("")
   const [orders, setOrders] = useState<ShopOrder[]>([])
@@ -55,33 +52,9 @@ function UssdShopPageInner() {
     loadData()
   }, [user])
 
-  useEffect(() => {
-    if (paymentHandled.current) return
-    const payment = searchParams.get("payment")
-    const reference = searchParams.get("reference")
-    if (!payment || !reference) return
-    paymentHandled.current = true
-
-    if (payment === "activation") {
-      toast.success("Activation payment received! Your shop code will be active shortly.")
-    } else if (payment === "sessions") {
-      toast.success("Session top-up payment received! Your sessions will be credited shortly.")
-    }
-
-    // Clear query params from URL without reload
-    const url = new URL(window.location.href)
-    url.searchParams.delete("payment")
-    url.searchParams.delete("reference")
-    window.history.replaceState({}, "", url.toString())
-
-    // Reload data after a short delay to let the webhook process
-    setTimeout(() => loadData(), 3000)
-  }, [searchParams])
-
   const loadData = async () => {
     setLoading(true)
     try {
-      // Find the user's shop
       const { data: shopRow } = await supabase
         .from("user_shops")
         .select("id")
@@ -90,7 +63,7 @@ function UssdShopPageInner() {
 
       if (!shopRow) { setLoading(false); return }
 
-      const [codeRes, settingsRes, ordersRes] = await Promise.all([
+      const [codeRes, settingsRes, ordersRes, walletRes] = await Promise.all([
         supabase
           .from("ussd_shop_codes")
           .select("id, code, status, token_balance, activation_fee_paid, created_at")
@@ -107,6 +80,11 @@ function UssdShopPageInner() {
           .eq("shop_id", shopRow.id)
           .order("created_at", { ascending: false })
           .limit(20),
+        supabase
+          .from("wallets")
+          .select("balance")
+          .eq("user_id", user!.id)
+          .maybeSingle(),
       ])
 
       setShopCode(codeRes.data ?? null)
@@ -116,38 +94,27 @@ function UssdShopPageInner() {
       setMinSessions(Number(settingsRes.data?.ussd_shop_min_sessions ?? 1))
       setMaxSessions(Number(settingsRes.data?.ussd_shop_max_sessions ?? 100))
       setOrders(ordersRes.data ?? [])
-
-      // Fetch wallet balance for activation payment
-      const { data: walletRow } = await supabase
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", user!.id)
-        .maybeSingle()
-      setWalletBalance(walletRow ? Number(walletRow.balance) : null)
-    } catch (e) {
+      setWalletBalance(walletRes.data ? Number(walletRes.data.balance) : null)
+    } catch {
       toast.error("Failed to load USSD data")
     } finally {
       setLoading(false)
     }
   }
 
-  const handleActivate = async (paymentMethod: 'wallet' | 'momo') => {
+  const handleActivate = async () => {
     setActivating(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch("/api/dashboard/ussd-shop/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ payment_method: paymentMethod }),
+        body: JSON.stringify({}),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? "Activation failed")
-      if (paymentMethod === 'wallet') {
-        toast.success("Shop code activated!")
-        await loadData()
-      } else if (json.authorizationUrl) {
-        window.location.href = json.authorizationUrl
-      }
+      toast.success("Shop code activated!")
+      await loadData()
     } catch (err: any) {
       toast.error(err.message ?? "Activation failed")
     } finally {
@@ -155,7 +122,7 @@ function UssdShopPageInner() {
     }
   }
 
-  const handleBuySessions = async (paymentMethod: 'wallet' | 'momo') => {
+  const handleBuySessions = async () => {
     const qty = parseInt(sessionQty)
     if (!qty || qty < minSessions || qty > maxSessions) {
       toast.error(`Enter a quantity between ${minSessions} and ${maxSessions}`)
@@ -167,17 +134,13 @@ function UssdShopPageInner() {
       const res = await fetch("/api/dashboard/ussd-shop/buy-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ sessions: qty, payment_method: paymentMethod }),
+        body: JSON.stringify({ sessions: qty }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? "Purchase failed")
-      if (paymentMethod === 'wallet') {
-        toast.success(`${qty} sessions added!`)
-        setSessionQty("")
-        await loadData()
-      } else if (json.authorizationUrl) {
-        window.location.href = json.authorizationUrl
-      }
+      toast.success(`${qty} sessions added!`)
+      setSessionQty("")
+      await loadData()
     } catch (err: any) {
       toast.error(err.message ?? "Purchase failed")
     } finally {
@@ -289,10 +252,10 @@ function UssdShopPageInner() {
                   </div>
                 </div>
 
-                {shopCode.token_balance === 0 && (
+                {shopCode.token_balance === 0 && shopCode.activation_fee_paid && (
                   <div className="mt-3 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>Your session tokens are depleted. Contact admin to top up so customers can access your shop.</span>
+                    <span>Your session tokens are depleted. Top up below so customers can access your shop.</span>
                   </div>
                 )}
 
@@ -310,29 +273,17 @@ function UssdShopPageInner() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        disabled={activating || (walletBalance !== null && walletBalance < activationFee)}
-                        onClick={() => handleActivate('wallet')}
-                        className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"
-                      >
-                        {activating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
-                        Pay with Wallet
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={activating}
-                        onClick={() => handleActivate('momo')}
-                        className="flex-1 border-yellow-300 text-yellow-800 hover:bg-yellow-100"
-                      >
-                        {activating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CreditCard className="w-3 h-3 mr-1" />}
-                        Pay with MoMo
-                      </Button>
-                    </div>
+                    <Button
+                      size="sm"
+                      disabled={activating || (walletBalance !== null && walletBalance < activationFee)}
+                      onClick={handleActivate}
+                      className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
+                    >
+                      {activating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
+                      Activate with Wallet
+                    </Button>
                     {walletBalance !== null && walletBalance < activationFee && activationFee > 0 && (
-                      <p className="text-xs text-red-600">Insufficient wallet balance. Use MoMo or top up your wallet first.</p>
+                      <p className="text-xs text-red-600">Insufficient wallet balance. Top up your wallet first.</p>
                     )}
                   </div>
                 )}
@@ -374,27 +325,15 @@ function UssdShopPageInner() {
                       </div>
                     )}
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      disabled={buyingSessions || (walletBalance !== null && walletBalance < sessionPrice * (parseInt(sessionQty) || 0))}
-                      onClick={() => handleBuySessions('wallet')}
-                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
-                    >
-                      {buyingSessions ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
-                      Wallet
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={buyingSessions}
-                      onClick={() => handleBuySessions('momo')}
-                      className="flex-1 border-indigo-300 text-indigo-800 hover:bg-indigo-100"
-                    >
-                      {buyingSessions ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CreditCard className="w-3 h-3 mr-1" />}
-                      MoMo
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    disabled={buyingSessions || !sessionQty || parseInt(sessionQty) < minSessions || (walletBalance !== null && walletBalance < sessionPrice * (parseInt(sessionQty) || 0))}
+                    onClick={handleBuySessions}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                  >
+                    {buyingSessions ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
+                    Buy with Wallet
+                  </Button>
                   {walletBalance !== null && (
                     <p className="text-xs text-gray-500">Wallet balance: GHS {walletBalance.toFixed(2)}</p>
                   )}
@@ -483,13 +422,5 @@ function UssdShopPageInner() {
         )}
       </div>
     </DashboardLayout>
-  )
-}
-
-export default function UssdShopPage() {
-  return (
-    <Suspense>
-      <UssdShopPageInner />
-    </Suspense>
   )
 }

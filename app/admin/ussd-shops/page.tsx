@@ -69,7 +69,7 @@ export default function AdminUssdShopsPage() {
   const [tokensTarget, setTokensTarget] = useState<ShopCode | null>(null)
   const [tokenQty, setTokenQty] = useState("10")
   const [tokenAmount, setTokenAmount] = useState("")
-  const [tokenMethod, setTokenMethod] = useState<"wallet" | "momo">("wallet")
+  const [tokenMethod] = useState<"wallet">("wallet")
   const [addingTokens, setAddingTokens] = useState(false)
 
   // USSD dial code setting
@@ -85,7 +85,7 @@ export default function AdminUssdShopsPage() {
   const [showActivate, setShowActivate] = useState(false)
   const [activateTarget, setActivateTarget] = useState<ShopCode | null>(null)
   const [activateAmount, setActivateAmount] = useState("")
-  const [activateMethod, setActivateMethod] = useState<"wallet" | "momo">("wallet")
+  const [activateMethod] = useState<"wallet">("wallet")
   const [activateTokens, setActivateTokens] = useState("0")
   const [activating, setActivating] = useState(false)
 
@@ -249,11 +249,7 @@ export default function AdminUssdShopsPage() {
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error ?? "Failed"); return }
-      if (tokenMethod === 'wallet') {
-        toast.success(`${tokenQty} tokens added. New balance: ${json.new_token_balance}`)
-      } else {
-        toast.success("MoMo prompt sent. Tokens will be added on payment.")
-      }
+      toast.success(`${tokenQty} tokens added. New balance: ${json.new_token_balance}`)
       setShowTokens(false)
       await loadAll()
     } finally { setAddingTokens(false) }
@@ -274,11 +270,7 @@ export default function AdminUssdShopsPage() {
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error ?? "Failed"); return }
-      if (activateMethod === 'wallet') {
-        toast.success(`Code ${activateTarget.code} activated!`)
-      } else {
-        toast.success("MoMo prompt sent to shop owner. Code will activate on payment.")
-      }
+      toast.success(`Code ${activateTarget.code} activated!`)
       setShowActivate(false)
       await loadAll()
     } finally { setActivating(false) }
@@ -659,19 +651,6 @@ export default function AdminUssdShopsPage() {
                 value={tokenAmount} onChange={e => setTokenAmount(e.target.value)}
               />
             </div>
-            <div className="space-y-1">
-              <Label>Payment Method</Label>
-              <div className="flex gap-2">
-                {(['wallet', 'momo'] as const).map(m => (
-                  <button key={m} onClick={() => setTokenMethod(m)}
-                    className={`flex-1 py-2 px-3 rounded-lg border-2 text-sm font-medium transition-colors capitalize ${
-                      tokenMethod === m ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300'
-                    }`}>
-                    {m === 'wallet' ? 'Wallet Deduction' : 'MoMo Charge'}
-                  </button>
-                ))}
-              </div>
-            </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowTokens(false)} className="flex-1">Cancel</Button>
               <Button onClick={handleAddTokens} disabled={addingTokens || !tokenAmount} className="flex-1">
@@ -702,19 +681,6 @@ export default function AdminUssdShopsPage() {
             <div className="space-y-1">
               <Label>Initial Tokens</Label>
               <Input type="number" min="0" value={activateTokens} onChange={e => setActivateTokens(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Payment Method</Label>
-              <div className="flex gap-2">
-                {(['wallet', 'momo'] as const).map(m => (
-                  <button key={m} onClick={() => setActivateMethod(m)}
-                    className={`flex-1 py-2 px-3 rounded-lg border-2 text-sm font-medium transition-colors capitalize ${
-                      activateMethod === m ? 'border-green-600 bg-green-600 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-green-300'
-                    }`}>
-                    {m === 'wallet' ? 'Wallet Deduction' : 'MoMo Charge'}
-                  </button>
-                ))}
-              </div>
             </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowActivate(false)} className="flex-1">Cancel</Button>
