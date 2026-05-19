@@ -68,8 +68,6 @@ export default function AdminUssdShopsPage() {
   const [showTokens, setShowTokens] = useState(false)
   const [tokensTarget, setTokensTarget] = useState<ShopCode | null>(null)
   const [tokenQty, setTokenQty] = useState("10")
-  const [tokenAmount, setTokenAmount] = useState("")
-  const [tokenMethod] = useState<"wallet">("wallet")
   const [addingTokens, setAddingTokens] = useState(false)
 
   // USSD dial code setting
@@ -241,11 +239,7 @@ export default function AdminUssdShopsPage() {
       const res = await fetch(`/api/admin/ussd-shops/${tokensTarget.id}/tokens`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...await authHeader() },
-        body: JSON.stringify({
-          tokens: parseInt(tokenQty),
-          amount: parseFloat(tokenAmount),
-          payment_method: tokenMethod,
-        }),
+        body: JSON.stringify({ tokens: parseInt(tokenQty) }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error ?? "Failed"); return }
@@ -644,16 +638,9 @@ export default function AdminUssdShopsPage() {
               <Label>Tokens to Add</Label>
               <Input type="number" min="1" value={tokenQty} onChange={e => setTokenQty(e.target.value)} />
             </div>
-            <div className="space-y-1">
-              <Label>Amount Paid (GHS)</Label>
-              <Input
-                type="number" min="0" step="0.01" placeholder="e.g. 50.00"
-                value={tokenAmount} onChange={e => setTokenAmount(e.target.value)}
-              />
-            </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowTokens(false)} className="flex-1">Cancel</Button>
-              <Button onClick={handleAddTokens} disabled={addingTokens || !tokenAmount} className="flex-1">
+              <Button onClick={handleAddTokens} disabled={addingTokens} className="flex-1">
                 {addingTokens ? "Processing..." : "Add Tokens"}
               </Button>
             </div>
