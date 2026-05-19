@@ -168,9 +168,10 @@ export default function UssdShopPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const statusBadge = (status: string) => {
-    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-green-200">Active</Badge>
+  const statusBadge = (status: string, tokenBalance: number) => {
     if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Suspended</Badge>
+    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-orange-100 text-orange-700 border-orange-200">No Sessions</Badge>
+    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-green-200">Active</Badge>
     return <Badge className="bg-gray-100 text-gray-600 border-gray-200">Inactive</Badge>
   }
 
@@ -224,7 +225,7 @@ export default function UssdShopPage() {
                     <Hash className="w-4 h-4" />
                     Your Shop Code
                   </span>
-                  {statusBadge(shopCode.status)}
+                  {statusBadge(shopCode.status, shopCode.token_balance)}
                 </CardTitle>
               </CardHeader>
               <CardContent>
