@@ -23,8 +23,19 @@ export function invalidCodeMenu(reason: string): string {
   return `${reason}\n\nEnter shop code:\n\n0. Exit`
 }
 
+const NETWORK_PRIORITY: Record<string, number> = { mtn: 1, telecel: 2, airteltigo: 3, 'at-ishare': 4 }
+
+export function sortNetworks(nets: string[]): string[] {
+  return [...nets].sort((a, b) => {
+    const pa = NETWORK_PRIORITY[a.toLowerCase()] ?? 99
+    const pb = NETWORK_PRIORITY[b.toLowerCase()] ?? 99
+    return pa !== pb ? pa - pb : a.localeCompare(b)
+  })
+}
+
 export function networkMenu(shopName: string, networks: string[]): string {
-  const lines = networks.map((n, i) => `${i + 1}. ${n}`)
+  const sorted = sortNetworks(networks)
+  const lines = sorted.map((n, i) => `${i + 1}. ${n}`)
   lines.push('0. Back')
   return `${shopName}\nSelect Network:\n` + lines.join('\n')
 }

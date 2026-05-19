@@ -1,7 +1,7 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDShopSession, ShopBundleOption } from "../types"
-import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentSentMenu, otpMenu } from "../menus"
+import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentSentMenu, otpMenu, sortNetworks } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
@@ -105,7 +105,7 @@ export async function handleSelectNetwork(
   sessionId: string,
   session: USSDShopSession
 ): Promise<UzoResponse> {
-  const networks = session.networks ?? []
+  const networks = sortNetworks(session.networks ?? [])
 
   if (input.trim() === '0') {
     await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone: session.dialingPhone })

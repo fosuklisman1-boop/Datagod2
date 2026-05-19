@@ -1,27 +1,12 @@
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse } from "../types"
-import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu } from "../menus"
+import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetworks } from "../menus"
 import { setSession } from "../session"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-const NETWORK_PRIORITY: Record<string, number> = {
-  mtn: 1,
-  telecel: 2,
-  airteltigo: 3,
-  'at-ishare': 4,
-}
-
-function sortNetworks(nets: string[]): string[] {
-  return [...nets].sort((a, b) => {
-    const pa = NETWORK_PRIORITY[a.toLowerCase()] ?? 99
-    const pb = NETWORK_PRIORITY[b.toLowerCase()] ?? 99
-    return pa !== pb ? pa - pb : a.localeCompare(b)
-  })
-}
 
 // ── ENTER_SHOP_CODE ───────────────────────────────────────────────────────────
 export async function handleEnterShopCode(
