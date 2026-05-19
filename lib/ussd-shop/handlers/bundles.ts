@@ -283,6 +283,18 @@ export async function handleConfirm(
     return end('Payment not available for this network. Contact the shop.')
   }
 
+  // Resolve customer email and shop owner email before inserting
+  const [customerEmail, shopOwnerRow] = await Promise.all([
+    resolveEmail(dialingPhone!).catch(() => null),
+    supabase
+      .from("user_shops")
+      .select("user_id, users!inner(email)")
+      .eq("id", shopId!)
+      .single()
+      .then(r => r.data),
+  ])
+  const shopOwnerEmail: string | null = (shopOwnerRow as any)?.users?.email ?? null
+
   // Create the order record
   const { data: order, error: orderError } = await supabase
     .from("ussd_shop_orders")
@@ -298,6 +310,9 @@ export async function handleConfirm(
       amount: verifiedPrice,
       shop_price: verifiedPrice,
       profit_amount: profitAmount,
+      shop_name: session.shopName ?? null,
+      customer_email: customerEmail ?? null,
+      shop_owner_email: shopOwnerEmail,
       order_status: 'pending',
       payment_status: 'pending',
     }])
@@ -311,7 +326,7 @@ export async function handleConfirm(
 
   const orderId = order.id
   const localDialing = formatLocal(dialingPhone!)
-  const email = await resolveEmail(dialingPhone!)
+  const email = customerEmail ?? await resolveEmail(dialingPhone!).catch(() => '')
 
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))

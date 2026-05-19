@@ -140,10 +140,10 @@ SELECT
     COALESCE(uso.paystack_reference, uso.id::text)              AS payment_reference,
     uso.package_size                                            AS volume_gb,
     'ussd_shop'                                                 AS type,
-    NULL::text                                                  AS customer_email,
-    us.shop_name                                                AS store_name,
-    us.user_id                                                  AS shop_owner_id,
-    u.email                                                     AS shop_owner_email
+    uso.customer_email                                          AS customer_email,
+    COALESCE(uso.shop_name, us.shop_name)                       AS store_name,
+    COALESCE(us.user_id, NULL)                                  AS shop_owner_id,
+    COALESCE(uso.shop_owner_email, u.email)                     AS shop_owner_email
 FROM ussd_shop_orders uso
 LEFT JOIN user_shops us ON uso.shop_id = us.id
 LEFT JOIN users u ON us.user_id = u.id
