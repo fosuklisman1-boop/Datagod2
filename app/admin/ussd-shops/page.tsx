@@ -100,7 +100,7 @@ export default function AdminUssdShopsPage() {
     await loadAll()
   }
 
-  const authHeader = async () => {
+  const authHeader = async (): Promise<Record<string, string>> => {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
   }
