@@ -21,25 +21,31 @@ const PAYSTACK_PROVIDER: Record<string, 'mtn' | 'vod' | 'tgo'> = {
   'AT-iShare':  'tgo',
 }
 
+function sizeToMb(size: string): number {
+  const m = size.match(/^(\d+(?:\.\d+)?)\s*(MB|GB|TB)$/i)
+  if (!m) return 0
+  const v = parseFloat(m[1])
+  switch (m[2].toUpperCase()) {
+    case 'MB': return v
+    case 'GB': return v * 1024
+    case 'TB': return v * 1024 * 1024
+    default: return 0
+  }
+}
+
 async function fetchShopBundles(
   shopId: string,
   network: string,
-  page: number,
   parentShopId?: string
-): Promise<{ bundles: ShopBundleOption[]; total: number }> {
+): Promise<ShopBundleOption[]> {
   if (parentShopId) {
-    const { data, count } = await supabase
+    const { data } = await supabase
       .from("sub_agent_catalog")
-      .select(
-        "wholesale_margin, sub_agent_profit_margin, packages!inner(id, size, price, network, active)",
-        { count: 'exact' }
-      )
+      .select("wholesale_margin, sub_agent_profit_margin, packages!inner(id, size, price, network, active)")
       .eq("shop_id", parentShopId)
       .eq("packages.network", network)
       .eq("packages.active", true)
       .eq("is_active", true)
-      .order("price", { foreignTable: "packages", ascending: true })
-      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
     const bundles: ShopBundleOption[] = (data ?? []).map((row: any) => ({
       id: row.packages.id,
@@ -47,21 +53,16 @@ async function fetchShopBundles(
       price: Number(row.packages.price) + Number(row.wholesale_margin) + Number(row.sub_agent_profit_margin),
     }))
 
-    return { bundles, total: count ?? 0 }
+    return bundles.sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
   }
 
-  const { data, count } = await supabase
+  const { data } = await supabase
     .from("shop_packages")
-    .select(
-      "profit_margin, packages!inner(id, size, price, network, active)",
-      { count: 'exact' }
-    )
+    .select("profit_margin, packages!inner(id, size, price, network, active)")
     .eq("shop_id", shopId)
     .eq("packages.network", network)
     .eq("packages.active", true)
     .eq("is_available", true)
-    .order("price", { foreignTable: "packages", ascending: true })
-    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
   const bundles: ShopBundleOption[] = (data ?? []).map((row: any) => ({
     id: row.packages.id,
@@ -69,7 +70,7 @@ async function fetchShopBundles(
     price: Number(row.packages.price) + Number(row.profit_margin),
   }))
 
-  return { bundles, total: count ?? 0 }
+  return bundles.sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
 }
 
 function formatLocal(phone: string): string {
@@ -100,9 +101,9 @@ export async function handleSelectNetwork(
 
   const paystackProvider = PAYSTACK_PROVIDER[selectedNetwork] ?? null
 
-  const { bundles, total } = await fetchShopBundles(session.shopId!, selectedNetwork, 0, session.parentShopId)
+  const allBundles = await fetchShopBundles(session.shopId!, selectedNetwork, session.parentShopId)
 
-  if (bundles.length === 0) {
+  if (allBundles.length === 0) {
     return cont(`No ${selectedNetwork} bundles available.\n\n${networkMenu(session.shopName!, networks)}`)
   }
 
@@ -112,11 +113,11 @@ export async function handleSelectNetwork(
     network: selectedNetwork,
     paystackProvider,
     bundlePage: 0,
-    bundleCache: bundles,
-    bundleTotal: total,
+    bundleCache: allBundles,
+    bundleTotal: allBundles.length,
   })
 
-  return cont(bundleMenu(session.shopName!, bundles, 0, total))
+  return cont(bundleMenu(session.shopName!, allBundles.slice(0, PAGE_SIZE), 0, allBundles.length))
 }
 
 // ── SELECT_BUNDLE ─────────────────────────────────────────────────────────────
@@ -126,28 +127,29 @@ export async function handleSelectBundle(
   session: USSDShopSession
 ): Promise<UzoResponse> {
   if (input.trim() === '0') {
-    await setSession(sessionId, { ...session, step: 'SELECT_NETWORK' })
+    await setSession(sessionId, { ...session, step: 'SELECT_NETWORK', bundlePage: 0 })
     return cont(networkMenu(session.shopName!, session.networks ?? []))
   }
 
   const page = session.bundlePage ?? 0
-  const bundles = session.bundleCache ?? []
-  const total = session.bundleTotal ?? bundles.length
+  const allBundles = session.bundleCache ?? []
+  const total = session.bundleTotal ?? allBundles.length
   const offset = page * PAGE_SIZE
+  const pageSlice = allBundles.slice(offset, offset + PAGE_SIZE)
 
-  const moreIndex = offset + bundles.length + 1
+  const moreIndex = offset + pageSlice.length + 1
   const chosen = parseInt(input.trim(), 10)
 
-  if (chosen === moreIndex && offset + bundles.length < total) {
+  if (chosen === moreIndex && offset + pageSlice.length < total) {
     const nextPage = page + 1
-    const { bundles: nextBundles, total: newTotal } = await fetchShopBundles(session.shopId!, session.network!, nextPage, session.parentShopId)
-    await setSession(sessionId, { ...session, bundlePage: nextPage, bundleCache: nextBundles, bundleTotal: newTotal })
-    return cont(bundleMenu(session.shopName!, nextBundles, nextPage, newTotal))
+    const nextSlice = allBundles.slice(nextPage * PAGE_SIZE, (nextPage + 1) * PAGE_SIZE)
+    await setSession(sessionId, { ...session, bundlePage: nextPage })
+    return cont(bundleMenu(session.shopName!, nextSlice, nextPage, total))
   }
 
   const bundleIndex = chosen - offset - 1
-  const selected = bundles[bundleIndex]
-  if (!selected) return cont(bundleMenu(session.shopName!, bundles, page, total))
+  const selected = allBundles[bundleIndex]
+  if (!selected) return cont(bundleMenu(session.shopName!, pageSlice, page, total))
 
   await setSession(sessionId, {
     ...session,
@@ -168,7 +170,9 @@ export async function handleEnterRecipient(
 ): Promise<UzoResponse> {
   if (input.trim() === '0') {
     await setSession(sessionId, { ...session, step: 'SELECT_BUNDLE' })
-    return cont(bundleMenu(session.shopName!, session.bundleCache ?? [], session.bundlePage ?? 0, session.bundleTotal ?? 0))
+    const pg = session.bundlePage ?? 0
+    const all = session.bundleCache ?? []
+    return cont(bundleMenu(session.shopName!, all.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE), pg, session.bundleTotal ?? all.length))
   }
 
   const raw = input.trim().replace(/\s+/g, '')
