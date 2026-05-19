@@ -59,15 +59,29 @@ export async function POST(request: NextRequest) {
         hasMetadata: !!metadata
       })
 
-      // Handle USSD shop token purchases (MoMo) — reference IS the purchase UUID
-      const { data: shopTokenPurchase } = await supabase
+      // Handle USSD shop token purchases (MoMo) — reference IS the purchase UUID.
+      // Check metadata fallback too in case Paystack transforms the reference.
+      const shopTokenPurchaseId: string | undefined =
+        (typeof metadata === 'object' && metadata?.ussd_shop_token_purchase_id) || undefined
+
+      const { data: shopTokenPurchase, error: stpErr } = await supabase
         .from("ussd_shop_token_purchases")
         .select("id, shop_code_id, shop_id, tokens_purchased, amount_paid, payment_status, is_activation")
-        .eq("id", reference)
+        .or(`id.eq.${reference}${shopTokenPurchaseId && shopTokenPurchaseId !== reference ? `,id.eq.${shopTokenPurchaseId}` : ''}`)
         .maybeSingle()
 
-      if (shopTokenPurchase && shopTokenPurchase.payment_status === 'pending') {
-        console.log("[WEBHOOK] Processing USSD shop token purchase:", shopTokenPurchase.id)
+      if (stpErr) {
+        console.warn("[WEBHOOK] ussd_shop_token_purchases lookup error (table may not exist):", stpErr.message)
+      }
+
+      if (shopTokenPurchase) {
+        // This is a USSD shop payment — never fall through to wallet_payments
+        if (shopTokenPurchase.payment_status !== 'pending') {
+          console.log("[WEBHOOK] USSD shop token purchase already processed:", shopTokenPurchase.id, "status:", shopTokenPurchase.payment_status)
+          return NextResponse.json({ received: true })
+        }
+
+        console.log("[WEBHOOK] Processing USSD shop token purchase:", shopTokenPurchase.id, "is_activation:", shopTokenPurchase.is_activation)
 
         await supabase
           .from("ussd_shop_token_purchases")
@@ -75,8 +89,7 @@ export async function POST(request: NextRequest) {
           .eq("id", shopTokenPurchase.id)
 
         if (shopTokenPurchase.is_activation) {
-          // Activate the shop code
-          await supabase
+          const { error: activateErr } = await supabase
             .from("ussd_shop_codes")
             .update({
               status: 'active',
@@ -86,17 +99,18 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", shopTokenPurchase.shop_code_id)
-          console.log("[WEBHOOK] ✓ USSD shop code activated:", shopTokenPurchase.shop_code_id)
+          if (activateErr) console.error("[WEBHOOK] Failed to activate shop code:", activateErr)
+          else console.log("[WEBHOOK] ✓ USSD shop code activated:", shopTokenPurchase.shop_code_id)
         } else {
-          // Credit tokens to shop code
           const { data: codeRow } = await supabase
             .from("ussd_shop_codes").select("token_balance").eq("id", shopTokenPurchase.shop_code_id).single()
           if (codeRow) {
-            await supabase
+            const { error: creditErr } = await supabase
               .from("ussd_shop_codes")
               .update({ token_balance: codeRow.token_balance + shopTokenPurchase.tokens_purchased, updated_at: new Date().toISOString() })
               .eq("id", shopTokenPurchase.shop_code_id)
-            console.log("[WEBHOOK] ✓ USSD shop tokens credited:", shopTokenPurchase.tokens_purchased, "to code:", shopTokenPurchase.shop_code_id)
+            if (creditErr) console.error("[WEBHOOK] Failed to credit tokens:", creditErr)
+            else console.log("[WEBHOOK] ✓ USSD shop tokens credited:", shopTokenPurchase.tokens_purchased, "to code:", shopTokenPurchase.shop_code_id)
           }
         }
 
