@@ -24,7 +24,7 @@ BEGIN
   END LOOP;
 
   INSERT INTO ussd_shop_codes (shop_id, code, status, token_balance, activation_fee_paid)
-  VALUES (NEW.id, new_code, 'active', 0, true);
+  VALUES (NEW.id, new_code, 'inactive', 0, false);
 
   RETURN NEW;
 END;
@@ -62,7 +62,7 @@ BEGIN
 
     IF new_code IS NOT NULL THEN
       INSERT INTO ussd_shop_codes (shop_id, code, status, token_balance, activation_fee_paid)
-      VALUES (shop_rec.id, new_code, 'active', 0, true);
+      VALUES (shop_rec.id, new_code, 'inactive', 0, false);
     END IF;
   END LOOP;
 END;
