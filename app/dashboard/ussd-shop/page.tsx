@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
-import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle } from "lucide-react"
+import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, CreditCard, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 interface UssdShopCode {
@@ -38,6 +38,9 @@ export default function UssdShopPage() {
   const [orders, setOrders] = useState<ShopOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [activationFee, setActivationFee] = useState(0)
+  const [walletBalance, setWalletBalance] = useState<number | null>(null)
+  const [activating, setActivating] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -64,7 +67,7 @@ export default function UssdShopPage() {
           .maybeSingle(),
         supabase
           .from("app_settings")
-          .select("ussd_shop_dial_code")
+          .select("ussd_shop_dial_code, ussd_shop_activation_fee")
           .limit(1)
           .maybeSingle(),
         supabase
@@ -77,11 +80,44 @@ export default function UssdShopPage() {
 
       setShopCode(codeRes.data ?? null)
       setDialCode(settingsRes.data?.ussd_shop_dial_code ?? "")
+      setActivationFee(Number(settingsRes.data?.ussd_shop_activation_fee ?? 0))
       setOrders(ordersRes.data ?? [])
+
+      // Fetch wallet balance for activation payment
+      const { data: walletRow } = await supabase
+        .from("wallets")
+        .select("balance")
+        .eq("user_id", user!.id)
+        .maybeSingle()
+      setWalletBalance(walletRow ? Number(walletRow.balance) : null)
     } catch (e) {
       toast.error("Failed to load USSD data")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleActivate = async (paymentMethod: 'wallet' | 'momo') => {
+    setActivating(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/dashboard/ussd-shop/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ payment_method: paymentMethod }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? "Activation failed")
+      if (paymentMethod === 'wallet') {
+        toast.success("Shop code activated!")
+        await loadData()
+      } else {
+        toast.success("MoMo prompt sent. Your code will activate on payment confirmation.")
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? "Activation failed")
+    } finally {
+      setActivating(false)
     }
   }
 
@@ -196,9 +232,43 @@ export default function UssdShopPage() {
                 )}
 
                 {!shopCode.activation_fee_paid && (
-                  <div className="mt-3 flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-yellow-700">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>Your shop code is not yet activated. Contact admin to complete the one-time activation payment.</span>
+                  <div className="mt-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg space-y-3">
+                    <div className="flex items-start gap-2 text-sm text-yellow-800">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium">Activation required</p>
+                        <p className="text-yellow-700 mt-0.5">
+                          One-time fee: <strong>GHS {activationFee.toFixed(2)}</strong>
+                          {walletBalance !== null && (
+                            <span className="ml-2 text-gray-500">· Wallet: GHS {walletBalance.toFixed(2)}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={activating || (walletBalance !== null && walletBalance < activationFee)}
+                        onClick={() => handleActivate('wallet')}
+                        className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"
+                      >
+                        {activating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
+                        Pay with Wallet
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={activating}
+                        onClick={() => handleActivate('momo')}
+                        className="flex-1 border-yellow-300 text-yellow-800 hover:bg-yellow-100"
+                      >
+                        {activating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CreditCard className="w-3 h-3 mr-1" />}
+                        Pay with MoMo
+                      </Button>
+                    </div>
+                    {walletBalance !== null && walletBalance < activationFee && activationFee > 0 && (
+                      <p className="text-xs text-red-600">Insufficient wallet balance. Use MoMo or top up your wallet first.</p>
+                    )}
                   </div>
                 )}
               </CardContent>

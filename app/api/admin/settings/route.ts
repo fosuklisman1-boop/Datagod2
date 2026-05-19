@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
           upgrades_enabled: true,
           terms_content: "",
           ussd_price_tier: "regular",
+          ussd_shop_activation_fee: 0,
         }])
         .select()
         .single()
@@ -137,6 +138,7 @@ export async function PUT(request: NextRequest) {
       'terms_content',
       'ussd_price_tier',
       'ussd_shop_dial_code',
+      'ussd_shop_activation_fee',
     ]
 
     // Auto-stamp terms_last_updated when terms_content changes
@@ -243,6 +245,7 @@ export async function PUT(request: NextRequest) {
         terms_content: "",
         terms_last_updated: null,
         ussd_price_tier: "regular",
+        ussd_shop_activation_fee: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
