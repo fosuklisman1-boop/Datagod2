@@ -8,16 +8,18 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const NETWORK_ORDER = ['MTN', 'Telecel', 'AirtelTigo', 'AT-iShare']
+const NETWORK_PRIORITY: Record<string, number> = {
+  mtn: 1,
+  telecel: 2,
+  airteltigo: 3,
+  'at-ishare': 4,
+}
 
 function sortNetworks(nets: string[]): string[] {
   return [...nets].sort((a, b) => {
-    const ia = NETWORK_ORDER.indexOf(a)
-    const ib = NETWORK_ORDER.indexOf(b)
-    if (ia !== -1 && ib !== -1) return ia - ib
-    if (ia !== -1) return -1
-    if (ib !== -1) return 1
-    return a.localeCompare(b)
+    const pa = NETWORK_PRIORITY[a.toLowerCase()] ?? 99
+    const pb = NETWORK_PRIORITY[b.toLowerCase()] ?? 99
+    return pa !== pb ? pa - pb : a.localeCompare(b)
   })
 }
 
