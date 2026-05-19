@@ -1,0 +1,4 @@
+ALTER TABLE app_settings
+  ADD COLUMN IF NOT EXISTS ussd_shop_session_price DECIMAL(10,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS ussd_shop_min_sessions  INTEGER NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS ussd_shop_max_sessions  INTEGER NOT NULL DEFAULT 100;

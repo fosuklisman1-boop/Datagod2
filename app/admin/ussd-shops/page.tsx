@@ -75,6 +75,10 @@ export default function AdminUssdShopsPage() {
   // USSD dial code setting
   const [dialCode, setDialCode] = useState("")
   const [savingDialCode, setSavingDialCode] = useState(false)
+  const [sessionPrice, setSessionPrice] = useState("")
+  const [minSessions, setMinSessions] = useState("")
+  const [maxSessions, setMaxSessions] = useState("")
+  const [savingSessionSettings, setSavingSessionSettings] = useState(false)
 
   // Activate modal
   const [showActivate, setShowActivate] = useState(false)
@@ -121,6 +125,9 @@ export default function AdminUssdShopsPage() {
       if (settingsRes.ok) {
         const settingsJson = await settingsRes.json()
         setDialCode(settingsJson.ussd_shop_dial_code ?? "")
+        setSessionPrice(String(settingsJson.ussd_shop_session_price ?? ""))
+        setMinSessions(String(settingsJson.ussd_shop_min_sessions ?? "1"))
+        setMaxSessions(String(settingsJson.ussd_shop_max_sessions ?? "100"))
       }
 
       // Load recent orders
@@ -151,6 +158,27 @@ export default function AdminUssdShopsPage() {
       toast.error("Failed to save dial code")
     } finally {
       setSavingDialCode(false)
+    }
+  }
+
+  const handleSaveSessionSettings = async () => {
+    setSavingSessionSettings(true)
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...await authHeader() },
+        body: JSON.stringify({
+          ussd_shop_session_price: parseFloat(sessionPrice) || 0,
+          ussd_shop_min_sessions: parseInt(minSessions) || 1,
+          ussd_shop_max_sessions: parseInt(maxSessions) || 100,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      toast.success("Session settings saved")
+    } catch {
+      toast.error("Failed to save session settings")
+    } finally {
+      setSavingSessionSettings(false)
     }
   }
 
@@ -297,15 +325,17 @@ export default function AdminUssdShopsPage() {
           </div>
         </div>
 
-        {/* USSD Dial Code Setting */}
+        {/* USSD Settings */}
         <Card className="mb-6 border-blue-200 bg-blue-50">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-2">
               <Settings2 className="w-4 h-4" />
-              USSD Dial Code
+              USSD Storefront Settings
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-5">
+
+            {/* Dial Code */}
             <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
               <div className="flex-1 space-y-1">
                 <Label className="text-xs text-blue-700">Dial Code (shown to shop owners)</Label>
@@ -315,9 +345,7 @@ export default function AdminUssdShopsPage() {
                   onChange={e => setDialCode(e.target.value)}
                   className="bg-white border-blue-200 font-mono"
                 />
-                <p className="text-xs text-blue-600">
-                  This is the USSD shortcode customers dial. It will appear on every shop owner's USSD page with usage instructions.
-                </p>
+                <p className="text-xs text-blue-600">Customers dial this code to access any shop's storefront.</p>
               </div>
               <Button
                 size="sm"
@@ -329,6 +357,64 @@ export default function AdminUssdShopsPage() {
                 {savingDialCode ? "Saving..." : "Save"}
               </Button>
             </div>
+
+            <div className="border-t border-blue-200" />
+
+            {/* Session Settings */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Session Purchase Settings</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-blue-700">Price per Session (GHS)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 0.50"
+                    value={sessionPrice}
+                    onChange={e => setSessionPrice(e.target.value)}
+                    className="bg-white border-blue-200"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-blue-700">Minimum Purchase</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 10"
+                    value={minSessions}
+                    onChange={e => setMinSessions(e.target.value)}
+                    className="bg-white border-blue-200"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-blue-700">Maximum Purchase</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 500"
+                    value={maxSessions}
+                    onChange={e => setMaxSessions(e.target.value)}
+                    className="bg-white border-blue-200"
+                  />
+                </div>
+              </div>
+              {sessionPrice && minSessions && maxSessions && (
+                <p className="text-xs text-blue-600">
+                  Shop owners can buy between {minSessions}–{maxSessions} sessions at GHS {parseFloat(sessionPrice || "0").toFixed(2)} each.
+                </p>
+              )}
+              <Button
+                size="sm"
+                onClick={handleSaveSessionSettings}
+                disabled={savingSessionSettings}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Save className="w-3 h-3 mr-1" />
+                {savingSessionSettings ? "Saving..." : "Save Session Settings"}
+              </Button>
+            </div>
+
           </CardContent>
         </Card>
 

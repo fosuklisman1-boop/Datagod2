@@ -39,8 +39,13 @@ export default function UssdShopPage() {
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   const [activationFee, setActivationFee] = useState(0)
+  const [sessionPrice, setSessionPrice] = useState(0)
+  const [minSessions, setMinSessions] = useState(1)
+  const [maxSessions, setMaxSessions] = useState(100)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [activating, setActivating] = useState(false)
+  const [sessionQty, setSessionQty] = useState("")
+  const [buyingSessions, setBuyingSessions] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -67,7 +72,7 @@ export default function UssdShopPage() {
           .maybeSingle(),
         supabase
           .from("app_settings")
-          .select("ussd_shop_dial_code, ussd_shop_activation_fee")
+          .select("ussd_shop_dial_code, ussd_shop_activation_fee, ussd_shop_session_price, ussd_shop_min_sessions, ussd_shop_max_sessions")
           .limit(1)
           .maybeSingle(),
         supabase
@@ -81,6 +86,9 @@ export default function UssdShopPage() {
       setShopCode(codeRes.data ?? null)
       setDialCode(settingsRes.data?.ussd_shop_dial_code ?? "")
       setActivationFee(Number(settingsRes.data?.ussd_shop_activation_fee ?? 0))
+      setSessionPrice(Number(settingsRes.data?.ussd_shop_session_price ?? 0))
+      setMinSessions(Number(settingsRes.data?.ussd_shop_min_sessions ?? 1))
+      setMaxSessions(Number(settingsRes.data?.ussd_shop_max_sessions ?? 100))
       setOrders(ordersRes.data ?? [])
 
       // Fetch wallet balance for activation payment
@@ -118,6 +126,37 @@ export default function UssdShopPage() {
       toast.error(err.message ?? "Activation failed")
     } finally {
       setActivating(false)
+    }
+  }
+
+  const handleBuySessions = async (paymentMethod: 'wallet' | 'momo') => {
+    const qty = parseInt(sessionQty)
+    if (!qty || qty < minSessions || qty > maxSessions) {
+      toast.error(`Enter a quantity between ${minSessions} and ${maxSessions}`)
+      return
+    }
+    setBuyingSessions(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/dashboard/ussd-shop/buy-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ sessions: qty, payment_method: paymentMethod }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? "Purchase failed")
+      if (paymentMethod === 'wallet') {
+        toast.success(`${qty} sessions added!`)
+        setSessionQty("")
+        await loadData()
+      } else {
+        toast.success(json.message ?? "MoMo prompt sent.")
+        setSessionQty("")
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? "Purchase failed")
+    } finally {
+      setBuyingSessions(false)
     }
   }
 
@@ -273,6 +312,69 @@ export default function UssdShopPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Buy Sessions */}
+            {shopCode.activation_fee_paid && (
+              <Card className="border-indigo-200 bg-indigo-50">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base text-indigo-800 flex items-center gap-2">
+                    <Coins className="w-4 h-4" />
+                    Buy Sessions
+                  </CardTitle>
+                  <CardDescription className="text-indigo-600">
+                    Each session = one customer entering your shop code.
+                    {sessionPrice > 0 && ` GHS ${sessionPrice.toFixed(2)} per session.`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs text-indigo-700">
+                        Number of sessions ({minSessions}–{maxSessions})
+                      </label>
+                      <input
+                        type="number"
+                        min={minSessions}
+                        max={maxSessions}
+                        placeholder={`Min ${minSessions}`}
+                        value={sessionQty}
+                        onChange={e => setSessionQty(e.target.value)}
+                        className="w-full border border-indigo-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      />
+                    </div>
+                    {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (
+                      <div className="text-sm text-indigo-700 font-medium pb-2 shrink-0">
+                        = GHS {(sessionPrice * (parseInt(sessionQty) || 0)).toFixed(2)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={buyingSessions || (walletBalance !== null && walletBalance < sessionPrice * (parseInt(sessionQty) || 0))}
+                      onClick={() => handleBuySessions('wallet')}
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
+                    >
+                      {buyingSessions ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
+                      Wallet
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={buyingSessions}
+                      onClick={() => handleBuySessions('momo')}
+                      className="flex-1 border-indigo-300 text-indigo-800 hover:bg-indigo-100"
+                    >
+                      {buyingSessions ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CreditCard className="w-3 h-3 mr-1" />}
+                      MoMo
+                    </Button>
+                  </div>
+                  {walletBalance !== null && (
+                    <p className="text-xs text-gray-500">Wallet balance: GHS {walletBalance.toFixed(2)}</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* How It Works */}
             {dialCode && (

@@ -52,6 +52,9 @@ export async function GET(request: NextRequest) {
           terms_content: "",
           ussd_price_tier: "regular",
           ussd_shop_activation_fee: 0,
+          ussd_shop_session_price: 0,
+          ussd_shop_min_sessions: 1,
+          ussd_shop_max_sessions: 100,
         }])
         .select()
         .single()
@@ -139,6 +142,9 @@ export async function PUT(request: NextRequest) {
       'ussd_price_tier',
       'ussd_shop_dial_code',
       'ussd_shop_activation_fee',
+      'ussd_shop_session_price',
+      'ussd_shop_min_sessions',
+      'ussd_shop_max_sessions',
     ]
 
     // Auto-stamp terms_last_updated when terms_content changes
@@ -246,6 +252,9 @@ export async function PUT(request: NextRequest) {
         terms_last_updated: null,
         ussd_price_tier: "regular",
         ussd_shop_activation_fee: 0,
+        ussd_shop_session_price: 0,
+        ussd_shop_min_sessions: 1,
+        ussd_shop_max_sessions: 100,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
