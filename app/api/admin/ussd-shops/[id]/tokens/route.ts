@@ -125,6 +125,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Failed to create purchase record" }, { status: 500 })
   }
 
+  await supabase.from("wallet_payments").insert([{
+    user_id: shopOwnerId,
+    order_id: purchase.id,
+    order_type: 'ussd_shop_token',
+    amount,
+    fee: 0,
+    reference: paystackRef,
+    status: 'pending',
+    payment_method: 'momo',
+    created_at: new Date().toISOString(),
+  }])
+
   const email = await resolveEmail(ownerRow.phone_number)
 
   try {
@@ -143,6 +155,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     })
   } catch (err: any) {
     await supabase.from("ussd_shop_token_purchases").update({ payment_status: 'failed' }).eq("id", purchase.id)
+    await supabase.from("wallet_payments").update({ status: 'failed' }).eq("reference", paystackRef)
     return NextResponse.json({ error: err.message ?? "MoMo charge failed" }, { status: 502 })
   }
 

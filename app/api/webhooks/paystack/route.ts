@@ -79,10 +79,16 @@ export async function POST(request: NextRequest) {
 
         console.log("[WEBHOOK] Processing USSD shop token purchase:", shopTokenPurchase.id, "is_activation:", shopTokenPurchase.is_activation)
 
-        await supabase
+        const { error: statusErr } = await supabase
           .from("ussd_shop_token_purchases")
           .update({ payment_status: 'completed', updated_at: new Date().toISOString() })
           .eq("id", shopTokenPurchase.id)
+
+        if (statusErr) {
+          console.error("[WEBHOOK] Failed to update purchase payment_status:", statusErr)
+          return NextResponse.json({ error: "DB update failed" }, { status: 500 })
+        }
+        console.log("[WEBHOOK] ✓ purchase payment_status set to completed")
 
         if (shopTokenPurchase.is_activation) {
           const { error: activateErr } = await supabase
@@ -385,6 +391,8 @@ export async function POST(request: NextRequest) {
       const isDealerUpgrade = (metadata?.type === "dealer_upgrade") || (paymentData.order_type === "dealer_upgrade")
       const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
       const isResultsChecker = (paymentData.order_type === "results_checker") || (metadata?.orderType === "results_checker")
+      const isUssdShopActivation = paymentData.order_type === "ussd_shop_activation"
+      const isUssdShopToken = paymentData.order_type === "ussd_shop_token"
       // CRITICAL SECURITY CHECK: Re-verify price
       const paidAmountPesewas = Math.round(amount)
       let expectedAmountGHS = Number(paymentData.amount)
@@ -423,6 +431,8 @@ export async function POST(request: NextRequest) {
           if (rcOrder) {
             verifiedTotalPrice = Number(rcOrder.total_paid)
           }
+        } else if (isUssdShopActivation || isUssdShopToken) {
+          // amount is set explicitly at charge time — no separate order record to verify against
         } else {
           const { data: shopOrder } = await supabase
             .from("shop_orders")
@@ -474,6 +484,64 @@ export async function POST(request: NextRequest) {
           .eq("reference", reference)
       } catch (err) {
         console.warn("[WEBHOOK] Failed to update payment_attempts:", err)
+      }
+
+      // Handle USSD shop activation / token purchases
+      if (isUssdShopActivation || isUssdShopToken) {
+        const { data: purchase } = await supabase
+          .from("ussd_shop_token_purchases")
+          .select("id, shop_code_id, tokens_purchased, payment_status")
+          .eq("id", paymentData.order_id)
+          .single()
+
+        if (!purchase) {
+          console.error("[WEBHOOK] ussd_shop_token_purchases record not found:", paymentData.order_id)
+          return NextResponse.json({ received: true })
+        }
+
+        if (purchase.payment_status !== 'pending') {
+          console.log("[WEBHOOK] USSD shop purchase already processed:", purchase.id)
+          return NextResponse.json({ received: true })
+        }
+
+        const { error: purchaseUpdateErr } = await supabase
+          .from("ussd_shop_token_purchases")
+          .update({ payment_status: 'completed', updated_at: new Date().toISOString() })
+          .eq("id", purchase.id)
+
+        if (purchaseUpdateErr) {
+          console.error("[WEBHOOK] Failed to update ussd_shop_token_purchases:", purchaseUpdateErr)
+        } else {
+          console.log("[WEBHOOK] ✓ purchase payment_status set to completed")
+        }
+
+        if (isUssdShopActivation) {
+          const { error: activateErr } = await supabase
+            .from("ussd_shop_codes")
+            .update({
+              status: 'active',
+              activation_fee_paid: true,
+              activation_paid_at: new Date().toISOString(),
+              token_balance: purchase.tokens_purchased,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", purchase.shop_code_id)
+          if (activateErr) console.error("[WEBHOOK] Failed to activate shop code:", activateErr)
+          else console.log("[WEBHOOK] ✓ USSD shop code activated:", purchase.shop_code_id)
+        } else {
+          const { data: codeRow } = await supabase
+            .from("ussd_shop_codes").select("token_balance").eq("id", purchase.shop_code_id).single()
+          if (codeRow) {
+            const { error: creditErr } = await supabase
+              .from("ussd_shop_codes")
+              .update({ token_balance: codeRow.token_balance + purchase.tokens_purchased, updated_at: new Date().toISOString() })
+              .eq("id", purchase.shop_code_id)
+            if (creditErr) console.error("[WEBHOOK] Failed to credit tokens:", creditErr)
+            else console.log("[WEBHOOK] ✓ USSD shop tokens credited:", purchase.tokens_purchased)
+          }
+        }
+
+        return NextResponse.json({ received: true })
       }
 
       // 1. Handle Shop Orders and Airtime
@@ -746,6 +814,23 @@ export async function POST(request: NextRequest) {
       }
     } else if (event.event === "charge.failed") {
       const { reference, gateway_response } = event.data
+
+      // Handle failed USSD shop token/activation charges
+      try {
+        const { data: failedPurchase } = await supabase
+          .from("wallet_payments")
+          .select("id, order_id, order_type")
+          .eq("reference", reference)
+          .in("order_type", ["ussd_shop_activation", "ussd_shop_token"])
+          .maybeSingle()
+        if (failedPurchase) {
+          await supabase.from("wallet_payments").update({ status: 'failed', updated_at: new Date().toISOString() }).eq("id", failedPurchase.id)
+          await supabase.from("ussd_shop_token_purchases").update({ payment_status: 'failed', updated_at: new Date().toISOString() }).eq("id", failedPurchase.order_id)
+          console.log("[WEBHOOK] USSD shop purchase marked failed:", failedPurchase.order_id)
+        }
+      } catch (e) {
+        console.warn("[WEBHOOK] Failed to mark USSD shop purchase failed:", e)
+      }
 
       // Handle failed USSD charges — look up by id since reference IS the ussd_order UUID
       try {

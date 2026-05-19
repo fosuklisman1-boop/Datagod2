@@ -137,6 +137,19 @@ export async function POST(request: NextRequest) {
 
   if (!purchase) return NextResponse.json({ error: "Failed to create payment record" }, { status: 500 })
 
+  // Create wallet_payments record so the webhook can find it via the standard flow
+  await supabase.from("wallet_payments").insert([{
+    user_id: user.id,
+    order_id: purchase.id,
+    order_type: 'ussd_shop_token',
+    amount: totalAmount,
+    fee: 0,
+    reference: paystackRef,
+    status: 'pending',
+    payment_method: 'momo',
+    created_at: new Date().toISOString(),
+  }])
+
   const email = await resolveEmail(chargePhone)
 
   try {
@@ -155,6 +168,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (err: any) {
     await supabase.from("ussd_shop_token_purchases").update({ payment_status: 'failed' }).eq("id", purchase.id)
+    await supabase.from("wallet_payments").update({ status: 'failed' }).eq("reference", paystackRef)
     return NextResponse.json({ error: err.message ?? "MoMo charge failed" }, { status: 502 })
   }
 
