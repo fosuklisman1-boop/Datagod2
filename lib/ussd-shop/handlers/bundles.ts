@@ -38,7 +38,7 @@ async function fetchShopBundles(
       .eq("packages.network", network)
       .eq("packages.active", true)
       .eq("is_active", true)
-      .order("packages.price", { ascending: true })
+      .order("price", { foreignTable: "packages", ascending: true })
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
     const bundles: ShopBundleOption[] = (data ?? []).map((row: any) => ({
@@ -60,7 +60,7 @@ async function fetchShopBundles(
     .eq("packages.network", network)
     .eq("packages.active", true)
     .eq("is_available", true)
-    .order("packages.price", { ascending: true })
+    .order("price", { foreignTable: "packages", ascending: true })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
   const bundles: ShopBundleOption[] = (data ?? []).map((row: any) => ({
@@ -98,10 +98,7 @@ export async function handleSelectNetwork(
     return cont(networkMenu(session.shopName!, networks))
   }
 
-  const paystackProvider = PAYSTACK_PROVIDER[selectedNetwork]
-  if (!paystackProvider) {
-    return cont(networkMenu(session.shopName!, networks))
-  }
+  const paystackProvider = PAYSTACK_PROVIDER[selectedNetwork] ?? null
 
   const { bundles, total } = await fetchShopBundles(session.shopId!, selectedNetwork, 0, session.parentShopId)
 
@@ -256,6 +253,10 @@ export async function handleConfirm(
 
   if (Math.abs(verifiedPrice - bundlePrice!) > 0.01) {
     return end(`Price changed to GHS ${verifiedPrice.toFixed(2)}. Please restart.`)
+  }
+
+  if (!paystackProvider) {
+    return end('Payment not available for this network. Contact the shop.')
   }
 
   // Create the order record
