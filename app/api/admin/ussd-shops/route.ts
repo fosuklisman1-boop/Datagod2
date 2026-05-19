@@ -73,8 +73,10 @@ export async function POST(request: NextRequest) {
   // Auto-generate a unique 4-digit code if not provided
   let finalCode = code?.trim()
   if (!finalCode) {
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const candidate = String(Math.floor(1000 + Math.random() * 9000))
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const candidate = attempt < 10
+        ? String(Math.floor(1000 + Math.random() * 9000))
+        : String(Math.floor(100000 + Math.random() * 900000))
       const { data: existing } = await supabase
         .from("ussd_shop_codes").select("id").eq("code", candidate).maybeSingle()
       if (!existing) { finalCode = candidate; break }

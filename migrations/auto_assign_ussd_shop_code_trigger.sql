@@ -14,11 +14,16 @@ BEGIN
   END IF;
 
   LOOP
-    new_code := LPAD(FLOOR(1000 + random() * 9000)::TEXT, 4, '0');
+    -- Use 4-digit codes; switch to 6-digit after 10 failed attempts (4-digit space exhausted)
+    IF attempts < 10 THEN
+      new_code := LPAD(FLOOR(1000 + random() * 9000)::TEXT, 4, '0');
+    ELSE
+      new_code := LPAD(FLOOR(100000 + random() * 900000)::TEXT, 6, '0');
+    END IF;
     EXIT WHEN NOT EXISTS (SELECT 1 FROM ussd_shop_codes WHERE code = new_code);
     attempts := attempts + 1;
-    IF attempts >= 20 THEN
-      RAISE WARNING 'auto_assign_ussd_shop_code: could not generate unique code for shop % after 20 attempts', NEW.id;
+    IF attempts >= 30 THEN
+      RAISE WARNING 'auto_assign_ussd_shop_code: could not generate unique code for shop % after 30 attempts', NEW.id;
       RETURN NEW;
     END IF;
   END LOOP;
@@ -50,10 +55,14 @@ BEGIN
     attempts := 0;
     new_code := NULL;
     LOOP
-      new_code := LPAD(FLOOR(1000 + random() * 9000)::TEXT, 4, '0');
+      IF attempts < 10 THEN
+        new_code := LPAD(FLOOR(1000 + random() * 9000)::TEXT, 4, '0');
+      ELSE
+        new_code := LPAD(FLOOR(100000 + random() * 900000)::TEXT, 6, '0');
+      END IF;
       EXIT WHEN NOT EXISTS (SELECT 1 FROM ussd_shop_codes WHERE code = new_code);
       attempts := attempts + 1;
-      IF attempts >= 20 THEN
+      IF attempts >= 30 THEN
         RAISE WARNING 'auto_assign_ussd_shop_code backfill: could not assign code to shop %', shop_rec.id;
         new_code := NULL;
         EXIT;
