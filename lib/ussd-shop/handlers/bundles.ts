@@ -24,8 +24,32 @@ const PAYSTACK_PROVIDER: Record<string, 'mtn' | 'vod' | 'tgo'> = {
 async function fetchShopBundles(
   shopId: string,
   network: string,
-  page: number
+  page: number,
+  parentShopId?: string
 ): Promise<{ bundles: ShopBundleOption[]; total: number }> {
+  if (parentShopId) {
+    const { data, count } = await supabase
+      .from("sub_agent_catalog")
+      .select(
+        "wholesale_margin, sub_agent_profit_margin, packages!inner(id, size, price, network, active)",
+        { count: 'exact' }
+      )
+      .eq("shop_id", parentShopId)
+      .eq("packages.network", network)
+      .eq("packages.active", true)
+      .eq("is_active", true)
+      .order("packages.price", { ascending: true })
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+
+    const bundles: ShopBundleOption[] = (data ?? []).map((row: any) => ({
+      id: row.packages.id,
+      size: row.packages.size,
+      price: Number(row.packages.price) + Number(row.wholesale_margin) + Number(row.sub_agent_profit_margin),
+    }))
+
+    return { bundles, total: count ?? 0 }
+  }
+
   const { data, count } = await supabase
     .from("shop_packages")
     .select(
@@ -79,7 +103,7 @@ export async function handleSelectNetwork(
     return cont(networkMenu(session.shopName!, networks))
   }
 
-  const { bundles, total } = await fetchShopBundles(session.shopId!, selectedNetwork, 0)
+  const { bundles, total } = await fetchShopBundles(session.shopId!, selectedNetwork, 0, session.parentShopId)
 
   if (bundles.length === 0) {
     return cont(`No ${selectedNetwork} bundles available.\n\n${networkMenu(session.shopName!, networks)}`)
@@ -119,7 +143,7 @@ export async function handleSelectBundle(
 
   if (chosen === moreIndex && offset + bundles.length < total) {
     const nextPage = page + 1
-    const { bundles: nextBundles, total: newTotal } = await fetchShopBundles(session.shopId!, session.network!, nextPage)
+    const { bundles: nextBundles, total: newTotal } = await fetchShopBundles(session.shopId!, session.network!, nextPage, session.parentShopId)
     await setSession(sessionId, { ...session, bundlePage: nextPage, bundleCache: nextBundles, bundleTotal: newTotal })
     return cont(bundleMenu(session.shopName!, nextBundles, nextPage, newTotal))
   }
@@ -192,23 +216,43 @@ export async function handleConfirm(
     ))
   }
 
-  const { shopCodeId, shopId, network, paystackProvider, bundleId, bundleSize, bundlePrice, recipientPhone, dialingPhone } = session
+  const { shopCodeId, shopId, parentShopId, network, paystackProvider, bundleId, bundleSize, bundlePrice, recipientPhone, dialingPhone } = session
 
   // Re-fetch retail price from DB to prevent stale session attacks
-  const { data: shopPkg } = await supabase
-    .from("shop_packages")
-    .select("profit_margin, packages!inner(price, active)")
-    .eq("shop_id", shopId!)
-    .eq("package_id", bundleId!)
-    .eq("is_available", true)
-    .maybeSingle()
+  let verifiedPrice: number
+  let profitAmount: number
 
-  if (!shopPkg || !(shopPkg as any).packages?.active) {
-    return end('Bundle no longer available. Please try again.')
+  if (parentShopId) {
+    const { data: catalogRow } = await supabase
+      .from("sub_agent_catalog")
+      .select("wholesale_margin, sub_agent_profit_margin, packages!inner(price, active)")
+      .eq("shop_id", parentShopId)
+      .eq("package_id", bundleId!)
+      .eq("is_active", true)
+      .maybeSingle()
+
+    if (!catalogRow || !(catalogRow as any).packages?.active) {
+      return end('Bundle no longer available. Please try again.')
+    }
+
+    profitAmount = Number(catalogRow.sub_agent_profit_margin)
+    verifiedPrice = Number((catalogRow as any).packages.price) + Number(catalogRow.wholesale_margin) + profitAmount
+  } else {
+    const { data: shopPkg } = await supabase
+      .from("shop_packages")
+      .select("profit_margin, packages!inner(price, active)")
+      .eq("shop_id", shopId!)
+      .eq("package_id", bundleId!)
+      .eq("is_available", true)
+      .maybeSingle()
+
+    if (!shopPkg || !(shopPkg as any).packages?.active) {
+      return end('Bundle no longer available. Please try again.')
+    }
+
+    profitAmount = Number(shopPkg.profit_margin)
+    verifiedPrice = Number((shopPkg as any).packages.price) + profitAmount
   }
-
-  const profitAmount = Number(shopPkg.profit_margin)
-  const verifiedPrice = Number((shopPkg as any).packages.price) + profitAmount
 
   if (Math.abs(verifiedPrice - bundlePrice!) > 0.01) {
     return end(`Price changed to GHS ${verifiedPrice.toFixed(2)}. Please restart.`)

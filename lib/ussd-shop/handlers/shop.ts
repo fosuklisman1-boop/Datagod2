@@ -46,30 +46,46 @@ export async function handleEnterShopCode(
     return cont(invalidCodeMenu('Shop unavailable. Try again.'))
   }
 
-  // Fetch shop name
+  // Fetch shop name and whether it is a sub-agent (has parent_shop_id)
   const { data: shopRow } = await supabase
     .from("user_shops")
-    .select("shop_name")
+    .select("shop_name, parent_shop_id")
     .eq("id", shopCode.shop_id)
     .single()
 
   const shopName = shopRow?.shop_name ?? 'Shop'
+  const parentShopId: string | null = (shopRow as any)?.parent_shop_id ?? null
 
-  // Fetch distinct networks from shop_packages → packages
-  const { data: networkRows } = await supabase
-    .from("shop_packages")
-    .select("packages!inner(network)")
-    .eq("shop_id", shopCode.shop_id)
-    .eq("is_available", true)
-    .eq("packages.active", true)
+  // Fetch distinct available networks — source depends on shop type
+  let networks: string[] = []
 
-  const networks: string[] = []
-  const seen = new Set<string>()
-  for (const row of networkRows ?? []) {
-    const net = (row as any).packages?.network
-    if (net && !seen.has(net)) {
-      seen.add(net)
-      networks.push(net)
+  if (parentShopId) {
+    // Sub-agent: catalog lives under the parent shop
+    const { data: catalogRows } = await supabase
+      .from("sub_agent_catalog")
+      .select("packages!inner(network)")
+      .eq("shop_id", parentShopId)
+      .eq("is_active", true)
+      .eq("packages.active", true)
+
+    const seen = new Set<string>()
+    for (const row of catalogRows ?? []) {
+      const net = (row as any).packages?.network
+      if (net && !seen.has(net)) { seen.add(net); networks.push(net) }
+    }
+  } else {
+    // Regular shop: catalog lives in shop_packages
+    const { data: networkRows } = await supabase
+      .from("shop_packages")
+      .select("packages!inner(network)")
+      .eq("shop_id", shopCode.shop_id)
+      .eq("is_available", true)
+      .eq("packages.active", true)
+
+    const seen = new Set<string>()
+    for (const row of networkRows ?? []) {
+      const net = (row as any).packages?.network
+      if (net && !seen.has(net)) { seen.add(net); networks.push(net) }
     }
   }
 
@@ -83,6 +99,7 @@ export async function handleEnterShopCode(
     dialingPhone,
     shopCodeId: shopCode.id,
     shopId: shopCode.shop_id,
+    parentShopId: parentShopId ?? undefined,
     shopName,
     networks,
   })

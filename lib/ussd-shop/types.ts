@@ -20,6 +20,7 @@ export interface USSDShopSession {
   dialingPhone?: string
   shopCodeId?: string
   shopId?: string
+  parentShopId?: string            // set when shop is a sub-agent; catalog lives under parent
   shopName?: string
   networks?: string[]              // available networks for this shop
   network?: string                 // selected network
