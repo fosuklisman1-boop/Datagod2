@@ -60,32 +60,42 @@ export async function handleEnterShopCode(
   let networks: string[] = []
 
   if (parentShopId) {
-    // Sub-agent: catalog lives under the parent shop
     const { data: catalogRows } = await supabase
       .from("sub_agent_catalog")
-      .select("packages!inner(network)")
+      .select("package_id")
       .eq("shop_id", parentShopId)
       .eq("is_active", true)
-      .eq("packages.active", true)
 
-    const seen = new Set<string>()
-    for (const row of catalogRows ?? []) {
-      const net = (row as any).packages?.network
-      if (net && !seen.has(net)) { seen.add(net); networks.push(net) }
+    if (catalogRows?.length) {
+      const { data: pkgRows } = await supabase
+        .from("packages")
+        .select("network")
+        .in("id", catalogRows.map(r => r.package_id))
+        .eq("active", true)
+
+      const seen = new Set<string>()
+      for (const pkg of pkgRows ?? []) {
+        if (pkg.network && !seen.has(pkg.network)) { seen.add(pkg.network); networks.push(pkg.network) }
+      }
     }
   } else {
-    // Regular shop: catalog lives in shop_packages
-    const { data: networkRows } = await supabase
+    const { data: spRows } = await supabase
       .from("shop_packages")
-      .select("packages!inner(network)")
+      .select("package_id")
       .eq("shop_id", shopCode.shop_id)
       .eq("is_available", true)
-      .eq("packages.active", true)
 
-    const seen = new Set<string>()
-    for (const row of networkRows ?? []) {
-      const net = (row as any).packages?.network
-      if (net && !seen.has(net)) { seen.add(net); networks.push(net) }
+    if (spRows?.length) {
+      const { data: pkgRows } = await supabase
+        .from("packages")
+        .select("network")
+        .in("id", spRows.map(r => r.package_id))
+        .eq("active", true)
+
+      const seen = new Set<string>()
+      for (const pkg of pkgRows ?? []) {
+        if (pkg.network && !seen.has(pkg.network)) { seen.add(pkg.network); networks.push(pkg.network) }
+      }
     }
   }
 

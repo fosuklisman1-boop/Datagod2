@@ -39,38 +39,58 @@ async function fetchShopBundles(
   parentShopId?: string
 ): Promise<ShopBundleOption[]> {
   if (parentShopId) {
-    const { data } = await supabase
+    const { data: catalogRows } = await supabase
       .from("sub_agent_catalog")
-      .select("wholesale_margin, sub_agent_profit_margin, packages!inner(id, size, price, network, active)")
+      .select("package_id, wholesale_margin, sub_agent_profit_margin")
       .eq("shop_id", parentShopId)
-      .eq("packages.network", network)
-      .eq("packages.active", true)
       .eq("is_active", true)
 
-    const bundles: ShopBundleOption[] = (data ?? []).map((row: any) => ({
-      id: row.packages.id,
-      size: row.packages.size,
-      price: Number(row.packages.price) + Number(row.wholesale_margin) + Number(row.sub_agent_profit_margin),
-    }))
+    if (!catalogRows?.length) return []
 
-    return bundles.sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
+    const { data: pkgRows } = await supabase
+      .from("packages")
+      .select("id, size, price")
+      .in("id", catalogRows.map(r => r.package_id))
+      .eq("network", network)
+      .eq("active", true)
+
+    if (!pkgRows?.length) return []
+
+    const catMap = Object.fromEntries(catalogRows.map(r => [r.package_id, r]))
+    return pkgRows
+      .map(pkg => ({
+        id: pkg.id,
+        size: pkg.size,
+        price: Number(pkg.price) + Number(catMap[pkg.id].wholesale_margin) + Number(catMap[pkg.id].sub_agent_profit_margin),
+      }))
+      .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
   }
 
-  const { data } = await supabase
+  const { data: spRows } = await supabase
     .from("shop_packages")
-    .select("profit_margin, packages!inner(id, size, price, network, active)")
+    .select("package_id, profit_margin")
     .eq("shop_id", shopId)
-    .eq("packages.network", network)
-    .eq("packages.active", true)
     .eq("is_available", true)
 
-  const bundles: ShopBundleOption[] = (data ?? []).map((row: any) => ({
-    id: row.packages.id,
-    size: row.packages.size,
-    price: Number(row.packages.price) + Number(row.profit_margin),
-  }))
+  if (!spRows?.length) return []
 
-  return bundles.sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
+  const { data: pkgRows } = await supabase
+    .from("packages")
+    .select("id, size, price")
+    .in("id", spRows.map(r => r.package_id))
+    .eq("network", network)
+    .eq("active", true)
+
+  if (!pkgRows?.length) return []
+
+  const profitMap = Object.fromEntries(spRows.map(r => [r.package_id, r.profit_margin]))
+  return pkgRows
+    .map(pkg => ({
+      id: pkg.id,
+      size: pkg.size,
+      price: Number(pkg.price) + Number(profitMap[pkg.id] ?? 0),
+    }))
+    .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
 }
 
 function formatLocal(phone: string): string {
