@@ -50,6 +50,8 @@ export async function POST(request: NextRequest) {
 
   const fee = Number(settings?.ussd_shop_activation_fee ?? 0)
 
+  console.log("[USSD-ACTIVATE] user:", user.id, "shopCode:", shopCode.id, "fee:", fee, "method:", payment_method)
+
   if (payment_method === 'wallet') {
     if (fee > 0) {
       const { data: deductResult, error: deductError } = await supabase.rpc('deduct_wallet', {
@@ -78,10 +80,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await supabase
+    const { error: activateErr } = await supabase
       .from("ussd_shop_codes")
       .update({ status: 'active', activation_fee_paid: true, activation_paid_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("id", shopCode.id)
+
+    if (activateErr) {
+      console.error("[USSD-SHOP-SELF-ACTIVATE] Failed to update shop code status:", activateErr)
+      return NextResponse.json({ error: "Activation failed — please contact support" }, { status: 500 })
+    }
 
     await supabase.from("ussd_shop_token_purchases").insert([{
       shop_code_id: shopCode.id,

@@ -87,10 +87,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await supabase
+    const { error: creditErr } = await supabase
       .from("ussd_shop_codes")
       .update({ token_balance: shopCode.token_balance + sessions, updated_at: new Date().toISOString() })
       .eq("id", shopCode.id)
+
+    if (creditErr) {
+      console.error("[USSD-SHOP-BUY-SESSIONS] Failed to credit token balance:", creditErr)
+      return NextResponse.json({ error: "Failed to credit sessions — please contact support" }, { status: 500 })
+    }
 
     await supabase.from("ussd_shop_token_purchases").insert([{
       shop_code_id: shopCode.id,

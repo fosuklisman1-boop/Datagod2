@@ -77,7 +77,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       console.warn("[USSD-SHOP-ACTIVATE] Transaction insert failed (non-fatal):", txErr)
     }
 
-    await supabase
+    const { error: activateErr } = await supabase
       .from("ussd_shop_codes")
       .update({
         status: 'active',
@@ -87,6 +87,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
+
+    if (activateErr) {
+      console.error("[USSD-SHOP-ACTIVATE] Failed to update shop code:", activateErr)
+      return NextResponse.json({ error: "Activation failed — database update error" }, { status: 500 })
+    }
 
     await supabase.from("ussd_shop_token_purchases").insert([{
       shop_code_id: id,
