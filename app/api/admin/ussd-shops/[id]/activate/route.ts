@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { chargeMobileMoney } from "@/lib/paystack"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
+import crypto from "crypto"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -114,6 +115,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Shop owner phone number not found" }, { status: 400 })
   }
 
+  const paystackRef = `USSD-SHOP-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
+
   const { data: purchase } = await supabase
     .from("ussd_shop_token_purchases")
     .insert([{
@@ -124,6 +127,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       payment_method: 'momo',
       payment_status: 'pending',
       is_activation: true,
+      paystack_reference: paystackRef,
     }])
     .select("id")
     .single()
@@ -138,7 +142,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       amount,
       phone: ownerRow.phone_number,
       provider: 'mtn',
-      reference: purchase.id,
+      reference: paystackRef,
       metadata: {
         source: 'ussd_shop_activation',
         ussd_shop_token_purchase_id: purchase.id,

@@ -59,15 +59,11 @@ export async function POST(request: NextRequest) {
         hasMetadata: !!metadata
       })
 
-      // Handle USSD shop token purchases (MoMo) — reference IS the purchase UUID.
-      // Check metadata fallback too in case Paystack transforms the reference.
-      const shopTokenPurchaseId: string | undefined =
-        (typeof metadata === 'object' && metadata?.ussd_shop_token_purchase_id) || undefined
-
+      // Handle USSD shop token purchases (MoMo) — reference is USSD-SHOP-... prefixed
       const { data: shopTokenPurchase, error: stpErr } = await supabase
         .from("ussd_shop_token_purchases")
         .select("id, shop_code_id, shop_id, tokens_purchased, amount_paid, payment_status, is_activation")
-        .or(`id.eq.${reference}${shopTokenPurchaseId && shopTokenPurchaseId !== reference ? `,id.eq.${shopTokenPurchaseId}` : ''}`)
+        .eq("paystack_reference", reference)
         .maybeSingle()
 
       if (stpErr) {
