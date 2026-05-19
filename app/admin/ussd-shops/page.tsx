@@ -75,6 +75,7 @@ export default function AdminUssdShopsPage() {
   // USSD dial code setting
   const [dialCode, setDialCode] = useState("")
   const [savingDialCode, setSavingDialCode] = useState(false)
+  const [activationFee, setActivationFee] = useState("")
   const [sessionPrice, setSessionPrice] = useState("")
   const [minSessions, setMinSessions] = useState("")
   const [maxSessions, setMaxSessions] = useState("")
@@ -125,6 +126,7 @@ export default function AdminUssdShopsPage() {
       if (settingsRes.ok) {
         const settingsJson = await settingsRes.json()
         setDialCode(settingsJson.ussd_shop_dial_code ?? "")
+        setActivationFee(String(settingsJson.ussd_shop_activation_fee ?? ""))
         setSessionPrice(String(settingsJson.ussd_shop_session_price ?? ""))
         setMinSessions(String(settingsJson.ussd_shop_min_sessions ?? "1"))
         setMaxSessions(String(settingsJson.ussd_shop_max_sessions ?? "100"))
@@ -168,6 +170,7 @@ export default function AdminUssdShopsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...await authHeader() },
         body: JSON.stringify({
+          ussd_shop_activation_fee: parseFloat(activationFee) || 0,
           ussd_shop_session_price: parseFloat(sessionPrice) || 0,
           ussd_shop_min_sessions: parseInt(minSessions) || 1,
           ussd_shop_max_sessions: parseInt(maxSessions) || 100,
@@ -363,7 +366,19 @@ export default function AdminUssdShopsPage() {
             {/* Session Settings */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Session Purchase Settings</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-blue-700">Activation Fee (GHS)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 20.00"
+                    value={activationFee}
+                    onChange={e => setActivationFee(e.target.value)}
+                    className="bg-white border-blue-200"
+                  />
+                </div>
                 <div className="space-y-1">
                   <Label className="text-xs text-blue-700">Price per Session (GHS)</Label>
                   <Input
@@ -377,7 +392,7 @@ export default function AdminUssdShopsPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-blue-700">Minimum Purchase</Label>
+                  <Label className="text-xs text-blue-700">Min Purchase</Label>
                   <Input
                     type="number"
                     min="1"
@@ -388,7 +403,7 @@ export default function AdminUssdShopsPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-blue-700">Maximum Purchase</Label>
+                  <Label className="text-xs text-blue-700">Max Purchase</Label>
                   <Input
                     type="number"
                     min="1"
