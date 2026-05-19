@@ -492,7 +492,7 @@ export default function AdminUssdShopsPage() {
                                 <Button
                                   size="sm" variant="outline"
                                   className="h-7 text-xs"
-                                  onClick={() => { setTokensTarget(code); setTokenQty("10"); setTokenAmount(""); setShowTokens(true) }}
+                                  onClick={() => { setTokensTarget(code); setTokenQty("10"); setShowTokens(true) }}
                                 >
                                   <Coins className="w-3 h-3 mr-1" /> Tokens
                                 </Button>
