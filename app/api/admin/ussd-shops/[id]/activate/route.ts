@@ -160,9 +160,4 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: err.message ?? "Payment initialization failed" }, { status: 502 })
   }
 
-  return NextResponse.json({
-    success: true,
-    message: "MoMo prompt sent to shop owner. Shop will be activated on payment confirmation.",
-    purchase_id: purchase.id,
-  })
 }
