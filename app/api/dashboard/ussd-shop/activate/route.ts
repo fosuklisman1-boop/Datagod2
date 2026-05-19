@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { chargeMobileMoney } from "@/lib/paystack"
-import { resolveEmail } from "@/lib/ussd/resolve-email"
+import { initializePayment } from "@/lib/paystack"
 import crypto from "crypto"
 
 const supabase = createClient(
@@ -11,7 +10,6 @@ const supabase = createClient(
 
 // POST /api/dashboard/ussd-shop/activate
 // Body: { payment_method: 'wallet' | 'momo' }
-// Shop owner self-service activation — fee is read from app_settings.
 export async function POST(request: NextRequest) {
   const token = request.headers.get("Authorization")?.replace("Bearer ", "")
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -19,40 +17,27 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser(token)
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { payment_method, momo_phone } = await request.json()
+  const { payment_method } = await request.json()
   if (!['wallet', 'momo'].includes(payment_method)) {
     return NextResponse.json({ error: "payment_method must be 'wallet' or 'momo'" }, { status: 400 })
   }
 
-  // Fetch the shop and its code
   const { data: shop } = await supabase
-    .from("user_shops")
-    .select("id")
-    .eq("user_id", user.id)
-    .single()
-
+    .from("user_shops").select("id").eq("user_id", user.id).single()
   if (!shop) return NextResponse.json({ error: "Shop not found" }, { status: 404 })
 
   const { data: shopCode } = await supabase
-    .from("ussd_shop_codes")
-    .select("id, activation_fee_paid, status")
-    .eq("shop_id", shop.id)
-    .single()
-
+    .from("ussd_shop_codes").select("id, activation_fee_paid, status").eq("shop_id", shop.id).single()
   if (!shopCode) return NextResponse.json({ error: "No USSD code assigned to your shop" }, { status: 404 })
   if (shopCode.activation_fee_paid) return NextResponse.json({ error: "Already activated" }, { status: 409 })
 
-  // Read activation fee from settings
   const { data: settings } = await supabase
-    .from("app_settings")
-    .select("ussd_shop_activation_fee")
-    .limit(1)
-    .single()
-
+    .from("app_settings").select("ussd_shop_activation_fee").limit(1).single()
   const fee = Number(settings?.ussd_shop_activation_fee ?? 0)
 
   console.log("[USSD-ACTIVATE] user:", user.id, "shopCode:", shopCode.id, "fee:", fee, "method:", payment_method)
 
+  // ── Wallet path ──────────────────────────────────────────────────────────────
   if (payment_method === 'wallet') {
     if (fee > 0) {
       const { data: deductResult, error: deductError } = await supabase.rpc('deduct_wallet', {
@@ -63,22 +48,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Insufficient wallet balance" }, { status: 402 })
       }
       const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
-      try {
-        await supabase.from("transactions").insert([{
-          user_id: user.id,
-          type: 'debit',
-          source: 'ussd_shop_activation',
-          amount: fee,
-          balance_before: balanceBefore,
-          balance_after: newBalance,
-          description: 'USSD shop code activation fee',
-          reference_id: shopCode.id,
-          status: 'completed',
-          created_at: new Date().toISOString(),
-        }])
-      } catch (txErr) {
-        console.warn("[USSD-SHOP-SELF-ACTIVATE] Transaction insert failed (non-fatal):", txErr)
-      }
+      await supabase.from("transactions").insert([{
+        user_id: user.id,
+        type: 'debit',
+        source: 'ussd_shop_activation',
+        amount: fee,
+        balance_before: balanceBefore,
+        balance_after: newBalance,
+        description: 'USSD shop code activation fee',
+        reference_id: shopCode.id,
+        status: 'completed',
+        created_at: new Date().toISOString(),
+      }]).then(({ error }) => { if (error) console.warn("[USSD-ACTIVATE] tx insert failed:", error) })
     }
 
     const { error: activateErr } = await supabase
@@ -87,7 +68,7 @@ export async function POST(request: NextRequest) {
       .eq("id", shopCode.id)
 
     if (activateErr) {
-      console.error("[USSD-SHOP-SELF-ACTIVATE] Failed to update shop code status:", activateErr)
+      console.error("[USSD-ACTIVATE] Failed to update shop code:", activateErr)
       return NextResponse.json({ error: "Activation failed — please contact support" }, { status: 500 })
     }
 
@@ -104,18 +85,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, status: 'active' })
   }
 
-  // MoMo — use provided number or fall back to account phone
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("phone_number")
-    .eq("id", user.id)
-    .single()
-
-  const chargePhone = momo_phone?.trim() || userRow?.phone_number
-  if (!chargePhone) {
-    return NextResponse.json({ error: "No phone number provided and none on your account" }, { status: 400 })
-  }
-
+  // ── Paystack checkout path ────────────────────────────────────────────────────
   const paystackRef = `USSD-SHOP-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
 
   const { data: purchase } = await supabase
@@ -135,7 +105,6 @@ export async function POST(request: NextRequest) {
 
   if (!purchase) return NextResponse.json({ error: "Failed to create payment record" }, { status: 500 })
 
-  // Create wallet_payments record so the webhook can find it via the standard flow
   await supabase.from("wallet_payments").insert([{
     user_id: user.id,
     order_id: purchase.id,
@@ -148,30 +117,25 @@ export async function POST(request: NextRequest) {
     created_at: new Date().toISOString(),
   }])
 
-  const email = await resolveEmail(chargePhone)
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}` || "http://localhost:3000"
 
   try {
-    await chargeMobileMoney({
-      email,
+    const result = await initializePayment({
+      email: user.email!,
       amount: fee,
-      phone: chargePhone,
-      provider: 'mtn',
       reference: paystackRef,
+      redirectUrl: `${appUrl}/dashboard/ussd-shop?payment=activation&reference=${paystackRef}`,
       metadata: {
         source: 'ussd_shop_activation',
         ussd_shop_token_purchase_id: purchase.id,
         shop_code_id: shopCode.id,
-        initial_tokens: 0,
       },
+      channels: ["mobile_money", "card", "bank_transfer"],
     })
+    return NextResponse.json({ success: true, authorizationUrl: result.authorizationUrl, reference: paystackRef })
   } catch (err: any) {
     await supabase.from("ussd_shop_token_purchases").update({ payment_status: 'failed' }).eq("id", purchase.id)
     await supabase.from("wallet_payments").update({ status: 'failed' }).eq("reference", paystackRef)
-    return NextResponse.json({ error: err.message ?? "MoMo charge failed" }, { status: 502 })
+    return NextResponse.json({ error: err.message ?? "Payment initialization failed" }, { status: 502 })
   }
-
-  return NextResponse.json({
-    success: true,
-    message: "MoMo prompt sent to your phone. Your code will be activated on payment confirmation.",
-  })
 }

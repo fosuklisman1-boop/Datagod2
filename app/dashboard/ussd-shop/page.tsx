@@ -46,7 +46,6 @@ export default function UssdShopPage() {
   const [activating, setActivating] = useState(false)
   const [sessionQty, setSessionQty] = useState("")
   const [buyingSessions, setBuyingSessions] = useState(false)
-  const [momoPhone, setMomoPhone] = useState("")
 
   useEffect(() => {
     if (!user) return
@@ -107,25 +106,21 @@ export default function UssdShopPage() {
   }
 
   const handleActivate = async (paymentMethod: 'wallet' | 'momo') => {
-    if (paymentMethod === 'momo' && !momoPhone.trim()) {
-      toast.error("Enter a MoMo phone number")
-      return
-    }
     setActivating(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch("/api/dashboard/ussd-shop/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ payment_method: paymentMethod, momo_phone: momoPhone.trim() || undefined }),
+        body: JSON.stringify({ payment_method: paymentMethod }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? "Activation failed")
       if (paymentMethod === 'wallet') {
         toast.success("Shop code activated!")
         await loadData()
-      } else {
-        toast.success("MoMo prompt sent. Your code will activate on payment confirmation.")
+      } else if (json.authorizationUrl) {
+        window.location.href = json.authorizationUrl
       }
     } catch (err: any) {
       toast.error(err.message ?? "Activation failed")
@@ -140,17 +135,13 @@ export default function UssdShopPage() {
       toast.error(`Enter a quantity between ${minSessions} and ${maxSessions}`)
       return
     }
-    if (paymentMethod === 'momo' && !momoPhone.trim()) {
-      toast.error("Enter a MoMo phone number")
-      return
-    }
     setBuyingSessions(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch("/api/dashboard/ussd-shop/buy-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ sessions: qty, payment_method: paymentMethod, momo_phone: momoPhone.trim() || undefined }),
+        body: JSON.stringify({ sessions: qty, payment_method: paymentMethod }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? "Purchase failed")
@@ -158,9 +149,8 @@ export default function UssdShopPage() {
         toast.success(`${qty} sessions added!`)
         setSessionQty("")
         await loadData()
-      } else {
-        toast.success(json.message ?? "MoMo prompt sent.")
-        setSessionQty("")
+      } else if (json.authorizationUrl) {
+        window.location.href = json.authorizationUrl
       }
     } catch (err: any) {
       toast.error(err.message ?? "Purchase failed")
@@ -294,17 +284,6 @@ export default function UssdShopPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-xs text-yellow-800 font-medium">MoMo Number</label>
-                      <input
-                        type="tel"
-                        placeholder="e.g. 0244123456"
-                        value={momoPhone}
-                        onChange={e => setMomoPhone(e.target.value)}
-                        className="w-full border border-yellow-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-400"
-                      />
-                      <p className="text-xs text-yellow-700">Required for MoMo payment. Leave blank to use your account number.</p>
-                    </div>
                     <div className="flex gap-2">
                       <Button
                         size="sm"
@@ -368,17 +347,6 @@ export default function UssdShopPage() {
                         = GHS {(sessionPrice * (parseInt(sessionQty) || 0)).toFixed(2)}
                       </div>
                     )}
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-indigo-700 font-medium">MoMo Number</label>
-                    <input
-                      type="tel"
-                      placeholder="e.g. 0244123456"
-                      value={momoPhone}
-                      onChange={e => setMomoPhone(e.target.value)}
-                      className="w-full border border-indigo-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 placeholder-gray-400"
-                    />
-                    <p className="text-xs text-indigo-500">Required for MoMo payment. Leave blank to use your account number.</p>
                   </div>
                   <div className="flex gap-2">
                     <Button

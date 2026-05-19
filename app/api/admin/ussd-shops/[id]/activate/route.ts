@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { chargeMobileMoney } from "@/lib/paystack"
-import { resolveEmail } from "@/lib/ussd/resolve-email"
+import { initializePayment } from "@/lib/paystack"
 import crypto from "crypto"
 
 const supabase = createClient(
@@ -107,13 +106,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ success: true, status: 'active' })
   }
 
-  // MoMo — charge shop owner's phone
-  const { data: ownerRow } = await supabase
-    .from("users").select("phone_number").eq("id", shopOwnerId).single()
-
-  if (!ownerRow?.phone_number) {
-    return NextResponse.json({ error: "Shop owner phone number not found" }, { status: 400 })
-  }
+  // Paystack checkout — get owner's email for payment page
+  const ownerAuth = await supabase.auth.admin.getUserById(shopOwnerId)
+  const ownerEmail = ownerAuth.data.user?.email
+  if (!ownerEmail) return NextResponse.json({ error: "Shop owner email not found" }, { status: 400 })
 
   const paystackRef = `USSD-SHOP-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
 
@@ -146,26 +142,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     created_at: new Date().toISOString(),
   }])
 
-  const email = await resolveEmail(ownerRow.phone_number)
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}` || "http://localhost:3000"
 
   try {
-    await chargeMobileMoney({
-      email,
+    const result = await initializePayment({
+      email: ownerEmail,
       amount,
-      phone: ownerRow.phone_number,
-      provider: 'mtn',
       reference: paystackRef,
-      metadata: {
-        source: 'ussd_shop_activation',
-        ussd_shop_token_purchase_id: purchase.id,
-        shop_code_id: id,
-        initial_tokens,
-      },
+      redirectUrl: `${appUrl}/dashboard/ussd-shop?payment=activation&reference=${paystackRef}`,
+      metadata: { source: 'ussd_shop_activation', ussd_shop_token_purchase_id: purchase.id, shop_code_id: id, initial_tokens },
+      channels: ["mobile_money", "card", "bank_transfer"],
     })
+    return NextResponse.json({ success: true, authorizationUrl: result.authorizationUrl, reference: paystackRef, message: "Share this payment link with the shop owner." })
   } catch (err: any) {
     await supabase.from("ussd_shop_token_purchases").update({ payment_status: 'failed' }).eq("id", purchase.id)
     await supabase.from("wallet_payments").update({ status: 'failed' }).eq("reference", paystackRef)
-    return NextResponse.json({ error: err.message ?? "MoMo charge failed" }, { status: 502 })
+    return NextResponse.json({ error: err.message ?? "Payment initialization failed" }, { status: 502 })
   }
 
   return NextResponse.json({
