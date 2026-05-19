@@ -21,10 +21,11 @@ async function requireAdmin(request: NextRequest): Promise<string | null> {
 // Body: { tokens: number, amount: number, payment_method: 'wallet' | 'momo' }
 // wallet: deducts from the shop owner's Datagod wallet and credits tokens immediately
 // momo:   initiates a Paystack MoMo charge; webhook credits tokens on success
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const adminId = await requireAdmin(request)
   if (!adminId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  const { id } = await params
   const body = await request.json()
   const { tokens, amount, payment_method } = body
 
@@ -34,11 +35,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: "payment_method must be 'wallet' or 'momo'" }, { status: 400 })
   }
 
-  // Fetch shop code + shop + owner info
   const { data: shopCode } = await supabase
     .from("ussd_shop_codes")
     .select("id, shop_id, token_balance, user_shops!inner(user_id, shop_name)")
-    .eq("id", params.id)
+    .eq("id", id)
     .single()
 
   if (!shopCode) return NextResponse.json({ error: "Shop code not found" }, { status: 404 })
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         balance_before: balanceBefore,
         balance_after: newBalance,
         description: `USSD shop token top-up: ${tokens} tokens`,
-        reference_id: params.id,
+        reference_id: id,
         status: 'completed',
         created_at: new Date().toISOString(),
       }])
@@ -75,17 +75,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       console.warn("[USSD-SHOP-TOKENS] Transaction insert failed (non-fatal):", txErr)
     }
 
-    // Add tokens
     const { error: tokenError } = await supabase
       .from("ussd_shop_codes")
       .update({ token_balance: shopCode.token_balance + tokens, updated_at: new Date().toISOString() })
-      .eq("id", params.id)
+      .eq("id", id)
 
     if (tokenError) return NextResponse.json({ error: tokenError.message }, { status: 500 })
 
-    // Record the purchase
     await supabase.from("ussd_shop_token_purchases").insert([{
-      shop_code_id: params.id,
+      shop_code_id: id,
       shop_id: shopCode.shop_id,
       tokens_purchased: tokens,
       amount_paid: amount,
@@ -96,7 +94,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ success: true, new_token_balance: shopCode.token_balance + tokens })
   }
 
-  // MoMo payment — fetch shop owner's phone number
   const { data: ownerRow } = await supabase
     .from("users")
     .select("phone_number")
@@ -107,11 +104,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: "Shop owner phone number not found" }, { status: 400 })
   }
 
-  // Create a pending purchase record first to get the reference ID
   const { data: purchase, error: purchaseError } = await supabase
     .from("ussd_shop_token_purchases")
     .insert([{
-      shop_code_id: params.id,
+      shop_code_id: id,
       shop_id: shopCode.shop_id,
       tokens_purchased: tokens,
       amount_paid: amount,
@@ -132,12 +128,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       email,
       amount,
       phone: ownerRow.phone_number,
-      provider: 'mtn', // will be derived from phone in production; admin can override
+      provider: 'mtn',
       reference: purchase.id,
       metadata: {
         source: 'ussd_shop_token',
         ussd_shop_token_purchase_id: purchase.id,
-        shop_code_id: params.id,
+        shop_code_id: id,
         tokens,
       },
     })

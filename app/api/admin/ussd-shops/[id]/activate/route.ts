@@ -21,10 +21,11 @@ async function requireAdmin(request: NextRequest): Promise<string | null> {
 // Body: { payment_method: 'wallet' | 'momo', amount: number, initial_tokens?: number }
 // Records the one-time activation payment and sets status to 'active'.
 // wallet: deducts immediately; momo: initiates charge (webhook completes activation).
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const adminId = await requireAdmin(request)
   if (!adminId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  const { id } = await params
   const body = await request.json()
   const { payment_method, amount, initial_tokens = 0 } = body
 
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const { data: shopCode } = await supabase
     .from("ussd_shop_codes")
     .select("id, shop_id, status, activation_fee_paid, user_shops!inner(user_id)")
-    .eq("id", params.id)
+    .eq("id", id)
     .single()
 
   if (!shopCode) return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         balance_before: balanceBefore,
         balance_after: newBalance,
         description: `USSD shop code activation fee`,
-        reference_id: params.id,
+        reference_id: id,
         status: 'completed',
         created_at: new Date().toISOString(),
       }])
@@ -85,10 +86,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         token_balance: initial_tokens,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", params.id)
+      .eq("id", id)
 
     await supabase.from("ussd_shop_token_purchases").insert([{
-      shop_code_id: params.id,
+      shop_code_id: id,
       shop_id: shopCode.shop_id,
       tokens_purchased: initial_tokens,
       amount_paid: amount,
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const { data: purchase } = await supabase
     .from("ussd_shop_token_purchases")
     .insert([{
-      shop_code_id: params.id,
+      shop_code_id: id,
       shop_id: shopCode.shop_id,
       tokens_purchased: initial_tokens,
       amount_paid: amount,
@@ -136,7 +137,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       metadata: {
         source: 'ussd_shop_activation',
         ussd_shop_token_purchase_id: purchase.id,
-        shop_code_id: params.id,
+        shop_code_id: id,
         initial_tokens,
       },
     })
