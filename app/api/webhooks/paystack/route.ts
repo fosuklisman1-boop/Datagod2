@@ -59,6 +59,50 @@ export async function POST(request: NextRequest) {
         hasMetadata: !!metadata
       })
 
+      // Handle USSD shop token purchases (MoMo) — reference IS the purchase UUID
+      const { data: shopTokenPurchase } = await supabase
+        .from("ussd_shop_token_purchases")
+        .select("id, shop_code_id, shop_id, tokens_purchased, amount_paid, payment_status, is_activation")
+        .eq("id", reference)
+        .maybeSingle()
+
+      if (shopTokenPurchase && shopTokenPurchase.payment_status === 'pending') {
+        console.log("[WEBHOOK] Processing USSD shop token purchase:", shopTokenPurchase.id)
+
+        await supabase
+          .from("ussd_shop_token_purchases")
+          .update({ payment_status: 'completed', updated_at: new Date().toISOString() })
+          .eq("id", shopTokenPurchase.id)
+
+        if (shopTokenPurchase.is_activation) {
+          // Activate the shop code
+          await supabase
+            .from("ussd_shop_codes")
+            .update({
+              status: 'active',
+              activation_fee_paid: true,
+              activation_paid_at: new Date().toISOString(),
+              token_balance: shopTokenPurchase.tokens_purchased,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", shopTokenPurchase.shop_code_id)
+          console.log("[WEBHOOK] ✓ USSD shop code activated:", shopTokenPurchase.shop_code_id)
+        } else {
+          // Credit tokens to shop code
+          const { data: codeRow } = await supabase
+            .from("ussd_shop_codes").select("token_balance").eq("id", shopTokenPurchase.shop_code_id).single()
+          if (codeRow) {
+            await supabase
+              .from("ussd_shop_codes")
+              .update({ token_balance: codeRow.token_balance + shopTokenPurchase.tokens_purchased, updated_at: new Date().toISOString() })
+              .eq("id", shopTokenPurchase.shop_code_id)
+            console.log("[WEBHOOK] ✓ USSD shop tokens credited:", shopTokenPurchase.tokens_purchased, "to code:", shopTokenPurchase.shop_code_id)
+          }
+        }
+
+        return NextResponse.json({ received: true })
+      }
+
       // Handle USSD orders first — they don't create wallet_payments records.
       // Look up by reference directly: the Paystack reference IS the ussd_order UUID.
       // This avoids relying on metadata, which Paystack doesn't always return
@@ -221,6 +265,93 @@ export async function POST(request: NextRequest) {
           })
         } catch (smsErr) {
           console.warn("[WEBHOOK] USSD AFA SMS failed:", smsErr)
+        }
+
+        return NextResponse.json({ received: true })
+      }
+
+      // Handle USSD shop orders (reference IS the ussd_shop_order UUID)
+      const { data: ussdShopOrder } = await supabase
+        .from("ussd_shop_orders")
+        .select("*")
+        .eq("id", reference)
+        .maybeSingle()
+
+      if (ussdShopOrder) {
+        console.log("[WEBHOOK] Processing USSD shop order:", ussdShopOrder.id)
+
+        if (ussdShopOrder.payment_status !== 'pending' && ussdShopOrder.payment_status !== 'otp_required') {
+          console.log("[WEBHOOK] USSD shop order already processed:", ussdShopOrder.id)
+          return NextResponse.json({ received: true })
+        }
+
+        const paidGhs = amount / 100
+        const expectedGhs = Number(ussdShopOrder.amount)
+        if (paidGhs < expectedGhs - 0.01) {
+          console.error(`[WEBHOOK] USSD shop underpayment! Paid: ${paidGhs}, Expected: ${expectedGhs}`)
+          return NextResponse.json({ error: "Underpayment" }, { status: 400 })
+        }
+
+        await supabase
+          .from("ussd_shop_orders")
+          .update({
+            payment_status: 'completed',
+            paystack_reference: reference,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", ussdShopOrder.id)
+
+        // Credit shop profit (DB trigger auto-syncs shop_available_balance)
+        if (Number(ussdShopOrder.profit_amount) > 0) {
+          const { error: profitErr } = await supabase.from("shop_profits").insert([{
+            shop_id: ussdShopOrder.shop_id,
+            ussd_shop_order_id: ussdShopOrder.id,
+            profit_amount: ussdShopOrder.profit_amount,
+            status: "credited",
+            created_at: new Date().toISOString(),
+          }])
+          if (profitErr) {
+            console.error("[WEBHOOK] Failed to credit USSD shop profit:", profitErr)
+          } else {
+            console.log(`[WEBHOOK] ✓ Shop profit credited: GHS ${ussdShopOrder.profit_amount} for shop ${ussdShopOrder.shop_id}`)
+          }
+        }
+
+        // Update payment_attempts
+        await supabase
+          .from("payment_attempts")
+          .update({ status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("reference", ussdShopOrder.id)
+          .eq("payment_type", "ussd_shop")
+
+        // Trigger fulfillment
+        try {
+          const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
+          const fulfillResult = await fulfillUssdOrder(
+            ussdShopOrder.id,
+            ussdShopOrder.network,
+            ussdShopOrder.recipient_phone,
+            ussdShopOrder.package_size ?? ''
+          )
+          if (fulfillResult.success) {
+            console.log("[WEBHOOK] ✓ USSD shop fulfillment triggered:", fulfillResult.message)
+          } else {
+            console.error("[WEBHOOK] USSD shop fulfillment failed:", fulfillResult.message)
+          }
+        } catch (fErr) {
+          console.error("[WEBHOOK] Failed to trigger USSD shop fulfillment:", fErr)
+        }
+
+        // SMS to recipient
+        try {
+          await sendSMS({
+            phone: ussdShopOrder.recipient_phone,
+            message: `DATAGOD: Your ${ussdShopOrder.package_size} ${ussdShopOrder.network} bundle is on its way! It will reflect in a few minutes.`,
+            type: 'order_confirmation',
+            reference: ussdShopOrder.id,
+          })
+        } catch (smsErr) {
+          console.warn("[WEBHOOK] USSD shop SMS failed:", smsErr)
         }
 
         return NextResponse.json({ received: true })
@@ -645,6 +776,29 @@ export async function POST(request: NextRequest) {
         }
       } catch (e) {
         console.warn("[WEBHOOK] Failed to update failed USSD AFA order:", e)
+      }
+
+      // Handle failed USSD shop charges
+      try {
+        const { data: shopOrder } = await supabase
+          .from("ussd_shop_orders")
+          .select("id")
+          .eq("id", reference)
+          .maybeSingle()
+        if (shopOrder) {
+          await supabase
+            .from("ussd_shop_orders")
+            .update({ payment_status: 'failed', order_status: 'failed', updated_at: new Date().toISOString() })
+            .eq("id", shopOrder.id)
+          await supabase
+            .from("payment_attempts")
+            .update({ status: 'failed', gateway_response: gateway_response || 'failed', updated_at: new Date().toISOString() })
+            .eq("reference", shopOrder.id)
+            .eq("payment_type", "ussd_shop")
+          console.log("[WEBHOOK] USSD shop order marked failed:", shopOrder.id)
+        }
+      } catch (e) {
+        console.warn("[WEBHOOK] Failed to update failed USSD shop order:", e)
       }
 
       await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference)

@@ -136,6 +136,7 @@ export async function PUT(request: NextRequest) {
       'upgrades_enabled',
       'terms_content',
       'ussd_price_tier',
+      'ussd_shop_dial_code',
     ]
 
     // Auto-stamp terms_last_updated when terms_content changes

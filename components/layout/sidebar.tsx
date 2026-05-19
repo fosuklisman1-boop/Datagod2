@@ -71,6 +71,7 @@ const menuItems = [
 const shopItems = [
   { href: "/dashboard/my-shop", label: "My Shop", icon: Store, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/ussd-shop", label: "USSD Shop", icon: Smartphone, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/payment-reverify", label: "Payment Reverify", icon: Zap, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, roles: ["user", "admin", "dealer"] },
@@ -743,6 +744,28 @@ export function Sidebar() {
                     <Zap className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Payment Reverify"}
+                </Button>
+              </Link>
+              <Link href="/admin/ussd-shops" onClick={() => handleNavigation("/admin/ussd-shops")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/ussd-shops" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/ussd-shops" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/ussd-shops" && "opacity-70"
+                  )}
+                  title={!isOpen ? "USSD Shops" : undefined}
+                  disabled={loadingPath === "/admin/ussd-shops"}
+                >
+                  {loadingPath === "/admin/ussd-shops" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Smartphone className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "USSD Shops"}
                 </Button>
               </Link>
             </div>
