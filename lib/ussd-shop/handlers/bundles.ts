@@ -22,7 +22,7 @@ const PAYSTACK_PROVIDER: Record<string, 'mtn' | 'vod' | 'tgo'> = {
 }
 
 function sizeToMb(size: string): number {
-  const m = size.match(/^(\d+(?:\.\d+)?)\s*(MB|GB|TB)$/i)
+  const m = size.trim().match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i)
   if (!m) return 0
   const v = parseFloat(m[1])
   switch (m[2].toUpperCase()) {
