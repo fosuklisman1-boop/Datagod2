@@ -268,8 +268,54 @@ export async function GET(request: NextRequest) {
 
     console.log(`Found ${mappedUssdOrders.length} pending USSD orders`)
 
+    // Build USSD shop orders query
+    let ussdShopQuery = supabase
+      .from("ussd_shop_orders")
+      .select("id, created_at, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, shop_name")
+      .eq("order_status", "pending")
+      .eq("payment_status", "completed")
+
+    if (autoFulfillEnabled) {
+      ussdShopQuery = ussdShopQuery
+        .neq("network", "AT-iShare")
+        .neq("network", "AT - iShare")
+        .neq("network", "Telecel")
+        .neq("network", "AirtelTigo")
+        .neq("network", "AT - BigTime")
+    }
+
+    if (mtnAutoFulfillEnabled) {
+      ussdShopQuery = ussdShopQuery.neq("network", "MTN")
+    }
+
+    const { data: ussdShopOrders, error: ussdShopError } = await ussdShopQuery
+      .order("created_at", { ascending: false })
+      .range(0, 9999)
+
+    if (ussdShopError) {
+      console.error("Supabase error fetching USSD shop orders:", ussdShopError)
+      throw new Error(`Failed to fetch pending USSD shop orders: ${ussdShopError.message}`)
+    }
+
+    const mappedUssdShopOrders = (ussdShopOrders || []).map((order: any) => ({
+      id: order.id,
+      phone_number: order.recipient_phone,
+      dialing_phone: order.dialing_phone,
+      network: normalizeNetwork(order.network),
+      size: order.package_size,
+      price: order.amount,
+      status: order.order_status,
+      order_status: order.order_status,
+      payment_status: order.payment_status,
+      shop_name: order.shop_name,
+      created_at: order.created_at,
+      type: "ussd_shop"
+    }))
+
+    console.log(`Found ${mappedUssdShopOrders.length} pending USSD shop orders`)
+
     // Combine all orders
-    const allOrders = [...mappedBulkOrders, ...mappedShopOrders, ...mappedApiOrders, ...mappedUssdOrders]
+    const allOrders = [...mappedBulkOrders, ...mappedShopOrders, ...mappedApiOrders, ...mappedUssdOrders, ...mappedUssdShopOrders]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     console.log("All pending orders by network:", allOrders.reduce((acc: any, o: any) => {
@@ -283,7 +329,9 @@ export async function GET(request: NextRequest) {
       data: allOrders,
       count: allOrders.length,
       bulkCount: mappedBulkOrders.length,
-      shopCount: mappedShopOrders.length
+      shopCount: mappedShopOrders.length,
+      ussdCount: mappedUssdOrders.length,
+      ussdShopCount: mappedUssdShopOrders.length
     })
   } catch (error) {
     console.error("Error fetching pending orders:", error)
