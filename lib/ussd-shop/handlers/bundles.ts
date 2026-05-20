@@ -14,15 +14,28 @@ const supabase = createClient(
 
 const PAGE_SIZE = 5
 
-const PAYSTACK_PROVIDER: Record<string, 'mtn' | 'vod' | 'tgo'> = {
-  'MTN':           'mtn',
-  'Telecel':       'vod',
-  'AirtelTigo':    'tgo',
-  'AT-iShare':     'tgo',
-  'AT - iShare':   'tgo',
-  'AT - BigTime':  'tgo',
-  'AT-BigTime':    'tgo',
-  'iShare':        'tgo',
+// Derive the Paystack mobile-money provider from the dialing phone number.
+// The dialing phone is the payer, so this determines which wallet gets charged —
+// independent of which data network the bundle is for.
+function paystackProviderFromPhone(phone: string): 'mtn' | 'vod' | 'tgo' | null {
+  // Normalise to local 10-digit format
+  const local = phone.startsWith('+233')
+    ? '0' + phone.slice(4)
+    : phone.startsWith('233')
+      ? '0' + phone.slice(3)
+      : phone
+
+  const prefix3 = local.slice(0, 3)
+  const prefix2 = local.slice(0, 2)
+
+  // MTN: 024, 054, 025, 059, 053, 055, 056
+  if (['024','054','025','059','053','055','056'].includes(prefix3)) return 'mtn'
+  // Telecel (Vodafone): 020, 050
+  if (['020','050'].includes(prefix3)) return 'vod'
+  // AirtelTigo: 027, 057, 026, 056
+  if (['027','057','026'].includes(prefix3)) return 'tgo'
+
+  return null
 }
 
 function sizeToMb(size: string): number {
@@ -123,12 +136,16 @@ export async function handleSelectNetwork(
     return cont(networkMenu(session.shopName!, networks))
   }
 
-  const paystackProvider = PAYSTACK_PROVIDER[selectedNetwork] ?? null
+  const paystackProvider = paystackProviderFromPhone(session.dialingPhone ?? '')
 
   const allBundles = await fetchShopBundles(session.shopId!, selectedNetwork, session.parentShopId)
 
   if (allBundles.length === 0) {
     return cont(`No ${selectedNetwork} bundles available.\n\n${networkMenu(session.shopName!, networks)}`)
+  }
+
+  if (!paystackProvider) {
+    return cont(`Payment not available for your number.\nContact the shop.\n\n${networkMenu(session.shopName!, networks)}`)
   }
 
   await setSession(sessionId, {
