@@ -562,8 +562,8 @@ export async function handleSubmitOtp(
       return end('OTP verification failed.\nPlease try again later.')
     }
 
-    // OTP accepted — wait briefly for Paystack to dispatch the MoMo push
-    await new Promise(r => setTimeout(r, 3000))
+    // OTP accepted — close the session immediately so the USSD channel is free
+    // before Paystack dispatches the MoMo push (open session blocks the pop-up).
     await supabase
       .from("ussd_orders")
       .update({ payment_status: 'pending', updated_at: new Date().toISOString() })
