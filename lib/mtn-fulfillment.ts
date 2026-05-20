@@ -43,18 +43,10 @@ export interface DataKazinaWebhookPayload {
   occurred_at?: string       // ISO timestamp from Dakazina
   test?: boolean             // true for sandbox/test events
   metadata?: { message?: string; [key: string]: unknown }
-  // legacy fields
-  transaction_id?: string
   message?: string
   recipient_msisdn?: string
   incoming_api_ref?: string
   timestamp?: string
-  occurred_at?: string
-  test?: boolean
-  metadata?: {
-    message?: string
-    [key: string]: any
-  }
 }
 
 export interface MTNWebhookPayload {
