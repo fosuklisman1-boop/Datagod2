@@ -48,9 +48,6 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     }
 
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-    if (ussdString?.trim()) {
-      return handleMain(ussdString.trim(), sessionID, msisdn)
-    }
     return cont(mainMenu())
   }
 
