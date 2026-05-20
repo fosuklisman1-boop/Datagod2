@@ -936,7 +936,7 @@ export default function OrderPaymentStatusPage() {
                                   )}
                                 </Button>
                               )}
-                              {!autoFulfillmentEnabled && order.type !== 'ussd' && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
+                              {!autoFulfillmentEnabled && order.type !== 'ussd' && order.type !== 'ussd_shop' && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
                             </div>
                           </td>
                         </tr>

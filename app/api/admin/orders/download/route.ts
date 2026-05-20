@@ -109,9 +109,10 @@ export async function POST(request: NextRequest) {
     bulkOrderIds = orders.filter(o => o.type === "bulk").map(o => o.id)
     shopOrderIds = orders.filter(o => o.type === "shop").map(o => o.id)
     let ussdOrderIds: string[] = orders.filter(o => o.type === "ussd").map(o => o.id)
+    let ussdShopOrderIds: string[] = orders.filter(o => o.type === "ussd_shop").map(o => o.id)
     orderIds = orders.map(o => o.id)
 
-    console.log("[DOWNLOAD] Fetched orders:", orders.length, "Bulk:", bulkOrderIds.length, "Shop:", shopOrderIds.length, "USSD:", ussdOrderIds.length)
+    console.log("[DOWNLOAD] Fetched orders:", orders.length, "Bulk:", bulkOrderIds.length, "Shop:", shopOrderIds.length, "USSD:", ussdOrderIds.length, "USSD Shop:", ussdShopOrderIds.length)
 
     if (!orders || orders.length === 0) {
       console.error("[DOWNLOAD] No orders found after querying")
@@ -192,12 +193,30 @@ export async function POST(request: NextRequest) {
         console.log(`[DOWNLOAD] USSD orders claimed: ${actualUssdOrderIds.length} of ${ussdOrderIds.length} requested`)
       }
 
+      let actualUssdShopOrderIds: string[] = []
+      if (ussdShopOrderIds.length > 0) {
+        const { data: updatedUssdShop, error: ussdShopUpdateError } = await supabase
+          .from("ussd_shop_orders")
+          .update({ order_status: "processing", updated_at: new Date().toISOString() })
+          .in("id", ussdShopOrderIds)
+          .eq("order_status", "pending")
+          .select("id")
+
+        if (ussdShopUpdateError) {
+          throw new Error(`Failed to update USSD shop order status: ${ussdShopUpdateError.message}`)
+        }
+
+        actualUssdShopOrderIds = updatedUssdShop?.map(o => o.id) || []
+        console.log(`[DOWNLOAD] USSD shop orders claimed: ${actualUssdShopOrderIds.length} of ${ussdShopOrderIds.length} requested`)
+      }
+
       // Filter the orders list to only include successfully claimed orders
-      const claimedOrderIds = new Set([...actualBulkOrderIds, ...actualShopOrderIds, ...actualUssdOrderIds])
+      const claimedOrderIds = new Set([...actualBulkOrderIds, ...actualShopOrderIds, ...actualUssdOrderIds, ...actualUssdShopOrderIds])
       orders = orders.filter((order: any) => claimedOrderIds.has(order.id))
       bulkOrderIds = actualBulkOrderIds
       shopOrderIds = actualShopOrderIds
       ussdOrderIds = actualUssdOrderIds
+      ussdShopOrderIds = actualUssdShopOrderIds
 
       // Update status in the filtered orders
       orders.forEach((order: any) => {
