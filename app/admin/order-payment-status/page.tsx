@@ -915,7 +915,28 @@ export default function OrderPaymentStatusPage() {
                               {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
                                 <div className="text-xs text-gray-400">{order.network} (no auto-fulfill)</div>
                               )}
-                              {order.status === "pending" && order.payment_status === "completed" && (order.type === "ussd" || order.type === "ussd_shop") && (
+                              {order.status === "pending" && order.payment_status === "completed" && order.type === "ussd" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs h-7 gap-1"
+                                  onClick={() => handleManualFulfill(order.id, order.type)}
+                                  disabled={fulfillingOrderId === order.id}
+                                >
+                                  {fulfillingOrderId === order.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      Fulfilling...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Zap className="w-3 h-3" />
+                                      Fulfill
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && order.type === "ussd_shop" && (
                                 <Button
                                   size="sm"
                                   variant="outline"
