@@ -38,7 +38,7 @@ interface SendSMSResponse {
 }
 
 // Maps internal network identifiers to display color names
-const networkColor = (network: string): string => {
+export const networkColor = (network: string): string => {
   const map: Record<string, string> = {
     mtn: "Yellow",
     telecel: "Red",
@@ -153,11 +153,11 @@ export const SMSTemplates = {
 
   // USSD order confirmed — sent to recipient phone
   ussdOrderConfirmed: (packageSize: string, network: string) =>
-    `DTGOD: Your ${packageSize} ${networkColor(network)} bundle is on its way! It will reflect in a few minutes.`,
+    `DTGOD: Your ${packageSize} ${networkColor(network)} is on its way! It will reflect in a few minutes.`,
 
   // USSD payment confirmed — sent to dialing/paying phone
   ussdPaymentConfirmed: (packageSize: string, network: string, maskedPhone: string) =>
-    `DTGOD: Payment confirmed. ${packageSize} ${networkColor(network)} bundle sent to ${maskedPhone}. Thank you!`,
+    `DTGOD: Payment confirmed. ${packageSize} ${networkColor(network)} sent to ${maskedPhone}. Thank you!`,
 
   // USSD AFA registration payment received
   ussdAfaPaymentReceived: () =>
