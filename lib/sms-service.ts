@@ -37,98 +37,113 @@ interface SendSMSResponse {
   provider?: string
 }
 
+// Maps internal network identifiers to display color names
+const networkColor = (network: string): string => {
+  const map: Record<string, string> = {
+    mtn: "Yellow",
+    telecel: "Red",
+    "at ishare": "Blue",
+    "at big time": "Blue Big",
+    airteltigo: "Blue",
+    airtel: "Blue",
+    tigo: "Blue",
+  }
+  return map[network.toLowerCase()] ?? network
+}
+
 // SMS Templates
 export const SMSTemplates = {
   walletTopUpInitiated: (amount: string, ref: string) =>
-    `DATAGOD: Your wallet top-up of GHS ${amount} has been initiated. Reference: ${ref}. We are processing your request.`,
+    `DTGOD: Your DTGOD-Wallet top-up of GH¢${amount} has been initiated. Reference: ${ref}. We are processing your request.`,
 
   walletTopUpSuccess: (amount: string, balance: string) =>
-    `DATAGOD: Your wallet has been credited with GHS ${amount}. Available balance: GHS ${balance}. Thank you for topping up.`,
+    `DTGOD: Your DTGOD-Wallet has been credited with GH¢${amount}. Available balance: GH¢${balance}. Thank you for topping up.`,
 
   walletTopUpFailed: (amount: string) =>
-    `DATAGOD: We were unable to process your wallet top-up of GHS ${amount}. Please try again or contact our support team for assistance.`,
-
-  orderCreated: (orderId: string, network: string, volume: string, amount: string) =>
-    `DATAGOD: Order Received. Your ${network} ${volume}GB data order (Ref: ${orderId}) for GHS ${amount} has been placed successfully. Awaiting payment confirmation.`,
+    `DTGOD: We were unable to process your DTGOD-Wallet top-up of GH¢${amount}. Please try again or contact our support team for assistance.`,
 
   // Wallet/dashboard order confirmation (no shop involved)
   orderPaymentConfirmed: (network: string, volume: string, phone: string) =>
-    `You have successfully placed an order of ${network} ${volume}GB to ${phone}. If delayed over 2 hours, contact support.`,
+    `You have successfully placed an order of ${networkColor(network)} ${volume}G.B to ${phone}. If delayed over 2 hours, contact support.`,
 
-  // Storefront order confirmation (includes shop name and owner contact)
+  // Storefront order confirmation (shop name excluded from message)
   shopOrderConfirmed: (shopName: string, network: string, volume: string, phone: string, ownerPhone: string) =>
-    `${shopName}: You have successfully placed an order of ${network} ${volume}GB to ${phone}. If delayed over 2 hours, contact shop owner: ${ownerPhone}`,
+    `You have successfully placed an order of ${networkColor(network)} ${volume}G.B to ${phone}. If delayed over 2 hours, contact shop owner: ${ownerPhone}`,
 
   orderDelivered: (orderId: string, network: string, volume: string) =>
-    `DATAGOD: Order Delivered. Your ${network} ${volume}GB data bundle (Ref: ${orderId}) has been successfully delivered. Thank you for choosing DATAGOD.`,
+    `DTGOD: Order Delivered. Your ${networkColor(network)} ${volume}G.B (Ref: ${orderId}) has been successfully delivered. Thank you for choosing DTGOD.`,
 
   withdrawalApproved: (amount: string, ref: string) =>
-    `DATAGOD: Withdrawal Approved. Your withdrawal request of GHS ${amount} has been approved and will be transferred to your account shortly. Reference: ${ref}.`,
+    `DTGOD: Withdrawal Approved. Your withdrawal request of GH¢${amount} has been approved and will be transferred to your account shortly. Reference: ${ref}.`,
 
   withdrawalRejected: (amount: string) =>
-    `DATAGOD: Withdrawal Update. Your withdrawal request of GHS ${amount} could not be processed at this time. Please contact our support team for further assistance.`,
+    `DTGOD: Withdrawal Update. Your withdrawal request of GH¢${amount} could not be processed at this time. Please contact our support team for further assistance.`,
 
   verificationCode: (code: string) =>
-    `DATAGOD: Your verification code is ${code}. This code is valid for 10 minutes. Do not share it with anyone.`,
+    `DTGOD: Your verification code is ${code}. This code is valid for 10 minutes. Do not share it with anyone.`,
 
   passwordReset: (link: string) =>
-    `DATAGOD: A password reset was requested for your account. Use this link to proceed: ${link}. Valid for 1 hour. If you did not request this, please ignore this message.`,
+    `DTGOD: A password reset was requested for your account. Use this link to proceed: ${link}. Valid for 1 hour. If you did not request this, please ignore this message.`,
 
   // Admin notifications
   fulfillmentFailed: (orderId: string, phone: string, network: string, sizeGb: string, reason: string) =>
-    `[ADMIN] Fulfillment FAILED! Order: ${orderId.substring(0, 8)} | ${phone} | ${network} ${sizeGb}GB | Reason: ${reason.substring(0, 50)}`,
+    `[ADMIN] Fulfillment FAILED! Order: ${orderId.substring(0, 8)} | ${phone} | ${networkColor(network)} ${sizeGb}G.B | Reason: ${reason.substring(0, 50)}`,
 
   // Price manipulation alert
   priceManipulationDetected: (phone: string, clientPrice: string, actualPrice: string, network: string, volume: string) =>
-    `[FRAUD ALERT] Price manipulation detected! Phone: ${phone} | Sent: GHS${clientPrice} | Actual: GHS${actualPrice} | ${network} ${volume}GB`,
+    `[FRAUD ALERT] Price manipulation detected! Phone: ${phone} | Sent: GH¢${clientPrice} | Actual: GH¢${actualPrice} | ${networkColor(network)} ${volume}G.B`,
 
-  // Payment mismatch alert  
+  // Payment mismatch alert
   paymentMismatchDetected: (reference: string, paidAmount: string, expectedAmount: string) =>
-    `[FRAUD ALERT] Payment mismatch! Ref: ${reference} | Paid: GHS${paidAmount} | Expected: GHS${expectedAmount}`,
+    `[FRAUD ALERT] Payment mismatch! Ref: ${reference} | Paid: GH¢${paidAmount} | Expected: GH¢${expectedAmount}`,
 
   // Admin credit/debit notifications to user
   adminCredited: (amount: string, balance: string) =>
-    `DATAGOD: Account Update. Your wallet has been credited with GHS ${amount} by the administrator. Available balance: GHS ${balance}.`,
+    `DTGOD: Account Update. Your DTGOD-Wallet has been credited with GH¢${amount} by the administrator. Available balance: GH¢${balance}.`,
 
   adminDebited: (amount: string, balance: string) =>
-    `DATAGOD: Account Update. Your wallet has been debited GHS ${amount} by the administrator. Available balance: GHS ${balance}. Contact support if you have any concerns.`,
+    `DTGOD: Account Update. Your DTGOD-Wallet has been debited GH¢${amount} by the administrator. Available balance: GH¢${balance}. Contact support if you have any concerns.`,
 
   // Dealer subscription notifications
   subscriptionSuccess: (planName: string, endDate: string) =>
-    `DATAGOD: Subscription Activated. Your ${planName} plan is now active and valid until ${endDate}. Your dealer privileges have been unlocked. Thank you for your commitment.`,
+    `DTGOD: Subscription Activated. Your ${planName} plan is now active and valid until ${endDate}. Your dealer privileges have been unlocked. Thank you for your commitment.`,
 
   subscriptionExpiry1Day: (planName: string, endDate: string) =>
-    `DATAGOD: Subscription Reminder. Your ${planName} plan expires in 1 day on ${endDate}. Renew now to maintain uninterrupted dealer access.`,
+    `DTGOD: Subscription Reminder. Your ${planName} plan expires in 1 day on ${endDate}. Renew now to maintain uninterrupted dealer access.`,
 
   subscriptionExpiry12Hours: (planName: string, endDate: string) =>
-    `DATAGOD: Subscription Alert. Your ${planName} plan expires in 12 hours on ${endDate}. Please renew promptly to avoid any interruption to your services.`,
+    `DTGOD: Subscription Alert. Your ${planName} plan expires in 12 hours on ${endDate}. Please renew promptly to avoid any interruption to your services.`,
 
   subscriptionExpiry6Hours: (planName: string, endDate: string) =>
-    `DATAGOD: Urgent - Subscription Expiring. Your ${planName} plan expires in 6 hours on ${endDate}. Immediate renewal is required to avoid loss of access.`,
+    `DTGOD: Urgent - Subscription Expiring. Your ${planName} plan expires in 6 hours on ${endDate}. Immediate renewal is required to avoid loss of access.`,
 
   subscriptionExpiry1Hour: (planName: string, endDate: string) =>
-    `DATAGOD: Final Notice. Your ${planName} plan expires in 1 hour on ${endDate}. Please renew immediately to avoid suspension of your dealer account.`,
+    `DTGOD: Final Notice. Your ${planName} plan expires in 1 hour on ${endDate}. Please renew immediately to avoid suspension of your dealer account.`,
 
   userSuspended: (reason?: string) =>
-    `DATAGOD: Account Suspended. Your DATAGOD account has been suspended.${reason ? ` Reason: ${reason}.` : ""} Please contact our support team if you believe this is an error.`,
+    `DTGOD: Account Suspended. Your DTGOD account has been suspended.${reason ? ` Reason: ${reason}.` : ""} Please contact our support team if you believe this is an error.`,
 
   userUnsuspended: () =>
-    `DATAGOD: Account Restored. Your DATAGOD account has been reactivated. You may now log in to your dashboard and resume your activities.`,
+    `DTGOD: Account Restored. Your DTGOD account has been reactivated. You may now log in to your dashboard and resume your activities.`,
 
-  // Airtime specific notifications
+  // Airtime specific notifications (shop name excluded from message)
   airtimeBeneficiaryNotification: (shopName: string, network: string, amount: string, phone: string, ref: string) =>
-    `${shopName}: Your airtime purchase has been processed. GHS ${amount} of ${network} airtime has been sent to ${phone}. Reference: ${ref}. Thank you for your order.`,
+    `Your airtime purchase has been processed. GH¢${amount} of ${networkColor(network)} airtime has been sent to ${phone}. Reference: ${ref}. Thank you for your order.`,
 
   adminAirtimeOrderNotification: (source: string, phone: string, amount: string, network: string) =>
-    `[NEW ORDER] Airtime\nSource: ${source}\nRecipient: ${phone}\nAmount: GHS ${amount}\nNetwork: ${network}`,
+    `[NEW ORDER] Airtime\nSource: ${source}\nRecipient: ${phone}\nAmount: GH¢${amount}\nNetwork: ${networkColor(network)}`,
 
   // AFA registration confirmation
   afaRegistration: (fullName: string, orderCode: string, amount: string) =>
-    `DATAGOD: Your AFA registration for ${fullName} (Ref: ${orderCode}) has been received. Amount: GHS ${amount}. You will be contacted once the registration is processed.`,
+    `DTGOD: Your AFA registration for ${fullName} (Ref: ${orderCode}) has been received. Amount: GH¢${amount}. You will be contacted once the registration is processed.`,
 
   // AFA registration completion
   afaCompleted: (fullName: string, orderCode: string) =>
-    `DATAGOD: Good news! Your AFA registration for ${fullName} (Ref: ${orderCode}) has been completed successfully. Thank you for registering with us.`,
+    `DTGOD: Good news! Your AFA registration for ${fullName} (Ref: ${orderCode}) has been completed successfully. Thank you for registering with us.`,
+
+  // Sub-agent invitation
+  subAgentInvitation: (inviteUrl: string) =>
+    `DTGOD: You have been invited to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`,
 }
 
 /**
