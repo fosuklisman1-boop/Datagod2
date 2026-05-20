@@ -43,6 +43,13 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
       return cont(otpMenu())
     }
 
+    // If the shop code was embedded in the dial string (e.g. *426*203*1234#),
+    // skip the entry prompt and process it immediately.
+    if (ussdString?.trim()) {
+      await setSession(sessionID, { step: 'ENTER_SHOP_CODE', dialingPhone: msisdn })
+      return handleEnterShopCode(ussdString.trim(), sessionID, msisdn)
+    }
+
     await setSession(sessionID, { step: 'ENTER_SHOP_CODE', dialingPhone: msisdn })
     return cont(enterShopCodeMenu())
   }
