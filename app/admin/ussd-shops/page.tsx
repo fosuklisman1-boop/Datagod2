@@ -476,9 +476,9 @@ export default function AdminUssdShopsPage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Total Tokens</p>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Available Tokens</p>
                   <p className="text-3xl font-bold text-gray-900 mt-1">
-                    {codes.reduce((sum, c) => sum + (c.token_balance ?? 0), 0).toLocaleString()}
+                    {codes.filter(c => c.status === 'active').reduce((sum, c) => sum + (c.token_balance ?? 0), 0).toLocaleString()}
                   </p>
                 </div>
                 <Database className="w-8 h-8 text-purple-500 opacity-80 shrink-0" />
