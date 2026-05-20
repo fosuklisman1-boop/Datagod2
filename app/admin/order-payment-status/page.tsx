@@ -818,21 +818,21 @@ export default function OrderPaymentStatusPage() {
                         <tr key={order.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <Badge variant="outline" className="text-xs">
-                              {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : order.type === "ussd" ? "USSD" : "Wallet"}
+                              {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : order.type === "ussd" ? "USSD" : order.type === "ussd_shop" ? "USSD Shop" : "Wallet"}
                             </Badge>
                           </td>
                           <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
-                            {order.type === "shop" ? (order.store_name || "-") : "-"}
+                            {(order.type === "shop" || order.type === "ussd_shop") ? (order.store_name || "-") : "-"}
                           </td>
                           <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.shop_owner_email || "-"}>
-                            {order.type === "shop" ? (order.shop_owner_email || "-") : "-"}
+                            {(order.type === "shop" || order.type === "ussd_shop" || order.type === "ussd") ? (order.shop_owner_email || "-") : "-"}
                           </td>
                           <td className="px-4 py-3 font-mono text-xs max-w-xs truncate" title={order.payment_reference}>
                             {order.payment_reference}
                           </td>
                           <td className="px-4 py-3 font-mono text-xs">{order.phone_number}</td>
                           <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.customer_email || "-"}>
-                            {order.type === "shop" ? (order.customer_email || "-") : "-"}
+                            {(order.type === "shop" || order.type === "ussd_shop") ? (order.customer_email || "-") : "-"}
                           </td>
                           <td className="px-4 py-3">
                             <Badge className={`${getNetworkColor(order.network)} border`}>
