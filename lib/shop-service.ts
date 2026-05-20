@@ -266,7 +266,7 @@ export const shopOrderService = {
     const normalizedUssd = (ussdOrders ?? []).map((o) => ({
       ...o,
       volume_gb: o.package_size,
-      customer_name: o.recipient_phone,
+      customer_name: "USSD",
       type: "ussd_shop",
     }))
 
