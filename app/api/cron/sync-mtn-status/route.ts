@@ -194,6 +194,7 @@ export async function GET(request: NextRequest) {
       .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, provider, retry_count")
       .in("status", ["pending", "processing", "failed", "retrying", "error"])
       .not("mtn_order_id", "is", null)
+      .not("mtn_order_id", "like", "FAILED_INIT_%")
       .order("updated_at", { ascending: true })
       .limit(500)
 

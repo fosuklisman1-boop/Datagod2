@@ -641,6 +641,22 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdOrderIds.length} USSD orders to status: ${status}`)
+
+      try {
+        const { error: mtnUpdateError } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .update({ status, updated_at: new Date().toISOString() })
+          .in("order_id", finalUssdOrderIds)
+          .eq("order_type", "ussd")
+
+        if (mtnUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD orders:", mtnUpdateError)
+        } else {
+          console.log(`[BULK-UPDATE] ✓ Updated MTN tracking records for USSD orders`)
+        }
+      } catch (e) {
+        console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD orders:", e)
+      }
     }
 
     // Update USSD shop orders
@@ -655,6 +671,22 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdShopOrderIds.length} USSD shop orders to status: ${status}`)
+
+      try {
+        const { error: mtnUpdateError } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .update({ status, updated_at: new Date().toISOString() })
+          .in("order_id", finalUssdShopOrderIds)
+          .eq("order_type", "ussd_shop")
+
+        if (mtnUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD shop orders:", mtnUpdateError)
+        } else {
+          console.log(`[BULK-UPDATE] ✓ Updated MTN tracking records for USSD shop orders`)
+        }
+      } catch (e) {
+        console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD shop orders:", e)
+      }
     }
 
     return NextResponse.json({

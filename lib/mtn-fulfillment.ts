@@ -730,10 +730,12 @@ export async function saveMTNTracking(
 ): Promise<string | null> {
   try {
     // Build insert data based on order type
-    // Set status to "pending" - the cron job will sync the actual status from provider
+    // FAILED_INIT rows have no real external order ID — mark them failed immediately
+    // so the status-sync cron never tries to look them up in Sykes/DataKazina
+    const isFakeId = String(mtnOrderId).startsWith("FAILED_INIT_")
     const insertData: Record<string, unknown> = {
       mtn_order_id: mtnOrderId,
-      status: "pending",
+      status: isFakeId ? "failed" : "pending",
       recipient_phone: request.recipient_phone,
       network: request.network,
       size_gb: request.size_gb,
