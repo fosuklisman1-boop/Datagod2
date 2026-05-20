@@ -33,13 +33,21 @@ export interface MTNOrderResponse {
 export interface DataKazinaWebhookPayload {
   status: string
   transaction_id?: string
-  id?: string
+  id?: string | number
+  type?: string
+  order_code?: string
   reference?: string
   message?: string
   recipient_msisdn?: string
-  amount?: string
+  amount?: string | number
   incoming_api_ref?: string
   timestamp?: string
+  occurred_at?: string
+  test?: boolean
+  metadata?: {
+    message?: string
+    [key: string]: any
+  }
 }
 
 export interface MTNWebhookPayload {
@@ -499,12 +507,27 @@ async function _legacyCreateMTNOrderSykes(order: MTNOrderRequest): Promise<MTNOr
  */
 export function verifyWebhookSignature(payload: string, signature: string): boolean {
   try {
+    const secret = mtnConfig.webhookSecret || MTN_API_KEY
     const expectedSignature = crypto
-      .createHmac("sha256", MTN_API_KEY)
+      .createHmac("sha256", secret)
       .update(payload)
       .digest("hex")
 
-    return signature === `sha256=${expectedSignature}`
+    // Handle both prefixed (sha256=...) and non-prefixed hex signatures
+    const actualSignature = signature.startsWith("sha256=")
+      ? signature.substring(7)
+      : signature
+
+    // Use constant time comparison to prevent timing attacks
+    // timingSafeEqual requires buffers to be the same length
+    const expectedBuffer = Buffer.from(expectedSignature, "hex")
+    const actualBuffer = Buffer.from(actualSignature, "hex")
+
+    if (expectedBuffer.length !== actualBuffer.length) {
+      return false
+    }
+
+    return crypto.timingSafeEqual(expectedBuffer, actualBuffer)
   } catch (error) {
     console.error("[MTN] Webhook signature verification error:", error)
     return false
@@ -702,7 +725,7 @@ export async function saveMTNTracking(
   mtnOrderId: number | string,
   request: MTNOrderRequest,
   response: MTNOrderResponse,
-  orderType: "shop" | "bulk" | "api" = "shop",
+  orderType: "shop" | "bulk" | "api" | "ussd" = "shop",
   provider: string = "sykes"
 ): Promise<string | null> {
   try {

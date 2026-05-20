@@ -299,6 +299,115 @@ export async function initiateTransfer(
   }
 }
 
+/**
+ * Refund a transaction via Paystack.
+ * @param reference - The original Paystack transaction reference
+ * @param amountGhs - Optional partial refund amount in GHS. Omit for full refund.
+ * @returns Refund details from Paystack
+ */
+export async function refundTransaction(reference: string, amountGhs?: number) {
+  const body: Record<string, any> = { transaction: reference }
+  if (amountGhs !== undefined) {
+    body.amount = Math.round(amountGhs * 100) // convert GHS → pesewas
+  }
+
+  const response = await fetch(`${PAYSTACK_BASE_URL}/refund`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  })
+
+  const data: PaymentResponse = await response.json()
+
+  if (!response.ok || !data.status) {
+    throw new Error(data.message || `Refund failed (HTTP ${response.status})`)
+  }
+
+  return data.data
+}
+
+interface ChargeMobileMoneyParams {
+  email: string
+  amount: number        // in GHS — converted to pesewas internally
+  phone: string         // e.g. "0244123456" or "+233244123456"
+  provider: 'mtn' | 'vod' | 'tgo'
+  reference: string
+  metadata?: Record<string, any>
+}
+
+/**
+ * Directly charge a Ghana mobile money account via Paystack.
+ * Sends a payment prompt to the customer's phone — no redirect needed.
+ * On approval the charge.success webhook fires.
+ */
+export async function chargeMobileMoney(params: ChargeMobileMoneyParams): Promise<{ status: string; reference: string }> {
+  const { email, amount, phone, provider, reference, metadata } = params
+
+  // Normalise to local format (0XXXXXXXXX) — Paystack Ghana expects this
+  let normalizedPhone = phone
+  if (normalizedPhone.startsWith('+233')) normalizedPhone = '0' + normalizedPhone.slice(4)
+  else if (normalizedPhone.startsWith('233')) normalizedPhone = '0' + normalizedPhone.slice(3)
+
+  console.log("[PAYSTACK-CHARGE] Initiating mobile money charge:")
+  console.log("  Phone:", normalizedPhone, "Provider:", provider)
+  console.log("  Amount:", amount, "GHS  Reference:", reference)
+
+  const response = await fetch(`${PAYSTACK_BASE_URL}/charge`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email,
+      amount: Math.round(amount * 100), // GHS → pesewas
+      reference,
+      mobile_money: { phone: normalizedPhone, provider },
+      metadata: metadata ?? {},
+    }),
+  })
+
+  const data: PaymentResponse = await response.json()
+
+  if (!response.ok || !data.status) {
+    console.error("[PAYSTACK-CHARGE] ✗ Error:", data)
+    throw new Error(data.message || `Paystack charge failed (HTTP ${response.status})`)
+  }
+
+  console.log("[PAYSTACK-CHARGE] ✓ Charge initiated. Status:", data.data?.status)
+  return { status: data.data?.status ?? 'pending', reference }
+}
+
+/**
+ * Submit OTP for a pending Paystack mobile money charge.
+ * Called when the initial charge returns status "send_otp".
+ */
+export async function submitOtp(reference: string, otp: string): Promise<{ status: string; reference: string }> {
+  console.log("[PAYSTACK-OTP] Submitting OTP for reference:", reference)
+
+  const response = await fetch(`${PAYSTACK_BASE_URL}/charge/submit_otp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ otp, reference }),
+  })
+
+  const data: PaymentResponse = await response.json()
+
+  if (!response.ok || !data.status) {
+    console.error("[PAYSTACK-OTP] ✗ Error:", data)
+    throw new Error(data.message || `OTP submission failed (HTTP ${response.status})`)
+  }
+
+  console.log("[PAYSTACK-OTP] ✓ OTP submitted. Status:", data.data?.status)
+  return { status: data.data?.status ?? 'pending', reference }
+}
+
 export default {
   initializePayment,
   verifyPayment,
@@ -306,4 +415,7 @@ export default {
   getCustomer,
   createTransferRecipient,
   initiateTransfer,
+  refundTransaction,
+  chargeMobileMoney,
+  submitOtp,
 }

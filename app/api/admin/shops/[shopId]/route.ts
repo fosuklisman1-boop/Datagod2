@@ -66,28 +66,34 @@ export async function GET(
       )
     }
 
-    // Fetch all orders and profits with pagination
-    const [orders, profits] = await Promise.all([
-      fetchAllRecords(
-        "shop_orders",
-        "id, shop_id, user_id, customer_phone, network, volume_gb, transaction_id, order_status, payment_status, created_at",
-        "shop_id",
-        shopId
-      ),
-      fetchAllRecords(
-        "shop_profits",
-        "id, shop_id, shop_order_id, profit_amount, status, created_at",
-        "shop_id",
-        shopId
-      )
+    // Fetch recent orders (last 50), profits (last 50), and available balance
+    const [ordersRes, profitsRes, balanceRes] = await Promise.all([
+      supabase
+        .from("shop_orders")
+        .select("id, shop_id, customer_email, customer_phone, customer_name, network, volume_gb, total_price, profit_amount, transaction_id, order_status, payment_status, created_at, reference_code")
+        .eq("shop_id", shopId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+      supabase
+        .from("shop_profits")
+        .select("id, shop_id, shop_order_id, profit_amount, status, created_at, notes, adjustment_type")
+        .eq("shop_id", shopId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+      supabase
+        .from("shop_available_balance")
+        .select("available_balance")
+        .eq("shop_id", shopId)
+        .maybeSingle()
     ])
 
     return NextResponse.json({
       success: true,
       data: {
         shop,
-        orders: orders || [],
-        profits: profits || []
+        orders: ordersRes.data || [],
+        profits: profitsRes.data || [],
+        available_balance: balanceRes.data?.available_balance || 0
       }
     })
   } catch (error: any) {

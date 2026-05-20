@@ -342,7 +342,9 @@ export async function GET(request: NextRequest) {
       packages,
       is_sub_agent: !!shop.parent_shop_id,
       ordering_enabled: orderingEnabled,
-      announcement: activeAnnouncement
+      announcement: activeAnnouncement,
+      terms_content: settings?.terms_content ?? "",
+      terms_last_updated: settings?.terms_last_updated ?? null,
     }, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',

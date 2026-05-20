@@ -349,7 +349,7 @@ export default function BroadcastPage() {
                                         <div className="flex justify-end">
                                             <button
                                                 onClick={handleSelectAllRoles}
-                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium border border-emerald-300 hover:border-emerald-400 rounded px-2 py-0.5 transition-colors"
                                             >
                                                 {selectedRoles.length === 4 ? "Deselect All" : "Select All"}
                                             </button>

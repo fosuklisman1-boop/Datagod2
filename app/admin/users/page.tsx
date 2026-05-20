@@ -743,19 +743,19 @@ export default function AdminUsersPage() {
                           <Card className="bg-blue-50 border-blue-200">
                             <CardContent className="p-4">
                               <p className="text-xs text-blue-600 font-medium">Current Balance</p>
-                              <p className="text-xl font-bold text-blue-700">GHS {userStats.wallet.balance.toFixed(2)}</p>
+                              <p className="text-xl font-bold text-blue-700">GHS {Number(userStats.wallet.balance || 0).toFixed(2)}</p>
                             </CardContent>
                           </Card>
                           <Card className="bg-green-50 border-green-200">
                             <CardContent className="p-4">
                               <p className="text-xs text-green-600 font-medium">Total Top-ups</p>
-                              <p className="text-xl font-bold text-green-700">GHS {userStats.wallet.totalTopUps.toFixed(2)}</p>
+                              <p className="text-xl font-bold text-green-700">GHS {Number(userStats.wallet.totalTopUps || 0).toFixed(2)}</p>
                             </CardContent>
                           </Card>
                           <Card className="bg-orange-50 border-orange-200">
                             <CardContent className="p-4">
                               <p className="text-xs text-orange-600 font-medium">Total Spent</p>
-                              <p className="text-xl font-bold text-orange-700">GHS {userStats.wallet.totalSpent.toFixed(2)}</p>
+                              <p className="text-xl font-bold text-orange-700">GHS {Number(userStats.wallet.totalSpent || 0).toFixed(2)}</p>
                             </CardContent>
                           </Card>
                           <Card className="bg-purple-50 border-purple-200">
@@ -827,7 +827,7 @@ export default function AdminUsersPage() {
                               <Card className="bg-green-50 border-green-200">
                                 <CardContent className="p-4">
                                   <p className="text-xs text-green-600 font-medium">Total Sales</p>
-                                  <p className="text-xl font-bold text-green-700">GHS {userStats.shop.totalSales.toFixed(2)}</p>
+                                  <p className="text-xl font-bold text-green-700">GHS {Number(userStats.shop.totalSales || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-emerald-50 border-emerald-200">
@@ -836,31 +836,31 @@ export default function AdminUsersPage() {
                                     <TrendingUp className="w-3 h-3 text-emerald-600" />
                                     <p className="text-xs text-emerald-600 font-medium">Total Profit</p>
                                   </div>
-                                  <p className="text-xl font-bold text-emerald-700">GHS {userStats.shop.totalProfit.toFixed(2)}</p>
+                                  <p className="text-xl font-bold text-emerald-700">GHS {Number(userStats.shop.totalProfit || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-purple-50 border-purple-200">
                                 <CardContent className="p-4">
                                   <p className="text-xs text-purple-600 font-medium">Available Balance</p>
-                                  <p className="text-xl font-bold text-purple-700">GHS {userStats.shop.availableBalance.toFixed(2)}</p>
+                                  <p className="text-xl font-bold text-purple-700">GHS {Number(userStats.shop.availableBalance || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-teal-50 border-teal-200">
                                 <CardContent className="p-4">
                                   <p className="text-xs text-teal-600 font-medium">Credited Profit</p>
-                                  <p className="text-xl font-bold text-teal-700">GHS {userStats.shop.creditedProfit.toFixed(2)}</p>
+                                  <p className="text-xl font-bold text-teal-700">GHS {Number(userStats.shop.creditedProfit || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-orange-50 border-orange-200">
                                 <CardContent className="p-4">
                                   <p className="text-xs text-orange-600 font-medium">Pending Profit</p>
-                                  <p className="text-xl font-bold text-orange-700">GHS {userStats.shop.pendingProfit.toFixed(2)}</p>
+                                  <p className="text-xl font-bold text-orange-700">GHS {Number(userStats.shop.pendingProfit || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-gray-50 border-gray-200">
                                 <CardContent className="p-4">
                                   <p className="text-xs text-gray-600 font-medium">Total Withdrawn</p>
-                                  <p className="text-xl font-bold text-gray-700">GHS {userStats.shop.withdrawnAmount.toFixed(2)}</p>
+                                  <p className="text-xl font-bold text-gray-700">GHS {Number(userStats.shop.withdrawnAmount || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                             </div>
@@ -881,7 +881,7 @@ export default function AdminUsersPage() {
                               <Card className="bg-green-50 border-green-200">
                                 <CardContent className="p-4">
                                   <p className="text-xs text-green-600 font-medium">Total Withdrawn</p>
-                                  <p className="text-xl font-bold text-green-700">GHS {userStats.withdrawals.totalWithdrawn.toFixed(2)}</p>
+                                  <p className="text-xl font-bold text-green-700">GHS {Number(userStats.withdrawals.totalWithdrawn || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-blue-50 border-blue-200">
@@ -913,7 +913,7 @@ export default function AdminUsersPage() {
                                     {userStats.withdrawals.history.slice(0, 10).map((w) => (
                                       <tr key={w.id} className="hover:bg-gray-50">
                                         <td className="px-3 py-2 text-xs">{new Date(w.createdAt).toLocaleDateString()}</td>
-                                        <td className="px-3 py-2 font-medium">GHS {w.netAmount.toFixed(2)}</td>
+                                        <td className="px-3 py-2 font-medium">GHS {Number(w.netAmount || 0).toFixed(2)}</td>
                                         <td className="px-3 py-2 text-xs capitalize">{w.method.replace("_", " ")}</td>
                                         <td className="px-3 py-2">
                                           <Badge className={

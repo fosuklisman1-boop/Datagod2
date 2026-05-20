@@ -14,15 +14,16 @@ import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { redirectToPayment } from "@/lib/payment-redirect"
-import { 
-  Store, 
-  ShoppingCart, 
-  Package, 
-  AlertCircle, 
-  AlignJustify, 
-  MessageCircle, 
-  Zap, 
+import {
+  Store,
+  ShoppingCart,
+  Package,
+  AlertCircle,
+  AlignJustify,
+  MessageCircle,
+  Zap,
   ArrowRight,
+  GraduationCap,
   CheckCircle2,
   MapPin,
   Clock,
@@ -33,6 +34,7 @@ import {
   ChevronLeft
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
+import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 
@@ -48,7 +50,7 @@ export default function ShopStorefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
-  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "about" | "track-order">("products")
+  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "vouchers" | "about" | "track-order">("products")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
     customer_name: "",
@@ -57,6 +59,8 @@ export default function ShopStorefront() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
+  const [termsContent, setTermsContent] = useState("")
+  const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
 
   const [showAnnouncement, setShowAnnouncement] = useState(false)
@@ -103,6 +107,13 @@ export default function ShopStorefront() {
 
         if (data.ordering_enabled !== undefined) {
           setGlobalOrderingEnabled(data.ordering_enabled)
+        }
+
+        if (data.terms_content) {
+          setTermsContent(data.terms_content)
+        }
+        if (data.terms_last_updated) {
+          setTermsLastUpdated(data.terms_last_updated)
         }
 
         if (data.packages && data.packages.length > 0) {
@@ -592,8 +603,8 @@ export default function ShopStorefront() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content */}
           <div className="flex-1 min-w-0">
-            {/* Products Tab (Data & Airtime) */}
-            {(activeTab === "products" || activeTab === "airtime") && (
+            {/* Products Tab (Data, Airtime & Vouchers) */}
+            {(activeTab === "products" || activeTab === "airtime" || activeTab === "vouchers") && (
               <div className="space-y-8">
                 {/* Sub-tab Switcher */}
                 <div className="flex p-1.5 bg-gray-100 rounded-2xl w-full sm:w-fit mx-auto sm:mx-0 shadow-inner">
@@ -616,6 +627,16 @@ export default function ShopStorefront() {
                   >
                     <Zap className="w-5 h-5" />
                     Buy Airtime
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("vouchers")}
+                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
+                        ? "bg-white text-violet-700 shadow-md scale-[1.02]"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                      }`}
+                  >
+                    <GraduationCap className="w-5 h-5" />
+                    Results Vouchers
                   </button>
                 </div>
 
@@ -745,10 +766,15 @@ export default function ShopStorefront() {
                       )}
                     </div>
                   </div>
-                ) : (
+                ) : activeTab === "airtime" ? (
                   /* Airtime Form Section */
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <AirtimeStorefrontForm shop={shop} shopSlug={shopSlug} />
+                  </div>
+                ) : (
+                  /* Results Checker Vouchers Section */
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <ResultsCheckerStorefrontForm shop={shop} shopSlug={shopSlug} />
                   </div>
                 )}
               </div>
@@ -756,7 +782,7 @@ export default function ShopStorefront() {
 
             {/* About Tab */}
             {activeTab === "about" && (
-              <div className="space-y-6">
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <Card className="border-0 shadow-md">
                   <CardHeader className="pb-3">
                     <CardTitle>Shop Information</CardTitle>
@@ -789,6 +815,9 @@ export default function ShopStorefront() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Platform Terms of Service */}
+                <ShopTermsSection termsContent={termsContent} termsLastUpdated={termsLastUpdated} />
               </div>
             )}
 
@@ -931,6 +960,67 @@ export default function ShopStorefront() {
         message={activeAnnouncement?.message || ""}
       />
     </div >
+  )
+}
+
+function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: string; termsLastUpdated: string | null }) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (!termsContent) return null
+
+  const lines = termsContent.split("\n")
+  let intro = ""
+  const sections: Array<{ title: string; body: string }> = []
+  let current: { title: string; lines: string[] } | null = null
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    if (/^\d+\.\s/.test(trimmed)) {
+      if (current) sections.push({ title: current.title, body: current.lines.join(" ").trim() })
+      current = { title: trimmed, lines: [] }
+    } else if (current) {
+      current.lines.push(trimmed)
+    } else {
+      intro += (intro ? " " : "") + trimmed
+    }
+  }
+  if (current) sections.push({ title: current.title, body: current.lines.join(" ").trim() })
+
+  const formattedDate = termsLastUpdated
+    ? new Date(termsLastUpdated).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+    : "April 2026"
+
+  return (
+    <Card className="border-0 shadow-md">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <AlignJustify className="w-4 h-4 text-violet-600" />
+            Platform Terms of Service
+          </CardTitle>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-violet-600 hover:text-violet-700 font-medium border border-violet-300 hover:border-violet-400 rounded px-2 py-0.5 transition-colors"
+          >
+            {expanded ? "Hide" : "Read Terms"}
+          </button>
+        </div>
+        {intro && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{intro}</p>}
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="space-y-3 pt-0">
+          {sections.map((s, i) => (
+            <div key={i} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-xs font-bold text-violet-700 mb-1">{s.title}</p>
+              <p className="text-xs text-gray-700 leading-relaxed">{s.body}</p>
+            </div>
+          ))}
+          <p className="text-xs text-gray-400 pt-1">Last updated: {formattedDate}</p>
+        </CardContent>
+      )}
+    </Card>
   )
 }
 

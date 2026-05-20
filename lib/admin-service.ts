@@ -469,6 +469,30 @@ export const adminShopService = {
       throw error
     }
   },
+
+  // Manual Balance Adjustment (Credit/Debit)
+  async manualBalanceAdjustment(shopId: string, amount: number, type: "credit" | "debit", notes: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("No authentication token available")
+
+      const response = await fetch(`/api/admin/shops/${shopId}/balance-adjustment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ amount, type, notes }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to adjust balance")
+      return data
+    } catch (error: any) {
+      console.error("Error adjusting shop balance:", error)
+      throw error
+    }
+  },
 }
 
 // Admin Dashboard Stats

@@ -51,7 +51,7 @@ export function AnnouncementModal({ isOpen, onClose, title, message }: Announcem
             </Button>
           </div>
         </DialogHeader>
-        <div className="mt-4">
+        <div className="mt-4 max-h-64 overflow-y-auto pr-1">
           <DialogDescription className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">
             {message}
           </DialogDescription>

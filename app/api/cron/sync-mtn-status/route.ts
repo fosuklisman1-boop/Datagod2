@@ -394,6 +394,22 @@ export async function GET(request: NextRequest) {
               userId = apiData.user_id
               orderDetails = { network: apiData.network, size: `${apiData.volume_gb}GB`, phone: apiData.recipient_phone }
             }
+          } else if (order.order_type === "ussd" && order.order_id) {
+            const { data: ussdData, error: ussdError } = await supabase
+              .from("ussd_orders")
+              .update({
+                order_status: normalizedStatus,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", order.order_id)
+              .select("network, package_size, recipient_phone")
+              .single()
+
+            if (ussdError) {
+              console.error(`[CRON] ⚠️ Failed to update USSD order ${order.order_id}:`, ussdError)
+            } else if (ussdData) {
+              orderDetails = { network: ussdData.network, size: ussdData.package_size, phone: ussdData.recipient_phone }
+            }
           } else if (order.shop_order_id) {
             const { data: shopData, error: shopError } = await supabase
               .from("shop_orders")

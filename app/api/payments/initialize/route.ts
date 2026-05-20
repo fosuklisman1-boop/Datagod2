@@ -72,6 +72,17 @@ export async function POST(request: NextRequest) {
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
 
+    // Wallet top-ups MUST have an authenticated user — otherwise the credit step
+    // has no user_id to credit and the top-up gets permanently stuck.
+    // This catches expired/missing JWTs before Paystack charges the user.
+    if (isTopup && !userId) {
+      console.warn("[PAYMENT-INIT] Blocked wallet top-up: no authenticated user (missing/expired JWT)")
+      return NextResponse.json(
+        { error: "You must be signed in to top up your wallet. Please refresh and try again." },
+        { status: 401 }
+      )
+    }
+
     // Enforce Feature Availability Toggles
     if (isTopup && settings?.wallet_topups_enabled === false && !isAdmin) {
       console.warn(`[PAYMENT-INIT] Blocked Top Up for non-admin user ${userId} because feature is disabled.`)
@@ -93,10 +104,10 @@ export async function POST(request: NextRequest) {
 
     // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
     if (orderId) {
-      const table = orderType === "airtime" ? "airtime_orders" : "shop_orders"
-      console.log(`[PAYMENT-INIT] ${orderType === "airtime" ? "Airtime" : "Shop"} Order detected (${orderId}). Verifying price from database...`)
+      const table = orderType === "airtime" ? "airtime_orders" : orderType === "results_checker" ? "results_checker_orders" : "shop_orders"
+      console.log(`[PAYMENT-INIT] ${orderType} order detected (${orderId}). Verifying price from database...`)
 
-      const amountColumn = orderType === "airtime" ? "total_paid" : "total_price"
+      const amountColumn = (orderType === "airtime" || orderType === "results_checker") ? "total_paid" : "total_price"
       const { data: orderData, error: orderError } = await supabase
         .from(table)
         .select(amountColumn)
@@ -212,10 +223,14 @@ export async function POST(request: NextRequest) {
     // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
     const isDealerUpgradePayment = type === "dealer_upgrade"
-    const confirmationPath = orderType === "airtime" ? "airtime/confirmation" : `order-confirmation/${orderId}`
+    const confirmationPath =
+      orderType === "airtime" ? "airtime/confirmation" :
+      orderType === "results_checker" ? "results-checker/confirmation" :
+      `order-confirmation/${orderId}`
+    const appendOrderId = orderType === "airtime" || orderType === "results_checker"
     let redirectUrl: string
     if (shopId && orderId && shopSlug) {
-      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${orderType === "airtime" ? `&orderId=${orderId}` : ""}`
+      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${appendOrderId ? `&orderId=${orderId}` : ""}`
     } else if (isDealerUpgradePayment) {
       redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/upgrade?reference=${reference}`
     } else {
@@ -253,7 +268,7 @@ export async function POST(request: NextRequest) {
         fee: paystackFee,
         email,
         status: "pending",
-        payment_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType === "airtime" ? "shop_airtime" : (shopId ? "shop_order" : "wallet_topup")),
+        payment_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType === "airtime" ? "shop_airtime" : (orderType === "results_checker" ? "results_checker" : (shopId ? "shop_order" : "wallet_topup"))),
         shop_id: shopId || null,
         order_id: orderId || null,
         created_at: new Date().toISOString(),

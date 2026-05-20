@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
         reference_code,
         created_at
       `)
-      .eq("order_status", "pending")
+      .in("order_status", ["pending", "pending_download"])
       .eq("payment_status", "completed")
       .not("payment_status", "is", null)
     
@@ -224,8 +224,52 @@ export async function GET(request: NextRequest) {
       type: "api"
     }))
 
+    // Build USSD orders query (paid but not yet fulfilled)
+    let ussdQuery = supabase
+      .from("ussd_orders")
+      .select("id, created_at, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status")
+      .eq("order_status", "pending")
+      .eq("payment_status", "completed")
+
+    // Apply the same auto-fulfillment exclusions as bulk/shop orders
+    if (autoFulfillEnabled) {
+      ussdQuery = ussdQuery
+        .neq("network", "AT-iShare")
+        .neq("network", "Telecel")
+        .neq("network", "AirtelTigo")
+    }
+
+    if (mtnAutoFulfillEnabled) {
+      ussdQuery = ussdQuery.neq("network", "MTN")
+    }
+
+    const { data: ussdOrders, error: ussdError } = await ussdQuery
+      .order("created_at", { ascending: false })
+      .range(0, 9999)
+
+    if (ussdError) {
+      console.error("Supabase error fetching USSD orders:", ussdError)
+      throw new Error(`Failed to fetch pending USSD orders: ${ussdError.message}`)
+    }
+
+    const mappedUssdOrders = (ussdOrders || []).map((order: any) => ({
+      id: order.id,
+      phone_number: order.recipient_phone,
+      dialing_phone: order.dialing_phone,
+      network: normalizeNetwork(order.network),
+      size: order.package_size,
+      price: order.amount,
+      status: order.order_status,
+      order_status: order.order_status,
+      payment_status: order.payment_status,
+      created_at: order.created_at,
+      type: "ussd"
+    }))
+
+    console.log(`Found ${mappedUssdOrders.length} pending USSD orders`)
+
     // Combine all orders
-    const allOrders = [...mappedBulkOrders, ...mappedShopOrders, ...mappedApiOrders]
+    const allOrders = [...mappedBulkOrders, ...mappedShopOrders, ...mappedApiOrders, ...mappedUssdOrders]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     console.log("All pending orders by network:", allOrders.reduce((acc: any, o: any) => {

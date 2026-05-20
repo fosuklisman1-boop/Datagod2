@@ -37,6 +37,7 @@ import {
   Smartphone,
   Activity,
   Shield,
+  GraduationCap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -57,6 +58,7 @@ const menuItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/airtime", label: "Buy Airtime", icon: Smartphone, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/results-checker", label: "Results Checker", icon: GraduationCap, roles: ["user", "admin", "dealer", "sub_agent"] },
   { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/afa-orders", label: "AFA Orders", icon: Star, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent", "dealer"] },
@@ -69,6 +71,8 @@ const menuItems = [
 const shopItems = [
   { href: "/dashboard/my-shop", label: "My Shop", icon: Store, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/ussd-shop", label: "USSD Shop", icon: Smartphone, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/payment-reverify", label: "Payment Reverify", icon: Zap, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/buy-stock", label: "Buy Data", icon: ShoppingBag, roles: ["sub_agent"] },
@@ -654,6 +658,28 @@ export function Sidebar() {
                   {isOpen && "Airtime Settings"}
                 </Button>
               </Link>
+              <Link href="/admin/results-checker" onClick={() => handleNavigation("/admin/results-checker")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/results-checker" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/results-checker" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/results-checker" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Results Checker" : undefined}
+                  disabled={loadingPath === "/admin/results-checker"}
+                >
+                  {loadingPath === "/admin/results-checker" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <GraduationCap className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Results Checker"}
+                </Button>
+              </Link>
               <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>
                 <Button
                   variant="ghost"
@@ -696,6 +722,50 @@ export function Sidebar() {
                     <Clock className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Payment Attempts"}
+                </Button>
+              </Link>
+              <Link href="/admin/payment-reverify" onClick={() => handleNavigation("/admin/payment-reverify")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/payment-reverify" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/payment-reverify" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/payment-reverify" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Payment Reverify" : undefined}
+                  disabled={loadingPath === "/admin/payment-reverify"}
+                >
+                  {loadingPath === "/admin/payment-reverify" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Zap className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Payment Reverify"}
+                </Button>
+              </Link>
+              <Link href="/admin/ussd-shops" onClick={() => handleNavigation("/admin/ussd-shops")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/ussd-shops" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/ussd-shops" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/ussd-shops" && "opacity-70"
+                  )}
+                  title={!isOpen ? "USSD Shops" : undefined}
+                  disabled={loadingPath === "/admin/ussd-shops"}
+                >
+                  {loadingPath === "/admin/ussd-shops" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Smartphone className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "USSD Shops"}
                 </Button>
               </Link>
             </div>

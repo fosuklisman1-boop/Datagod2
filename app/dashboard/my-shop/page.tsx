@@ -10,14 +10,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { shopService, shopPackageService, shopOrderService } from "@/lib/shop-service"
+import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
-import { AlertCircle, Check, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Search, Megaphone, Loader2, Save } from "lucide-react"
+import { AlertCircle, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Megaphone, Loader2, Save, GraduationCap } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { ComplaintModal } from "@/components/complaint-modal"
 
 export default function MyShopPage() {
   const { user } = useAuth()
@@ -46,21 +44,13 @@ export default function MyShopPage() {
   const [announcementEnabled, setAnnouncementEnabled] = useState(false)
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementMessage, setAnnouncementMessage] = useState("")
-  const [shopOrders, setShopOrders] = useState<any[]>([])
   const [updatingShop, setUpdatingShop] = useState(false)
   const [togglingPackageId, setTogglingPackageId] = useState<string | null>(null)
-  const [orderStats, setOrderStats] = useState({
-    total: 0,
-    completed: 0,
-    pending: 0,
-    failed: 0,
-    totalRevenue: 0,
-  })
-  const [searchPhoneNumber, setSearchPhoneNumber] = useState("")
-  const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
-  const [showComplaintModal, setShowComplaintModal] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [maxMarkups, setMaxMarkups] = useState<Record<string, number>>({ mtn: 5, telecel: 5, at: 5 })
+  const [rcMarkups, setRcMarkups] = useState({ waec: "0", bece: "0", novdec: "0" })
+  const [rcMaxMarkups, setRcMaxMarkups] = useState({ waec: 0, bece: 0, novdec: 0 })
+  const [savingRcMarkups, setSavingRcMarkups] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -139,6 +129,29 @@ export default function MyShopPage() {
           airtime_markup_telecel: userShop.airtime_markup_telecel?.toString() || "0",
           airtime_markup_at: userShop.airtime_markup_at?.toString() || "0",
         })
+
+        setRcMarkups({
+          waec:   (userShop.results_checker_markup_waec   ?? 0).toString(),
+          bece:   (userShop.results_checker_markup_bece   ?? 0).toString(),
+          novdec: (userShop.results_checker_markup_novdec ?? 0).toString(),
+        })
+
+        // Load RC max markups from admin settings
+        try {
+          const { data: rcSettings } = await supabase
+            .from("admin_settings")
+            .select("key, value")
+            .in("key", ["results_checker_max_markup_waec", "results_checker_max_markup_bece", "results_checker_max_markup_novdec"])
+          const rcMap: Record<string, any> = {}
+          for (const row of rcSettings ?? []) rcMap[row.key] = row.value
+          setRcMaxMarkups({
+            waec:   rcMap["results_checker_max_markup_waec"]?.max   ?? 0,
+            bece:   rcMap["results_checker_max_markup_bece"]?.max   ?? 0,
+            novdec: rcMap["results_checker_max_markup_novdec"]?.max ?? 0,
+          })
+        } catch (e) {
+          console.warn("Failed to load RC max markups:", e)
+        }
 
         // Load WhatsApp settings
         try {
@@ -241,26 +254,6 @@ export default function MyShopPage() {
         }
       }
 
-      // Load orders and calculate stats
-      if (userShop) {
-        try {
-          const orders = await shopOrderService.getShopOrders(userShop.id)
-          setShopOrders(orders || [])
-
-          // Calculate stats
-          const stats = {
-            total: orders?.length || 0,
-            completed: orders?.filter((o: any) => o.order_status === "completed").length || 0,
-            pending: orders?.filter((o: any) => o.order_status === "pending").length || 0,
-            failed: orders?.filter((o: any) => o.order_status === "failed").length || 0,
-            totalRevenue: orders?.reduce((sum: number, o: any) => sum + (o.profit_amount || 0), 0) || 0,
-          }
-          setOrderStats(stats)
-        } catch (ordersError: any) {
-          console.error("Error loading orders:", ordersError)
-          setShopOrders([])
-        }
-      }
     } catch (error: any) {
       console.error("Error loading shop:", error)
       if (error.message?.includes("relation") || error.message?.includes("not found")) {
@@ -298,6 +291,28 @@ export default function MyShopPage() {
       toast.error(errorMessage)
     } finally {
       setUpdatingShop(false)
+    }
+  }
+
+  const handleSaveRcMarkups = async () => {
+    if (!shop) return
+    setSavingRcMarkups(true)
+    try {
+      const waec   = Math.min(parseFloat(rcMarkups.waec   || "0"), rcMaxMarkups.waec)
+      const bece   = Math.min(parseFloat(rcMarkups.bece   || "0"), rcMaxMarkups.bece)
+      const novdec = Math.min(parseFloat(rcMarkups.novdec || "0"), rcMaxMarkups.novdec)
+      const updated = await shopService.updateShop(shop.id, {
+        results_checker_markup_waec:   waec,
+        results_checker_markup_bece:   bece,
+        results_checker_markup_novdec: novdec,
+      })
+      setShop(updated)
+      setRcMarkups({ waec: waec.toString(), bece: bece.toString(), novdec: novdec.toString() })
+      toast.success("Results checker markups saved")
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to save markups")
+    } finally {
+      setSavingRcMarkups(false)
     }
   }
 
@@ -952,6 +967,60 @@ export default function MyShopPage() {
           </CardContent>
         </Card>
 
+        {/* Results Checker Profit Markups Card */}
+        <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <GraduationCap className="w-5 h-5 text-violet-600" />
+              Results Checker Profit Markups
+            </CardTitle>
+            <CardDescription>Set your extra charge per voucher for WAEC, BECE &amp; NOVDEC</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {(["waec", "bece", "novdec"] as const).map(board => (
+                <div key={board}>
+                  <Label htmlFor={`rc-markup-${board}`} className="flex justify-between">
+                    <span>{board.toUpperCase()} Markup (GHS)</span>
+                    {rcMaxMarkups[board] > 0 && (
+                      <span className="text-[10px] text-violet-500 font-medium">Max: GHS {rcMaxMarkups[board].toFixed(2)}</span>
+                    )}
+                  </Label>
+                  <Input
+                    id={`rc-markup-${board}`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max={rcMaxMarkups[board] || undefined}
+                    value={rcMarkups[board]}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value) || 0
+                      if (rcMaxMarkups[board] > 0 && val > rcMaxMarkups[board]) {
+                        toast.error(`${board.toUpperCase()} markup cannot exceed GHS ${rcMaxMarkups[board].toFixed(2)}`)
+                        setRcMarkups(prev => ({ ...prev, [board]: rcMaxMarkups[board].toString() }))
+                      } else {
+                        setRcMarkups(prev => ({ ...prev, [board]: e.target.value }))
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="mt-1"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-violet-500/80 bg-violet-50/50 p-2 rounded-lg border border-violet-100/50">
+              This amount is added on top of the base voucher price. The maximum is set by the admin and enforced at checkout.
+            </p>
+            <Button
+              onClick={handleSaveRcMarkups}
+              disabled={savingRcMarkups}
+              className="w-full bg-violet-600 hover:bg-violet-700"
+            >
+              {savingRcMarkups ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Results Checker Markups"}
+            </Button>
+          </CardContent>
+        </Card>
+
         {/* WhatsApp Configuration Card */}
         <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
           <CardHeader>
@@ -1091,20 +1160,8 @@ export default function MyShopPage() {
             <CardDescription>Add data packages to your shop</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Tabs */}
-            <Tabs defaultValue="products" className="space-y-4">
-              <TabsList className="bg-white/40 backdrop-blur border border-white/20">
-                <TabsTrigger value="products" className="data-[state=active]:bg-white/60">
-                  <Package className="w-4 h-4 mr-2" />
-                  Products
-                </TabsTrigger>
-                <TabsTrigger value="orders" className="data-[state=active]:bg-white/60">
-                  Store Overview
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Products Tab */}
-              <TabsContent value="products">
+            {/* Products */}
+            <div>
                 <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
                   <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
@@ -1384,188 +1441,11 @@ export default function MyShopPage() {
                     )}
                   </CardContent>
                 </Card>
-              </TabsContent>
-
-              {/* Orders Tab */}
-              <TabsContent value="orders">
-                <div className="space-y-6">
-                  {/* Stats Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
-                    <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-3xl font-bold text-blue-600">{orderStats.total}</p>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-600">Completed</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-3xl font-bold text-green-600">{orderStats.completed}</p>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-gradient-to-br from-yellow-50/60 to-orange-50/40">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-600">Pending</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-3xl font-bold text-orange-600">{orderStats.pending}</p>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-gradient-to-br from-red-50/60 to-pink-50/40">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-600">Failed</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-3xl font-bold text-red-600">{orderStats.failed}</p>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-gradient-to-br from-purple-50/60 to-violet-50/40">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-600">Total Revenue</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-3xl font-bold text-purple-600">GHS {orderStats.totalRevenue.toFixed(2)}</p>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* Orders Table */}
-                  <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
-                    <CardHeader>
-                      <CardTitle>Recent Orders</CardTitle>
-                      <CardDescription>
-                        {shopOrders.length === 0
-                          ? "No orders yet. Your first customer purchase will appear here."
-                          : `Showing ${shopOrders.length} order${shopOrders.length !== 1 ? 's' : ''}`}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {shopOrders.length > 0 && (
-                        <div className="flex gap-2">
-                          <Search className="w-5 h-5 text-gray-400 mt-2.5" />
-                          <Input
-                            type="text"
-                            placeholder="Search orders by customer phone number..."
-                            value={searchPhoneNumber}
-                            onChange={(e) => setSearchPhoneNumber(e.target.value)}
-                            className="bg-white/50 border-cyan-200/40"
-                          />
-                        </div>
-                      )}
-                      {shopOrders.length === 0 ? (
-                        <Alert className="border-blue-300 bg-blue-50">
-                          <AlertCircle className="h-4 w-4 text-blue-600" />
-                          <AlertDescription className="text-blue-700">
-                            Order analytics and management will show here once your first customer makes a purchase.
-                          </AlertDescription>
-                        </Alert>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="border-b border-cyan-200/40">
-                              <tr>
-                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Order ID</th>
-                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
-                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Network</th>
-                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Volume</th>
-                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
-                                <th className="text-right py-3 px-4 font-semibold text-gray-700">Profit</th>
-                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
-                                <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-cyan-100/40">
-                              {shopOrders
-                                .filter((order) =>
-                                  order.customer_phone &&
-                                  order.customer_phone.toLowerCase().includes(searchPhoneNumber.toLowerCase())
-                                )
-                                .map((order: any) => (
-                                  <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">
-                                    <td className="py-3 px-4 font-mono text-xs text-gray-600">{order.reference_code}</td>
-                                    <td className="py-3 px-4">
-                                      <div>
-                                        <p className="font-medium text-gray-900">{order.customer_name || "N/A"}</p>
-                                        <p className="text-xs text-gray-500">{order.customer_phone}</p>
-                                      </div>
-                                    </td>
-                                    <td className="py-3 px-4">
-                                      <Badge variant="outline">{order.network}</Badge>
-                                    </td>
-                                    <td className="py-3 px-4 text-gray-900">{order.volume_gb} GB</td>
-                                    <td className="py-3 px-4">
-                                      <Badge className={
-                                        order.order_status === "completed" ? "bg-green-600" :
-                                          order.order_status === "pending" ? "bg-orange-600" :
-                                            "bg-red-600"
-                                      }>
-                                        {order.order_status}
-                                      </Badge>
-                                    </td>
-                                    <td className="py-3 px-4 text-right font-semibold text-purple-600">
-                                      GHS {(order.profit_amount || 0).toFixed(2)}
-                                    </td>
-                                    <td className="py-3 px-4 text-xs text-gray-500">
-                                      <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                                      <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
-                                    </td>
-                                    <td className="py-3 px-4">
-                                      <Button
-                                        onClick={() => {
-                                          setSelectedComplaintOrder({
-                                            id: order.id,
-                                            networkName: order.network || "Unknown",
-                                            packageName: `${order.volume_gb || 0}GB`,
-                                            phoneNumber: order.customer_phone || "N/A",
-                                            totalPrice: parseFloat(order.total_price?.toString() || "0") || 0,
-                                            createdAt: order.created_at || new Date().toISOString(),
-                                          })
-                                          setShowComplaintModal(true)
-                                        }}
-                                        variant="outline"
-                                        size="sm"
-                                        className="text-orange-600 border-orange-600 hover:bg-orange-50"
-                                      >
-                                        <MessageCircle className="w-4 h-4 mr-1" />
-                                        Complain
-                                      </Button>
-                                    </td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-              </TabsContent>
-            </Tabs>
+              </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Complaint Modal */}
-      {selectedComplaintOrder && (
-        <ComplaintModal
-          isOpen={showComplaintModal}
-          onClose={() => {
-            setShowComplaintModal(false)
-            setSelectedComplaintOrder(null)
-          }}
-          orderId={selectedComplaintOrder.id}
-          orderType="shop"
-          orderDetails={selectedComplaintOrder}
-        />
-      )}
     </DashboardLayout>
   )
 }

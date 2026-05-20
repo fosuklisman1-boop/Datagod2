@@ -3,255 +3,372 @@ import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { initiateTransfer } from "@/lib/moolre-transfer"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
+
+async function syncShopBalance(shopId: string) {
+  try {
+    const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: shopId })
+    if (!breakdown) return
+
+    const creditedProfit   = Number(breakdown.credited_p) || 0
+    const totalWithdrawn   = Number(breakdown.total_w) || 0
+    const availableBalance = creditedProfit - totalWithdrawn
+
+    console.log(`[WITHDRAWAL-BALANCE-SYNC] Shop ${shopId}:`, {
+      creditedProfit,
+      totalWithdrawn,
+      availableBalance,
+    })
+
+    await supabase.from("shop_available_balance").upsert({
+      shop_id: shopId,
+      available_balance: availableBalance,
+      total_profit: Number(breakdown.total_p) || 0,
+      withdrawn_amount: totalWithdrawn,
+      credited_profit: creditedProfit,
+      withdrawn_profit: Number(breakdown.withdrawn_p) || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "shop_id" })
+  } catch (err) {
+    console.error(`[WITHDRAWAL-BALANCE-SYNC] Unexpected error for shop ${shopId}:`, err)
+  }
+}
+
+
+/** Send in-app notification + SMS to the shop owner. */
+async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
+  try {
+    const { data: shop } = await supabase
+      .from("user_shops")
+      .select("user_id")
+      .eq("id", withdrawal.shop_id)
+      .single()
+
+    if (!shop) return
+
+    const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawalId)
+    const { error: notifError } = await supabase.from("notifications").insert([{
+      user_id: shop.user_id,
+      title: notificationData.title,
+      message: notificationData.message,
+      type: notificationData.type,
+      reference_id: notificationData.reference_id,
+      action_url: `/dashboard/shop-dashboard`,
+      read: false,
+    }])
+    if (notifError) console.warn("[NOTIFICATION] Failed:", notifError)
+
+    const { data: userData } = await supabase
+      .from("users")
+      .select("phone_number, email, first_name")
+      .eq("id", shop.user_id)
+      .single()
+
+    if (!userData) return
+
+    if (userData.email) {
+      import("@/lib/email-service").then(async ({ sendEmail, EmailTemplates }) => {
+        const accountDetails = withdrawal.account_details as any
+        const paymentMethod = withdrawal.withdrawal_method || accountDetails?.network || "Mobile Money"
+        const recipientPhone = accountDetails?.phone || accountDetails?.account_number || userData.phone_number
+
+        const { data: balanceData } = await supabase
+          .from("shop_balances")
+          .select("available_balance")
+          .eq("shop_id", withdrawal.shop_id)
+          .single()
+
+        const remainingBalance = balanceData?.available_balance?.toFixed(2)
+        const payload = EmailTemplates.withdrawalApproved(
+          withdrawal.amount.toFixed(2),
+          withdrawalId,
+          remainingBalance,
+          paymentMethod,
+          recipientPhone
+        )
+
+        sendEmail({
+          to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
+          subject: payload.subject,
+          htmlContent: payload.html,
+          referenceId: withdrawalId,
+          userId: shop.user_id,
+          type: "withdrawal_approved",
+        }).catch(err => console.error("[EMAIL] Withdrawal approval email failed:", err))
+      })
+    }
+
+    if (userData.phone_number) {
+      const accountDetails = withdrawal.account_details as any
+      const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been transferred to ${accountDetails?.phone || accountDetails?.account_number || "your account"}.`
+      await sendSMS({
+        phone: userData.phone_number,
+        message: smsMessage,
+        type: "withdrawal_approved",
+        reference: withdrawalId,
+      }).catch(err => console.error("[SMS] SMS error:", err))
+    }
+  } catch (err) {
+    console.warn("[WITHDRAWAL-APPROVE] Notification error (non-fatal):", err)
+  }
+}
 
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
   try {
-    const { withdrawalId } = await request.json()
+    const { withdrawalId, manual } = await request.json()
 
-    if (!withdrawalId) {
+    if (!withdrawalId || typeof withdrawalId !== "string") {
       return NextResponse.json({ error: "Withdrawal ID required" }, { status: 400 })
     }
 
-    // Get the withdrawal request
-    const { data: withdrawal, error: fetchError } = await supabase
-      .from("withdrawal_requests")
-      .select("id, shop_id, amount, status, user_id, account_details, withdrawal_method")
-      .eq("id", withdrawalId)
-      .single()
-
-    if (fetchError || !withdrawal) {
-      return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 })
-    }
-
-    // Get all pending withdrawal requests BEFORE changing status (so we include this one)
-    const { data: pendingWithdrawalsBeforeUpdate, error: withdrawalCheckError } = await supabase
-      .from("withdrawal_requests")
-      .select("amount")
-      .eq("shop_id", withdrawal.shop_id)
-      .eq("status", "pending")
-
-    let totalPendingWithdrawalsBeforeUpdate = 0
-    if (!withdrawalCheckError && pendingWithdrawalsBeforeUpdate) {
-      totalPendingWithdrawalsBeforeUpdate = pendingWithdrawalsBeforeUpdate.reduce((sum, w) => sum + (w.amount || 0), 0)
-    }
-
-    // Update withdrawal status to approved
-    const { error: updateError } = await supabase
+    // CRITICAL FIX — Anti-double-spend: atomically move status to "processing" BEFORE
+    // calling Moolre. This prevents two concurrent admin approvals from both passing
+    // the status check and initiating duplicate transfers.
+    // The update only succeeds if status is currently "pending" or "failed" — DB enforces this.
+    const { data: locked, error: lockError } = await supabase
       .from("withdrawal_requests")
       .update({
-        status: "approved",
+        status: "processing",
+        transfer_attempted_at: new Date().toISOString(),
+        moolre_external_ref: withdrawalId,
         updated_at: new Date().toISOString(),
       })
       .eq("id", withdrawalId)
+      .in("status", ["pending", "failed"])
+      .select("id, shop_id, amount, fee_amount, net_amount, user_id, account_details, withdrawal_method")
+      .single()
 
-    if (updateError) {
-      throw new Error(`Failed to update withdrawal: ${updateError.message}`)
-    }
-
-    console.log(`[WITHDRAWAL-APPROVE] Withdrawal ${withdrawalId} approved - Amount: GHS ${withdrawal.amount}`)
-
-    // Send notification to shop owner via admin API endpoint
-    try {
-      // Get shop owner user_id
-      const { data: shop, error: shopError } = await supabase
-        .from("user_shops")
-        .select("user_id")
-        .eq("id", withdrawal.shop_id)
+    if (lockError || !locked) {
+      // Either not found, or another request already locked it
+      const { data: existing } = await supabase
+        .from("withdrawal_requests")
+        .select("status")
+        .eq("id", withdrawalId)
         .single()
 
-      if (!shopError && shop) {
-        try {
-          const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawalId)
-          const { error: notifError } = await supabase
-            .from("notifications")
-            .insert([
-              {
-                user_id: shop.user_id,
-                title: notificationData.title,
-                message: notificationData.message,
-                type: notificationData.type,
-                reference_id: notificationData.reference_id,
-                action_url: `/dashboard/shop-dashboard`,
-                read: false,
-              },
-            ])
-          if (notifError) {
-            console.warn("[NOTIFICATION] Failed to send notification:", notifError)
-          } else {
-            console.log(`[NOTIFICATION] Withdrawal approval notification sent to user ${shop.user_id}`)
-          }
-        } catch (notifError) {
-          console.warn("[NOTIFICATION] Failed to send notification:", notifError)
-        }
-
-        // Send SMS to shop owner
-        try {
-          const { data: userData, error: userError } = await supabase
-            .from("users")
-            .select("phone_number, email, first_name")
-            .eq("id", shop.user_id)
-            .single()
-
-          if (!userError && userData) {
-            // Send Email
-            if (userData.email) {
-              import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-                // Extract payment method and phone from account_details
-                const accountDetails = withdrawal.account_details as any;
-                // Use withdrawal_method field if available, otherwise extract from account_details
-                const paymentMethod = withdrawal.withdrawal_method || accountDetails?.network || "Mobile Money";
-                const recipientPhone = accountDetails?.account_number || userData.phone_number;
-
-                // Calculate remaining balance after this withdrawal
-                // We need to get the current balance
-                supabase
-                  .from("shop_balances")
-                  .select("available_balance")
-                  .eq("shop_id", withdrawal.shop_id)
-                  .single()
-                  .then(({ data: balanceData }) => {
-                    const remainingBalance = balanceData?.available_balance?.toFixed(2);
-
-                    const payload = EmailTemplates.withdrawalApproved(
-                      withdrawal.amount.toFixed(2),
-                      withdrawalId,
-                      remainingBalance,
-                      paymentMethod,
-                      recipientPhone
-                    );
-
-                    sendEmail({
-                      to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
-                      subject: payload.subject,
-                      htmlContent: payload.html,
-                      referenceId: withdrawalId,
-                      userId: shop.user_id,
-                      type: 'withdrawal_approved'
-                    }).catch(err => {
-                      console.error("[EMAIL] ❌ Withdrawal Approval Email FAILED:", err)
-                      console.error("[EMAIL] Error message:", err?.message)
-                      console.error("[EMAIL] Error stack:", err?.stack)
-                      console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
-                    });
-                  });
-              });
-            }
-
-            if (userData.phone_number) {
-              const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been approved. Funds will be transferred to ${withdrawal.account_details?.phone || withdrawal.account_details?.account_number || "your account"} shortly.`
-
-              await sendSMS({
-                phone: userData.phone_number,
-                message: smsMessage,
-                type: 'withdrawal_approved',
-                reference: withdrawalId,
-              }).catch(err => console.error("[SMS] SMS error:", err))
-            }
-          }
-        } catch (smsError) {
-          console.warn("[SMS] Failed to send withdrawal approval SMS:", smsError)
-          // Don't fail the approval if SMS fails
-        }
+      if (!existing) {
+        return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 })
       }
-    } catch (notifError) {
-      console.warn("[NOTIFICATION] Failed to send notification:", notifError)
-      // Don't fail the approval if notification fails
+      return NextResponse.json(
+        { error: `Cannot approve withdrawal with status: ${existing.status}` },
+        { status: 400 }
+      )
     }
 
-    // Sync available balance after approval (paginated to handle > 1000 profit records)
+    const withdrawal = locked
+    const accountDetails = withdrawal.account_details as any
+    const phone = accountDetails?.phone
+    const network = accountDetails?.network
+
+    // Validate amount is a positive finite number
+    const amount = Number(withdrawal.amount)
+    if (!isFinite(amount) || amount <= 0) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      return NextResponse.json({ error: "Invalid withdrawal amount" }, { status: 400 })
+    }
+
+    // Stamp balance_after + concurrent overdraft guard.
+    // total_w only counts approved/completed, so processing withdrawals (including this one)
+    // are not yet reflected. We fetch all processing amounts for this shop to detect
+    // simultaneous approvals that together exceed available balance.
     try {
-      let allProfits: any[] = []
-      let profitOffset = 0
-      const profitBatch = 1000
-      while (true) {
-        const { data: batch, error } = await supabase
-          .from("shop_profits")
-          .select("profit_amount, status")
-          .eq("shop_id", withdrawal.shop_id)
-          .range(profitOffset, profitOffset + profitBatch - 1)
-        if (error) throw error
-        if (!batch || batch.length === 0) break
-        allProfits = allProfits.concat(batch)
-        if (batch.length < profitBatch) break
-        profitOffset += profitBatch
-      }
-
-      const breakdown = { totalProfit: 0, creditedProfit: 0, withdrawnProfit: 0 }
-      allProfits.forEach((p: any) => {
-        const amount = p.profit_amount || 0
-        breakdown.totalProfit += amount
-        if (p.status === "credited")  breakdown.creditedProfit  += amount
-        if (p.status === "withdrawn") breakdown.withdrawnProfit += amount
-      })
-
-      // Get all approved withdrawals (paginated)
-      let allApproved: any[] = []
-      let wOffset = 0
-      while (true) {
-        const { data: batch, error } = await supabase
+      const [breakdownResult, processingResult] = await Promise.all([
+        supabase.rpc("get_shop_balance_breakdown", { p_shop_id: withdrawal.shop_id }),
+        supabase
           .from("withdrawal_requests")
           .select("amount")
           .eq("shop_id", withdrawal.shop_id)
-          .eq("status", "approved")
-          .range(wOffset, wOffset + 999)
-        if (error) break
-        if (!batch || batch.length === 0) break
-        allApproved = allApproved.concat(batch)
-        if (batch.length < 1000) break
-        wOffset += 1000
-      }
-      const totalApprovedWithdrawals = allApproved.reduce((s, w) => s + (w.amount || 0), 0)
+          .eq("status", "processing"),
+      ])
 
-      // Available balance = credited profit - approved withdrawals (includes this one now)
-      const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
-
-      // Store balance_after on the withdrawal record for history tracking
-      await supabase
-        .from("withdrawal_requests")
-        .update({ balance_after: availableBalance })
-        .eq("id", withdrawalId)
-
-      console.log(`[WITHDRAWAL-APPROVE-BALANCE] Shop ${withdrawal.shop_id}:`, {
-        creditedProfit: breakdown.creditedProfit,
-        totalApprovedWithdrawals,
-        availableBalance,
-      })
-
-      // Upsert balance (atomic — no delete/insert race condition)
-      const { error: upsertError } = await supabase
-        .from("shop_available_balance")
-        .upsert(
-          {
-            shop_id: withdrawal.shop_id,
-            available_balance: availableBalance,
-            total_profit: breakdown.totalProfit,
-            withdrawn_amount: breakdown.withdrawnProfit,
-            credited_profit: breakdown.creditedProfit,
-            withdrawn_profit: breakdown.withdrawnProfit,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "shop_id" }
+      const breakdown = breakdownResult.data
+      if (breakdown) {
+        const availableBalance = Number(breakdown.credited_p) - Number(breakdown.total_w)
+        const totalProcessing = (processingResult.data ?? []).reduce(
+          (sum: number, r: any) => sum + Number(r.amount), 0
         )
 
-      if (upsertError) {
-        console.error(`[WITHDRAWAL-APPROVE] Balance upsert failed:`, upsertError)
-      } else {
-        console.log(`[WITHDRAWAL-APPROVE] Balance synced for shop: ${withdrawal.shop_id} - Available: GHS ${availableBalance.toFixed(2)}`)
+        // If all currently-processing withdrawals (including this one) exceed balance, revert
+        if (totalProcessing > availableBalance + 0.001) {
+          await supabase
+            .from("withdrawal_requests")
+            .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+            .eq("id", withdrawalId)
+          console.warn(`[WITHDRAWAL-APPROVE] Overdraft guard triggered: processing=GHS ${totalProcessing.toFixed(2)}, available=GHS ${availableBalance.toFixed(2)}`)
+          return NextResponse.json(
+            { error: `Insufficient balance. GHS ${availableBalance.toFixed(2)} available but GHS ${totalProcessing.toFixed(2)} already committed across concurrent approvals.` },
+            { status: 400 }
+          )
+        }
+
+        // Stamp balance_after for audit trail
+        const balanceAfter = availableBalance - amount
+        await supabase
+          .from("withdrawal_requests")
+          .update({ balance_after: balanceAfter })
+          .eq("id", withdrawalId)
       }
-    } catch (syncError) {
-      console.warn(`[WITHDRAWAL-APPROVE] Warning syncing balance:`, syncError)
+    } catch (stampError) {
+      console.warn(`[WITHDRAWAL-APPROVE] Warning in balance guard/stamp:`, stampError)
+      // Non-fatal: continue with transfer even if guard check fails
     }
 
+
+    // Manual approval — admin will transfer funds themselves, skip Moolre entirely
+    if (manual) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "approved", updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      await notifyShopOwner(withdrawal, withdrawalId)
+      console.log(`[WITHDRAWAL-APPROVE] Manual approval: ${withdrawalId}`)
+      return NextResponse.json({ success: true, message: "Withdrawal manually approved" })
+    }
+
+    const isBankTransfer = withdrawal.withdrawal_method === "bank_transfer"
+    const sublistid = accountDetails?.sublistid
+
+    // Legacy bank transfer without sublistid (pre-bank-integration records) — fall back to manual
+    if (isBankTransfer && !sublistid) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "approved", updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      await notifyShopOwner(withdrawal, withdrawalId)
+      console.log(`[WITHDRAWAL-APPROVE] Legacy bank approval (no sublistid): ${withdrawalId}`)
+      return NextResponse.json({ success: true, message: "Withdrawal approved (manual transfer required — no bank ID)" })
+    }
+
+    // For mobile money without phone/network — should not happen but guard anyway
+    if (!isBankTransfer && (!phone || !network)) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "approved", updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      await notifyShopOwner(withdrawal, withdrawalId)
+      console.log(`[WITHDRAWAL-APPROVE] Missing phone/network, manual approval: ${withdrawalId}`)
+      return NextResponse.json({ success: true, message: "Withdrawal approved (manual transfer required)" })
+    }
+
+    // Transfer the net amount (after fee deduction)
+    const transferAmount = withdrawal.net_amount ?? withdrawal.amount
+    if (!isFinite(Number(transferAmount)) || Number(transferAmount) <= 0) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      return NextResponse.json({ error: "Invalid transfer amount" }, { status: 400 })
+    }
+
+    console.log(`[WITHDRAWAL-APPROVE] Transfer: method=${withdrawal.withdrawal_method}, gross=GHS ${withdrawal.amount}, fee=GHS ${withdrawal.fee_amount ?? 0}, net=GHS ${transferAmount}`)
+
+    // Initiate Moolre transfer — mobile money or bank (channel=2)
+    const result = await initiateTransfer(
+      isBankTransfer ? {
+        accountNumber: accountDetails?.account_number,
+        sublistid,
+        network: "BANK",
+        amount: Number(transferAmount),
+        externalref: withdrawalId,
+        reference: `Datagod withdrawal ${withdrawalId.slice(0, 8)}`,
+      } : {
+        phone,
+        network,
+        amount: Number(transferAmount),
+        externalref: withdrawalId,
+        reference: `Datagod withdrawal ${withdrawalId.slice(0, 8)}`,
+      }
+    )
+
+    if (!result) {
+      // API unreachable — revert to pending, admin can retry
+      await supabase
+        .from("withdrawal_requests")
+        .update({
+          status: "pending",
+          transfer_attempted_at: null,
+          moolre_external_ref: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", withdrawalId)
+
+      return NextResponse.json(
+        { error: "Could not reach payment provider. Please try again." },
+        { status: 503 }
+      )
+    }
+
+    if (result.txstatus === 1) {
+      // Transfer succeeded immediately — mark completed and sync balance
+      await supabase
+        .from("withdrawal_requests")
+        .update({
+          status: "completed",
+          moolre_transfer_id: result.transactionId,
+          moolre_fee: result.fee,
+          transfer_completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", withdrawalId)
+
+      await syncShopBalance(withdrawal.shop_id)
+      await notifyShopOwner(withdrawal, withdrawalId)
+
+      console.log(`[WITHDRAWAL-APPROVE] Completed: ${withdrawalId} — Moolre TX: ${result.transactionId}`)
+      return NextResponse.json({ success: true, message: "Withdrawal approved and transferred successfully" })
+    }
+
+    if (result.txstatus === 2) {
+      // Explicit failure — revert to pending so admin can retry
+      await supabase
+        .from("withdrawal_requests")
+        .update({
+          status: "pending",
+          transfer_attempted_at: null,
+          moolre_external_ref: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", withdrawalId)
+
+      const reason = result.insufficientBalance
+        ? "Insufficient balance in Moolre account. Please top up and retry."
+        : result.errorMessage
+        ? `Transfer rejected: ${result.errorMessage}`
+        : "Transfer failed. Withdrawal remains pending."
+
+      console.error(`[WITHDRAWAL-APPROVE] Transfer failed: ${withdrawalId} — ${reason}`)
+      return NextResponse.json({ error: reason }, { status: 400 })
+    }
+
+    // txstatus=0 (pending) or 3 (unknown) — already in "processing", cron will poll
+    if (result.transactionId) {
+      await supabase
+        .from("withdrawal_requests")
+        .update({
+          moolre_transfer_id: result.transactionId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", withdrawalId)
+    }
+
+    const isPending = result.txstatus === 0
+    console.log(`[WITHDRAWAL-APPROVE] ${isPending ? "Processing" : "Unknown status"}: ${withdrawalId}`)
     return NextResponse.json({
       success: true,
-      message: "Withdrawal approved successfully",
+      status: "processing",
+      message: isPending
+        ? "Transfer initiated. Awaiting mobile money confirmation."
+        : "Transfer status unknown — monitoring for completion automatically.",
     })
   } catch (error) {
     console.error("[WITHDRAWAL-APPROVE] Error:", error)

@@ -141,6 +141,12 @@ export const SMSTemplates = {
   afaCompleted: (fullName: string, orderCode: string) =>
     `DTGOD: Good news! Your AFA registration for ${fullName} (Ref: ${orderCode}) has been completed successfully. Thank you for registering with us.`,
 
+  // Results checker voucher delivery
+  resultsCheckerDelivery: (examBoard: string, ref: string, pins: Array<{ pin: string; serial_number: string | null }>) =>
+    `DTGOD: ${examBoard} Voucher${pins.length > 1 ? "s" : ""} Ready!\nRef: ${ref}\n\n` +
+    pins.map((p, i) => `${i + 1}. PIN: ${p.pin}  Serial: ${p.serial_number ?? "N/A"}`).join("\n") +
+    `\n\nKeep these safe and use them to check your results online.`,
+
   // Sub-agent invitation
   subAgentInvitation: (inviteUrl: string) =>
     `DTGOD: You have been invited to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`,

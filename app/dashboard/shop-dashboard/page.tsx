@@ -12,8 +12,10 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { shopService, shopOrderService, shopProfitService, withdrawalService } from "@/lib/shop-service"
-import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle, Search, Package, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
+import { ComplaintModal } from "@/components/complaint-modal"
 
 export default function ShopDashboardPage() {
   const { user } = useAuth()
@@ -38,12 +40,23 @@ export default function ShopDashboardPage() {
     phone: "",
     accountName: "",
     bankName: "",
+    bankSublistId: "",
     accountNumber: "",
     network: "MTN",
   })
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isFetchingName, setIsFetchingName] = useState(false)
+  const [nameVerified, setNameVerified] = useState(false)
+  const [bankVerified, setBankVerified] = useState(false)
+  const [isFetchingBankName, setIsFetchingBankName] = useState(false)
+  const [banks, setBanks] = useState<{ name: string; sublistid: string }[]>([])
+  const [loadingBanks, setLoadingBanks] = useState(false)
   const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
+  const [orderStats, setOrderStats] = useState({ total: 0, completed: 0, pending: 0, failed: 0, totalRevenue: 0 })
+  const [searchPhoneNumber, setSearchPhoneNumber] = useState("")
+  const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
+  const [showComplaintModal, setShowComplaintModal] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -60,7 +73,25 @@ export default function ShopDashboardPage() {
       }
     } catch (error) {
       console.warn("Failed to fetch withdrawal fee:", error)
-      // Continue with default fee of 0
+    }
+  }
+
+  const fetchBanks = async () => {
+    if (banks.length > 0) return // already loaded
+    setLoadingBanks(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/user/withdrawals/banks", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setBanks(Array.isArray(data) ? data : [])
+      }
+    } catch (error) {
+      console.warn("Failed to fetch bank list:", error)
+    } finally {
+      setLoadingBanks(false)
     }
   }
 
@@ -102,6 +133,13 @@ export default function ShopDashboardPage() {
       setProfits(profitHistory || [])
       setWithdrawals(withdrawalList || [])
       setOrders(orderList || [])
+      setOrderStats({
+        total: orderList?.length || 0,
+        completed: orderList?.filter((o: any) => o.order_status === "completed").length || 0,
+        pending: orderList?.filter((o: any) => o.order_status === "pending").length || 0,
+        failed: orderList?.filter((o: any) => o.order_status === "failed").length || 0,
+        totalRevenue: orderList?.reduce((sum: number, o: any) => sum + (o.profit_amount || 0), 0) || 0,
+      })
       setCustomerStats(stats)
     } catch (error) {
       console.error("Error loading dashboard:", error)
@@ -114,9 +152,10 @@ export default function ShopDashboardPage() {
 
   const fetchCustomerStats = async (shopId: string) => {
     try {
+      const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch('/api/admin/customers/analytics', {
         headers: {
-          'Authorization': `Bearer ${user?.id}`,
+          'Authorization': `Bearer ${session?.access_token || user?.id}`,
         },
       })
 
@@ -173,6 +212,68 @@ export default function ShopDashboardPage() {
     }
   }
 
+  const handleValidateAccount = async (phone: string, network: string) => {
+    if (!phone || !network) return
+    setIsFetchingName(true)
+    setNameVerified(false)
+    setWithdrawalForm(prev => ({ ...prev, accountName: "" }))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/user/withdrawals/validate-account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ phone, network }),
+      })
+      const data = await response.json()
+      if (response.ok && data.accountName) {
+        setWithdrawalForm(prev => ({ ...prev, accountName: data.accountName }))
+        setNameVerified(true)
+      } else {
+        toast.error(data.error || "Could not verify account. Check the phone number and network.")
+      }
+    } catch {
+      toast.error("Failed to verify account. Please try again.")
+    } finally {
+      setIsFetchingName(false)
+    }
+  }
+
+  const handleValidateBankAccount = async () => {
+    const { accountNumber, bankSublistId } = withdrawalForm
+    if (!accountNumber || !bankSublistId) {
+      toast.error("Please select a bank and enter the account number")
+      return
+    }
+    setIsFetchingBankName(true)
+    setBankVerified(false)
+    setWithdrawalForm(prev => ({ ...prev, accountName: "" }))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/user/withdrawals/validate-account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ network: "BANK", accountNumber, sublistid: bankSublistId }),
+      })
+      const data = await response.json()
+      if (response.ok && data.accountName) {
+        setWithdrawalForm(prev => ({ ...prev, accountName: data.accountName }))
+        setBankVerified(true)
+      } else {
+        toast.error(data.error || "Could not verify bank account. Check the account number and bank.")
+      }
+    } catch {
+      toast.error("Failed to verify bank account. Please try again.")
+    } finally {
+      setIsFetchingBankName(false)
+    }
+  }
+
   const handleWithdrawal = async () => {
     const amount = parseFloat(withdrawalForm.amount)
 
@@ -191,23 +292,27 @@ export default function ShopDashboardPage() {
       return
     }
 
-    if (!withdrawalForm.accountName.trim()) {
-      toast.error("Please enter the account name")
-      return
-    }
-
     if (withdrawalForm.method === "mobile_money" && !withdrawalForm.phone) {
       toast.error("Please enter your phone number")
       return
     }
 
+    if (withdrawalForm.method === "mobile_money" && !nameVerified) {
+      toast.error("Please verify your account name before submitting")
+      return
+    }
+
     if (withdrawalForm.method === "bank_transfer") {
-      if (!withdrawalForm.bankName.trim()) {
-        toast.error("Please enter the bank name")
+      if (!withdrawalForm.bankName.trim() && !withdrawalForm.bankSublistId) {
+        toast.error("Please select a bank")
         return
       }
       if (!withdrawalForm.accountNumber.trim()) {
         toast.error("Please enter the account number")
+        return
+      }
+      if (!bankVerified) {
+        toast.error("Please verify your bank account before submitting")
         return
       }
     }
@@ -226,6 +331,7 @@ export default function ShopDashboardPage() {
         accountDetails.network = withdrawalForm.network
       } else if (withdrawalForm.method === "bank_transfer") {
         accountDetails.bank_name = withdrawalForm.bankName
+        accountDetails.sublistid = withdrawalForm.bankSublistId
         accountDetails.account_number = withdrawalForm.accountNumber
         accountDetails.account_name = withdrawalForm.accountName
       }
@@ -241,7 +347,9 @@ export default function ShopDashboardPage() {
       )
 
       toast.success("Withdrawal request submitted successfully")
-      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", accountNumber: "", network: "MTN" })
+      setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", bankSublistId: "", accountNumber: "", network: "MTN" })
+      setNameVerified(false)
+      setBankVerified(false)
       setShowWithdrawalForm(false)
 
       // Reload withdrawals
@@ -281,7 +389,7 @@ export default function ShopDashboardPage() {
     )
   }
 
-  const pendingWithdrawals = withdrawals.filter(w => w.status === "pending")
+  const pendingWithdrawals = withdrawals.filter(w => w.status === "pending" || w.status === "processing")
   const completedWithdrawals = withdrawals.filter(w => w.status === "completed")
 
   return (
@@ -305,7 +413,7 @@ export default function ShopDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">
-                GHS {balance.toFixed(2)}
+                GHS {(balance || 0).toFixed(2)}
               </div>
               <p className="text-xs text-gray-500">Ready to withdraw</p>
             </CardContent>
@@ -321,7 +429,7 @@ export default function ShopDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-                GHS {totalProfit.toFixed(2)}
+                GHS {(totalProfit || 0).toFixed(2)}
               </div>
               <p className="text-xs text-gray-500">All time profit</p>
             </CardContent>
@@ -394,7 +502,7 @@ export default function ShopDashboardPage() {
                 </div>
                 <p className="text-xs text-gray-500">
                   {customerStats.total_customers > 0 
-                    ? `${customerStats.repeat_percentage.toFixed(1)}% of customers`
+                    ? `${(customerStats.repeat_percentage || 0).toFixed(1)}% of customers`
                     : "No customers yet"}
                 </p>
               </CardContent>
@@ -420,7 +528,7 @@ export default function ShopDashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
-                  GHS {customerStats.average_ltv.toFixed(2)}
+                  GHS {(customerStats.average_ltv || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-gray-500">Per customer</p>
               </CardContent>
@@ -433,7 +541,7 @@ export default function ShopDashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
-                  GHS {customerStats.total_revenue.toFixed(2)}
+                  GHS {(customerStats.total_revenue || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-gray-500">Total from customers</p>
               </CardContent>
@@ -443,10 +551,12 @@ export default function ShopDashboardPage() {
         {/* Withdraw Button */}
         {balance > 0 && !showWithdrawalForm && (
           <>
-            {withdrawals.some(w => w.status === "pending") ? (
+            {withdrawals.some(w => w.status === "pending" || w.status === "processing") ? (
               <div className="w-full p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <p className="text-yellow-800 text-sm font-medium">
-                  ⏳ You have a pending withdrawal request. Please wait for it to be approved or rejected before requesting another.
+                  {withdrawals.some(w => w.status === "processing")
+                    ? "⏳ Your withdrawal is being transferred. It will complete automatically."
+                    : "⏳ You have a pending withdrawal request. Please wait for it to be approved or rejected before requesting another."}
                 </p>
               </div>
             ) : (
@@ -481,25 +591,20 @@ export default function ShopDashboardPage() {
                   className="mt-1"
                 />
                 <p className="text-xs text-gray-600 mt-1">
-                  Available: GHS {balance.toFixed(2)} | Minimum: GHS 5.00
+                  Available: GHS {(balance || 0).toFixed(2)} | Minimum: GHS 5.00
                 </p>
-              </div>
-
-              <div>
-                <Label>Account Name (Full Name) *</Label>
-                <Input
-                  value={withdrawalForm.accountName}
-                  onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountName: e.target.value })}
-                  placeholder="John Doe"
-                  className="mt-1"
-                />
               </div>
 
               <div>
                 <Label>Withdrawal Method *</Label>
                 <select
                   value={withdrawalForm.method}
-                  onChange={(e) => setWithdrawalForm({ ...withdrawalForm, method: e.target.value })}
+                  onChange={(e) => {
+                    setWithdrawalForm({ ...withdrawalForm, method: e.target.value, accountName: "", phone: "", network: "MTN", bankName: "", bankSublistId: "" })
+                    setNameVerified(false)
+                    setBankVerified(false)
+                    if (e.target.value === "bank_transfer") fetchBanks()
+                  }}
                   className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                 >
                   <option value="mobile_money">Mobile Money</option>
@@ -510,24 +615,63 @@ export default function ShopDashboardPage() {
               {withdrawalForm.method === "mobile_money" && (
                 <>
                   <div>
-                    <Label>Mobile Number *</Label>
-                    <Input
-                      value={withdrawalForm.phone}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, phone: e.target.value })}
-                      placeholder="0201234567"
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
                     <Label>Network *</Label>
                     <select
                       value={withdrawalForm.network}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, network: e.target.value })}
+                      onChange={(e) => {
+                        const newNetwork = e.target.value
+                        setWithdrawalForm(prev => ({ ...prev, network: newNetwork, accountName: "" }))
+                        setNameVerified(false)
+                        if (withdrawalForm.phone) {
+                          handleValidateAccount(withdrawalForm.phone, newNetwork)
+                        }
+                      }}
                       className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                     >
                       <option value="MTN">MTN</option>
-                      <option value="TELECEL">TELECEL</option>
+                      <option value="Telecel">Telecel</option>
+                      <option value="AT">AirtelTigo (AT)</option>
                     </select>
+                  </div>
+                  <div>
+                    <Label>Mobile Number *</Label>
+                    <div className="flex gap-2 mt-1">
+                      <Input
+                        value={withdrawalForm.phone}
+                        onChange={(e) => {
+                          setWithdrawalForm(prev => ({ ...prev, phone: e.target.value, accountName: "" }))
+                          setNameVerified(false)
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value) {
+                            handleValidateAccount(e.target.value, withdrawalForm.network)
+                          }
+                        }}
+                        placeholder="0201234567"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!withdrawalForm.phone || isFetchingName}
+                        onClick={() => handleValidateAccount(withdrawalForm.phone, withdrawalForm.network)}
+                        className="shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
+                      >
+                        {isFetchingName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Enter your number and click <span className="font-medium text-violet-600">Verify</span> to confirm the account name before submitting.
+                    </p>
+                    {nameVerified && withdrawalForm.accountName && (
+                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
+                        <CheckCircle className="h-3 w-3" /> Account: {withdrawalForm.accountName}
+                      </p>
+                    )}
+                    {!nameVerified && !isFetchingName && withdrawalForm.phone && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        Account not yet verified — click Verify to proceed.
+                      </p>
+                    )}
                   </div>
                 </>
               )}
@@ -535,22 +679,75 @@ export default function ShopDashboardPage() {
               {withdrawalForm.method === "bank_transfer" && (
                 <>
                   <div>
-                    <Label>Bank Name *</Label>
-                    <Input
-                      value={withdrawalForm.bankName}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, bankName: e.target.value })}
-                      placeholder="e.g., GCB, Zenith Bank"
-                      className="mt-1"
-                    />
+                    <Label>Bank *</Label>
+                    {loadingBanks ? (
+                      <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading banks...
+                      </div>
+                    ) : banks.length > 0 ? (
+                      <select
+                        value={withdrawalForm.bankSublistId}
+                        onChange={(e) => {
+                          const selected = banks.find(b => b.sublistid === e.target.value)
+                          setWithdrawalForm({
+                            ...withdrawalForm,
+                            bankSublistId: e.target.value,
+                            bankName: selected?.name ?? "",
+                            accountName: "",
+                          })
+                          setBankVerified(false)
+                        }}
+                        className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      >
+                        <option value="">Select a bank...</option>
+                        {banks.map(b => (
+                          <option key={b.sublistid} value={b.sublistid}>{b.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        value={withdrawalForm.bankName}
+                        onChange={(e) => setWithdrawalForm({ ...withdrawalForm, bankName: e.target.value })}
+                        placeholder="e.g., GCB, Zenith Bank"
+                        className="mt-1"
+                      />
+                    )}
                   </div>
                   <div>
                     <Label>Account Number *</Label>
-                    <Input
-                      value={withdrawalForm.accountNumber}
-                      onChange={(e) => setWithdrawalForm({ ...withdrawalForm, accountNumber: e.target.value })}
-                      placeholder="1234567890"
-                      className="mt-1"
-                    />
+                    <div className="flex gap-2 mt-1">
+                      <Input
+                        value={withdrawalForm.accountNumber}
+                        onChange={(e) => {
+                          setWithdrawalForm(prev => ({ ...prev, accountNumber: e.target.value, accountName: "" }))
+                          setBankVerified(false)
+                        }}
+                        placeholder="1234567890"
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!withdrawalForm.accountNumber || !withdrawalForm.bankSublistId || isFetchingBankName}
+                        onClick={handleValidateBankAccount}
+                        className="shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
+                      >
+                        {isFetchingBankName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Select your bank, enter account number, then click <span className="font-medium text-violet-600">Verify</span> to confirm.
+                    </p>
+                    {bankVerified && withdrawalForm.accountName && (
+                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
+                        <CheckCircle className="h-3 w-3" /> Account: {withdrawalForm.accountName}
+                      </p>
+                    )}
+                    {!bankVerified && !isFetchingBankName && withdrawalForm.accountNumber && withdrawalForm.bankSublistId && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        Account not yet verified — click Verify to proceed.
+                      </p>
+                    )}
                   </div>
                 </>
               )}
@@ -589,12 +786,12 @@ export default function ShopDashboardPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={handleWithdrawal}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isFetchingName || isFetchingBankName || (withdrawalForm.method === "mobile_money" && !nameVerified) || (withdrawalForm.method === "bank_transfer" && !bankVerified)}
                   className="flex-1 bg-violet-600 hover:bg-violet-700"
                 >
                   {isSubmitting ? (
                     <>
-                      <span className="animate-spin mr-2">⏳</span>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       Submitting...
                     </>
                   ) : (
@@ -602,7 +799,11 @@ export default function ShopDashboardPage() {
                   )}
                 </Button>
                 <Button
-                  onClick={() => setShowWithdrawalForm(false)}
+                  onClick={() => {
+                    setShowWithdrawalForm(false)
+                    setNameVerified(false)
+                    setBankVerified(false)
+                  }}
                   variant="outline"
                   className="flex-1"
                   disabled={isSubmitting}
@@ -620,6 +821,7 @@ export default function ShopDashboardPage() {
             <TabsTrigger value="orders">Recent Orders ({orders.length})</TabsTrigger>
             <TabsTrigger value="profits">Profit History ({profits.length})</TabsTrigger>
             <TabsTrigger value="withdrawals">Withdrawals ({withdrawals.length})</TabsTrigger>
+            <TabsTrigger value="store-overview">Store Overview</TabsTrigger>
           </TabsList>
 
           {/* Orders Tab */}
@@ -647,7 +849,7 @@ export default function ShopDashboardPage() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-semibold text-cyan-600">+GHS {order.profit_amount.toFixed(2)}</p>
+                          <p className="font-semibold text-cyan-600">+GHS {(order.profit_amount || 0).toFixed(2)}</p>
                           <Badge variant="outline" className={
                             order.order_status === "completed"
                               ? "bg-green-100 text-green-700"
@@ -684,7 +886,7 @@ export default function ShopDashboardPage() {
                         className="flex items-center justify-between p-3 bg-white/50 border border-amber-200/40 rounded-lg hover:bg-white/70"
                       >
                         <div className="flex-1">
-                          <p className="font-semibold">GHS {profitAmount.toFixed(2)}</p>
+                          <p className="font-semibold">GHS {(profitAmount || 0).toFixed(2)}</p>
                           <p className="text-sm text-gray-600">{profit.profit_type || "Order Profit"}</p>
                           <p className="text-xs text-gray-500">{new Date(profit.created_at).toLocaleDateString()}</p>
                         </div>
@@ -720,20 +922,24 @@ export default function ShopDashboardPage() {
                         className="flex items-center justify-between p-3 bg-white/50 border border-emerald-200/40 rounded-lg"
                       >
                         <div className="flex-1">
-                          <p className="font-semibold">GHS {withdrawal.amount.toFixed(2)}</p>
+                          <p className="font-semibold">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
                           <p className="text-sm text-gray-600">{withdrawal.withdrawal_method}</p>
                           <p className="text-xs text-gray-500">{new Date(withdrawal.created_at).toLocaleDateString()}</p>
                         </div>
                         <Badge className={
                           withdrawal.status === "completed"
                             ? "bg-green-600"
+                            : withdrawal.status === "processing"
+                            ? "bg-blue-500"
                             : withdrawal.status === "pending"
                             ? "bg-amber-600"
                             : withdrawal.status === "approved"
                             ? "bg-blue-600"
-                            : "bg-red-600"
+                            : withdrawal.status === "failed"
+                            ? "bg-red-600"
+                            : "bg-gray-500"
                         }>
-                          {withdrawal.status}
+                          {withdrawal.status === "processing" ? "Transferring..." : withdrawal.status}
                         </Badge>
                       </div>
                     ))}
@@ -742,8 +948,188 @@ export default function ShopDashboardPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Store Overview Tab */}
+          <TabsContent value="store-overview">
+            <div className="space-y-6">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
+                <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-blue-600">{orderStats.total}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Completed</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-green-600">{orderStats.completed}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-yellow-50/60 to-orange-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Pending</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-orange-600">{orderStats.pending}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-red-50/60 to-pink-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Failed</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-red-600">{orderStats.failed}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-purple-50/60 to-violet-50/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Total Revenue</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-purple-600">GHS {orderStats.totalRevenue.toFixed(2)}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Orders Table */}
+              <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+                <CardHeader>
+                  <CardTitle>Recent Orders</CardTitle>
+                  <CardDescription>
+                    {orders.length === 0
+                      ? "No orders yet. Your first customer purchase will appear here."
+                      : `Showing ${orders.length} order${orders.length !== 1 ? "s" : ""}`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {orders.length > 0 && (
+                    <div className="flex gap-2">
+                      <Search className="w-5 h-5 text-gray-400 mt-2.5" />
+                      <Input
+                        type="text"
+                        placeholder="Search orders by customer phone number..."
+                        value={searchPhoneNumber}
+                        onChange={(e) => setSearchPhoneNumber(e.target.value)}
+                        className="bg-white/50 border-cyan-200/40"
+                      />
+                    </div>
+                  )}
+                  {orders.length === 0 ? (
+                    <Alert className="border-blue-300 bg-blue-50">
+                      <AlertCircle className="h-4 w-4 text-blue-600" />
+                      <AlertDescription className="text-blue-700">
+                        Order analytics and management will show here once your first customer makes a purchase.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="border-b border-cyan-200/40">
+                          <tr>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Order ID</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Network</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Volume</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Profit</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-cyan-100/40">
+                          {orders
+                            .filter((order) =>
+                              order.customer_phone &&
+                              order.customer_phone.toLowerCase().includes(searchPhoneNumber.toLowerCase())
+                            )
+                            .map((order: any) => (
+                              <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">
+                                <td className="py-3 px-4 font-mono text-xs text-gray-600">{order.reference_code}</td>
+                                <td className="py-3 px-4">
+                                  <div>
+                                    <p className="font-medium text-gray-900">{order.customer_name || "N/A"}</p>
+                                    <p className="text-xs text-gray-500">{order.customer_phone}</p>
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4">
+                                  <Badge variant="outline">{order.network}</Badge>
+                                </td>
+                                <td className="py-3 px-4 text-gray-900">{order.volume_gb} GB</td>
+                                <td className="py-3 px-4">
+                                  <Badge className={
+                                    order.order_status === "completed" ? "bg-green-600" :
+                                      order.order_status === "pending" ? "bg-orange-600" :
+                                        "bg-red-600"
+                                  }>
+                                    {order.order_status}
+                                  </Badge>
+                                </td>
+                                <td className="py-3 px-4 text-right font-semibold text-purple-600">
+                                  GHS {(order.profit_amount || 0).toFixed(2)}
+                                </td>
+                                <td className="py-3 px-4 text-xs text-gray-500">
+                                  <div>{new Date(order.created_at).toLocaleDateString()}</div>
+                                  <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
+                                </td>
+                                <td className="py-3 px-4">
+                                  {order.order_status === "completed" &&
+                                    order.updated_at &&
+                                    Date.now() - new Date(order.updated_at).getTime() >= 30 * 60 * 1000 && (
+                                    <Button
+                                      onClick={() => {
+                                        setSelectedComplaintOrder({
+                                          id: order.id,
+                                          networkName: order.network || "Unknown",
+                                          packageName: `${order.volume_gb || 0}GB`,
+                                          phoneNumber: order.customer_phone || "N/A",
+                                          totalPrice: parseFloat(order.total_price?.toString() || "0") || 0,
+                                          createdAt: order.created_at || new Date().toISOString(),
+                                        })
+                                        setShowComplaintModal(true)
+                                      }}
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                                    >
+                                      <MessageCircle className="w-4 h-4 mr-1" />
+                                      Complain
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
         </Tabs>
       </div>
+
+      {selectedComplaintOrder && (
+        <ComplaintModal
+          isOpen={showComplaintModal}
+          onClose={() => {
+            setShowComplaintModal(false)
+            setSelectedComplaintOrder(null)
+          }}
+          orderId={selectedComplaintOrder.id}
+          orderType="shop"
+          orderDetails={selectedComplaintOrder}
+        />
+      )}
     </DashboardLayout>
   )
 }

@@ -502,6 +502,74 @@ export const EmailTemplates = {
     `, "Shop Status", true),
   }),
 
+  ussdShopActivated: (shopName: string, code: string, initialTokens: number) => ({
+    subject: `Your USSD Shop Code is Active — ${code}`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🎉</span>
+        <h2>Your USSD Shop is Live!</h2>
+        <p>Your shop code has been activated and is ready to accept orders.</p>
+      </div>
+
+      <div class="info-card">
+        <h3 style="font-size:16px;border-bottom:2px solid #e5e7eb;padding-bottom:10px;margin-bottom:15px;">Activation Details</h3>
+        <div class="info-row">
+          <span class="info-label">Shop Name</span>
+          <span class="info-value">${shopName}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">USSD Code</span>
+          <span class="info-value highlight">${code}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Starting Tokens</span>
+          <span class="info-value">${initialTokens}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Status</span>
+          <span class="info-value highlight">Active</span>
+        </div>
+      </div>
+
+      <p>Customers can now dial <strong>${code}</strong> to browse and purchase data bundles from your shop. Each customer transaction uses one token.</p>
+      <a href="${APP_URL}/dashboard/ussd-shop" class="button-primary">View My Shop</a>
+    `, "USSD Shop Activated", true),
+  }),
+
+  ussdShopTokensAdded: (shopName: string, code: string, tokensAdded: number, newBalance: number) => ({
+    subject: `${tokensAdded} Tokens Added to Your USSD Shop`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🪙</span>
+        <h2>Tokens Added</h2>
+        <p>Your USSD shop token balance has been topped up.</p>
+      </div>
+
+      <div class="info-card">
+        <h3 style="font-size:16px;border-bottom:2px solid #e5e7eb;padding-bottom:10px;margin-bottom:15px;">Top-Up Details</h3>
+        <div class="info-row">
+          <span class="info-label">Shop Name</span>
+          <span class="info-value">${shopName}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">USSD Code</span>
+          <span class="info-value">${code}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Tokens Added</span>
+          <span class="info-value highlight">+${tokensAdded}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">New Balance</span>
+          <span class="info-value highlight">${newBalance} tokens</span>
+        </div>
+      </div>
+
+      <p>Each customer bundle purchase via your USSD code uses one token. Your shop will continue accepting orders as long as your token balance is above zero.</p>
+      <a href="${APP_URL}/dashboard/ussd-shop" class="button-primary">View My Shop</a>
+    `, "Tokens Added", true),
+  }),
+
   // Admin Alerts - Simplified
   fulfillmentFailed: (orderId: string, phone: string, network: string, sizeGb: string, reason: string) => ({
     subject: `[ALERT] Fulfillment Failed: #${orderId}`,
@@ -723,6 +791,54 @@ export const EmailTemplates = {
       <p>The full amount has been refunded to your wallet.</p>
       <a href="${APP_URL}/dashboard/wallet" class="button-secondary">Check Wallet</a>
     `, "Order Failed", true),
+  }),
+
+  // ── Results Checker Templates ──────────────────────────────────
+  resultsCheckerDelivery: (
+    referenceCode: string,
+    examBoard: string,
+    quantity: number,
+    totalPaid: number,
+    pins: Array<{ pin: string; serial_number: string | null }>
+  ) => ({
+    subject: `${examBoard} Voucher${quantity > 1 ? "s" : ""} Delivered — ${referenceCode}`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🎓</span>
+        <h2>${examBoard} Results Checker Voucher${quantity > 1 ? "s" : ""}</h2>
+        <span class="badge badge-success">Delivered</span>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row"><span class="info-label">Reference</span><span class="info-value">${referenceCode}</span></div>
+        <div class="info-row"><span class="info-label">Exam Board</span><span class="info-value">${examBoard}</span></div>
+        <div class="info-row"><span class="info-label">Quantity</span><span class="info-value">${quantity}</span></div>
+        <div class="info-row"><span class="info-label">Amount Paid</span><span class="info-value">GHS ${Number(totalPaid).toFixed(2)}</span></div>
+      </div>
+
+      <h3 style="margin-top:24px;margin-bottom:12px;color:#111827;">Your Voucher${quantity > 1 ? "s" : ""}</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#1e1e2e;color:#fff;">
+            <th style="padding:10px 12px;text-align:left;border-radius:6px 0 0 6px;">#</th>
+            <th style="padding:10px 12px;text-align:left;">PIN</th>
+            <th style="padding:10px 12px;text-align:left;border-radius:0 6px 6px 0;">Serial Number</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pins.map((p, i) => `
+            <tr style="background:${i % 2 === 0 ? "#f9fafb" : "#fff"};">
+              <td style="padding:10px 12px;font-weight:700;">${i + 1}</td>
+              <td style="padding:10px 12px;font-family:monospace;font-weight:700;letter-spacing:1px;">${p.pin}</td>
+              <td style="padding:10px 12px;font-family:monospace;">${p.serial_number ?? "N/A"}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+
+      <p style="margin-top:20px;font-size:13px;color:#6b7280;">Keep these details safe. Use them on the official WAEC or BECE results portal to check your results.</p>
+      <a href="${APP_URL}/dashboard/results-checker" class="button-secondary">View Order History</a>
+    `, `${examBoard} Vouchers Delivered`, true),
   }),
 }
 

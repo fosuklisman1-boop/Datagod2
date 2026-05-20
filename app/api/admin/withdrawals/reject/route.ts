@@ -30,6 +30,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 })
     }
 
+    // Guard: only allow rejecting withdrawals that haven't been transferred yet
+    const rejectableStatuses = ["pending", "failed", "approved"]
+    if (!rejectableStatuses.includes(withdrawal.status)) {
+      return NextResponse.json(
+        { error: `Cannot reject a withdrawal with status: ${withdrawal.status}` },
+        { status: 400 }
+      )
+    }
+
     // Update withdrawal status to rejected with reason
     const { error: updateError } = await supabase
       .from("withdrawal_requests")
@@ -100,7 +109,7 @@ export async function POST(request: NextRequest) {
 
                 // Get current balance (rejection doesn't change it)
                 supabase
-                  .from("shop_balances")
+                  .from("shop_available_balance")
                   .select("available_balance")
                   .eq("shop_id", withdrawal.shop_id)
                   .single()

@@ -5,38 +5,118 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-// Helper to fetch all records with pagination
-async function fetchAllRecords(
-  client: any,
-  table: string,
-  columns: string,
-  filterColumn: string,
-  filterValue: string
-) {
-  let allRecords: any[] = []
-  let offset = 0
-  const batchSize = 1000
-  let hasMore = true
+// Fallback: fetch and aggregate user stats without the RPC
+async function getUserStatsFallback(adminClient: any, userId: string) {
+  // Fetch basic wallet + shop data
+  const [walletResult, shopResult] = await Promise.all([
+    adminClient.from("wallets").select("balance").eq("user_id", userId).single(),
+    adminClient.from("user_shops").select("id, shop_name, shop_slug, created_at").eq("user_id", userId).single()
+  ])
 
-  while (hasMore) {
-    const { data, error } = await client
-      .from(table)
-      .select(columns)
-      .eq(filterColumn, filterValue)
-      .range(offset, offset + batchSize - 1)
+  // Transaction aggregation — limited to 5000 rows to avoid timeout
+  const { data: transactions } = await adminClient
+    .from("transactions")
+    .select("type, source, status, amount")
+    .eq("user_id", userId)
+    .limit(5000)
 
-    if (error) break
+  const txList = transactions || []
+  const totalTopUps = txList
+    .filter((t: any) => t.type === "credit" && t.source === "wallet_topup" && t.status === "completed")
+    .reduce((s: number, t: any) => s + (t.amount || 0), 0)
+  const totalSpent = txList
+    .filter((t: any) => t.type === "debit" && (t.status === "completed" || t.status === "success"))
+    .reduce((s: number, t: any) => s + Math.abs(t.amount || 0), 0)
 
-    if (data && data.length > 0) {
-      allRecords = allRecords.concat(data)
-      offset += batchSize
-      hasMore = data.length === batchSize
-    } else {
-      hasMore = false
+  // Order counts
+  const { count: totalOrders } = await adminClient
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+  const { count: completedOrders } = await adminClient
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .in("status", ["completed", "delivered", "success"])
+  const { count: failedOrders } = await adminClient
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("status", "failed")
+
+  const total = totalOrders || 0
+  const completed = completedOrders || 0
+  const failed = failedOrders || 0
+
+  // Shop stats
+  let shopStats = null
+  let withdrawals = { history: [], totalWithdrawn: 0, pendingCount: 0, completedCount: 0 }
+
+  if (shopResult.data?.id) {
+    const shopId = shopResult.data.id
+
+    const [balanceResult, shopOrderCounts, paidOrderCounts, completedOrderCounts, salesResult, profitCountResult, withdrawalRows] = await Promise.all([
+      adminClient.from("shop_available_balance").select("*").eq("shop_id", shopId).maybeSingle(),
+      adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId),
+      adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId).eq("payment_status", "paid"),
+      adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId).in("status", ["completed", "delivered", "fulfilled"]),
+      adminClient.from("shop_orders").select("total_amount").eq("shop_id", shopId).eq("payment_status", "paid").limit(10000),
+      adminClient.from("shop_profits").select("id", { count: "exact", head: true }).eq("shop_id", shopId),
+      adminClient.from("withdrawal_requests")
+        .select("id, amount, fee_amount, net_amount, status, withdrawal_method, created_at, reference_code")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(10)
+    ])
+
+    const bal = balanceResult.data
+    const totalSales = (salesResult.data || []).reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0)
+
+    shopStats = {
+      shopId,
+      shopName:         shopResult.data.shop_name,
+      shopSlug:         shopResult.data.shop_slug,
+      createdAt:        shopResult.data.created_at,
+      totalOrders:      shopOrderCounts.count || 0,
+      paidOrders:       paidOrderCounts.count || 0,
+      completedOrders:  completedOrderCounts.count || 0,
+      totalSales,
+      availableBalance: bal?.available_balance || 0,
+      withdrawnAmount:  bal?.withdrawn_profit || 0,
+      totalProfit:      bal?.total_profit || 0,
+      pendingProfit:    bal?.pending_profit || 0,
+      creditedProfit:   bal?.credited_profit || 0,
+      profitRecords:    profitCountResult.count || 0,
+    }
+
+    const wRows = withdrawalRows.data || []
+    const totalWithdrawn = wRows
+      .filter((w: any) => w.status === "completed" || w.status === "approved")
+      .reduce((s: number, w: any) => s + (w.net_amount || w.amount || 0), 0)
+
+    withdrawals = {
+      history: wRows.map((w: any) => ({
+        id: w.id, amount: w.amount, feeAmount: w.fee_amount || 0,
+        netAmount: w.net_amount || w.amount, status: w.status,
+        method: w.withdrawal_method, createdAt: w.created_at, referenceCode: w.reference_code
+      })),
+      totalWithdrawn,
+      pendingCount: wRows.filter((w: any) => w.status === "pending").length,
+      completedCount: wRows.filter((w: any) => w.status === "completed" || w.status === "approved").length,
     }
   }
 
-  return allRecords
+  return {
+    wallet: {
+      balance: walletResult.data?.balance || 0,
+      totalTopUps,
+      totalSpent,
+      transactionCount: txList.length,
+    },
+    orders: { total, completed, failed, pending: total - completed - failed },
+    shop: shopStats,
+    withdrawals,
+  }
 }
 
 export async function GET(
@@ -53,147 +133,33 @@ export async function GET(
       auth: { autoRefreshToken: false, persistSession: false },
     })
 
-    // Fetch basic user data and shop info first
-    const [walletResult, shopResult] = await Promise.all([
-      adminClient.from("wallets").select("balance").eq("user_id", userId).single(),
-      adminClient.from("user_shops").select("id, shop_name, shop_slug, created_at").eq("user_id", userId).single()
-    ])
+    // Try the optimized RPC first; if not deployed yet, fall back to direct queries
+    const { data: stats, error: rpcError } = await adminClient.rpc("get_user_financial_summary", {
+      p_user_id: userId
+    })
 
-    // Fetch all paginated data in parallel
-    const [transactions, walletOrders, shopOrdersByUser] = await Promise.all([
-      fetchAllRecords(adminClient, "transactions", "*", "user_id", userId),
-      fetchAllRecords(adminClient, "orders", "id, status, amount, created_at", "user_id", userId),
-      fetchAllRecords(adminClient, "shop_orders", "id, status, total_amount, created_at", "user_id", userId)
-    ])
-
-    // Calculate wallet stats
-    const walletBalance = walletResult.data?.balance || 0
-    
-    // Total top-ups: credit transactions from wallet_topup source
-    const totalTopUps = transactions
-      .filter((t: any) => t.type === "credit" && t.source === "wallet_topup" && t.status === "completed")
-      .reduce((sum: number, t: any) => sum + (t.amount || 0), 0)
-    
-    const totalSpent = transactions
-      .filter((t: any) => t.type === "debit" && t.status === "completed")
-      .reduce((sum: number, t: any) => sum + Math.abs(t.amount || 0), 0)
-
-    // Calculate order stats (combine wallet orders and shop orders by user)
-    const totalOrders = walletOrders.length + shopOrdersByUser.length
-    const completedOrders = walletOrders.filter((o: any) => o.status === "completed" || o.status === "delivered").length +
-      shopOrdersByUser.filter((o: any) => o.status === "completed" || o.status === "delivered").length
-    const failedOrders = walletOrders.filter((o: any) => o.status === "failed").length +
-      shopOrdersByUser.filter((o: any) => o.status === "failed").length
-    const pendingOrders = totalOrders - completedOrders - failedOrders
-
-    // Shop stats (if user owns a shop)
-    let shopStats = null
-    let withdrawalHistory: any[] = []
-
-    if (shopResult.data?.id) {
-      const shopId = shopResult.data.id
-
-      // Fetch shop-related data with pagination
-      const [shopBalanceResult, shopOrdersList, shopProfitsList, withdrawalsList] = await Promise.all([
-        adminClient.from("shop_available_balance").select("*").eq("shop_id", shopId).single(),
-        fetchAllRecords(adminClient, "shop_orders", "id, total_amount, profit_amount, status, order_status, payment_status, created_at", "shop_id", shopId),
-        fetchAllRecords(adminClient, "shop_profits", "id, profit_amount, status, created_at", "shop_id", shopId),
-        fetchAllRecords(adminClient, "withdrawal_requests", "*", "shop_id", shopId)
-      ])
-
-      const shopOrdersData = shopOrdersList || []
-      const shopProfitsData = shopProfitsList || []
-      
-      // Paid orders are those with payment_status = "completed" 
-      const paidShopOrders = shopOrdersData.filter((o: any) => o.payment_status === "completed")
-      // Delivered/completed orders for order fulfillment tracking
-      const completedShopOrders = shopOrdersData.filter((o: any) => 
-        o.order_status === "completed" || o.order_status === "delivered" || 
-        o.status === "completed" || o.status === "delivered"
-      )
-      
-      // Calculate total sales from PAID orders (not just delivered ones)
-      const totalSales = paidShopOrders.reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0)
-      
-      // Calculate total profit from shop_profits table (more accurate)
-      const totalProfitFromProfits = shopProfitsData.reduce((sum: number, p: any) => sum + (p.profit_amount || 0), 0)
-
-      const balanceRecord = shopBalanceResult.data
-      // Use the pre-calculated values from shop_available_balance table
-      const availableBalance = balanceRecord?.available_balance || 0
-      const withdrawnAmount = balanceRecord?.withdrawn_profit || 0
-      const pendingProfit = balanceRecord?.pending_profit || 0
-      const totalProfitFromBalance = balanceRecord?.total_profit || 0
-      const creditedProfit = balanceRecord?.credited_profit || 0
-      
-      // Use the higher of the two totals (in case shop_profits has more records)
-      const totalProfit = Math.max(totalProfitFromProfits, totalProfitFromBalance)
-
-      shopStats = {
-        shopId: shopId,
-        shopName: shopResult.data.shop_name,
-        shopSlug: shopResult.data.shop_slug,
-        createdAt: shopResult.data.created_at,
-        totalOrders: shopOrdersData.length,
-        paidOrders: paidShopOrders.length,
-        completedOrders: completedShopOrders.length,
-        totalSales,
-        totalProfit,
-        availableBalance,
-        withdrawnAmount,
-        pendingProfit,
-        creditedProfit,
-        profitRecords: shopProfitsData.length
-      }
-
-      // Withdrawal history - sort by created_at descending
-      const sortedWithdrawals = withdrawalsList.sort((a: any, b: any) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      )
-      
-      withdrawalHistory = sortedWithdrawals.map((w: any) => ({
-        id: w.id,
-        amount: w.amount,
-        feeAmount: w.fee_amount || 0,
-        netAmount: w.net_amount || w.amount,
-        status: w.status,
-        method: w.withdrawal_method,
-        createdAt: w.created_at,
-        referenceCode: w.reference_code
-      }))
+    if (rpcError) {
+      console.warn("[USER-STATS] RPC not available, using fallback queries:", rpcError.message)
+      const fallback = await getUserStatsFallback(adminClient, userId)
+      return NextResponse.json({ userId, ...fallback })
     }
 
-    // Calculate withdrawal totals
-    const totalWithdrawn = withdrawalHistory
-      .filter((w: any) => w.status === "completed" || w.status === "approved")
-      .reduce((sum: number, w: any) => sum + (w.netAmount || w.amount || 0), 0)
-    
-    const pendingWithdrawals = withdrawalHistory.filter((w: any) => w.status === "pending").length
+    if (!stats) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
 
     return NextResponse.json({
       userId,
-      wallet: {
-        balance: walletBalance,
-        totalTopUps,
-        totalSpent,
-        transactionCount: transactions.length
-      },
-      orders: {
-        total: totalOrders,
-        completed: completedOrders,
-        failed: failedOrders,
-        pending: pendingOrders
-      },
-      shop: shopStats,
-      withdrawals: {
-        history: withdrawalHistory,
-        totalWithdrawn,
-        pendingCount: pendingWithdrawals,
-        completedCount: withdrawalHistory.filter((w: any) => w.status === "completed" || w.status === "approved").length
-      }
+      wallet: stats.wallet,
+      orders: stats.orders,
+      shop: stats.shop,
+      withdrawals: stats.withdrawals,
     })
   } catch (error: any) {
-    console.error("[USER-STATS] Error:", error)
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 })
+    console.error("[USER-STATS] Unexpected error:", error)
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 }
+    )
   }
 }

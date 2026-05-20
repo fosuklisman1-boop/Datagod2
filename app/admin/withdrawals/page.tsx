@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { CheckCircle, XCircle, Clock, AlertCircle, Copy, Loader2 } from "lucide-react"
+import { CheckCircle, XCircle, Clock, Copy, Loader2 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -23,7 +23,8 @@ interface WithdrawalRequest {
   net_amount?: number
   withdrawal_method: string
   account_details: any
-  status: "pending" | "approved" | "rejected" | "completed"
+  status: "pending" | "approved" | "rejected" | "completed" | "processing" | "failed"
+  moolre_transfer_id?: string
   reference_code: string
   rejection_reason?: string
   created_at: string
@@ -36,13 +37,12 @@ interface WithdrawalRequest {
 }
 
 export default function WithdrawalsPage() {
-  const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedWithdrawal, setSelectedWithdrawal] = useState<WithdrawalRequest | null>(null)
   const [rejectionReason, setRejectionReason] = useState("")
-  const [approvalLoading, setApprovalLoading] = useState(false)
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>("pending")
 
   useEffect(() => {
@@ -76,9 +76,9 @@ export default function WithdrawalsPage() {
     }
   }
 
-  const approveWithdrawal = async (withdrawalId: string) => {
+  const approveWithdrawal = async (withdrawalId: string, manual = false) => {
     try {
-      setApprovalLoading(true)
+      setActionLoadingId(withdrawalId)
 
       const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch("/api/admin/withdrawals/approve", {
@@ -87,7 +87,7 @@ export default function WithdrawalsPage() {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ withdrawalId }),
+        body: JSON.stringify({ withdrawalId, manual }),
       })
 
       const data = await response.json()
@@ -96,14 +96,20 @@ export default function WithdrawalsPage() {
         throw new Error(data.error || "Failed to approve withdrawal")
       }
 
-      toast.success("Withdrawal approved successfully")
+      if (manual) {
+        toast.success("Withdrawal manually approved — remember to transfer funds to the recipient.")
+      } else if (data.status === "processing") {
+        toast.success("Transfer initiated — awaiting MoMo confirmation. Will complete automatically.")
+      } else {
+        toast.success("Withdrawal approved and transferred successfully")
+      }
       setSelectedWithdrawal(null)
       loadWithdrawals()
     } catch (error) {
       console.error("Error approving withdrawal:", error)
       toast.error(error instanceof Error ? error.message : "Failed to approve withdrawal")
     } finally {
-      setApprovalLoading(false)
+      setActionLoadingId(null)
     }
   }
 
@@ -114,7 +120,7 @@ export default function WithdrawalsPage() {
     }
 
     try {
-      setApprovalLoading(true)
+      setActionLoadingId(withdrawalId)
 
       const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch("/api/admin/withdrawals/reject", {
@@ -140,7 +146,30 @@ export default function WithdrawalsPage() {
       console.error("Error rejecting withdrawal:", error)
       toast.error(error instanceof Error ? error.message : "Failed to reject withdrawal")
     } finally {
-      setApprovalLoading(false)
+      setActionLoadingId(null)
+    }
+  }
+
+  const resetProcessing = async (withdrawalId: string) => {
+    try {
+      setActionLoadingId(withdrawalId)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/withdrawals/reset-processing", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ withdrawalId }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to reset")
+      toast.success("Withdrawal reset to pending — admin can now re-approve")
+      loadWithdrawals()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to reset withdrawal")
+    } finally {
+      setActionLoadingId(null)
     }
   }
 
@@ -152,6 +181,10 @@ export default function WithdrawalsPage() {
         return <XCircle className="h-4 w-4 text-red-600" />
       case "completed":
         return <CheckCircle className="h-4 w-4 text-blue-600" />
+      case "processing":
+        return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+      case "failed":
+        return <XCircle className="h-4 w-4 text-red-500" />
       default:
         return <Clock className="h-4 w-4 text-orange-600" />
     }
@@ -167,6 +200,10 @@ export default function WithdrawalsPage() {
         return "bg-red-100 text-red-800"
       case "completed":
         return "bg-blue-100 text-blue-800"
+      case "processing":
+        return "bg-blue-50 text-blue-600"
+      case "failed":
+        return "bg-red-100 text-red-700"
       default:
         return "bg-gray-100 text-gray-800"
     }
@@ -204,7 +241,7 @@ export default function WithdrawalsPage() {
 
         {/* Filter Buttons */}
         <div className="flex flex-wrap gap-2 sm:gap-3 md:gap-4">
-          {["pending", "approved", "rejected", "completed", "all"].map((status) => (
+          {["pending", "processing", "approved", "completed", "failed", "rejected", "all"].map((status) => (
             <Button
               key={status}
               variant={filterStatus === status ? "default" : "outline"}
@@ -403,26 +440,93 @@ export default function WithdrawalsPage() {
                         </div>
                       </div>
 
-                      {/* Action Buttons */}
-                      {withdrawal.status === "pending" && (
-                        <div className="flex gap-2">
+                      {/* Moolre Transfer ID */}
+                      {withdrawal.moolre_transfer_id && (
+                        <div className="mb-3 bg-gray-50 p-2 rounded border border-gray-200">
+                          <p className="text-xs text-gray-500">Moolre Transfer ID</p>
+                          <p className="font-mono text-xs text-gray-700">{withdrawal.moolre_transfer_id}</p>
+                        </div>
+                      )}
+
+                      {/* Old approved — manual transfer still needed */}
+                      {withdrawal.status === "approved" && !withdrawal.moolre_transfer_id && (
+                        <div className="mb-3 bg-yellow-50 p-3 rounded border border-yellow-200">
+                          <p className="text-xs text-yellow-800 font-medium">Manual transfer required — this was approved before Moolre integration. Please transfer funds manually.</p>
+                        </div>
+                      )}
+
+                      {/* Processing notice + reset */}
+                      {withdrawal.status === "processing" && (
+                        <div className="mb-3 bg-blue-50 p-3 rounded border border-blue-200 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-blue-500 shrink-0" />
+                            <p className="text-xs text-blue-700">Transfer in progress — awaiting MoMo confirmation. Cron checks every 5 min.</p>
+                          </div>
                           <Button
-                            onClick={() => approveWithdrawal(withdrawal.id)}
-                            disabled={approvalLoading}
-                            className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm"
-                          >
-                            {approvalLoading ? "Processing..." : "✓ Approve"}
-                          </Button>
-                          <Button
-                            onClick={() => {
-                              setSelectedWithdrawal(withdrawal)
-                              setRejectionReason("")
-                            }}
+                            size="sm"
                             variant="outline"
-                            className="flex-1 text-sm border-red-300 text-red-600 hover:bg-red-50"
+                            disabled={actionLoadingId === withdrawal.id}
+                            onClick={() => resetProcessing(withdrawal.id)}
+                            className="w-full text-xs border-orange-300 text-orange-600 hover:bg-orange-50"
                           >
-                            ✕ Reject
+                            {actionLoadingId === withdrawal.id
+                              ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Resetting...</>
+                              : "↺ Reset to Pending (stuck transfer)"}
                           </Button>
+                        </div>
+                      )}
+
+                      {/* Failed notice */}
+                      {withdrawal.status === "failed" && (
+                        <div className="mb-3 bg-red-50 p-3 rounded border border-red-200">
+                          <p className="text-xs text-red-700 font-medium">Transfer failed. Funds were NOT sent. The request can be re-approved after investigation.</p>
+                        </div>
+                      )}
+
+                      {/* Action Buttons — pending or failed (retry) */}
+                      {(withdrawal.status === "pending" || withdrawal.status === "failed") && (
+                        <div className="space-y-2">
+                          {(withdrawal.withdrawal_method === "mobile_money" || (withdrawal.withdrawal_method === "bank_transfer" && (withdrawal.account_details as any)?.sublistid)) && withdrawal.net_amount && withdrawal.net_amount !== withdrawal.amount && (
+                            <p className="text-xs text-gray-500 text-center">
+                              Moolre will send <span className="font-semibold text-gray-800">GHS {withdrawal.net_amount.toFixed(2)}</span> (after GHS {(withdrawal.fee_amount ?? 0).toFixed(2)} fee)
+                            </p>
+                          )}
+                          {/* Auto transfer (Moolre) — mobile money + bank transfers with sublistid */}
+                          {(withdrawal.withdrawal_method === "mobile_money" || (withdrawal.withdrawal_method === "bank_transfer" && (withdrawal.account_details as any)?.sublistid)) && (
+                            <Button
+                              onClick={() => approveWithdrawal(withdrawal.id)}
+                              disabled={actionLoadingId === withdrawal.id}
+                              className="w-full bg-green-600 hover:bg-green-700 text-white text-sm"
+                            >
+                              {actionLoadingId === withdrawal.id ? (
+                                <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
+                              ) : withdrawal.status === "failed" ? "↺ Retry Transfer (Auto)" : "✓ Approve & Transfer (Auto)"}
+                            </Button>
+                          )}
+                          <div className="flex gap-2">
+                            {/* Manual approve — all methods */}
+                            <Button
+                              onClick={() => approveWithdrawal(withdrawal.id, true)}
+                              disabled={actionLoadingId === withdrawal.id}
+                              variant="outline"
+                              className="flex-1 text-sm border-blue-300 text-blue-700 hover:bg-blue-50"
+                            >
+                              {actionLoadingId === withdrawal.id ? (
+                                <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
+                              ) : withdrawal.status === "failed" ? "↺ Retry (Manual)" : "✓ Manual Approve"}
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                setSelectedWithdrawal(withdrawal)
+                                setRejectionReason("")
+                              }}
+                              variant="outline"
+                              disabled={actionLoadingId === withdrawal.id}
+                              className="flex-1 text-sm border-red-300 text-red-600 hover:bg-red-50"
+                            >
+                              ✕ Reject
+                            </Button>
+                          </div>
                         </div>
                       )}
 
@@ -476,10 +580,12 @@ export default function WithdrawalsPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={() => rejectWithdrawal(selectedWithdrawal.id)}
-                  disabled={approvalLoading || !rejectionReason.trim()}
+                  disabled={actionLoadingId === selectedWithdrawal.id || !rejectionReason.trim()}
                   className="flex-1 bg-red-600 hover:bg-red-700 text-white"
                 >
-                  {approvalLoading ? "Processing..." : "✕ Reject"}
+                  {actionLoadingId === selectedWithdrawal.id ? (
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
+                  ) : "✕ Reject"}
                 </Button>
                 <Button
                   onClick={() => {

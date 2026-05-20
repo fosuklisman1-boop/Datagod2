@@ -412,52 +412,34 @@ export const shopProfitService = {
     return allRecords
   },
 
-  // Get shop available balance
+  // Get shop available balance - OPTIMIZED
   async getShopBalance(shopId: string) {
-    // Get pending and credited profits from shop_profits table (paginated)
-    const profits = await this.fetchAllProfits(shopId, "profit_amount, status")
+    try {
+      const { data: breakdown, error } = await supabase.rpc("get_shop_balance_breakdown", {
+        p_shop_id: shopId
+      })
 
-    // Sum all pending profits (not yet withdrawn)
-    const availableBalance = profits?.reduce((sum: number, p: any) => {
-      if (p.status === "pending" || p.status === "credited") {
-        return sum + (p.profit_amount || 0)
-      }
-      return sum
-    }, 0) || 0
-
-    return Math.max(0, availableBalance)
+      if (error || !breakdown) return 0
+      return Number(breakdown.credited_p) - Number(breakdown.total_w)
+    } catch (err) {
+      console.error("Error in getShopBalance:", err)
+      return 0
+    }
   },
 
-  // Get total profit (sum of all profit_amount from completed orders)
+  // Get total profit - OPTIMIZED
   async getTotalProfit(shopId: string) {
-    // Fetch all completed orders in batches
-    let allOrders: any[] = []
-    let offset = 0
-    const batchSize = 1000
-    let hasMore = true
+    try {
+      const { data: breakdown, error } = await supabase.rpc("get_shop_balance_breakdown", {
+        p_shop_id: shopId
+      })
 
-    while (hasMore) {
-      const { data, error } = await supabase
-        .from("shop_orders")
-        .select("profit_amount")
-        .eq("shop_id", shopId)
-        .eq("payment_status", "completed")
-        .range(offset, offset + batchSize - 1)
-
-      if (error) throw error
-
-      if (data && data.length > 0) {
-        allOrders = allOrders.concat(data)
-        offset += batchSize
-        hasMore = data.length === batchSize
-      } else {
-        hasMore = false
-      }
+      if (error || !breakdown) return 0
+      return Number(breakdown.total_p)
+    } catch (err) {
+      console.error("Error in getTotalProfit:", err)
+      return 0
     }
-
-    // Sum all profit amounts
-    const totalProfit = allOrders?.reduce((sum: number, order: any) => sum + (order.profit_amount || 0), 0) || 0
-    return totalProfit
   },
 
   // Get profit history
@@ -482,43 +464,21 @@ export const shopProfitService = {
     return data
   },
 
-  // Sync available balance to shop_available_balance table
+  // Sync available balance to shop_available_balance table - OPTIMIZED
   async syncAvailableBalance(shopId: string) {
     try {
-      // Get current profits breakdown (paginated)
-      const profits = await this.fetchAllProfits(shopId, "profit_amount, status")
-
-      // Calculate credited profit only
-      const breakdown = {
-        totalProfit: 0,
-        creditedProfit: 0,
-        withdrawnProfit: 0,
-      }
-
-      profits?.forEach((p: any) => {
-        const amount = p.profit_amount || 0
-        breakdown.totalProfit += amount
-        if (p.status === "credited") {
-          breakdown.creditedProfit += amount
-        } else if (p.status === "withdrawn") {
-          breakdown.withdrawnProfit += amount
-        }
+      // Get aggregated breakdown from SQL RPC (Avoids fetching thousands of rows into JS)
+      const { data: breakdown, error: rpcError } = await supabase.rpc("get_shop_balance_breakdown", {
+        p_shop_id: shopId
       })
 
-      // Get approved withdrawals to subtract from available balance
-      const { data: approvedWithdrawals, error: withdrawalError } = await supabase
-        .from("withdrawal_requests")
-        .select("amount")
-        .eq("shop_id", shopId)
-        .eq("status", "approved")
-
-      let totalApprovedWithdrawals = 0
-      if (!withdrawalError && approvedWithdrawals) {
-        totalApprovedWithdrawals = approvedWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+      if (rpcError || !breakdown) {
+        console.error("RPC Error in syncAvailableBalance:", rpcError)
+        return
       }
 
-      // Available balance = credited profit - approved withdrawals
-      const availableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+      // Available balance = credited profit - approved/completed withdrawals
+      const availableBalance = Number(breakdown.credited_p) - Number(breakdown.total_w)
 
       const { error: upsertError } = await supabase
         .from("shop_available_balance")
@@ -526,10 +486,10 @@ export const shopProfitService = {
           {
             shop_id: shopId,
             available_balance: availableBalance,
-            total_profit: breakdown.totalProfit,
-            withdrawn_amount: breakdown.withdrawnProfit,
-            credited_profit: breakdown.creditedProfit,
-            withdrawn_profit: breakdown.withdrawnProfit,
+            total_profit: breakdown.total_p,
+            withdrawn_amount: breakdown.total_w,
+            credited_profit: breakdown.credited_p,
+            withdrawn_profit: breakdown.withdrawn_p,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "shop_id" }
@@ -537,10 +497,9 @@ export const shopProfitService = {
 
       if (upsertError) {
         console.error("Error syncing available balance:", upsertError)
-        // Don't throw - this is just a sync, shouldn't block main operations
       }
     } catch (error) {
-      console.error("Error in syncAvailableBalance:", error)
+      console.error("Critical error in syncAvailableBalance:", error)
     }
   },
 
@@ -591,14 +550,14 @@ export const withdrawalService = {
         .from("withdrawal_requests")
         .select("id, amount, status")
         .eq("shop_id", shopId)
-        .in("status", ["pending", "approved"])
+        .in("status", ["pending", "processing"])
 
       if (!pendingError && inflightRequests && inflightRequests.length > 0) {
-        const pending  = inflightRequests.filter(w => w.status === "pending")
-        const approved = inflightRequests.filter(w => w.status === "approved")
-        if (approved.length > 0) {
-          const total = approved.reduce((s, w) => s + (w.amount || 0), 0)
-          throw new Error(`You have an approved withdrawal of GHS ${total.toFixed(2)} that has not been completed yet. Please wait for it to be marked as completed before requesting another.`)
+        const processing = inflightRequests.filter(w => w.status === "processing")
+        const pending    = inflightRequests.filter(w => w.status === "pending")
+        if (processing.length > 0) {
+          const total = processing.reduce((s, w) => s + (w.amount || 0), 0)
+          throw new Error(`You have a transfer in progress for GHS ${total.toFixed(2)}. Please wait for it to complete before requesting another.`)
         }
         if (pending.length > 0) {
           const total = pending.reduce((s, w) => s + (w.amount || 0), 0)
@@ -606,7 +565,7 @@ export const withdrawalService = {
         }
       }
     } catch (error) {
-      if (error instanceof Error && (error.message.includes("pending withdrawal") || error.message.includes("approved withdrawal"))) {
+      if (error instanceof Error && (error.message.includes("pending withdrawal") || error.message.includes("transfer in progress"))) {
         throw error
       }
       console.warn(`[WITHDRAWAL-CREATE] Warning checking pending requests:`, error)
@@ -614,50 +573,17 @@ export const withdrawalService = {
 
     // Check current available balance before creating withdrawal
     try {
-      // Fetch all profits with pagination
-      const profits = await shopProfitService.fetchAllProfits(shopId, "profit_amount, status")
+      // Use optimized RPC for balance check to avoid heavy loops
+      const { data: balanceData, error: balanceError } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: shopId })
+      
+      if (balanceError) throw balanceError
 
-      // Calculate credited profit only
-      const breakdown = {
-        creditedProfit: 0,
-      }
-
-      profits?.forEach((p: any) => {
-        const amount = p.profit_amount || 0
-        if (p.status === "credited") {
-          breakdown.creditedProfit += amount
-        }
-      })
-
-      // Get approved withdrawals with pagination
-      let allWithdrawals: any[] = []
-      let wOffset = 0
-      const wBatchSize = 1000
-      let hasMoreW = true
-
-      while (hasMoreW) {
-        const { data: wData, error: wError } = await supabase
-          .from("withdrawal_requests")
-          .select("amount")
-          .eq("shop_id", shopId)
-          .eq("status", "approved")
-          .range(wOffset, wOffset + wBatchSize - 1)
-
-        if (wError) break
-
-        if (wData && wData.length > 0) {
-          allWithdrawals = allWithdrawals.concat(wData)
-          wOffset += wBatchSize
-          hasMoreW = wData.length === wBatchSize
-        } else {
-          hasMoreW = false
-        }
-      }
-
-      const totalApprovedWithdrawals = allWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
-
-      // Current available balance = credited profit - approved withdrawals
-      const currentAvailableBalance = Math.max(0, breakdown.creditedProfit - totalApprovedWithdrawals)
+      // Use the pre-aggregated values from the RPC (short key names: credited_p, total_w)
+      const creditedProfit = Number(balanceData?.credited_p) || 0
+      const totalWithdrawn = Number(balanceData?.total_w) || 0
+      
+      // Current available balance
+      const currentAvailableBalance = creditedProfit - totalWithdrawn
 
       // Check if requested withdrawal amount exceeds available balance
       if (withdrawalData.amount > currentAvailableBalance) {

@@ -343,7 +343,7 @@ export default function OrderPaymentStatusPage() {
   }
 
   const handleManualFulfill = async (orderId: string, orderType: string) => {
-    if (!autoFulfillmentEnabled) {
+    if (!autoFulfillmentEnabled && orderType !== 'ussd') {
       toast.error("Auto-fulfillment is not enabled")
       return
     }
@@ -818,7 +818,7 @@ export default function OrderPaymentStatusPage() {
                         <tr key={order.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <Badge variant="outline" className="text-xs">
-                              {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : "Wallet"}
+                              {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : order.type === "ussd" ? "USSD" : "Wallet"}
                             </Badge>
                           </td>
                           <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
@@ -915,7 +915,28 @@ export default function OrderPaymentStatusPage() {
                               {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
                                 <div className="text-xs text-gray-400">{order.network} (no auto-fulfill)</div>
                               )}
-                              {!autoFulfillmentEnabled && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
+                              {order.status === "pending" && order.payment_status === "completed" && order.type === "ussd" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs h-7 gap-1"
+                                  onClick={() => handleManualFulfill(order.id, order.type)}
+                                  disabled={fulfillingOrderId === order.id}
+                                >
+                                  {fulfillingOrderId === order.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      Fulfilling...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Zap className="w-3 h-3" />
+                                      Fulfill
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {!autoFulfillmentEnabled && order.type !== 'ussd' && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
                             </div>
                           </td>
                         </tr>

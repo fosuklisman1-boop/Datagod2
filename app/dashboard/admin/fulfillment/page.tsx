@@ -91,10 +91,12 @@ export default function AdminFulfillmentPage() {
   const handleRetry = async (orderId: string) => {
     try {
       setRetrying(orderId)
+      const { data: { session } } = await supabase.auth.getSession()
       const response = await fetch("/api/orders/fulfillment", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
           action: "retry",

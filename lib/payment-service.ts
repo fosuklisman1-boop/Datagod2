@@ -1,3 +1,5 @@
+import { supabase } from "./supabase"
+
 /**
  * Client-side payment service for Paystack integration
  */
@@ -39,9 +41,24 @@ export async function initializePayment(
 ): Promise<InitializePaymentResponse> {
   try {
     console.log("[PAYMENT-SERVICE] Initializing payment with params:", params)
+    
+    // Refresh token immediately before payment to ensure the JWT sent to
+    // /api/payments/initialize is not expired (expired token causes a 401
+    // and the user gets charged without their wallet being credited).
+    await supabase.auth.refreshSession()
+    const { data: { session } } = await supabase.auth.getSession()
+    
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+    }
+    
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`
+    }
+
     const response = await fetch("/api/payments/initialize", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(params),
     })
 

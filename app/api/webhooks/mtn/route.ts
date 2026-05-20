@@ -4,6 +4,7 @@ import crypto from "crypto"
 import {
   verifyWebhookSignature,
   updateMTNOrderFromWebhook,
+  updateDataKazinaOrderFromPayload,
   MTNWebhookPayload,
 } from "@/lib/mtn-fulfillment"
 import {
@@ -35,13 +36,22 @@ export async function POST(request: NextRequest) {
   try {
     // Get raw body for signature verification
     const rawBody = await request.text()
+    const contentType = request.headers.get("content-type") || ""
+    
+    // Log headers (excluding potentially sensitive ones like authorization)
+    const headers: Record<string, string> = {}
+    request.headers.forEach((value, key) => {
+      if (!key.match(/auth|key|cookie|token/i)) {
+        headers[key] = value
+      }
+    })
 
     // Get signature from headers
     const signature = request.headers.get("x-webhook-signature") ||
       request.headers.get("x-signature") ||
       request.headers.get("signature")
 
-    log("info", "Webhook", "Received webhook request", { traceId, hasSignature: !!signature })
+    log("info", "Webhook", "Received webhook request", { traceId, hasSignature: !!signature, contentType, headers })
 
     // Verify webhook signature
     if (signature) {
@@ -54,84 +64,146 @@ export async function POST(request: NextRequest) {
         )
       }
       log("debug", "Webhook", "Signature verified", { traceId })
-    } else {
-      // In production, signature should be required
-      if (process.env.NODE_ENV === "production") {
-        log("warn", "Webhook", "Missing webhook signature in production", { traceId })
-        return NextResponse.json(
-          { error: "Missing signature", traceId },
-          { status: 401 }
-        )
-      }
-      log("warn", "Webhook", "No signature provided (development mode)", { traceId })
+    } else if (process.env.NODE_ENV === "production") {
+      log("warn", "Webhook", "Missing webhook signature in production", { traceId })
+      return NextResponse.json(
+        { error: "Missing signature", traceId },
+        { status: 401 }
+      )
     }
 
     // Parse webhook payload
-    let payload: MTNWebhookPayload
+    let payload: MTNWebhookPayload | null = null
+    
     try {
-      payload = JSON.parse(rawBody)
+      if (contentType.includes("application/json")) {
+        payload = JSON.parse(rawBody)
+      } else if (contentType.includes("application/x-www-form-urlencoded")) {
+        // Handle form-encoded payload (sometimes used by legacy systems)
+        const params = new URLSearchParams(rawBody)
+        const obj: any = {}
+        params.forEach((value, key) => {
+          // Attempt to parse nested fields if they look like JSON
+          try {
+            if (value.startsWith("{") || value.startsWith("[")) {
+              obj[key] = JSON.parse(value)
+            } else {
+              obj[key] = value
+            }
+          } catch {
+            obj[key] = value
+          }
+        })
+        payload = obj as MTNWebhookPayload
+      } else {
+        // Fallback: try JSON anyway if content-type is missing or generic
+        payload = JSON.parse(rawBody)
+      }
     } catch (parseError) {
-      log("error", "Webhook", "Failed to parse webhook payload", { traceId, error: String(parseError) })
+      log("error", "Webhook", "Failed to parse webhook payload", { 
+        traceId, 
+        error: String(parseError),
+        contentType,
+        bodyPrefix: rawBody.substring(0, 200)
+      })
+      
+      // Still audit the raw attempt
+      await storeWebhookEvent(traceId, { event: "parse_error" } as any, rawBody)
+      
       return NextResponse.json(
-        { error: "Invalid JSON payload", traceId },
+        { 
+          error: "Invalid payload format", 
+          details: String(parseError),
+          contentType,
+          traceId 
+        },
         { status: 400 }
       )
     }
 
-    // Validate required fields
-    if (!payload.event || !payload.order?.id) {
-      log("error", "Webhook", "Missing required webhook fields", { traceId, payload })
-      return NextResponse.json(
-        { error: "Missing required fields", traceId },
-        { status: 400 }
-      )
+    if (!payload) {
+        return NextResponse.json({ error: "Empty payload", traceId }, { status: 400 })
     }
 
-    log("info", "Webhook", `Processing ${payload.event} event`, {
-      traceId,
-      mtnOrderId: payload.order.id,
-      status: payload.order.status,
-    })
-
-    // Store webhook for audit
+    // Store webhook for audit immediately
     await storeWebhookEvent(traceId, payload, rawBody)
 
-    // Handle different event types
-    // API uses "order.status_changed" with status in payload.order.status
-    switch (payload.event) {
-      case "order.status_changed":
-        // Handle status from payload.order.status
-        if (payload.order.status === "completed") {
-          await handleOrderCompleted(traceId, payload)
-        } else if (payload.order.status === "failed") {
-          await handleOrderFailed(traceId, payload)
-        } else if (payload.order.status === "processing") {
-          await handleOrderProcessing(traceId, payload)
-        } else if (payload.order.status === "pending") {
-          await handleOrderPending(traceId, payload)
-        }
-        break
+    // Normalized event detection for provider-agnostic handling
+    const eventType = payload.event || (payload as any).type || (payload as any).event_type || "unknown"
+    const isTest = (payload.event === "ping" || payload.event === "test" || (payload as any).type === "test_event" || (payload as any).test === true)
 
-      case "order.completed":
-      case "order.success":
+    // Check if it's a test/ping webhook from the dashboard
+    if (isTest) {
+      log("info", "Webhook", "Received test/ping webhook", { traceId, provider: payload.order ? "Sykes" : "DataKazina", payload })
+      return NextResponse.json({ success: true, message: "Webhook endpoint tested successfully", event: eventType })
+    }
+
+    // Determine the MTN order ID for logging (handle Sykes, DataKazina, and common fallbacks)
+    const mtnOrderId = payload.order?.id || 
+                      (payload as any).id || 
+                      (payload as any).order_id ||
+                      (payload as any).order_code || 
+                      (payload as any).transaction_id || 
+                      (payload as any).reference ||
+                      (payload as any).external_id
+    
+    // RELAXED VALIDATION: Always return 200 if we parsed the JSON, but log issues
+    if (!mtnOrderId) {
+      log("warn", "Webhook", "Empty or partial webhook received (missing ID)", { traceId, payload })
+      return NextResponse.json({ 
+        success: true, 
+        message: "Webhook acknowledged (Missing ID for processing)", 
+        traceId,
+        received_event: eventType
+      })
+    }
+
+    // DETECT PROVIDER AND ROUTE
+    // Sykes: Has an "order" object
+    // DataKazina: Has "order_code" or "transaction_id" or "id" as number at top level
+    const isSykes = !!payload.order
+    const isDataKazina = !isSykes && (!!(payload as any).order_code || !!(payload as any).transaction_id || typeof (payload as any).id === "number")
+
+    log("info", "Webhook", `Processing ${eventType} event`, {
+      traceId,
+      provider: isSykes ? "Sykes" : isDataKazina ? "DataKazina" : "Unknown",
+      mtnOrderId,
+      status: payload.order?.status || (payload as any).status,
+    })
+
+    // Handle updates based on detected provider
+    let updateSuccess = false
+    if (isSykes) {
+      updateSuccess = await updateMTNOrderFromWebhook(payload)
+    } else if (isDataKazina) {
+      updateSuccess = await updateDataKazinaOrderFromPayload(payload as any)
+    } else {
+      log("warn", "Webhook", "Unknown provider format, attempting generic update", { traceId })
+      // Try both as a fallback
+      updateSuccess = await updateMTNOrderFromWebhook(payload) || await updateDataKazinaOrderFromPayload(payload as any)
+    }
+
+    if (!updateSuccess) {
+       log("warn", "Webhook", "Order update failed (record might not exist yet)", { traceId, mtnOrderId })
+    }
+
+    // Trigger specific logic for status changes (notifications, etc.)
+    const status = (payload.order?.status || (payload as any).status || "").toLowerCase()
+
+    if (eventType === "order.status_changed" || eventType === "status_changed") {
+      if (status === "completed" || status === "delivered" || status === "success") {
         await handleOrderCompleted(traceId, payload)
-        break
-
-      case "order.failed":
-      case "order.error":
+      } else if (status === "failed" || status === "error" || status === "rejected") {
         await handleOrderFailed(traceId, payload)
-        break
-
-      case "order.processing":
+      } else if (status === "processing") {
         await handleOrderProcessing(traceId, payload)
-        break
-
-      case "order.pending":
+      } else if (status === "pending") {
         await handleOrderPending(traceId, payload)
-        break
-
-      default:
-        log("warn", "Webhook", `Unknown event type: ${payload.event}`, { traceId })
+      }
+    } else if (eventType.includes("completed") || eventType.includes("success")) {
+      await handleOrderCompleted(traceId, payload)
+    } else if (eventType.includes("failed") || eventType.includes("error")) {
+      await handleOrderFailed(traceId, payload)
     }
 
     const latency = Date.now() - startTime
@@ -175,8 +247,8 @@ async function storeWebhookEvent(
   try {
     await supabase.from("mtn_webhook_events").insert({
       trace_id: traceId,
-      event_type: payload.event,
-      mtn_order_id: payload.order.id,
+      event_type: payload.event || "unknown",
+      mtn_order_id: payload.order?.id || (payload as any).order_id || (payload as any).transaction_id || null,
       payload: payload,
       raw_body: rawBody,
       received_at: new Date().toISOString(),

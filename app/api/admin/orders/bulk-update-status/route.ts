@@ -139,27 +139,39 @@ export async function POST(request: NextRequest) {
       console.warn(`[BULK-UPDATE] Error checking api_orders table:`, apiError.message)
     }
 
+    const { data: ussdOrders, error: ussdError } = await supabase
+      .from("ussd_orders")
+      .select("id, order_status")
+      .in("id", orderIds)
+
+    if (ussdError) {
+      console.warn(`[BULK-UPDATE] Error checking ussd_orders table:`, ussdError.message)
+    }
+
     // Filter out restricted transitions: pending -> completed
     let finalBulkOrderIds = bulkOrders?.map(o => o.id) || []
     let finalShopOrderIds = shopOrders?.map(o => o.id) || []
     let finalApiOrderIds = apiOrders?.map(o => o.id) || []
+    let finalUssdOrderIds = ussdOrders?.map(o => o.id) || []
     let skippedPendingCount = 0
 
     if (status === "completed") {
       const allowedBulk = bulkOrders?.filter(o => o.status !== "pending").map(o => o.id) || []
       const allowedShop = shopOrders?.filter(o => o.order_status !== "pending").map(o => o.id) || []
       const allowedApi = apiOrders?.filter(o => o.status !== "pending").map(o => o.id) || []
-      
-      skippedPendingCount = (bulkOrders?.length || 0) + (shopOrders?.length || 0) + (apiOrders?.length || 0) - (allowedBulk.length + allowedShop.length + allowedApi.length)
-      
+      const allowedUssd = ussdOrders?.filter(o => o.order_status !== "pending").map(o => o.id) || []
+
+      skippedPendingCount = (bulkOrders?.length || 0) + (shopOrders?.length || 0) + (apiOrders?.length || 0) + (ussdOrders?.length || 0) - (allowedBulk.length + allowedShop.length + allowedApi.length + allowedUssd.length)
+
       finalBulkOrderIds = allowedBulk
       finalShopOrderIds = allowedShop
       finalApiOrderIds = allowedApi
-      
-      console.log(`[BULK-UPDATE] Restricted transition filter applied. Allowed: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop, ${finalApiOrderIds.length} api. Skipped ${skippedPendingCount} pending orders.`)
+      finalUssdOrderIds = allowedUssd
+
+      console.log(`[BULK-UPDATE] Restricted transition filter applied. Allowed: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop, ${finalApiOrderIds.length} api, ${finalUssdOrderIds.length} ussd. Skipped ${skippedPendingCount} pending orders.`)
     }
 
-    console.log(`[BULK-UPDATE] Final targets: ${finalBulkOrderIds.length} bulk orders, ${finalShopOrderIds.length} shop orders, ${finalApiOrderIds.length} api orders`)
+    console.log(`[BULK-UPDATE] Final targets: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop, ${finalApiOrderIds.length} api, ${finalUssdOrderIds.length} ussd orders`)
 
     // Update bulk orders
     if (finalBulkOrderIds.length > 0) {
@@ -605,6 +617,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Update USSD orders
+    if (finalUssdOrderIds.length > 0) {
+      const { error: ussdUpdateError } = await supabase
+        .from("ussd_orders")
+        .update({ order_status: status, updated_at: new Date().toISOString() })
+        .in("id", finalUssdOrderIds)
+
+      if (ussdUpdateError) {
+        throw new Error(`Failed to update USSD order status: ${ussdUpdateError.message}`)
+      }
+
+      console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdOrderIds.length} USSD orders to status: ${status}`)
+    }
+
     return NextResponse.json({
       success: true,
       count: orderIds.length,
@@ -612,6 +638,7 @@ export async function POST(request: NextRequest) {
       bulkCount: finalBulkOrderIds.length,
       shopCount: finalShopOrderIds.length,
       apiCount: finalApiOrderIds.length,
+      ussdCount: finalUssdOrderIds.length,
       skippedPending: skippedPendingCount
     })
   } catch (error) {

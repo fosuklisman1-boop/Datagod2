@@ -12,7 +12,7 @@ interface FulfillmentRequest {
   sizeGb: number
   orderId: string
   network?: string
-  orderType?: "wallet" | "shop" | "api"  // wallet = orders table, shop = shop_orders table, api = api_orders table
+  orderType?: "wallet" | "shop" | "api" | "ussd"  // wallet = orders table, shop = shop_orders table, api = api_orders table
   isBigTime?: boolean  // true for AT-BigTime orders (uses special.php endpoint)
 }
 
@@ -369,7 +369,7 @@ class ATiShareService {
   async verifyAndUpdateStatus(
     orderId: string, 
     network: string, 
-    orderType: "wallet" | "shop" | "api",
+    orderType: "wallet" | "shop" | "api" | "ussd",
     isBigTime: boolean = false,
     externalReference?: string  // Code Craft's order ID if different from ours
   ): Promise<{ actualStatus: string; message?: string }> {
@@ -476,6 +476,11 @@ class ATiShareService {
           await this.supabase
             .from("api_orders")
             .update({ status: actualStatus, updated_at: new Date().toISOString() })
+            .eq("id", orderId)
+        } else if (orderType === "ussd") {
+          await this.supabase
+            .from("ussd_orders")
+            .update({ order_status: actualStatus, updated_at: new Date().toISOString() })
             .eq("id", orderId)
         } else {
           await this.supabase
@@ -793,7 +798,7 @@ class ATiShareService {
     reference?: string,
     phoneNumber?: string,
     network?: string,
-    orderType: "wallet" | "shop" | "api" = "wallet"
+    orderType: "wallet" | "shop" | "api" | "ussd" = "wallet"
   ): Promise<void> {
     try {
       console.log(`[CODECRAFT-LOG] Logging fulfillment attempt for order ${orderId}`)
