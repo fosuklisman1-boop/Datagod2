@@ -234,22 +234,46 @@ export const shopOrderService = {
     return data[0]
   },
 
-  // Get shop orders
+  // Get shop orders (combines shop_orders + ussd_shop_orders)
   async getShopOrders(shopId: string, status?: string) {
-    let query = supabase
+    let shopQuery = supabase
       .from("shop_orders")
       .select("*")
       .eq("shop_id", shopId)
       .eq("payment_status", "completed")
 
+    let ussdQuery = supabase
+      .from("ussd_shop_orders")
+      .select("*")
+      .eq("shop_id", shopId)
+      .eq("payment_status", "completed")
+
     if (status) {
-      query = query.eq("order_status", status)
+      shopQuery = shopQuery.eq("order_status", status)
+      ussdQuery = ussdQuery.eq("order_status", status)
     }
 
-    const { data, error } = await query.order("created_at", { ascending: false })
+    const [{ data: shopOrders, error: shopError }, { data: ussdOrders, error: ussdError }] =
+      await Promise.all([
+        shopQuery.order("created_at", { ascending: false }),
+        ussdQuery.order("created_at", { ascending: false }),
+      ])
 
-    if (error) throw error
-    return data
+    if (shopError) throw shopError
+    if (ussdError) throw ussdError
+
+    // Normalize ussd_shop_orders fields to match shop_orders shape
+    const normalizedUssd = (ussdOrders ?? []).map((o) => ({
+      ...o,
+      volume_gb: o.package_size,
+      customer_name: o.recipient_phone,
+      type: "ussd_shop",
+    }))
+
+    // Merge and sort newest first
+    return [...(shopOrders ?? []), ...normalizedUssd].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
   },
 
   // Get order by ID
