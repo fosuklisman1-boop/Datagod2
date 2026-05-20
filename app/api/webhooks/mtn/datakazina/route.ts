@@ -63,10 +63,16 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: true, message: "Validation ping received", traceId })
         }
 
-        log("info", "Webhook.DataKazina", "Received DataKazina webhook", {
+        log("info", "Webhook.DataKazina", "Received DataKazina webhook — full payload keys for correlation audit", {
             traceId,
-            mtnOrderId: payload.transaction_id || payload.id || payload.reference,
-            status: payload.status
+            status: payload.status,
+            type: payload.type,
+            id: payload.id,
+            order_code: payload.order_code,
+            reference: payload.reference,
+            transaction_id: payload.transaction_id,
+            incoming_api_ref: payload.incoming_api_ref,
+            test: payload.test,
         })
 
         // Validate payload

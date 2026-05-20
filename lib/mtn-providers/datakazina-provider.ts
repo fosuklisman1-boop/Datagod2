@@ -185,9 +185,10 @@ export class DataKazinaProvider implements MTNProvider {
                         }
                     }
 
-                    // Extract transaction ID (field name may vary)
+                    // Extract transaction ID — prefer DataKazina's order_code so webhook
+                    // correlation works (webhook sends order_code, not our incoming_api_ref)
                     const transaction_id =
-                        data.transaction_id || data.id || data.order_id || data.reference || incoming_api_ref
+                        data.order_code || data.transaction_id || data.id || data.order_id || data.reference || incoming_api_ref
 
                     log("info", "Order", "DataKazina MTN order created successfully", {
                         traceId,

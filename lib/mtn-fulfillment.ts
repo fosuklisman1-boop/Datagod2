@@ -892,10 +892,19 @@ export async function updateDataKazinaOrderFromPayload(
   payload: DataKazinaWebhookPayload
 ): Promise<boolean> {
   try {
-    const mtnOrderId = payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref
+    // Skip test events — they carry fake order codes and must not mutate real orders
+    if (payload.test === true || payload.type === "test_event") {
+      console.log("[MTN-DK] Skipping test webhook event")
+      return true
+    }
+
+    // order_code is DataKazina's stable order identifier and is echoed in webhooks.
+    // We store it as mtn_order_id during order creation, so use it as the primary key.
+    // Fall back to other fields for older orders stored with a different ID format.
+    const mtnOrderId = payload.order_code || payload.transaction_id || payload.incoming_api_ref || payload.reference || payload.id
 
     if (!mtnOrderId) {
-      console.error("[MTN] DataKazina webhook missing transaction ID", payload)
+      console.error("[MTN] DataKazina webhook missing order identifier", payload)
       return false
     }
 
@@ -965,30 +974,35 @@ export async function updateDataKazinaOrderFromPayload(
     if (tracking.order_type === "bulk" && tracking.order_id) {
       const { error: orderError } = await supabase
         .from("orders")
-        .update({
-          status: newStatus,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq("id", tracking.order_id)
 
       if (orderError) console.error("[MTN] Error updating bulk order:", orderError)
     } else if (tracking.order_type === "api" && tracking.api_order_id) {
       const { error: apiError } = await supabase
         .from("api_orders")
-        .update({
-          status: newStatus,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq("id", tracking.api_order_id)
 
       if (apiError) console.error("[MTN] Error updating api order:", apiError)
+    } else if (tracking.order_type === "ussd" && tracking.order_id) {
+      const { error: ussdError } = await supabase
+        .from("ussd_orders")
+        .update({ order_status: newStatus, updated_at: new Date().toISOString() })
+        .eq("id", tracking.order_id)
+
+      if (ussdError) console.error("[MTN] Error updating ussd order:", ussdError)
+    } else if (tracking.order_type === "ussd_shop" && tracking.order_id) {
+      const { error: ussdShopError } = await supabase
+        .from("ussd_shop_orders")
+        .update({ order_status: newStatus, updated_at: new Date().toISOString() })
+        .eq("id", tracking.order_id)
+
+      if (ussdShopError) console.error("[MTN] Error updating ussd_shop order:", ussdShopError)
     } else if (tracking.shop_order_id) {
       const { error: shopError } = await supabase
         .from("shop_orders")
-        .update({
-          order_status: newStatus,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ order_status: newStatus, updated_at: new Date().toISOString() })
         .eq("id", tracking.shop_order_id)
 
       if (shopError) console.error("[MTN] Error updating shop order:", shopError)

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DATAGOD — Feature Flyer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0f;
+      color: #fff;
+      min-height: 100vh;
+    }
+
+    /* ── PAGE WRAPPER ── */
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 48px 32px 64px;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      text-align: center;
+      padding: 56px 24px 48px;
+      background: linear-gradient(135deg, #0f0f1a 0%, #111827 60%, #0d1117 100%);
+      border: 1px solid rgba(99,102,241,0.25);
+      border-radius: 20px;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 40px;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -120px; left: 50%; transform: translateX(-50%);
+      width: 600px; height: 300px;
+      background: radial-gradient(ellipse, rgba(99,102,241,0.18) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(99,102,241,0.15);
+      border: 1px solid rgba(99,102,241,0.4);
+      color: #a5b4fc;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      padding: 6px 16px;
+      border-radius: 100px;
+      margin-bottom: 20px;
+    }
+    .hero-title {
+      font-size: 72px;
+      font-weight: 900;
+      letter-spacing: -3px;
+      line-height: 1;
+      background: linear-gradient(135deg, #fff 30%, #a5b4fc 70%, #818cf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 16px;
+    }
+    .hero-sub {
+      font-size: 18px;
+      color: #94a3b8;
+      font-weight: 400;
+      max-width: 480px;
+      margin: 0 auto 32px;
+      line-height: 1.6;
+    }
+    .hero-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+    }
+    .tag {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #e2e8f0;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 7px 16px;
+      border-radius: 100px;
+    }
+    .tag.accent { background: rgba(99,102,241,0.2); border-color: rgba(99,102,241,0.4); color: #c7d2fe; }
+
+    /* ── SECTION TITLES ── */
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: #6366f1;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: rgba(99,102,241,0.25);
+    }
+
+    /* ── FEATURE GRID ── */
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 32px; }
+
+    .card {
+      background: #0f1117;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px;
+      padding: 22px;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: rgba(99,102,241,0.35); }
+    .card-icon {
+      font-size: 28px;
+      margin-bottom: 12px;
+      display: block;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f1f5f9;
+      margin-bottom: 8px;
+      letter-spacing: -0.2px;
+    }
+    .card-desc {
+      font-size: 12.5px;
+      color: #64748b;
+      line-height: 1.6;
+    }
+    .card-bullets {
+      margin-top: 10px;
+      padding-left: 0;
+      list-style: none;
+    }
+    .card-bullets li {
+      font-size: 12px;
+      color: #64748b;
+      padding: 2px 0;
+      padding-left: 14px;
+      position: relative;
+      line-height: 1.5;
+    }
+    .card-bullets li::before {
+      content: '›';
+      position: absolute;
+      left: 0;
+      color: #6366f1;
+      font-weight: 700;
+    }
+
+    /* card color variants */
+    .card.blue  { border-color: rgba(99,102,241,0.2);  background: linear-gradient(135deg, #0f1117, #0e0f1e); }
+    .card.green { border-color: rgba(16,185,129,0.2);  background: linear-gradient(135deg, #0f1117, #071210); }
+    .card.gold  { border-color: rgba(245,158,11,0.2);  background: linear-gradient(135deg, #0f1117, #13100a); }
+    .card.rose  { border-color: rgba(244,63,94,0.2);   background: linear-gradient(135deg, #0f1117, #130b0e); }
+    .card.sky   { border-color: rgba(56,189,248,0.2);  background: linear-gradient(135deg, #0f1117, #070e14); }
+    .card.violet{ border-color: rgba(167,139,250,0.2); background: linear-gradient(135deg, #0f1117, #100e18); }
+
+    /* ── WIDE HIGHLIGHT CARD ── */
+    .highlight {
+      background: linear-gradient(135deg, #13102a 0%, #0d1227 50%, #0a1020 100%);
+      border: 1px solid rgba(99,102,241,0.3);
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin-bottom: 32px;
+      display: flex;
+      gap: 32px;
+      align-items: flex-start;
+    }
+    .highlight-icon { font-size: 40px; flex-shrink: 0; }
+    .highlight-title { font-size: 18px; font-weight: 800; color: #e2e8f0; margin-bottom: 8px; }
+    .highlight-desc { font-size: 13.5px; color: #94a3b8; line-height: 1.65; }
+
+    /* ── NETWORKS ROW ── */
+    .networks {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+    .network-pill {
+      background: #0f1117;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .network-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #6366f1; }
+    .network-pill.mtn   .dot { background: #fbbf24; }
+    .network-pill.tel   .dot { background: #f87171; }
+    .network-pill.at    .dot { background: #34d399; }
+    .network-pill.waec  .dot { background: #a78bfa; }
+
+    /* ── SELLING POINTS ── */
+    .points-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 40px;
+    }
+    .point {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      background: #0f1117;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .point-check {
+      width: 22px; height: 22px; flex-shrink: 0;
+      background: rgba(99,102,241,0.2);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px;
+      color: #818cf8;
+      font-weight: 700;
+    }
+    .point-text { font-size: 13px; color: #94a3b8; line-height: 1.5; }
+    .point-text strong { color: #e2e8f0; font-weight: 600; display: block; margin-bottom: 2px; }
+
+    /* ── FOOTER ── */
+    .footer {
+      text-align: center;
+      padding-top: 32px;
+      border-top: 1px solid rgba(255,255,255,0.07);
+    }
+    .footer-url {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #6366f1, #a5b4fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+    }
+    .footer-note { font-size: 12px; color: #475569; }
+
+    /* ── PRINT ── */
+    @media print {
+      body { background: #0a0a0f; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge">Ghana's #1 Data Reseller Platform</div>
+    <div class="hero-title">DATAGOD</div>
+    <p class="hero-sub">Buy, sell, and manage mobile data, airtime &amp; exam vouchers — all in one place.</p>
+    <div class="hero-tags">
+      <span class="tag accent">MTN · Telecel · AT</span>
+      <span class="tag">Instant Delivery</span>
+      <span class="tag">Earn as You Sell</span>
+      <span class="tag">No Hidden Fees</span>
+      <span class="tag">WAEC · BECE · NOVDEC</span>
+    </div>
+  </div>
+
+
+  <!-- CORE FEATURES -->
+  <div class="section-label">Core Features</div>
+  <div class="grid-3">
+
+    <div class="card blue">
+      <span class="card-icon">📶</span>
+      <div class="card-title">Data Packages</div>
+      <div class="card-desc">Affordable bundles across all major networks. Delivered instantly — no expiry.</div>
+      <ul class="card-bullets">
+        <li>MTN, Telecel, AT-iShare, AT-BigTime</li>
+        <li>Multiple bundle sizes (1GB–20GB+)</li>
+        <li>Dealer &amp; premium pricing tiers</li>
+        <li>Grid / list view with filters</li>
+      </ul>
+    </div>
+
+    <div class="card green">
+      <span class="card-icon">📱</span>
+      <div class="card-title">Airtime Purchases</div>
+      <div class="card-desc">Top up any network instantly. Auto-detects network from phone number.</div>
+      <ul class="card-bullets">
+        <li>MTN, Telecel, AT</li>
+        <li>Fee included or separate option</li>
+        <li>Reference code tracking</li>
+        <li>Order history with status</li>
+      </ul>
+    </div>
+
+    <div class="card gold">
+      <span class="card-icon">💰</span>
+      <div class="card-title">Wallet &amp; Payments</div>
+      <div class="card-desc">Secure personal wallet. Top up via Paystack and spend across all services.</div>
+      <ul class="card-bullets">
+        <li>Paystack card &amp; mobile money</li>
+        <li>Full transaction history</li>
+        <li>Real-time balance display</li>
+        <li>Instant credit after payment</li>
+      </ul>
+    </div>
+
+    <div class="card violet">
+      <span class="card-icon">🎓</span>
+      <div class="card-title">Results Checker Vouchers</div>
+      <div class="card-desc">Buy exam vouchers in seconds. PIN &amp; serial delivered instantly by email.</div>
+      <ul class="card-bullets">
+        <li>WAEC, BECE, NOVDEC</li>
+        <li>Bulk purchase support</li>
+        <li>Instant PIN + serial delivery</li>
+        <li>Compatible with waecdirect.org</li>
+      </ul>
+    </div>
+
+    <div class="card sky">
+      <span class="card-icon">📦</span>
+      <div class="card-title">Order Tracking</div>
+      <div class="card-desc">Full order history across data, airtime, and voucher purchases.</div>
+      <ul class="card-bullets">
+        <li>Filter by network, date, status</li>
+        <li>Search by phone number</li>
+        <li>Delivered / Processing / Failed</li>
+        <li>Performance stats &amp; metrics</li>
+      </ul>
+    </div>
+
+    <div class="card rose">
+      <span class="card-icon">👤</span>
+      <div class="card-title">Guest Checkout</div>
+      <div class="card-desc">No account needed. Customers buy directly from any seller's storefront.</div>
+      <ul class="card-bullets">
+        <li>Browse without registering</li>
+        <li>Pay via Paystack</li>
+        <li>Track order on shop page</li>
+        <li>Email delivery confirmation</li>
+      </ul>
+    </div>
+
+  </div>
+
+
+  <!-- AGENT / SELLER HIGHLIGHT -->
+  <div class="highlight">
+    <div class="highlight-icon">🏪</div>
+    <div>
+      <div class="highlight-title">Your Own Branded Storefront</div>
+      <div class="highlight-desc">
+        Get a free branded shop at <strong>datagod.store/shop/[your-slug]</strong> — upload a logo, set your own selling prices, track customer stats, and manage complaints, all from your personal shop dashboard. Perfect for agents who want to build a data reselling business without any upfront tech cost.
+      </div>
+    </div>
+  </div>
+
+
+  <!-- AGENT FEATURES -->
+  <div class="section-label">Agent &amp; Seller Features</div>
+  <div class="grid-3">
+
+    <div class="card blue">
+      <span class="card-icon">💹</span>
+      <div class="card-title">Profit Margin Control</div>
+      <div class="card-desc">Set your own selling price on every product. You keep 100% of your markup.</div>
+      <ul class="card-bullets">
+        <li>Per-package margin settings</li>
+        <li>Airtime markup per network</li>
+        <li>Results checker markup</li>
+      </ul>
+    </div>
+
+    <div class="card green">
+      <span class="card-icon">📊</span>
+      <div class="card-title">Shop Dashboard</div>
+      <div class="card-desc">Real-time analytics on revenue, customers, and order performance.</div>
+      <ul class="card-bullets">
+        <li>Total earned balance</li>
+        <li>Repeat customer % &amp; LTV</li>
+        <li>Order status breakdown</li>
+        <li>Complaint management</li>
+      </ul>
+    </div>
+
+    <div class="card gold">
+      <span class="card-icon">🏦</span>
+      <div class="card-title">Withdrawal System</div>
+      <div class="card-desc">Cash out earnings to mobile money or bank. Processed within 3 business days.</div>
+      <ul class="card-bullets">
+        <li>MTN, Telecel, AT MoMo</li>
+        <li>Bank transfer support</li>
+        <li>Auto account name lookup</li>
+        <li>Email notifications</li>
+      </ul>
+    </div>
+
+    <div class="card violet">
+      <span class="card-icon">🔗</span>
+      <div class="card-title">Sub-Agent Network</div>
+      <div class="card-desc">Invite agents under you and earn commission on every sale they make.</div>
+      <ul class="card-bullets">
+        <li>Unique invite link per agent</li>
+        <li>Sub-agents get own storefronts</li>
+        <li>Multi-tier commission structure</li>
+        <li>Expiring invite links</li>
+      </ul>
+    </div>
+
+    <div class="card sky">
+      <span class="card-icon">📣</span>
+      <div class="card-title">Shop Announcements</div>
+      <div class="card-desc">Broadcast messages to all customers visiting your storefront.</div>
+      <ul class="card-bullets">
+        <li>Create shop-wide notices</li>
+        <li>Displayed on storefront</li>
+        <li>WhatsApp contact integration</li>
+      </ul>
+    </div>
+
+    <div class="card rose">
+      <span class="card-icon">📲</span>
+      <div class="card-title">USSD Shop</div>
+      <div class="card-desc">Feature-phone access via USSD dial code — no smartphone or internet needed.</div>
+      <ul class="card-bullets">
+        <li>Token-based sessions</li>
+        <li>Buy data via USSD</li>
+        <li>Order history via dial code</li>
+        <li>Activation with top-up</li>
+      </ul>
+    </div>
+
+  </div>
+
+
+  <!-- SUBSCRIPTION TIERS -->
+  <div class="section-label">Subscription Plans</div>
+  <div class="grid-2" style="margin-bottom:40px;">
+
+    <div class="card" style="border-color:rgba(99,102,241,0.3); background:linear-gradient(135deg,#0f1117,#0e0f1e);">
+      <span class="card-icon">⭐</span>
+      <div class="card-title">Premium Agent</div>
+      <div class="card-desc">Standard pricing on all data packages. Perfect for everyday resellers who want better rates than the general public.</div>
+    </div>
+
+    <div class="card" style="border-color:rgba(245,158,11,0.35); background:linear-gradient(135deg,#0f1117,#13100a);">
+      <span class="card-icon">👑</span>
+      <div class="card-title">Authorized Dealer</div>
+      <div class="card-desc">Wholesale pricing with the highest profit margins. For high-volume sellers who want maximum earnings per bundle.</div>
+    </div>
+
+  </div>
+
+
+  <!-- SUPPORTED NETWORKS -->
+  <div class="section-label">Supported Networks &amp; Exam Boards</div>
+  <div class="networks">
+    <div class="network-pill mtn"><span class="dot"></span> MTN</div>
+    <div class="network-pill tel"><span class="dot"></span> Telecel</div>
+    <div class="network-pill at"><span class="dot"></span> AT-iShare</div>
+    <div class="network-pill at"><span class="dot"></span> AT-BigTime</div>
+    <div class="network-pill waec"><span class="dot"></span> WAEC</div>
+    <div class="network-pill waec"><span class="dot"></span> BECE</div>
+    <div class="network-pill waec"><span class="dot"></span> NOVDEC</div>
+  </div>
+
+
+  <!-- KEY SELLING POINTS -->
+  <div class="section-label">Why Choose DATAGOD?</div>
+  <div class="points-grid">
+    <div class="point">
+      <div class="point-check">✓</div>
+      <div class="point-text"><strong>Instant Delivery</strong>Data &amp; airtime delivered in seconds, 24/7</div>
+    </div>
+    <div class="point">
+      <div class="point-check">✓</div>
+      <div class="point-text"><strong>No Hidden Fees</strong>Prices shown upfront. You set what you earn.</div>
+    </div>
+    <div class="point">
+      <div class="point-check">✓</div>
+      <div class="point-text"><strong>No Data Expiry</strong>Purchased bundles don't expire on your customers</div>
+    </div>
+    <div class="point">
+      <div class="point-check">✓</div>
+      <div class="point-text"><strong>Earn While You Sell</strong>Build a profitable business with your own storefront</div>
+    </div>
+    <div class="point">
+      <div class="point-check">✓</div>
+      <div class="point-text"><strong>Multi-Tier Commissions</strong>Grow a network of sub-agents &amp; earn from their sales</div>
+    </div>
+    <div class="point">
+      <div class="point-check">✓</div>
+      <div class="point-text"><strong>Free to Start</strong>No setup cost. Create your account and go live today.</div>
+    </div>
+    <div class="point">
+      <div class="point-check">✓</div>
+      <div class="point-text"><strong>Secure Payments</strong>Paystack-powered with account name verification</div>
+    </div>
+    <div class="point">
+      <div class="point-check">✓</div>
+      <div class="point-text"><strong>USSD Access</strong>Reach feature-phone users with no internet required</div>
+    </div>
+  </div>
+
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="footer-url">datagod.store</div>
+    <div class="footer-note">Create your free account today and start earning • Ghana's trusted data reseller platform</div>
+  </div>
+
+</div>
+</body>
+</html>
