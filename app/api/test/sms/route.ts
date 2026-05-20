@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     // Get phone from query params
     const { searchParams } = new URL(request.url)
     const phone = searchParams.get("phone")
-    const testMessage = searchParams.get("message") || "DATAGOD Test: SMS service is working! 🎉"
+    const testMessage = searchParams.get("message") || "DTGOD Test: SMS service is working!"
 
     // Environment check
     const envCheck = {
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     const result = await sendSMS({
       phone,
-      message: message || "DATAGOD Test: SMS service is working! 🎉",
+      message: message || "DTGOD Test: SMS service is working!",
       type: "admin_test",
       reference: `ADMIN-TEST-${Date.now()}`,
     })

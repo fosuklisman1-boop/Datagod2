@@ -234,7 +234,7 @@ export async function DELETE(request: NextRequest) {
       // Send SMS notification to customers about their orders being cleared
       for (const order of shopOrdersUpdated) {
         try {
-          const notificationSMS = `DATAGOD: Great news! Your ${order.network} ${order.volume_gb}GB order to ${order.customer_phone} has been cleared for fulfillment. Your data will be delivered shortly.`
+          const notificationSMS = `DTGOD: Great news! Your ${order.network} ${order.volume_gb}G.B order to ${order.customer_phone} has been cleared for fulfillment. Your data will be delivered shortly.`
           await sendSMS({
             phone: order.customer_phone,
             message: notificationSMS,
@@ -300,7 +300,7 @@ export async function DELETE(request: NextRequest) {
       // Send SMS notification to customers about their orders being cleared
       for (const order of ordersUpdated) {
         try {
-          const notificationSMS = `DATAGOD: Great news! Your order to ${order.phone_number} has been cleared for fulfillment. Your data will be delivered shortly.`
+          const notificationSMS = `DTGOD: Great news! Your order to ${order.phone_number} has been cleared for fulfillment. Your data will be delivered shortly.`
           await sendSMS({
             phone: order.phone_number,
             message: notificationSMS,

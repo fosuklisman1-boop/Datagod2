@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 
 export async function POST(request: NextRequest) {
   try {
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
           // SMS (best effort)
           sendSMS({
             phone: order.beneficiary_phone,
-            message: `Your order ${order.reference_code} failed. GHS ${order.total_paid} has been refunded.`,
+            message: SMSTemplates.airtimeOrderFailed(order.reference_code, String(order.total_paid)),
             type: "airtime_failed",
             reference: order.id,
           }).catch(() => {})
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
 
           sendSMS({
             phone: order.beneficiary_phone,
-            message: `GHS ${order.airtime_amount} airtime has been delivered. Ref: ${order.reference_code}.`,
+            message: SMSTemplates.airtimeOrderDelivered(String(order.airtime_amount), order.network || '', order.beneficiary_phone, order.reference_code),
             type: "airtime_completed",
             reference: order.id,
           }).catch(() => {})

@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
       try {
         await sendSMS({
           phone: resetRequest.phone_number,
-          message: "DATAGOD: Your password has been successfully reset. If you did not perform this action, please contact support immediately.",
+          message: "DTGOD: Your password has been successfully reset. If you did not perform this action, please contact support immediately.",
           type: "password_changed",
         })
       } catch (smsError) {

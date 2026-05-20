@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 export async function POST(request: NextRequest) {
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       // Non-blocking SMS to user
       sendSMS({
         phone: order.beneficiary_phone,
-        message: `Your airtime order ${order.reference_code} failed. GHS ${order.total_paid} has been refunded to your wallet.`,
+        message: SMSTemplates.airtimeOrderFailed(order.reference_code, String(order.total_paid)),
         type: "airtime_failed",
         reference: order.id,
       }).catch(e => console.warn("[AIRTIME-ACTION] Refund SMS error:", e))
@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
 
       sendSMS({
         phone: order.beneficiary_phone,
-        message: `GHS ${order.airtime_amount} ${order.network} airtime has been sent to ${order.beneficiary_phone}. Ref: ${order.reference_code}.`,
+        message: SMSTemplates.airtimeOrderDelivered(String(order.airtime_amount), order.network, order.beneficiary_phone, order.reference_code),
         type: "airtime_completed",
         reference: order.id,
       }).catch(e => console.warn("[AIRTIME-ACTION] Delivered SMS error:", e))

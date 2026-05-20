@@ -468,7 +468,7 @@ export async function POST(request: NextRequest) {
                 if (isBlacklisted) {
                   await sendSMS({
                     phone: shopOrderData.customer_phone,
-                    message: `DATAGOD: Your payment has been confirmed for ${shopOrderData.network} ${shopOrderData.volume_gb}GB to ${shopOrderData.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`,
+                    message: `DTGOD: Your payment has been confirmed for ${shopOrderData.network} ${shopOrderData.volume_gb}G.B to ${shopOrderData.customer_phone}. However, this number is blacklisted and your order will not be fulfilled. Contact support for assistance.`,
                     type: 'order_blacklisted',
                     reference: shopOrderData.id,
                   })

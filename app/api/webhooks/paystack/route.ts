@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
         try {
           await sendSMS({
             phone: ussdOrder.recipient_phone,
-            message: `DATAGOD: Your ${ussdOrder.package_size} ${ussdOrder.network} bundle is on its way! It will reflect in a few minutes.`,
+            message: SMSTemplates.ussdOrderConfirmed(ussdOrder.package_size, ussdOrder.network),
             type: 'order_confirmation',
             reference: ussdOrderId,
           })
@@ -220,7 +220,7 @@ export async function POST(request: NextRequest) {
           try {
             await sendSMS({
               phone: ussdOrder.dialing_phone,
-              message: `DATAGOD: Payment confirmed. ${ussdOrder.package_size} ${ussdOrder.network} bundle sent to ${ussdOrder.recipient_phone?.slice(-4).padStart(ussdOrder.recipient_phone.length, '*')}. Thank you!`,
+              message: SMSTemplates.ussdPaymentConfirmed(ussdOrder.package_size, ussdOrder.network, ussdOrder.recipient_phone?.slice(-4).padStart(ussdOrder.recipient_phone.length, '*') ?? ''),
               type: 'order_confirmation',
               reference: ussdOrderId,
             })
@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
         try {
           await sendSMS({
             phone: ussdAfaOrder.dialing_phone,
-            message: `DATAGOD: Your AFA registration payment has been received and is being processed. Registration takes 12-24hrs to reflect. Thank you!`,
+            message: SMSTemplates.ussdAfaPaymentReceived(),
             type: 'order_confirmation',
             reference: ussdAfaOrder.id,
           })
@@ -372,7 +372,7 @@ export async function POST(request: NextRequest) {
         try {
           await sendSMS({
             phone: ussdShopOrder.recipient_phone,
-            message: `DATAGOD: Your ${ussdShopOrder.package_size} ${ussdShopOrder.network} bundle is on its way! It will reflect in a few minutes.`,
+            message: SMSTemplates.ussdOrderConfirmed(ussdShopOrder.package_size, ussdShopOrder.network),
             type: 'order_confirmation',
             reference: ussdShopOrder.id,
           })
@@ -780,7 +780,7 @@ export async function POST(request: NextRequest) {
               if (userData?.phone_number) {
                  await sendSMS({
                    phone: userData.phone_number,
-                   message: `Congratulations! Your account has been upgraded to Dealer. Enjoy wholesale prices!`,
+                   message: SMSTemplates.dealerUpgraded(),
                    type: 'subscription_success',
                    reference: reference,
                  }).catch(() => {})
@@ -814,7 +814,7 @@ export async function POST(request: NextRequest) {
             if (userData?.phone_number) {
               await sendSMS({
                 phone: userData.phone_number,
-                message: `Hi ${userData.first_name || 'User'}, your wallet has been topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`,
+                message: SMSTemplates.walletToppedUp(userData.first_name || 'User', creditAmount.toFixed(2), newBalance.toFixed(2)),
                 type: 'wallet_topup_success',
                 reference: reference
               }).catch(() => {})

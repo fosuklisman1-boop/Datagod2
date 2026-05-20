@@ -14,7 +14,7 @@ async function testSMS() {
   try {
     const result = await sendSMS({
       phone: process.env.TEST_PHONE,
-      message: 'DATAGOD: Diagnostic SMS test. If you received this, SMS is working.',
+      message: 'DTGOD: Diagnostic SMS test. If you received this, SMS is working.',
       type: 'diagnostic_test'
     });
     console.log('Result:', result);

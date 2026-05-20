@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
@@ -380,7 +380,7 @@ export async function PATCH(request: NextRequest) {
             const firstName = userData.first_name || "User"
             await sendSMS({
               phone: userData.phone_number,
-              message: `Hi ${firstName}, your wallet has been topped up by GHS ${creditAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`,
+              message: SMSTemplates.walletToppedUp(firstName, creditAmount.toFixed(2), newBalance.toFixed(2)),
               type: "wallet_topup_success",
               reference: attempt.id,
             }).catch(err => console.error("[ADMIN-PAYMENT-ATTEMPTS] SMS error:", err))

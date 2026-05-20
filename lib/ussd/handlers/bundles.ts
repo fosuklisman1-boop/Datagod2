@@ -7,7 +7,7 @@ import { resolveEmail } from "../resolve-email"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { fulfillUssdOrder } from "../fulfill"
-import { sendSMS } from "../../sms-service"
+import { sendSMS, SMSTemplates } from "../../sms-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -515,7 +515,7 @@ export async function handlePaymentMethod(
       try {
         await sendSMS({
           phone: recipientPhone!,
-          message: `Your ${bundleSize} ${network} bundle is on its way! Order: ${orderId.slice(0, 8)}`,
+          message: SMSTemplates.ussdOrderConfirmed(bundleSize, network),
           type: 'order_confirmation',
           reference: orderId,
         })

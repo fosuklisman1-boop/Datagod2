@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notificationTemplates } from "@/lib/notification-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -178,10 +178,9 @@ export async function cleanupAbandonedPayments(
 
             if (userData?.phone_number) {
               const firstName = userData.first_name || 'User'
-              const smsMessage = `Hi ${firstName}, your wallet has been topped up by GHS ${netAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
               await sendSMS({
                 phone: userData.phone_number,
-                message: smsMessage,
+                message: SMSTemplates.walletToppedUp(firstName, netAmount.toFixed(2), newBalance.toFixed(2)),
                 type: 'wallet_topup_success',
                 reference: payment.id,
               }).catch(err => console.error("[PAYMENT-CLEANUP] SMS error:", err))
@@ -380,10 +379,9 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
 
             if (userData?.phone_number) {
               const firstName = userData.first_name || 'User'
-              const smsMessage = `Hi ${firstName}, your wallet has been topped up by GHS ${netAmount.toFixed(2)}. New balance: GHS ${newBalance.toFixed(2)}`
               await sendSMS({
                 phone: userData.phone_number,
-                message: smsMessage,
+                message: SMSTemplates.walletToppedUp(firstName, netAmount.toFixed(2), newBalance.toFixed(2)),
                 type: 'wallet_topup_success',
                 reference: payment.id,
               }).catch(err => console.error("[PAYMENT-VERIFY] SMS error:", err))

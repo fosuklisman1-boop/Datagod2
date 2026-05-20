@@ -9,7 +9,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 // SMS Provider Configuration
 const SMS_PROVIDER = process.env.SMS_PROVIDER || 'moolre' // 'moolre', 'brevo', or 'mnotify'
 const BREVO_API_KEY = process.env.BREVO_API_KEY
-const BREVO_SMS_SENDER = process.env.BREVO_SMS_SENDER || process.env.EMAIL_SENDER_NAME || 'DATAGOD'
+const BREVO_SMS_SENDER = process.env.BREVO_SMS_SENDER || process.env.EMAIL_SENDER_NAME || 'DTGOD'
 const MOOLRE_API_KEY = process.env.MOOLRE_API_KEY
 const MOOLRE_SENDER_ID = process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
 const MNOTIFY_API_KEY = process.env.MNOTIFY_API_KEY
@@ -150,6 +150,34 @@ export const SMSTemplates = {
   // Sub-agent invitation
   subAgentInvitation: (inviteUrl: string) =>
     `DTGOD: You have been invited to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`,
+
+  // USSD order confirmed — sent to recipient phone
+  ussdOrderConfirmed: (packageSize: string, network: string) =>
+    `DTGOD: Your ${packageSize} ${networkColor(network)} bundle is on its way! It will reflect in a few minutes.`,
+
+  // USSD payment confirmed — sent to dialing/paying phone
+  ussdPaymentConfirmed: (packageSize: string, network: string, maskedPhone: string) =>
+    `DTGOD: Payment confirmed. ${packageSize} ${networkColor(network)} bundle sent to ${maskedPhone}. Thank you!`,
+
+  // USSD AFA registration payment received
+  ussdAfaPaymentReceived: () =>
+    `DTGOD: Your AFA registration payment has been received and is being processed. Registration takes 12-24hrs to reflect. Thank you!`,
+
+  // Wallet topped up (used in webhook and payment-cleanup flows)
+  walletToppedUp: (firstName: string, amount: string, balance: string) =>
+    `DTGOD: Hi ${firstName}, your DTGOD-Wallet has been topped up by GH¢${amount}. New balance: GH¢${balance}.`,
+
+  // Dealer account upgraded
+  dealerUpgraded: () =>
+    `DTGOD: Congratulations! Your account has been upgraded to Dealer. Enjoy wholesale prices!`,
+
+  // Airtime order failed — refund issued
+  airtimeOrderFailed: (refCode: string, amount: string) =>
+    `DTGOD: Your airtime order ${refCode} failed. GH¢${amount} has been refunded to your DTGOD-Wallet.`,
+
+  // Airtime order delivered
+  airtimeOrderDelivered: (amount: string, network: string, phone: string, ref: string) =>
+    `DTGOD: GH¢${amount} ${networkColor(network)} airtime has been sent to ${phone}. Ref: ${ref}.`,
 }
 
 /**
