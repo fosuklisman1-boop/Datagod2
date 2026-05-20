@@ -157,7 +157,7 @@ export const SMSTemplates = {
 
   // USSD payment confirmed — sent to dialing/paying phone
   ussdPaymentConfirmed: (packageSize: string, network: string, maskedPhone: string) =>
-    `DTGOD: Payment confirmed. ${packageSize} ${networkColor(network)} sent to ${maskedPhone}. Thank you!`,
+    `DTGOD: ${packageSize.replace(/GB/gi, 'G.B')} ${networkColor(network)} sent to ${maskedPhone}. Thank you!`,
 
   // OTP required — sent after session ends so customer knows to redial
   ussdOtpRequired: () =>
