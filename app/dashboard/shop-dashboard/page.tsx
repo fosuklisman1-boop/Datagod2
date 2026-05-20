@@ -1048,8 +1048,8 @@ export default function ShopDashboardPage() {
                         <tbody className="divide-y divide-cyan-100/40">
                           {orders
                             .filter((order) =>
-                              order.customer_phone &&
-                              order.customer_phone.toLowerCase().includes(searchPhoneNumber.toLowerCase())
+                              !searchPhoneNumber ||
+                              (order.customer_phone || "").toLowerCase().includes(searchPhoneNumber.toLowerCase())
                             )
                             .map((order: any) => (
                               <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">

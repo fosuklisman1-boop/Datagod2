@@ -267,6 +267,9 @@ export const shopOrderService = {
       ...o,
       volume_gb: o.package_size,
       customer_name: "USSD",
+      customer_phone: o.recipient_phone,
+      reference_code: o.paystack_reference || String(o.id).substring(0, 8),
+      total_price: o.amount,
       type: "ussd_shop",
     }))
 
