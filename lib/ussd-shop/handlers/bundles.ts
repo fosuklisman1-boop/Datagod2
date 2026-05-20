@@ -283,6 +283,14 @@ export async function handleConfirm(
     return end('Payment not available for this network. Contact the shop.')
   }
 
+  const { data: feeSettings } = await supabase
+    .from("app_settings")
+    .select("paystack_fee_percentage")
+    .single()
+  const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
+  const fee = Math.round(verifiedPrice * feePercent * 100) / 100
+  const chargeAmount = verifiedPrice + fee
+
   // Resolve customer email and shop owner email before inserting
   const [customerEmail, shopOwnerRow] = await Promise.all([
     resolveEmail(dialingPhone!).catch(() => null),
@@ -307,7 +315,7 @@ export async function handleConfirm(
       paystack_provider: paystackProvider,
       package_id: bundleId,
       package_size: bundleSize,
-      amount: verifiedPrice,
+      amount: chargeAmount,
       shop_price: verifiedPrice,
       profit_amount: profitAmount,
       shop_name: session.shopName ?? null,
@@ -333,7 +341,7 @@ export async function handleConfirm(
     try {
       const { status } = await chargeMobileMoney({
         email,
-        amount: verifiedPrice,
+        amount: chargeAmount,
         phone: dialingPhone!,
         provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
         reference: orderId,
@@ -349,7 +357,7 @@ export async function handleConfirm(
       try {
         await supabase.from("payment_attempts").insert({
           reference: orderId,
-          amount: verifiedPrice,
+          amount: chargeAmount,
           email,
           status: 'pending',
           payment_type: 'ussd_shop',
