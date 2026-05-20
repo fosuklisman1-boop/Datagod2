@@ -377,6 +377,7 @@ export async function handleConfirm(
           .update({ payment_status: 'otp_required', updated_at: new Date().toISOString() })
           .eq("id", orderId)
         console.log("[USSD-SHOP-CONFIRM] OTP required — user must redial:", orderId)
+        sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
       }
     } catch (err) {
       console.error("[USSD-SHOP-CONFIRM] Charge failed:", err)

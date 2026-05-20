@@ -159,6 +159,10 @@ export const SMSTemplates = {
   ussdPaymentConfirmed: (packageSize: string, network: string, maskedPhone: string) =>
     `DTGOD: Payment confirmed. ${packageSize} ${networkColor(network)} sent to ${maskedPhone}. Thank you!`,
 
+  // OTP required — sent after session ends so customer knows to redial
+  ussdOtpRequired: () =>
+    `DTGOD: Your payment requires a one-time PIN (OTP). Redial the USSD code and enter the OTP sent to your phone to complete your order. You have 10 minutes.`,
+
   // USSD AFA registration payment received
   ussdAfaPaymentReceived: () =>
     `DTGOD: Your AFA registration payment has been received and is being processed. Registration takes 12-24hrs to reflect. Thank you!`,

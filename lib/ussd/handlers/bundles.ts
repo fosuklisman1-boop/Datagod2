@@ -358,6 +358,7 @@ export async function handleConfirm(
       if (status === 'send_otp') {
         await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
         console.log("[USSD-CONFIRM] OTP required — user must redial to complete:", orderId)
+        sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
       }
     } catch (err) {
       console.error("[USSD-CONFIRM] Charge failed:", err)
@@ -419,6 +420,7 @@ export async function handlePaymentMethod(
         if (status === 'send_otp') {
           await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
           console.log("[USSD-PAYMENT_METHOD] OTP required — user must redial to complete:", orderId)
+          sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
         }
       } catch (err) {
         console.error("[USSD-PAYMENT_METHOD] MoMo charge failed:", err)
