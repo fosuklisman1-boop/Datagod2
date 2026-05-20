@@ -5,7 +5,7 @@ import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, payme
 import { setSession } from "../session"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
-import { sendSMS } from "@/lib/sms-service"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 
 const supabase = createClient(
