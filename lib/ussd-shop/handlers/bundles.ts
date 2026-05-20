@@ -15,10 +15,14 @@ const supabase = createClient(
 const PAGE_SIZE = 5
 
 const PAYSTACK_PROVIDER: Record<string, 'mtn' | 'vod' | 'tgo'> = {
-  'MTN':        'mtn',
-  'Telecel':    'vod',
-  'AirtelTigo': 'tgo',
-  'AT-iShare':  'tgo',
+  'MTN':           'mtn',
+  'Telecel':       'vod',
+  'AirtelTigo':    'tgo',
+  'AT-iShare':     'tgo',
+  'AT - iShare':   'tgo',
+  'AT - BigTime':  'tgo',
+  'AT-BigTime':    'tgo',
+  'iShare':        'tgo',
 }
 
 function sizeToMb(size: string): number {
