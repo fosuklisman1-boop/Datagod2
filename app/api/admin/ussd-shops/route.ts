@@ -57,7 +57,28 @@ export async function GET(request: NextRequest) {
     order_count: orderCounts[c.id] ?? 0,
   }))
 
-  return NextResponse.json({ data: result })
+  // Activation revenue totals (requires service-role; cannot be queried from the client)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  const [allActivationsRes, todayActivationsRes] = await Promise.all([
+    supabase
+      .from("ussd_shop_token_purchases")
+      .select("amount_paid")
+      .eq("is_activation", true)
+      .eq("payment_status", "completed"),
+    supabase
+      .from("ussd_shop_token_purchases")
+      .select("amount_paid")
+      .eq("is_activation", true)
+      .eq("payment_status", "completed")
+      .gte("created_at", todayStart.toISOString()),
+  ])
+
+  const activationRevenue = (allActivationsRes.data ?? []).reduce((sum, r) => sum + Number(r.amount_paid), 0)
+  const todayActivationRevenue = (todayActivationsRes.data ?? []).reduce((sum, r) => sum + Number(r.amount_paid), 0)
+
+  return NextResponse.json({ data: result, activationRevenue, todayActivationRevenue })
 }
 
 // POST /api/admin/ussd-shops — create a new shop code
