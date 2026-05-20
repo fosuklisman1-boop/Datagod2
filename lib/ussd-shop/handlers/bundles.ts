@@ -333,7 +333,8 @@ export async function handleConfirm(
 
   const orderId = order.id
   const localDialing = formatLocal(dialingPhone!)
-  const email = customerEmail ?? await resolveEmail(dialingPhone!).catch(() => '')
+  const dialingDigits = (dialingPhone ?? '').replace(/\D/g, '')
+  const email = customerEmail ?? await resolveEmail(dialingPhone!).catch(() => `${dialingDigits}@ussd.datagod.com`)
 
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
