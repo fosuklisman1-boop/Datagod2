@@ -581,9 +581,18 @@ export default function AdminOrdersPage() {
       const firstOrder = batch.orders[0] as any
       const orderType = firstOrder?.type || 'bulk'
 
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required. Please log in again.")
+        return
+      }
+
       const response = await fetch("/api/admin/orders/bulk-update-status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({
           orderIds: batch.orders.map(o => o.id),
           status: newStatus,
