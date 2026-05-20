@@ -29,9 +29,10 @@ export async function POST(request: NextRequest) {
     }
 
     // USSD orders have their own fulfillment path — bypass auto-fulfillment setting check
-    if (order_type === "ussd") {
+    if (order_type === "ussd" || order_type === "ussd_shop") {
+      const table = order_type === "ussd_shop" ? "ussd_shop_orders" : "ussd_orders"
       const { data: ussdOrder, error: fetchErr } = await supabase
-        .from("ussd_orders")
+        .from(table)
         .select("id, network, recipient_phone, package_size, order_status")
         .eq("id", shop_order_id)
         .single()
@@ -46,7 +47,8 @@ export async function POST(request: NextRequest) {
         ussdOrder.network,
         ussdOrder.recipient_phone,
         ussdOrder.package_size ?? "",
-        true // forceManual — bypass auto-fulfillment setting check
+        true, // forceManual — bypass auto-fulfillment setting check
+        table
       )
 
       return NextResponse.json({
@@ -136,6 +138,19 @@ export async function GET(request: NextRequest) {
       console.error("[MANUAL-FULFILL] ussd_orders fetch error:", ussdError)
     }
 
+    // 4. Fetch USSD shop orders (paid but awaiting fulfillment)
+    const { data: ussdShopOrders, count: ussdShopCount, error: ussdShopError } = await supabase
+      .from("ussd_shop_orders")
+      .select("id, network, package_size, recipient_phone, dialing_phone, order_status, created_at, amount, shop_name", { count: "exact" })
+      .in("network", allowedNetworks)
+      .eq("payment_status", "completed")
+      .eq("order_status", "pending")
+      .order("created_at", { ascending: false })
+
+    if (ussdShopError) {
+      console.error("[MANUAL-FULFILL] ussd_shop_orders fetch error:", ussdShopError)
+    }
+
     // Map bulk orders to common structure
     const mappedBulk = (bulkOrders || []).map(o => ({
       id: o.id,
@@ -165,12 +180,24 @@ export async function GET(request: NextRequest) {
       type: "ussd"
     }))
 
+    const mappedUssdShop = (ussdShopOrders || []).map(o => ({
+      id: o.id,
+      network: o.network,
+      volume_gb: o.package_size,
+      customer_phone: o.recipient_phone,
+      dialing_phone: o.dialing_phone,
+      customer_name: o.shop_name ? `USSD Shop (${o.shop_name})` : "USSD Shop Order",
+      order_status: o.order_status,
+      created_at: o.created_at,
+      type: "ussd_shop"
+    }))
+
     // Combine and sort by date
-    const allOrders = [...mappedShop, ...mappedBulk, ...mappedUssd].sort(
+    const allOrders = [...mappedShop, ...mappedBulk, ...mappedUssd, ...mappedUssdShop].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
 
-    const totalCount = (shopCount || 0) + (bulkCount || 0) + (ussdCount || 0)
+    const totalCount = (shopCount || 0) + (bulkCount || 0) + (ussdCount || 0) + (ussdShopCount || 0)
     const paginatedOrders = allOrders.slice(offset, offset + limit)
 
     return NextResponse.json({

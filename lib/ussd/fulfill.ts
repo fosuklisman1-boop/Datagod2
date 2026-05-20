@@ -18,9 +18,13 @@ function extractGb(packageSize: string): number {
   return parseInt(digits) || 0
 }
 
-async function markUssdOrderStatus(orderId: string, status: 'completed' | 'failed' | 'processing' | 'pending') {
+async function markUssdOrderStatus(
+  orderId: string,
+  status: 'completed' | 'failed' | 'processing' | 'pending',
+  orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders"
+) {
   await supabase
-    .from("ussd_orders")
+    .from(orderTable)
     .update({ order_status: status, updated_at: new Date().toISOString() })
     .eq("id", orderId)
 }
@@ -30,7 +34,8 @@ export async function fulfillUssdOrder(
   network: string,
   recipientPhone: string,
   packageSize: string,
-  forceManual = false
+  forceManual = false,
+  orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders"
 ): Promise<{ success: boolean; message: string }> {
   console.log("[USSD-FULFILL] Starting fulfillment:", { orderId, network, recipientPhone, packageSize, forceManual })
 
@@ -38,7 +43,7 @@ export async function fulfillUssdOrder(
   try {
     if (await isPhoneBlacklisted(recipientPhone)) {
       console.warn("[USSD-FULFILL] Phone blacklisted:", recipientPhone)
-      await markUssdOrderStatus(orderId, 'failed')
+      await markUssdOrderStatus(orderId, 'failed', orderTable)
       return { success: false, message: "Recipient phone is blacklisted" }
     }
   } catch {
@@ -63,7 +68,7 @@ export async function fulfillUssdOrder(
       if (!mtnResponse.success || !mtnResponse.order_id) {
         console.error("[USSD-FULFILL] MTN API failed:", mtnResponse.message)
         // Mark processing (not failed) — payment succeeded, admin must manually deliver
-        await markUssdOrderStatus(orderId, 'pending')
+        await markUssdOrderStatus(orderId, 'pending', orderTable)
         try {
           await saveMTNTracking(orderId, "FAILED_INIT_" + Date.now(), orderRequest, mtnResponse, "ussd", mtnResponse.provider || "datakazina")
         } catch { /* non-fatal */ }
@@ -74,12 +79,12 @@ export async function fulfillUssdOrder(
         await saveMTNTracking(orderId, mtnResponse.order_id, orderRequest, mtnResponse, "ussd", mtnResponse.provider || "sykes")
       } catch { /* non-fatal */ }
 
-      await markUssdOrderStatus(orderId, 'processing')
+      await markUssdOrderStatus(orderId, 'processing', orderTable)
       console.log("[USSD-FULFILL] ✓ MTN order placed, awaiting cron confirmation:", mtnResponse.order_id)
       return { success: true, message: "Fulfilled via MTN API" }
     } else {
       // MTN auto-fulfillment disabled — flag for manual processing
-      await markUssdOrderStatus(orderId, 'processing')
+      await markUssdOrderStatus(orderId, 'processing', orderTable)
       console.log("[USSD-FULFILL] MTN auto-fulfillment disabled — marked processing for manual action")
       return { success: true, message: "Queued for manual MTN fulfillment" }
     }
@@ -112,11 +117,11 @@ export async function fulfillUssdOrder(
         orderType: "ussd",
         isBigTime,
       }).then(async () => {
-        await markUssdOrderStatus(orderId, 'processing')
+        await markUssdOrderStatus(orderId, 'processing', orderTable)
         console.log("[USSD-FULFILL] ✓ Codecraft order placed, awaiting cron confirmation:", orderId)
       }).catch(async (err: any) => {
         console.error("[USSD-FULFILL] Codecraft error:", err)
-        await markUssdOrderStatus(orderId, 'pending')
+        await markUssdOrderStatus(orderId, 'pending', orderTable)
       })
 
       // Return immediately — Codecraft fulfillment is async
@@ -125,7 +130,7 @@ export async function fulfillUssdOrder(
   }
 
   // Unknown or non-auto network — mark processing so admin can handle
-  await markUssdOrderStatus(orderId, 'processing')
+  await markUssdOrderStatus(orderId, 'processing', orderTable)
   console.log("[USSD-FULFILL] Network not auto-fulfillable, marked processing:", network)
   return { success: true, message: `${network} queued for manual fulfillment` }
 }
