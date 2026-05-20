@@ -6,6 +6,7 @@ import { setSession } from "../session"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { sendSMS } from "@/lib/sms-service"
+import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,29 +15,6 @@ const supabase = createClient(
 
 const PAGE_SIZE = 5
 
-// Derive the Paystack mobile-money provider from the dialing phone number.
-// The dialing phone is the payer, so this determines which wallet gets charged —
-// independent of which data network the bundle is for.
-function paystackProviderFromPhone(phone: string): 'mtn' | 'vod' | 'tgo' | null {
-  // Normalise to local 10-digit format
-  const local = phone.startsWith('+233')
-    ? '0' + phone.slice(4)
-    : phone.startsWith('233')
-      ? '0' + phone.slice(3)
-      : phone
-
-  const prefix3 = local.slice(0, 3)
-  const prefix2 = local.slice(0, 2)
-
-  // MTN: 024, 054, 025, 059, 053, 055, 056
-  if (['024','054','025','059','053','055','056'].includes(prefix3)) return 'mtn'
-  // Telecel (Vodafone): 020, 050
-  if (['020','050'].includes(prefix3)) return 'vod'
-  // AirtelTigo: 027, 057, 026, 056
-  if (['027','057','026'].includes(prefix3)) return 'tgo'
-
-  return null
-}
 
 function sizeToMb(size: string): number {
   const m = size.trim().match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i)

@@ -5,6 +5,7 @@ import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, payme
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
+import { paystackProviderFromPhone } from "../paystack-provider"
 import { fulfillUssdOrder } from "../fulfill"
 import { sendSMS } from "../../sms-service"
 
@@ -129,11 +130,13 @@ export async function handleSelectNetwork(
     return cont(`No ${net.dbName} bundles available.\n\n${networkMenu()}`)
   }
 
+  const paystackProvider = paystackProviderFromPhone(dialingPhone) ?? net.paystackProvider
+
   await setSession(sessionId, {
     ...session,
     step: 'SELECT_BUNDLE',
     network: net.dbName,
-    paystackProvider: net.paystackProvider,
+    paystackProvider,
     effectivePriceTier,
     subAgentParentShopId,
     userId: userRow?.id,
