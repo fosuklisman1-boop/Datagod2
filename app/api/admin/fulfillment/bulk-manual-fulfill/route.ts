@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { processManualFulfillment } from "@/lib/fulfillment-service"
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 /**
  * POST /api/admin/fulfillment/bulk-manual-fulfill
@@ -23,6 +29,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`[BULK-MANUAL-FULFILL] Processing ${orders.length} orders...`)
 
+    const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
+
     const results = []
     let successCount = 0
     let failureCount = 0
@@ -30,12 +38,34 @@ export async function POST(request: NextRequest) {
     for (const orderInfo of orders) {
       const { id, type } = orderInfo
       try {
-        const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk" | "api", provider)
-        results.push(result)
-        if (result.success) {
-          successCount++
+        if (type === "ussd" || type === "ussd_shop") {
+          const table = type === "ussd_shop" ? "ussd_shop_orders" : "ussd_orders"
+          const { data: ussdOrder, error: fetchErr } = await supabase
+            .from(table)
+            .select("id, network, recipient_phone, package_size, order_status")
+            .eq("id", id)
+            .single()
+
+          if (fetchErr || !ussdOrder) {
+            failureCount++
+            results.push({ success: false, message: "USSD order not found", orderId: id })
+            continue
+          }
+
+          const result = await fulfillUssdOrder(
+            ussdOrder.id,
+            ussdOrder.network,
+            ussdOrder.recipient_phone,
+            ussdOrder.package_size ?? "",
+            true,
+            table
+          )
+          results.push({ ...result, orderId: id })
+          if (result.success) { successCount++ } else { failureCount++ }
         } else {
-          failureCount++
+          const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk" | "api", provider)
+          results.push(result)
+          if (result.success) { successCount++ } else { failureCount++ }
         }
       } catch (error) {
         console.error(`[BULK-MANUAL-FULFILL] Uncaught error for order ${id}:`, error)

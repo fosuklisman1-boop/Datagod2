@@ -148,11 +148,21 @@ export async function POST(request: NextRequest) {
       console.warn(`[BULK-UPDATE] Error checking ussd_orders table:`, ussdError.message)
     }
 
+    const { data: ussdShopOrders, error: ussdShopError } = await supabase
+      .from("ussd_shop_orders")
+      .select("id, order_status")
+      .in("id", orderIds)
+
+    if (ussdShopError) {
+      console.warn(`[BULK-UPDATE] Error checking ussd_shop_orders table:`, ussdShopError.message)
+    }
+
     // Filter out restricted transitions: pending -> completed
     let finalBulkOrderIds = bulkOrders?.map(o => o.id) || []
     let finalShopOrderIds = shopOrders?.map(o => o.id) || []
     let finalApiOrderIds = apiOrders?.map(o => o.id) || []
     let finalUssdOrderIds = ussdOrders?.map(o => o.id) || []
+    let finalUssdShopOrderIds = ussdShopOrders?.map(o => o.id) || []
     let skippedPendingCount = 0
 
     if (status === "completed") {
@@ -160,18 +170,20 @@ export async function POST(request: NextRequest) {
       const allowedShop = shopOrders?.filter(o => o.order_status !== "pending").map(o => o.id) || []
       const allowedApi = apiOrders?.filter(o => o.status !== "pending").map(o => o.id) || []
       const allowedUssd = ussdOrders?.filter(o => o.order_status !== "pending").map(o => o.id) || []
+      const allowedUssdShop = ussdShopOrders?.filter(o => o.order_status !== "pending").map(o => o.id) || []
 
-      skippedPendingCount = (bulkOrders?.length || 0) + (shopOrders?.length || 0) + (apiOrders?.length || 0) + (ussdOrders?.length || 0) - (allowedBulk.length + allowedShop.length + allowedApi.length + allowedUssd.length)
+      skippedPendingCount = (bulkOrders?.length || 0) + (shopOrders?.length || 0) + (apiOrders?.length || 0) + (ussdOrders?.length || 0) + (ussdShopOrders?.length || 0) - (allowedBulk.length + allowedShop.length + allowedApi.length + allowedUssd.length + allowedUssdShop.length)
 
       finalBulkOrderIds = allowedBulk
       finalShopOrderIds = allowedShop
       finalApiOrderIds = allowedApi
       finalUssdOrderIds = allowedUssd
+      finalUssdShopOrderIds = allowedUssdShop
 
-      console.log(`[BULK-UPDATE] Restricted transition filter applied. Allowed: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop, ${finalApiOrderIds.length} api, ${finalUssdOrderIds.length} ussd. Skipped ${skippedPendingCount} pending orders.`)
+      console.log(`[BULK-UPDATE] Restricted transition filter applied. Allowed: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop, ${finalApiOrderIds.length} api, ${finalUssdOrderIds.length} ussd, ${finalUssdShopOrderIds.length} ussd_shop. Skipped ${skippedPendingCount} pending orders.`)
     }
 
-    console.log(`[BULK-UPDATE] Final targets: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop, ${finalApiOrderIds.length} api, ${finalUssdOrderIds.length} ussd orders`)
+    console.log(`[BULK-UPDATE] Final targets: ${finalBulkOrderIds.length} bulk, ${finalShopOrderIds.length} shop, ${finalApiOrderIds.length} api, ${finalUssdOrderIds.length} ussd, ${finalUssdShopOrderIds.length} ussd_shop orders`)
 
     // Update bulk orders
     if (finalBulkOrderIds.length > 0) {
@@ -631,6 +643,20 @@ export async function POST(request: NextRequest) {
       console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdOrderIds.length} USSD orders to status: ${status}`)
     }
 
+    // Update USSD shop orders
+    if (finalUssdShopOrderIds.length > 0) {
+      const { error: ussdShopUpdateError } = await supabase
+        .from("ussd_shop_orders")
+        .update({ order_status: status, updated_at: new Date().toISOString() })
+        .in("id", finalUssdShopOrderIds)
+
+      if (ussdShopUpdateError) {
+        throw new Error(`Failed to update USSD shop order status: ${ussdShopUpdateError.message}`)
+      }
+
+      console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdShopOrderIds.length} USSD shop orders to status: ${status}`)
+    }
+
     return NextResponse.json({
       success: true,
       count: orderIds.length,
@@ -639,6 +665,7 @@ export async function POST(request: NextRequest) {
       shopCount: finalShopOrderIds.length,
       apiCount: finalApiOrderIds.length,
       ussdCount: finalUssdOrderIds.length,
+      ussdShopCount: finalUssdShopOrderIds.length,
       skippedPending: skippedPendingCount
     })
   } catch (error) {
