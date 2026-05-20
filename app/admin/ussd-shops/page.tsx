@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Plus, Coins, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save } from "lucide-react"
+import { Plus, Coins, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save, ShieldCheck, Activity, Banknote, Database } from "lucide-react"
 
 interface ShopCode {
   id: string
@@ -79,6 +79,9 @@ export default function AdminUssdShopsPage() {
   const [maxSessions, setMaxSessions] = useState("")
   const [savingSessionSettings, setSavingSessionSettings] = useState(false)
 
+  // Stats
+  const [activationRevenue, setActivationRevenue] = useState<number>(0)
+
   // Activate modal
   const [showActivate, setShowActivate] = useState(false)
   const [activateTarget, setActivateTarget] = useState<ShopCode | null>(null)
@@ -130,13 +133,22 @@ export default function AdminUssdShopsPage() {
         setMaxSessions(String(settingsJson.ussd_shop_max_sessions ?? "100"))
       }
 
-      // Load recent orders
-      const { data: ordersData } = await supabase
-        .from("ussd_shop_orders")
-        .select("id, shop_code_id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, created_at")
-        .order("created_at", { ascending: false })
-        .limit(100)
-      setOrders(ordersData ?? [])
+      // Load recent orders + activation revenue in parallel
+      const [ordersResult, activationResult] = await Promise.all([
+        supabase
+          .from("ussd_shop_orders")
+          .select("id, shop_code_id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, created_at")
+          .order("created_at", { ascending: false })
+          .limit(100),
+        supabase
+          .from("ussd_shop_token_purchases")
+          .select("amount_paid")
+          .eq("is_activation", true)
+          .eq("payment_status", "completed"),
+      ])
+      setOrders(ordersResult.data ?? [])
+      const revenue = (activationResult.data ?? []).reduce((sum, r) => sum + Number(r.amount_paid), 0)
+      setActivationRevenue(revenue)
     } catch (e) {
       toast.error("Failed to load data")
     } finally {
@@ -418,6 +430,62 @@ export default function AdminUssdShopsPage() {
 
           </CardContent>
         </Card>
+
+        {/* Stats Overview */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          <Card>
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Activated &amp; Active</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                    {codes.filter(c => c.activation_fee_paid && c.status === 'active').length}
+                  </p>
+                </div>
+                <ShieldCheck className="w-8 h-8 text-green-500 opacity-80 shrink-0" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Active Codes</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                    {codes.filter(c => c.status === 'active').length}
+                  </p>
+                </div>
+                <Activity className="w-8 h-8 text-blue-500 opacity-80 shrink-0" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Activation Revenue</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                    GH¢{activationRevenue.toFixed(2)}
+                  </p>
+                </div>
+                <Banknote className="w-8 h-8 text-yellow-500 opacity-80 shrink-0" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Total Tokens</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                    {codes.reduce((sum, c) => sum + (c.token_balance ?? 0), 0).toLocaleString()}
+                  </p>
+                </div>
+                <Database className="w-8 h-8 text-purple-500 opacity-80 shrink-0" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         <Tabs defaultValue="codes">
           <TabsList className="mb-4">
