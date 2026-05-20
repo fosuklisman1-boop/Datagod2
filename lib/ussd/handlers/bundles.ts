@@ -515,7 +515,7 @@ export async function handlePaymentMethod(
       try {
         await sendSMS({
           phone: recipientPhone!,
-          message: SMSTemplates.ussdOrderConfirmed(bundleSize, network),
+          message: SMSTemplates.ussdOrderConfirmed(bundleSize ?? '', network ?? ''),
           type: 'order_confirmation',
           reference: orderId,
         })
