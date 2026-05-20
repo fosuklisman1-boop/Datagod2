@@ -502,6 +502,74 @@ export const EmailTemplates = {
     `, "Shop Status", true),
   }),
 
+  ussdShopActivated: (shopName: string, code: string, initialTokens: number) => ({
+    subject: `Your USSD Shop Code is Active — ${code}`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🎉</span>
+        <h2>Your USSD Shop is Live!</h2>
+        <p>Your shop code has been activated and is ready to accept orders.</p>
+      </div>
+
+      <div class="info-card">
+        <h3 style="font-size:16px;border-bottom:2px solid #e5e7eb;padding-bottom:10px;margin-bottom:15px;">Activation Details</h3>
+        <div class="info-row">
+          <span class="info-label">Shop Name</span>
+          <span class="info-value">${shopName}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">USSD Code</span>
+          <span class="info-value highlight">${code}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Starting Tokens</span>
+          <span class="info-value">${initialTokens}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Status</span>
+          <span class="info-value highlight">Active</span>
+        </div>
+      </div>
+
+      <p>Customers can now dial <strong>${code}</strong> to browse and purchase data bundles from your shop. Each customer transaction uses one token.</p>
+      <a href="${APP_URL}/dashboard/ussd-shop" class="button-primary">View My Shop</a>
+    `, "USSD Shop Activated", true),
+  }),
+
+  ussdShopTokensAdded: (shopName: string, code: string, tokensAdded: number, newBalance: number) => ({
+    subject: `${tokensAdded} Tokens Added to Your USSD Shop`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🪙</span>
+        <h2>Tokens Added</h2>
+        <p>Your USSD shop token balance has been topped up.</p>
+      </div>
+
+      <div class="info-card">
+        <h3 style="font-size:16px;border-bottom:2px solid #e5e7eb;padding-bottom:10px;margin-bottom:15px;">Top-Up Details</h3>
+        <div class="info-row">
+          <span class="info-label">Shop Name</span>
+          <span class="info-value">${shopName}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">USSD Code</span>
+          <span class="info-value">${code}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Tokens Added</span>
+          <span class="info-value highlight">+${tokensAdded}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">New Balance</span>
+          <span class="info-value highlight">${newBalance} tokens</span>
+        </div>
+      </div>
+
+      <p>Each customer bundle purchase via your USSD code uses one token. Your shop will continue accepting orders as long as your token balance is above zero.</p>
+      <a href="${APP_URL}/dashboard/ussd-shop" class="button-primary">View My Shop</a>
+    `, "Tokens Added", true),
+  }),
+
   // Admin Alerts - Simplified
   fulfillmentFailed: (orderId: string, phone: string, network: string, sizeGb: string, reason: string) => ({
     subject: `[ALERT] Fulfillment Failed: #${orderId}`,

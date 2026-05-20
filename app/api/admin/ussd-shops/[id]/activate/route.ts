@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { sendEmail, EmailTemplates } from "@/lib/email-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { data: shopCode } = await supabase
     .from("ussd_shop_codes")
-    .select("id, shop_id, activation_fee_paid, user_shops!inner(user_id)")
+    .select("id, shop_id, code, activation_fee_paid, user_shops!inner(user_id, shop_name)")
     .eq("id", id)
     .single()
 
@@ -37,6 +38,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (shopCode.activation_fee_paid) return NextResponse.json({ error: "Shop code already activated" }, { status: 409 })
 
   const shopOwnerId = (shopCode as any).user_shops?.user_id
+  const shopName: string = (shopCode as any).user_shops?.shop_name ?? "Your shop"
+  const shopCodeStr: string = (shopCode as any).code ?? ""
   if (!shopOwnerId) return NextResponse.json({ error: "Shop owner not found" }, { status: 400 })
 
   const { data: deductResult, error: deductError } = await supabase.rpc('deduct_wallet', {
@@ -87,6 +90,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     payment_status: 'completed',
     is_activation: true,
   }])
+
+  // Send activation email to shop owner (non-blocking)
+  ;(async () => {
+    try {
+      const { data: owner } = await supabase.from("users").select("email, first_name").eq("id", shopOwnerId).single()
+      if (!owner?.email) return
+      const tpl = EmailTemplates.ussdShopActivated(shopName, shopCodeStr, initial_tokens)
+      await sendEmail({
+        to: [{ email: owner.email, name: owner.first_name ?? undefined }],
+        subject: tpl.subject,
+        htmlContent: tpl.html,
+        type: 'ussd_shop_activated',
+        referenceId: id,
+      })
+    } catch (err) {
+      console.warn("[ADMIN-USSD-ACTIVATE] email failed (non-fatal):", err)
+    }
+  })()
 
   return NextResponse.json({ success: true, status: 'active' })
 }
