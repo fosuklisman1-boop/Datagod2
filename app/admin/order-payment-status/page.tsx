@@ -818,7 +818,7 @@ export default function OrderPaymentStatusPage() {
                         <tr key={order.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <Badge variant="outline" className="text-xs">
-                              {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : order.type === "ussd" ? "USSD" : "Wallet"}
+                              {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : order.type === "ussd" ? "USSD" : order.type === "ussd_shop" ? "USSD Shop" : "Wallet"}
                             </Badge>
                           </td>
                           <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
