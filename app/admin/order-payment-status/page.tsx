@@ -343,7 +343,7 @@ export default function OrderPaymentStatusPage() {
   }
 
   const handleManualFulfill = async (orderId: string, orderType: string) => {
-    if (!autoFulfillmentEnabled && orderType !== 'ussd' && orderType !== 'ussd_shop') {
+    if (!autoFulfillmentEnabled) {
       toast.error("Auto-fulfillment is not enabled")
       return
     }
@@ -915,7 +915,7 @@ export default function OrderPaymentStatusPage() {
                               {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
                                 <div className="text-xs text-gray-400">{order.network} (no auto-fulfill)</div>
                               )}
-                              {order.status === "pending" && order.payment_status === "completed" && order.type === "ussd" && (
+                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && order.type === "ussd" && (
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -957,7 +957,7 @@ export default function OrderPaymentStatusPage() {
                                   )}
                                 </Button>
                               )}
-                              {!autoFulfillmentEnabled && order.type !== 'ussd' && order.type !== 'ussd_shop' && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
+                              {!autoFulfillmentEnabled && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
                             </div>
                           </td>
                         </tr>
