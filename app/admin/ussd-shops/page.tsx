@@ -490,6 +490,7 @@ export default function AdminUssdShopsPage() {
         <Tabs defaultValue="codes">
           <TabsList className="mb-4">
             <TabsTrigger value="codes">Shop Codes ({codes.length})</TabsTrigger>
+            <TabsTrigger value="active">Active Codes ({codes.filter(c => c.status === 'active').length})</TabsTrigger>
             <TabsTrigger value="orders">Orders ({orders.length})</TabsTrigger>
           </TabsList>
 
@@ -580,6 +581,80 @@ export default function AdminUssdShopsPage() {
                                   onClick={() => handleDelete(code)}
                                 >
                                   <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="active">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base font-medium">Active Shop Codes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {codes.filter(c => c.status === 'active').length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <Activity className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                    <p>No active codes yet.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-gray-500 text-xs uppercase tracking-wide">
+                          <th className="pb-3 pr-4">Code</th>
+                          <th className="pb-3 pr-4">Shop</th>
+                          <th className="pb-3 pr-4">Tokens</th>
+                          <th className="pb-3 pr-4">Orders</th>
+                          <th className="pb-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {codes.filter(c => c.status === 'active').map(code => (
+                          <tr key={code.id} className="border-b last:border-0 hover:bg-gray-50">
+                            <td className="py-3 pr-4">
+                              <code className="bg-green-50 text-green-800 font-mono font-bold text-base px-2 py-1 rounded border border-green-200">
+                                {code.code}
+                              </code>
+                            </td>
+                            <td className="py-3 pr-4">
+                              <span className="font-medium text-gray-800">{code.shop_name}</span>
+                            </td>
+                            <td className="py-3 pr-4">
+                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-red-600' : 'text-gray-800'}`}>
+                                {code.token_balance}
+                              </span>
+                              {code.token_balance <= 5 && code.token_balance > 0 && (
+                                <span className="text-xs text-red-500 ml-1">low</span>
+                              )}
+                              {code.token_balance === 0 && (
+                                <span className="text-xs text-red-500 ml-1">empty</span>
+                              )}
+                            </td>
+                            <td className="py-3 pr-4 text-gray-600">{code.order_count}</td>
+                            <td className="py-3">
+                              <div className="flex gap-1 flex-wrap">
+                                <Button
+                                  size="sm" variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => { setTokensTarget(code); setTokenQty("10"); setShowTokens(true) }}
+                                >
+                                  <Coins className="w-3 h-3 mr-1" /> Tokens
+                                </Button>
+                                <Button
+                                  size="sm" variant="outline"
+                                  className="h-7 text-xs border-yellow-300 text-yellow-700 hover:bg-yellow-50"
+                                  onClick={() => handleStatusToggle(code)}
+                                >
+                                  <PauseCircle className="w-3 h-3 mr-1" /> Suspend
                                 </Button>
                               </div>
                             </td>
