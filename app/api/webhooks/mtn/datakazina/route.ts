@@ -65,12 +65,22 @@ export async function POST(request: NextRequest) {
 
         log("info", "Webhook.DataKazina", "Received DataKazina webhook", {
             traceId,
-            mtnOrderId: payload.transaction_id || payload.id || payload.reference,
-            status: payload.status
+            mtnOrderId: payload.transaction_id || payload.order_code || payload.id || payload.reference,
+            status: payload.status,
+            eventType: payload.type,
+            occurredAt: payload.occurred_at,
+            isTest: payload.test ?? false,
         })
 
+        // Acknowledge test events without full processing
+        if (payload.test === true || payload.type === "test_event") {
+            log("info", "Webhook.DataKazina", "Test event received — acknowledging without processing", { traceId })
+            await storeWebhookEvent(traceId, payload, JSON.stringify(payload))
+            return NextResponse.json({ success: true, message: "Test event received", traceId })
+        }
+
         // Validate payload
-        const mtnOrderId = payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref
+        const mtnOrderId = payload.transaction_id || payload.order_code || payload.id || payload.reference || payload.incoming_api_ref
         if (!mtnOrderId) {
             log("info", "Webhook.DataKazina", "Webhook missing ID - likely a test ping", { traceId, payload })
             return NextResponse.json({ success: true, message: "Test received", traceId })
@@ -210,11 +220,16 @@ async function storeWebhookEvent(
     rawBody: string
 ): Promise<void> {
     try {
-        const mtnOrderId = payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref
+        // Prefer the numeric id for the integer column; fall back to stripping digits from other refs
+        const numericId = typeof payload.id === "number"
+            ? payload.id
+            : (payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref)
+                ? parseInt(String(payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref).replace(/\D/g, "")) || null
+                : null
         await supabase.from("mtn_webhook_events").insert({
             trace_id: traceId,
-            event_type: "datakazina.webhook",
-            mtn_order_id: mtnOrderId ? parseInt(String(mtnOrderId).replace(/\D/g, '')) || null : null,
+            event_type: payload.type ? `datakazina.${payload.type}` : "datakazina.webhook",
+            mtn_order_id: numericId,
             payload: payload,
             raw_body: rawBody,
             received_at: new Date().toISOString(),

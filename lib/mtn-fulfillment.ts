@@ -33,13 +33,20 @@ export interface MTNOrderResponse {
 export interface DataKazinaWebhookPayload {
   status: string
   transaction_id?: string
-  id?: string | number
-  type?: string
-  order_code?: string
+  id?: number | string
+  type?: string              // event type e.g. "test_event", "order_delivered"
+  previous_status?: string
+  order_code?: string        // Dakazina order code e.g. "DKZ-TEST-RQ5WKR"
   reference?: string
+  amount?: number | string
+  user_id?: number
+  occurred_at?: string       // ISO timestamp from Dakazina
+  test?: boolean             // true for sandbox/test events
+  metadata?: { message?: string; [key: string]: unknown }
+  // legacy fields
+  transaction_id?: string
   message?: string
   recipient_msisdn?: string
-  amount?: string | number
   incoming_api_ref?: string
   timestamp?: string
   occurred_at?: string
@@ -890,7 +897,7 @@ export async function updateDataKazinaOrderFromPayload(
   payload: DataKazinaWebhookPayload
 ): Promise<boolean> {
   try {
-    const mtnOrderId = payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref
+    const mtnOrderId = payload.transaction_id || payload.order_code || payload.id || payload.reference || payload.incoming_api_ref
 
     if (!mtnOrderId) {
       console.error("[MTN] DataKazina webhook missing transaction ID", payload)
