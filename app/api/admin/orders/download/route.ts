@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
           .from("orders")
           .update({ status: "processing", updated_at: new Date().toISOString() })
           .in("id", bulkOrderIds)
-          .eq("status", "pending")  // Only update if still pending!
+          .in("status", ["pending", "pending_download"])
           .select("id")
 
         if (updateError) {
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
           .from("shop_orders")
           .update({ order_status: "processing", updated_at: new Date().toISOString() })
           .in("id", shopOrderIds)
-          .eq("order_status", "pending")  // Only update if still pending!
+          .in("order_status", ["pending", "pending_download"])
           .select("id")
 
         if (updateError) {
