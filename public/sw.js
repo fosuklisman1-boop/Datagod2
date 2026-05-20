@@ -1,267 +1,203 @@
-// This is the "Offline page" service worker
+// DATAGOD Service Worker — v2
+// Vanilla (no CDN deps), versioned caches, fintech-safe caching rules
 
-importScripts('https://storage.googleapis.com/workbox-cdn/releases/5.1.2/workbox-sw.js');
+const CACHE_VERSION = 'v2'
+const STATIC_CACHE = `datagod-static-${CACHE_VERSION}`
+const PAGES_CACHE  = `datagod-pages-${CACHE_VERSION}`
+const ALL_CACHES   = [STATIC_CACHE, PAGES_CACHE]
 
-const CACHE = "pwabuilder-page";
-const OFFLINE_CACHE = "pwabuilder-offline";
-
-const offlineFallbackPage = "offline.html";
-
-// Assets to cache for offline support
-const assetsToCache = [
-  '/',
+const PRECACHE_ASSETS = [
   '/offline.html',
   '/manifest.json',
-  '/favicon.ico',
-];
+  '/icons/icon-192x192.png',
+  '/icons/icon-512x512.png',
+]
 
-self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") {
-    self.skipWaiting();
-  }
-});
+// These paths handle money/auth — never serve from cache
+const NEVER_CACHE = [
+  /^\/api\/payments\//,
+  /^\/api\/wallet\//,
+  /^\/api\/orders\/purchase/,
+  /^\/api\/admin\//,
+  /^\/api\/user\//,
+  /^\/api\/push\//,
+  /^\/api\/afa\//,
+  /^\/api\/airtime\/purchase/,
+  /^\/api\/results-checker\/purchase/,
+  /^\/api\/shop\/orders\/create/,
+]
 
-self.addEventListener('install', async (event) => {
+// ── Install ──────────────────────────────────────────────────────────────────
+self.addEventListener('install', (event) => {
+  self.skipWaiting()
   event.waitUntil(
-    Promise.all([
-      // Cache offline page
-      caches.open(CACHE)
-        .then((cache) => cache.add(offlineFallbackPage)),
-      // Cache offline assets
-      caches.open(OFFLINE_CACHE)
-        .then((cache) => cache.addAll(assetsToCache))
-    ])
-  );
-  self.skipWaiting();
-});
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE_ASSETS))
+  )
+})
 
-// Clean up old caches on activation
+// ── Activate — delete old caches ─────────────────────────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((name) => {
-          if (name !== CACHE && name !== OFFLINE_CACHE) {
-            return caches.delete(name);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
-});
+    caches.keys()
+      .then((names) =>
+        Promise.all(names.filter((n) => !ALL_CACHES.includes(n)).map((n) => caches.delete(n)))
+      )
+      .then(() => self.clients.claim())
+  )
+})
 
-if (workbox.navigationPreload.isSupported()) {
-  workbox.navigationPreload.enable();
-}
+// ── Message ──────────────────────────────────────────────────────────────────
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})
 
-// Periodic sync event: fetch app data in the background
-self.addEventListener('periodicsync', (event) => {
-  if (event.tag === 'sync-app-data') {
-    event.waitUntil(
-      fetch('/api/periodic/sync')
-        .then((response) => {
-          if (response.ok) {
-            return response.json();
-          }
-        })
-        .catch((error) => {
-          console.log('[SW] Periodic sync failed:', error);
-        })
-    );
-  }
-});
-
-// Background Sync: Retry failed requests when connection is restored
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-failed-requests') {
-    event.waitUntil(
-      (async () => {
-        try {
-          const db = await openIndexedDB();
-          const failedRequests = await getFailedRequests(db);
-          
-          for (const request of failedRequests) {
-            try {
-              const response = await fetch(request.url, {
-                method: request.method,
-                body: request.body,
-                headers: request.headers,
-              });
-              
-              if (response.ok) {
-                await removeFailedRequest(db, request.id);
-              }
-            } catch (error) {
-              console.log('[SW] Failed to retry request:', error);
-            }
-          }
-        } catch (error) {
-          console.log('[SW] Background sync error:', error);
-        }
-      })()
-    );
-  }
-});
-
-// Push Notifications
-self.addEventListener('push', (event) => {
-  if (event.data) {
-    const options = {
-      body: event.data.text(),
-      icon: '/favicon-96x96.png',
-      badge: '/favicon-96x96.png',
-      vibrate: [200, 100, 200],
-      tag: 'datagod-notification',
-      requireInteraction: false,
-    };
-
-    try {
-      const data = JSON.parse(event.data.text());
-      options.body = data.body || options.body;
-      options.title = data.title || 'DATAGOD';
-      options.data = data.data || {};
-    } catch (e) {
-      options.title = 'DATAGOD';
-    }
-
-    event.waitUntil(
-      self.registration.showNotification(options.title || 'DATAGOD', options)
-    );
-  }
-});
-
-// Notification click handler
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-
-  const urlToOpen = event.notification.data?.url || '/';
-
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clientList) => {
-        // Check if app is already open
-        for (let i = 0; i < clientList.length; i++) {
-          if (clientList[i].url === urlToOpen && 'focus' in clientList[i]) {
-            return clientList[i].focus();
-          }
-        }
-        // Open new window if not already open
-        if (clients.openWindow) {
-          return clients.openWindow(urlToOpen);
-        }
-      })
-  );
-});
-
-// Offline support: Enhanced fetch strategy
+// ── Fetch ─────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
+  const { request } = event
+  const url = new URL(request.url)
 
-  // Skip cross-origin requests
-  if (url.origin !== location.origin) {
-    return;
-  }
+  // Skip cross-origin (Paystack, Supabase, fonts, etc.)
+  if (url.origin !== location.origin) return
 
-  // Navigation requests
-  if (event.request.mode === 'navigate') {
-    event.respondWith((async () => {
-      try {
-        const preloadResp = await event.preloadResponse;
+  // Never intercept non-GET requests (POST = payment/order mutations)
+  if (request.method !== 'GET') return
 
-        if (preloadResp) {
-          return preloadResp;
-        }
+  // Never cache financial or auth endpoints
+  if (NEVER_CACHE.some((p) => p.test(url.pathname))) return
 
-        const networkResp = await fetch(event.request);
-        return networkResp;
-      } catch (error) {
-        // Serve offline page on network error
-        const cache = await caches.open(OFFLINE_CACHE);
-        const cachedResp = await cache.match(offlineFallbackPage);
-        return cachedResp;
-      }
-    })());
-    return;
-  }
-
-  // Non-navigation requests
-  // API calls: network-first
-  if (url.pathname.startsWith('/api/')) {
+  // Navigation — network-first, offline fallback
+  if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          if (response.status === 200) {
-            const responseClone = response.clone();
-            caches.open(CACHE).then((cache) => {
-              cache.put(request, responseClone);
-            });
-          }
-          return response;
+        .then((res) => {
+          const clone = res.clone()
+          caches.open(PAGES_CACHE).then((c) => c.put(request, clone))
+          return res
         })
-        .catch((error) => {
-          return caches.match(request)
-            .then((cached) => cached || new Response('Offline', { status: 503 }));
+        .catch(async () => {
+          const cached = await caches.match(request)
+          if (cached) return cached
+          return caches.match('/offline.html')
         })
-    );
-    return;
+    )
+    return
   }
 
-  // Static assets: cache-first
-  event.respondWith(
-    caches.match(request)
-      .then((cached) => {
-        if (cached) {
-          return cached;
-        }
-
-        return fetch(request).then((response) => {
-          if (response.status === 200) {
-            const responseClone = response.clone();
-            caches.open(OFFLINE_CACHE).then((cache) => {
-              cache.put(request, responseClone);
-            });
+  // Static assets (JS, CSS, fonts, images) — cache-first
+  const isStatic = /\.(js|css|woff2?|ttf|eot|svg|png|jpg|jpeg|ico|webp|avif)(\?|$)/.test(url.pathname)
+  if (isStatic) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached
+        return fetch(request).then((res) => {
+          if (res.status === 200) {
+            caches.open(STATIC_CACHE).then((c) => c.put(request, res.clone()))
           }
-          return response;
-        });
+          return res
+        })
       })
-      .catch(() => {
-        return caches.match('/offline.html');
-      })
-  );
-});
+    )
+    return
+  }
 
-// IndexedDB helpers for background sync
-function openIndexedDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('datagod-sync', 1);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains('failed-requests')) {
-        db.createObjectStore('failed-requests', { keyPath: 'id', autoIncrement: true });
+  // All other GET requests (safe API reads) — network-first, no caching
+  // Let the browser handle these directly to ensure live data
+})
+
+// ── Push Notifications ───────────────────────────────────────────────────────
+self.addEventListener('push', (event) => {
+  if (!event.data) return
+
+  let title = 'DATAGOD'
+  const options = {
+    body: 'You have a new notification.',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-192x192.png',
+    vibrate: [200, 100, 200],
+    tag: 'datagod-notification',
+    requireInteraction: false,
+    data: {},
+  }
+
+  try {
+    const payload = JSON.parse(event.data.text())
+    title = payload.title || title
+    options.body = payload.body || options.body
+    options.data = payload.data || {}
+    if (payload.tag) options.tag = payload.tag
+    if (payload.requireInteraction) options.requireInteraction = payload.requireInteraction
+  } catch {
+    options.body = event.data.text()
+  }
+
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const urlToOpen = event.notification.data?.url || '/'
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if (client.url.includes(urlToOpen) && 'focus' in client) return client.focus()
       }
-    };
-  });
+      if (clients.openWindow) return clients.openWindow(urlToOpen)
+    })
+  )
+})
+
+// ── Background Sync — retry failed requests ──────────────────────────────────
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-failed-requests') {
+    event.waitUntil(retryFailedRequests())
+  }
+})
+
+async function retryFailedRequests() {
+  try {
+    const db = await openDB()
+    const requests = await getAllFromStore(db, 'failed-requests')
+    for (const req of requests) {
+      try {
+        const res = await fetch(req.url, { method: req.method, body: req.body, headers: req.headers })
+        if (res.ok) await deleteFromStore(db, 'failed-requests', req.id)
+      } catch { /* retry next sync cycle */ }
+    }
+  } catch (err) {
+    console.log('[SW] Background sync error:', err)
+  }
 }
 
-function getFailedRequests(db) {
+// ── IndexedDB helpers ────────────────────────────────────────────────────────
+function openDB() {
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['failed-requests']);
-    const store = transaction.objectStore('failed-requests');
-    const request = store.getAll();
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-  });
+    const req = indexedDB.open('datagod-sync', 1)
+    req.onerror = () => reject(req.error)
+    req.onsuccess = () => resolve(req.result)
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result
+      if (!db.objectStoreNames.contains('failed-requests')) {
+        db.createObjectStore('failed-requests', { keyPath: 'id', autoIncrement: true })
+      }
+    }
+  })
 }
 
-function removeFailedRequest(db, id) {
+function getAllFromStore(db, store) {
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['failed-requests'], 'readwrite');
-    const store = transaction.objectStore('failed-requests');
-    const request = store.delete(id);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve();
-  });
+    const tx = db.transaction([store])
+    const req = tx.objectStore(store).getAll()
+    req.onerror = () => reject(req.error)
+    req.onsuccess = () => resolve(req.result)
+  })
+}
+
+function deleteFromStore(db, store, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([store], 'readwrite')
+    const req = tx.objectStore(store).delete(id)
+    req.onerror = () => reject(req.error)
+    req.onsuccess = () => resolve()
+  })
 }

@@ -6,7 +6,7 @@
   "start_url": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
-  "background_color": "#ffffff",
+  "background_color": "#0a0a0f",
   "theme_color": "#4f46e5",
   "orientation": "portrait-primary",
   "scope": "/",
@@ -82,7 +82,21 @@
       "name": "Buy Data",
       "short_name": "Buy Data",
       "description": "Purchase data packages",
-      "url": "/dashboard/buy-data",
+      "url": "/dashboard/data-packages",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Buy Airtime",
+      "short_name": "Airtime",
+      "description": "Top up airtime for any network",
+      "url": "/dashboard/airtime",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "My Wallet",
+      "short_name": "Wallet",
+      "description": "View wallet balance and transactions",
+      "url": "/dashboard/wallet",
       "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
     }
   ],

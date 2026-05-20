@@ -725,7 +725,7 @@ export async function saveMTNTracking(
   mtnOrderId: number | string,
   request: MTNOrderRequest,
   response: MTNOrderResponse,
-  orderType: "shop" | "bulk" | "api" | "ussd" = "shop",
+  orderType: "shop" | "bulk" | "api" | "ussd" | "ussd_shop" = "shop",
   provider: string = "sykes"
 ): Promise<string | null> {
   try {

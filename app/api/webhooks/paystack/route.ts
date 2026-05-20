@@ -347,9 +347,10 @@ export async function POST(request: NextRequest) {
             ussdShopOrder.id,
             ussdShopOrder.network,
             ussdShopOrder.recipient_phone,
-            ussdShopOrder.package_size ?? ''
+            ussdShopOrder.package_size ?? '',
+            false,
+            "ussd_shop_orders"
           )
-          // fulfillUssdOrder updates ussd_orders internally; update ussd_shop_orders separately
           const newOrderStatus = fulfillResult.success ? 'processing' : 'pending'
           await supabase
             .from("ussd_shop_orders")

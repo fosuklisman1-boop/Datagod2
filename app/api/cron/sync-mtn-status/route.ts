@@ -410,6 +410,22 @@ export async function GET(request: NextRequest) {
             } else if (ussdData) {
               orderDetails = { network: ussdData.network, size: ussdData.package_size, phone: ussdData.recipient_phone }
             }
+          } else if (order.order_type === "ussd_shop" && order.order_id) {
+            const { data: ussdShopData, error: ussdShopError } = await supabase
+              .from("ussd_shop_orders")
+              .update({
+                order_status: normalizedStatus,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", order.order_id)
+              .select("network, package_size, recipient_phone")
+              .single()
+
+            if (ussdShopError) {
+              console.error(`[CRON] ⚠️ Failed to update USSD shop order ${order.order_id}:`, ussdShopError)
+            } else if (ussdShopData) {
+              orderDetails = { network: ussdShopData.network, size: ussdShopData.package_size, phone: ussdShopData.recipient_phone }
+            }
           } else if (order.shop_order_id) {
             const { data: shopData, error: shopError } = await supabase
               .from("shop_orders")

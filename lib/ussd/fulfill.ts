@@ -54,6 +54,7 @@ export async function fulfillUssdOrder(
   const sizeGb = extractGb(packageSize)
   const networkUpper = network.toUpperCase().trim()
   const isMTN = networkUpper === "MTN"
+  const trackingOrderType = orderTable === "ussd_shop_orders" ? "ussd_shop" : "ussd"
 
   if (isMTN) {
     const autoEnabled = forceManual || await isAutoFulfillmentEnabled()
@@ -70,13 +71,13 @@ export async function fulfillUssdOrder(
         // Mark processing (not failed) — payment succeeded, admin must manually deliver
         await markUssdOrderStatus(orderId, 'pending', orderTable)
         try {
-          await saveMTNTracking(orderId, "FAILED_INIT_" + Date.now(), orderRequest, mtnResponse, "ussd", mtnResponse.provider || "datakazina")
+          await saveMTNTracking(orderId, "FAILED_INIT_" + Date.now(), orderRequest, mtnResponse, trackingOrderType, mtnResponse.provider || "datakazina")
         } catch { /* non-fatal */ }
         return { success: false, message: mtnResponse.message }
       }
 
       try {
-        await saveMTNTracking(orderId, mtnResponse.order_id, orderRequest, mtnResponse, "ussd", mtnResponse.provider || "sykes")
+        await saveMTNTracking(orderId, mtnResponse.order_id, orderRequest, mtnResponse, trackingOrderType, mtnResponse.provider || "sykes")
       } catch { /* non-fatal */ }
 
       await markUssdOrderStatus(orderId, 'processing', orderTable)
