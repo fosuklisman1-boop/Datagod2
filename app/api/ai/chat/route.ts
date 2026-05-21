@@ -170,8 +170,10 @@ You have access to all platform admin tools:
 - View platform-wide stats and revenue
 - Toggle global ordering on/off
 
-Always confirm destructive actions (status changes, blacklisting, toggling ordering) before executing.
-Limit order list results to 10 unless the user asks for more.
+For bulk/destructive actions (status changes, blacklisting, toggling ordering): confirm ONCE with the user showing exact scope (count + filters), then execute immediately when they say yes. Do NOT ask again.
+Use bulk_update_order_status for multi-order updates — never loop update_order_status one by one.
+When filtering by date/time use ISO format with the current date 2026-05-21 and the exact time the user specifies.
+Limit order list results to 10 unless the user asks for more — use limit: 200 to get all.
 ${formattingRules}`
   }
 

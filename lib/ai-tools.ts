@@ -99,14 +99,16 @@ const placeWalletOrderTool: Anthropic.Tool = {
 
 const getAllOrdersTool: Anthropic.Tool = {
   name: "get_all_orders",
-  description: "Admin only: get platform-wide orders with optional filters.",
+  description: "Admin only: get platform-wide orders with optional filters including date/time range.",
   input_schema: {
     type: "object" as const,
     properties: {
       status: { type: "string", description: "Filter by status: pending, processing, completed, failed" },
       network: { type: "string", description: "Filter by network" },
       phone: { type: "string", description: "Filter by customer phone number" },
-      limit: { type: "number", description: "Max results (default 10)" },
+      date_from: { type: "string", description: "ISO timestamp start e.g. 2026-05-21T00:00:00" },
+      date_to: { type: "string", description: "ISO timestamp end e.g. 2026-05-21T16:00:00" },
+      limit: { type: "number", description: "Max results (default 10, use 200 to get all)" },
     },
     required: [],
   },
@@ -114,7 +116,7 @@ const getAllOrdersTool: Anthropic.Tool = {
 
 const updateOrderStatusTool: Anthropic.Tool = {
   name: "update_order_status",
-  description: "Admin only: update the status of an order.",
+  description: "Admin only: update the status of a single order by ID.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -122,6 +124,22 @@ const updateOrderStatusTool: Anthropic.Tool = {
       status: { type: "string", description: "New status: completed, failed, refunded, processing" },
     },
     required: ["order_id", "status"],
+  },
+}
+
+const bulkUpdateOrderStatusTool: Anthropic.Tool = {
+  name: "bulk_update_order_status",
+  description: "Admin only: update the status of ALL orders matching the given filters in one operation. Use this instead of calling update_order_status one-by-one. Always confirm with the user before calling.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      new_status: { type: "string", description: "Status to set: completed, failed, processing, pending" },
+      filter_status: { type: "string", description: "Only update orders currently in this status e.g. processing" },
+      filter_network: { type: "string", description: "Only update orders for this network e.g. MTN" },
+      date_from: { type: "string", description: "Only update orders created after this ISO timestamp e.g. 2026-05-21T00:00:00" },
+      date_to: { type: "string", description: "Only update orders created before this ISO timestamp e.g. 2026-05-21T16:00:00" },
+    },
+    required: ["new_status"],
   },
 }
 
@@ -193,7 +211,7 @@ const toggleOrderingTool: Anthropic.Tool = {
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
   const storefront = [getAvailablePackagesTool, searchOrderStatusTool, prepareCheckoutTool]
   const dashboard = [...storefront, getWalletBalanceTool, getOrderHistoryTool, placeWalletOrderTool]
-  const admin = [...dashboard, getAllOrdersTool, updateOrderStatusTool, retryFailedOrderTool, getUserInfoTool, manageBlacklistTool, getPlatformStatsTool, toggleOrderingTool]
+  const admin = [...dashboard, getAllOrdersTool, updateOrderStatusTool, bulkUpdateOrderStatusTool, retryFailedOrderTool, getUserInfoTool, manageBlacklistTool, getPlatformStatsTool, toggleOrderingTool]
 
   if (context === "admin") return admin
   if (context === "dashboard") return dashboard
@@ -371,15 +389,17 @@ export async function executeToolCall(
         const limit = Number(input.limit ?? 10)
         let query = supabaseAdmin
           .from("orders")
-          .select("id, network, size, status, phone_number, created_at, user_id")
+          .select("id, network, size, status, phone_number, created_at")
           .order("created_at", { ascending: false })
           .limit(limit)
         if (input.status) query = query.eq("status", input.status as string)
-        if (input.network) query = query.eq("network", input.network as string)
+        if (input.network) query = query.ilike("network", input.network as string)
         if (input.phone) query = query.eq("phone_number", input.phone as string)
+        if (input.date_from) query = query.gte("created_at", input.date_from as string)
+        if (input.date_to) query = query.lte("created_at", input.date_to as string)
         const { data, error } = await query
         if (error) return { error: error.message }
-        return sanitize(data)
+        return sanitize({ count: data?.length ?? 0, orders: data })
       }
 
       case "update_order_status": {
@@ -388,6 +408,23 @@ export async function executeToolCall(
           .update({ status: input.status as string, updated_at: new Date().toISOString() })
           .eq("id", input.order_id as string)
         return { success: !error, error: error?.message }
+      }
+
+      case "bulk_update_order_status": {
+        let query = supabaseAdmin
+          .from("orders")
+          .update({ status: input.new_status as string, updated_at: new Date().toISOString() })
+        if (input.filter_status) query = query.eq("status", input.filter_status as string)
+        if (input.filter_network) query = query.ilike("network", input.filter_network as string)
+        if (input.date_from) query = query.gte("created_at", input.date_from as string)
+        if (input.date_to) query = query.lte("created_at", input.date_to as string)
+        // Safety: require at least one filter so we never accidentally update ALL orders
+        if (!input.filter_status && !input.filter_network && !input.date_from && !input.date_to) {
+          return { error: "At least one filter is required for bulk update to prevent accidental mass changes." }
+        }
+        const { error: updateError } = await query
+        if (updateError) return { error: updateError.message }
+        return { success: true, message: `Orders updated to "${input.new_status}" successfully.` }
       }
 
       case "retry_failed_order": {
