@@ -435,44 +435,102 @@ export async function executeToolCall(
 
       case "get_all_orders": {
         const limit = Number(input.limit ?? 10)
-        let query = supabaseAdmin
+
+        // wallet/bulk orders by registered dealers (status field)
+        let ordersQ = supabaseAdmin
           .from("orders")
           .select("id, network, size, status, phone_number, created_at")
           .order("created_at", { ascending: false })
           .limit(limit)
-        if (input.status) query = query.eq("status", input.status as string)
-        if (input.network) query = query.ilike("network", input.network as string)
-        if (input.phone) query = query.eq("phone_number", input.phone as string)
-        if (input.date_from) query = query.gte("created_at", input.date_from as string)
-        if (input.date_to) query = query.lte("created_at", input.date_to as string)
-        const { data, error } = await query
-        if (error) return { error: error.message }
-        return sanitize({ count: data?.length ?? 0, orders: data })
+        if (input.status) ordersQ = ordersQ.eq("status", input.status as string)
+        if (input.network) ordersQ = ordersQ.ilike("network", input.network as string)
+        if (input.phone) ordersQ = ordersQ.eq("phone_number", input.phone as string)
+        if (input.date_from) ordersQ = ordersQ.gte("created_at", input.date_from as string)
+        if (input.date_to) ordersQ = ordersQ.lte("created_at", input.date_to as string)
+
+        // storefront/Paystack orders by guests (order_status field)
+        let shopQ = supabaseAdmin
+          .from("shop_orders")
+          .select("id, network, volume_gb, order_status, customer_phone, created_at, payment_status")
+          .eq("payment_status", "completed")
+          .order("created_at", { ascending: false })
+          .limit(limit)
+        if (input.status) shopQ = shopQ.eq("order_status", input.status as string)
+        if (input.network) shopQ = shopQ.ilike("network", input.network as string)
+        if (input.phone) shopQ = shopQ.eq("customer_phone", input.phone as string)
+        if (input.date_from) shopQ = shopQ.gte("created_at", input.date_from as string)
+        if (input.date_to) shopQ = shopQ.lte("created_at", input.date_to as string)
+
+        const [{ data: ordersData, error: ordersErr }, { data: shopData, error: shopErr }] = await Promise.all([ordersQ, shopQ])
+        if (ordersErr) return { error: ordersErr.message }
+        if (shopErr) return { error: shopErr.message }
+
+        const combined = [
+          ...(ordersData ?? []).map(o => ({
+            id: o.id, table: "orders", network: o.network,
+            size: o.size, status: o.status, phone: o.phone_number, created_at: o.created_at,
+          })),
+          ...(shopData ?? []).map(o => ({
+            id: o.id, table: "shop_orders", network: o.network,
+            size: `${o.volume_gb}`, status: o.order_status, phone: o.customer_phone, created_at: o.created_at,
+          })),
+        ]
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, limit)
+
+        return sanitize({ count: combined.length, orders: combined })
       }
 
       case "update_order_status": {
-        const { error } = await supabaseAdmin
+        // Try orders table first (wallet/bulk orders)
+        const { data: ordersMatch, error: ordersErr } = await supabaseAdmin
           .from("orders")
           .update({ status: input.status as string, updated_at: new Date().toISOString() })
           .eq("id", input.order_id as string)
-        return { success: !error, error: error?.message }
+          .select("id")
+        if (ordersErr) return { success: false, error: ordersErr.message }
+        if (ordersMatch?.length) return { success: true, table: "orders" }
+
+        // Fall back to shop_orders (storefront/Paystack orders — uses order_status field)
+        const { data: shopMatch, error: shopErr } = await supabaseAdmin
+          .from("shop_orders")
+          .update({ order_status: input.status as string })
+          .eq("id", input.order_id as string)
+          .select("id")
+        if (shopErr) return { success: false, error: shopErr.message }
+        if (shopMatch?.length) return { success: true, table: "shop_orders" }
+
+        return { success: false, error: "Order not found in any table" }
       }
 
       case "bulk_update_order_status": {
-        let query = supabaseAdmin
-          .from("orders")
-          .update({ status: input.new_status as string, updated_at: new Date().toISOString() })
-        if (input.filter_status) query = query.eq("status", input.filter_status as string)
-        if (input.filter_network) query = query.ilike("network", input.filter_network as string)
-        if (input.date_from) query = query.gte("created_at", input.date_from as string)
-        if (input.date_to) query = query.lte("created_at", input.date_to as string)
-        // Safety: require at least one filter so we never accidentally update ALL orders
         if (!input.filter_status && !input.filter_network && !input.date_from && !input.date_to) {
           return { error: "At least one filter is required for bulk update to prevent accidental mass changes." }
         }
-        const { error: updateError } = await query
-        if (updateError) return { error: updateError.message }
-        return { success: true, message: `Orders updated to "${input.new_status}" successfully.` }
+
+        // Update orders table (wallet/bulk orders — uses status field)
+        let ordersQ = supabaseAdmin
+          .from("orders")
+          .update({ status: input.new_status as string, updated_at: new Date().toISOString() })
+        if (input.filter_status) ordersQ = ordersQ.eq("status", input.filter_status as string)
+        if (input.filter_network) ordersQ = ordersQ.ilike("network", input.filter_network as string)
+        if (input.date_from) ordersQ = ordersQ.gte("created_at", input.date_from as string)
+        if (input.date_to) ordersQ = ordersQ.lte("created_at", input.date_to as string)
+
+        // Update shop_orders table (storefront Paystack orders — uses order_status field)
+        let shopQ = supabaseAdmin
+          .from("shop_orders")
+          .update({ order_status: input.new_status as string })
+          .eq("payment_status", "completed")
+        if (input.filter_status) shopQ = shopQ.eq("order_status", input.filter_status as string)
+        if (input.filter_network) shopQ = shopQ.ilike("network", input.filter_network as string)
+        if (input.date_from) shopQ = shopQ.gte("created_at", input.date_from as string)
+        if (input.date_to) shopQ = shopQ.lte("created_at", input.date_to as string)
+
+        const [{ error: ordersErr }, { error: shopErr }] = await Promise.all([ordersQ, shopQ])
+        if (ordersErr) return { error: `orders update failed: ${ordersErr.message}` }
+        if (shopErr) return { error: `shop_orders update failed: ${shopErr.message}` }
+        return { success: true, message: `Orders updated to "${input.new_status}" successfully (both wallet and storefront orders).` }
       }
 
       case "retry_failed_order": {
