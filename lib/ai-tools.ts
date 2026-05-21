@@ -254,6 +254,330 @@ const bulkManualFulfillTool: Anthropic.Tool = {
   },
 }
 
+// ─── Admin: user management ──────────────────────────────────────────────────
+
+const listUsersTool: Anthropic.Tool = {
+  name: "list_users",
+  description: "Admin only: list platform users with their wallet balances and suspension status. Use get_user_info for a single lookup by phone/email.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      limit: { type: "number", description: "Max users to return (default 20)" },
+    },
+    required: [],
+  },
+}
+
+const suspendUserTool: Anthropic.Tool = {
+  name: "suspend_user",
+  description: "Admin only: suspend or unsuspend a user account. Always confirm user details before acting.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      user_id: { type: "string", description: "The user ID to suspend or unsuspend" },
+      action: { type: "string", description: "'suspend' or 'unsuspend'" },
+      reason: { type: "string", description: "Reason for suspension (required for suspend)" },
+    },
+    required: ["user_id", "action"],
+  },
+}
+
+const updateUserRoleTool: Anthropic.Tool = {
+  name: "update_user_role",
+  description: "Admin only: change a user's role. Valid roles: user, admin, sub_agent, dealer. Sub-agents cannot be promoted to dealer.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      user_id: { type: "string", description: "The user ID to update" },
+      role: { type: "string", description: "New role: user, admin, sub_agent, or dealer" },
+    },
+    required: ["user_id", "role"],
+  },
+}
+
+const adjustWalletBalanceTool: Anthropic.Tool = {
+  name: "adjust_wallet_balance",
+  description: "Admin only: manually credit or debit a user's wallet balance. Always confirm amount, direction, and user before calling.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      user_id: { type: "string", description: "The user ID whose wallet to adjust" },
+      amount: { type: "number", description: "Amount in GHS (positive number)" },
+      type: { type: "string", description: "'credit' to add funds or 'debit' to remove funds" },
+    },
+    required: ["user_id", "amount", "type"],
+  },
+}
+
+// ─── Admin: shop management ──────────────────────────────────────────────────
+
+const listShopsTool: Anthropic.Tool = {
+  name: "list_shops",
+  description: "Admin only: list dealer shops filtered by status.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      status: { type: "string", description: "Filter by status: pending, active, or all (default: all)" },
+    },
+    required: [],
+  },
+}
+
+const manageShopTool: Anthropic.Tool = {
+  name: "manage_shop",
+  description: "Admin only: approve or reject a dealer shop application. Always confirm shopId and action before executing.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      shop_id: { type: "string", description: "The shop ID to approve or reject" },
+      action: { type: "string", description: "'approve' or 'reject'" },
+      reason: { type: "string", description: "Reason for rejection (required for reject)" },
+    },
+    required: ["shop_id", "action"],
+  },
+}
+
+// ─── Admin: withdrawals ──────────────────────────────────────────────────────
+
+const listWithdrawalsTool: Anthropic.Tool = {
+  name: "list_withdrawals",
+  description: "Admin only: list withdrawal requests with their current status and amounts.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      status: { type: "string", description: "Filter: pending, approved, rejected, completed, or all (default: pending)" },
+      limit: { type: "number", description: "Max results (default 20)" },
+    },
+    required: [],
+  },
+}
+
+const manageWithdrawalTool: Anthropic.Tool = {
+  name: "manage_withdrawal",
+  description: "Admin only: approve, reject, or mark a withdrawal as completed. Approve triggers a Moolre payout. Complete marks an already-approved withdrawal as paid. Always confirm before acting.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      withdrawal_id: { type: "string", description: "The withdrawal request ID" },
+      action: { type: "string", description: "'approve', 'reject', or 'complete'" },
+      reason: { type: "string", description: "Reason (required for reject)" },
+    },
+    required: ["withdrawal_id", "action"],
+  },
+}
+
+// ─── Admin: packages ─────────────────────────────────────────────────────────
+
+const managePackagesTool: Anthropic.Tool = {
+  name: "manage_packages",
+  description: "Admin only: list all data packages, create or update a package, or toggle a package's availability on/off.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", description: "'list' to view all packages, 'create' to add a new one, 'update' to edit an existing one, or 'toggle' to enable/disable" },
+      package_id: { type: "string", description: "Required for update and toggle actions" },
+      network: { type: "string", description: "Network name: MTN, AirtelTigo, or Telecel" },
+      name: { type: "string", description: "Package display name" },
+      size: { type: "number", description: "Package size in GB" },
+      price: { type: "number", description: "Customer price in GHS" },
+      dealer_price: { type: "number", description: "Dealer price in GHS (must be less than price)" },
+      is_available: { type: "boolean", description: "For toggle: true to enable, false to disable" },
+    },
+    required: ["action"],
+  },
+}
+
+// ─── Admin: logs ─────────────────────────────────────────────────────────────
+
+const getFulfillmentLogsTool: Anthropic.Tool = {
+  name: "get_fulfillment_logs",
+  description: "Admin only: view fulfillment processing logs to debug stuck or failed orders.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      status: { type: "string", description: "Filter by status e.g. failed, success, pending" },
+      limit: { type: "number", description: "Max results (default 20)" },
+      page: { type: "number", description: "Page number (default 1)" },
+    },
+    required: [],
+  },
+}
+
+const getMtnLogsTool: Anthropic.Tool = {
+  name: "get_mtn_logs",
+  description: "Admin only: view MTN-specific fulfillment tracking logs from the Sykes/Datakazina provider.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      status: { type: "string", description: "Filter by status" },
+      limit: { type: "number", description: "Max results (default 20)" },
+    },
+    required: [],
+  },
+}
+
+// ─── Admin: blacklist ────────────────────────────────────────────────────────
+
+const bulkBlacklistTool: Anthropic.Tool = {
+  name: "bulk_blacklist",
+  description: "Admin only: add multiple phone numbers to the blacklist at once. Always confirm the list and reason before calling.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      phones: {
+        type: "array",
+        description: "Array of phone numbers to blacklist",
+        items: { type: "string" },
+      },
+      reason: { type: "string", description: "Reason for blacklisting these numbers" },
+    },
+    required: ["phones"],
+  },
+}
+
+// ─── Admin: settings ─────────────────────────────────────────────────────────
+
+const setMtnProviderTool: Anthropic.Tool = {
+  name: "set_mtn_provider",
+  description: "Admin only: get or set the active MTN fulfillment provider. Call with no arguments to read current provider.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      provider: { type: "string", description: "Provider to switch to: 'sykes' or 'datakazina'. Omit to just read current setting." },
+    },
+    required: [],
+  },
+}
+
+const toggleAfaAutoFulfillmentTool: Anthropic.Tool = {
+  name: "toggle_afa_auto_fulfillment",
+  description: "Admin only: get or set the AFA (AirtelTigo/Telecel/BigTime via AFA) auto-fulfillment toggle. Call with no arguments to read current state.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      enabled: { type: "boolean", description: "true to enable, false to disable. Omit to just read current state." },
+    },
+    required: [],
+  },
+}
+
+const manageRateLimitsTool: Anthropic.Tool = {
+  name: "manage_rate_limits",
+  description: "Admin only: view active rate limit blocks or reset a specific block for a user/IP that was incorrectly throttled.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", description: "'list' to view current blocks, 'reset' to clear a specific block" },
+      endpoint: { type: "string", description: "Endpoint name to filter or reset e.g. 'ai_chat', 'purchase'" },
+      identifier: { type: "string", description: "User ID or IP to reset the limit for (required for reset)" },
+      limit: { type: "number", description: "Max results for list (default 20)" },
+    },
+    required: ["action"],
+  },
+}
+
+// ─── Admin: stats & plans ────────────────────────────────────────────────────
+
+const getAdminStatsTool: Anthropic.Tool = {
+  name: "get_admin_stats",
+  description: "Admin only: get comprehensive platform-wide statistics including orders, revenue, and airtime data from the admin dashboard.",
+  input_schema: {
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
+}
+
+const manageSubscriptionPlansTool: Anthropic.Tool = {
+  name: "manage_subscription_plans",
+  description: "Admin only: list, create, update, or deactivate dealer subscription plans.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", description: "'list' to view all plans, 'create' to add one, 'update' to edit, 'delete' to remove" },
+      plan_id: { type: "string", description: "Plan ID (required for update and delete)" },
+      name: { type: "string", description: "Plan name" },
+      price: { type: "number", description: "Plan price in GHS" },
+      duration_days: { type: "number", description: "How many days the plan lasts" },
+      is_active: { type: "boolean", description: "Whether the plan is active" },
+    },
+    required: ["action"],
+  },
+}
+
+// ─── Dashboard: transaction & stats tools ────────────────────────────────────
+
+const getWalletTransactionsTool: Anthropic.Tool = {
+  name: "get_wallet_transactions",
+  description: "Get the logged-in user's wallet transaction history (credits and debits).",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      limit: { type: "number", description: "Number of transactions to fetch (default 10)" },
+      page: { type: "number", description: "Page number (default 1)" },
+    },
+    required: [],
+  },
+}
+
+const getTransactionHistoryTool: Anthropic.Tool = {
+  name: "get_transaction_history",
+  description: "Get the logged-in user's full filtered transaction history including orders and wallet activity.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      date_range: { type: "string", description: "Time filter: today, week, month, or 3months (default: month)" },
+      type: { type: "string", description: "Transaction type filter if applicable" },
+      limit: { type: "number", description: "Max results (default 10)" },
+    },
+    required: [],
+  },
+}
+
+const getOrderStatsTool: Anthropic.Tool = {
+  name: "get_order_stats",
+  description: "Get the logged-in user's personal order statistics: total, completed, failed, processing counts and success rate.",
+  input_schema: {
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
+}
+
+const getSubscriptionTool: Anthropic.Tool = {
+  name: "get_subscription",
+  description: "Get the logged-in user's current active subscription plan, including plan name, expiry date, and features.",
+  input_schema: {
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
+}
+
+// ─── Storefront: airtime & results checker ───────────────────────────────────
+
+const getAirtimeAvailabilityTool: Anthropic.Tool = {
+  name: "get_airtime_availability",
+  description: "Check whether airtime top-up is available in this shop for a specific network, and what fee applies.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      network: { type: "string", description: "Network to check: MTN, Telecel, or AT" },
+    },
+    required: ["network"],
+  },
+}
+
+const getResultsCheckerAvailabilityTool: Anthropic.Tool = {
+  name: "get_results_checker_availability",
+  description: "Check how many exam results checker vouchers are currently in stock (WAEC, BECE, NOVDEC).",
+  input_schema: {
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
+}
+
 const syncFulfillmentStatusTool: Anthropic.Tool = {
   name: "sync_fulfillment_status",
   description: "Admin only: sync the fulfillment status of an MTN order from the Sykes external API. Use when an order is stuck in processing and needs a status refresh. Can sync a single order by tracking_id or mtn_order_id, or sync all pending MTN orders at once.",
@@ -336,38 +660,73 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getAvailablePackagesTool,
     searchOrderStatusTool,
     prepareCheckoutTool,
+    getAirtimeAvailabilityTool,
+    getResultsCheckerAvailabilityTool,
     getKnowledgeBaseTool,
   ]
 
   // Dashboard: authenticated dealer/user, wallet-based ordering
   if (context === "dashboard") return [
     getAvailablePackagesTool,
-    searchOrderStatusTool,   // searches user's own orders by phone
+    searchOrderStatusTool,
     getWalletBalanceTool,
+    getWalletTransactionsTool,
+    getTransactionHistoryTool,
     getOrderHistoryTool,
+    getOrderStatsTool,
     placeWalletOrderTool,
+    getSubscriptionTool,
     getKnowledgeBaseTool,
   ]
 
-  // Admin: platform management — no checkout/wallet-order tools
+  // Admin: platform management — full suite
   return [
+    // Orders
     getAvailablePackagesTool,
-    getAllOrdersTool,         // use phone filter to find orders by phone (replaces search_order_status)
+    getAllOrdersTool,
     updateOrderStatusTool,
     bulkUpdateOrderStatusTool,
     retryFailedOrderTool,
+    // Users
+    listUsersTool,
     getUserInfoTool,
+    suspendUserTool,
+    updateUserRoleTool,
+    adjustWalletBalanceTool,
+    // Shops
+    listShopsTool,
+    manageShopTool,
+    // Withdrawals
+    listWithdrawalsTool,
+    manageWithdrawalTool,
+    // Packages
+    managePackagesTool,
+    // Blacklist
     manageBlacklistTool,
-    getPlatformStatsTool,
-    toggleOrderingTool,
+    bulkBlacklistTool,
+    // Fulfillment
     listPendingFulfillmentTool,
     manualFulfillOrderTool,
     bulkManualFulfillTool,
     syncFulfillmentStatusTool,
     retryBlacklistedOrderTool,
+    // Logs
+    getFulfillmentLogsTool,
+    getMtnLogsTool,
+    // Settings & toggles
+    toggleOrderingTool,
     toggleAutoFulfillmentTool,
     toggleMtnAutoFulfillmentTool,
+    toggleAfaAutoFulfillmentTool,
+    setMtnProviderTool,
     getMtnBalanceTool,
+    // Rate limits
+    manageRateLimitsTool,
+    // Stats & plans
+    getAdminStatsTool,
+    getPlatformStatsTool,
+    manageSubscriptionPlansTool,
+    // Knowledge
     getKnowledgeBaseTool,
   ]
 }
@@ -840,6 +1199,378 @@ export async function executeToolCall(
           message: data.message ?? data.error,
           summary: data.summary,
         })
+      }
+
+      case "list_users": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/users`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Failed to fetch users" }
+        const users = (data.users ?? data ?? []).slice(0, Number(input.limit ?? 20))
+        return sanitize(users.map((u: Record<string, unknown>) => ({
+          id: u.id,
+          name: `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim(),
+          email: u.email,
+          phone: u.phone_number,
+          role: u.role,
+          suspended: u.is_suspended,
+          balance: u.wallet_balance ?? u.balance,
+        })))
+      }
+
+      case "suspend_user": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/users/suspend`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ userId: input.user_id, action: input.action, reason: input.reason }),
+        })
+        const data = await res.json()
+        return { success: res.ok, message: data.message ?? data.error }
+      }
+
+      case "update_user_role": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/users/update-role`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ userId: input.user_id, role: input.role }),
+        })
+        const data = await res.json()
+        return { success: res.ok, message: data.message ?? data.error, new_role: data.newRole }
+      }
+
+      case "adjust_wallet_balance": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/update-balance`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ userId: input.user_id, amount: input.amount, type: input.type }),
+        })
+        const data = await res.json()
+        return sanitize({ success: res.ok, message: data.message ?? data.error, new_balance: data.balance ?? data.newBalance })
+      }
+
+      case "list_shops": {
+        const status = (input.status as string) ?? "all"
+        const res = await fetch(
+          `${ctx.baseUrl}/api/admin/shops${status !== "all" ? `?status=${status}` : ""}`,
+          { headers: { Authorization: `Bearer ${ctx.jwtToken}` } }
+        )
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Failed to fetch shops" }
+        const shops = (data.shops ?? data ?? [])
+        return sanitize(shops.map((s: Record<string, unknown>) => ({
+          id: s.id,
+          name: s.shop_name,
+          slug: s.shop_slug,
+          owner: s.owner_name ?? s.user_id,
+          is_active: s.is_active,
+          created_at: s.created_at,
+        })))
+      }
+
+      case "manage_shop": {
+        const endpoint = input.action === "approve"
+          ? `${ctx.baseUrl}/api/admin/shops/approve`
+          : `${ctx.baseUrl}/api/admin/shops/reject`
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ shopId: input.shop_id, reason: input.reason }),
+        })
+        const data = await res.json()
+        return { success: res.ok, action: input.action, message: data.message ?? data.error }
+      }
+
+      case "list_withdrawals": {
+        const status = (input.status as string) ?? "pending"
+        const limit = Number(input.limit ?? 20)
+        const res = await fetch(
+          `${ctx.baseUrl}/api/admin/withdrawals/list?status=${status}&limit=${limit}`,
+          { headers: { Authorization: `Bearer ${ctx.jwtToken}` } }
+        )
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Failed to fetch withdrawals" }
+        const items = data.withdrawals ?? data.data ?? data ?? []
+        return sanitize(items.map((w: Record<string, unknown>) => ({
+          id: w.id,
+          shop: w.shop_name ?? w.shop_id,
+          amount: w.amount,
+          status: w.status,
+          requested_at: w.created_at,
+          bank: w.bank_name,
+          account: w.account_number,
+        })))
+      }
+
+      case "manage_withdrawal": {
+        const endpoints: Record<string, string> = {
+          approve: `${ctx.baseUrl}/api/admin/withdrawals/approve`,
+          reject: `${ctx.baseUrl}/api/admin/withdrawals/reject`,
+          complete: `${ctx.baseUrl}/api/admin/withdrawals/complete`,
+        }
+        const url = endpoints[input.action as string]
+        if (!url) return { error: `Invalid action: ${input.action}. Use approve, reject, or complete.` }
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ withdrawalId: input.withdrawal_id, reason: input.reason }),
+        })
+        const data = await res.json()
+        return { success: res.ok, action: input.action, message: data.message ?? data.error }
+      }
+
+      case "manage_packages": {
+        const action = input.action as string
+
+        if (action === "list") {
+          const { data, error } = await supabaseAdmin
+            .from("packages")
+            .select("id, network, name, size, price, dealer_price, is_available")
+            .order("network").order("size")
+          if (error) return { error: error.message }
+          return sanitize(data ?? [])
+        }
+
+        if (action === "toggle") {
+          if (!input.package_id || input.is_available === undefined) {
+            return { error: "package_id and is_available are required for toggle" }
+          }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/packages/toggle-availability`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ packageId: input.package_id, isAvailable: input.is_available }),
+          })
+          const data = await res.json()
+          return sanitize({ success: res.ok, message: data.message ?? data.error })
+        }
+
+        if (action === "create" || action === "update") {
+          const packageData: Record<string, unknown> = {}
+          if (input.network) packageData.network = input.network
+          if (input.name) packageData.name = input.name
+          if (input.size !== undefined) packageData.size = input.size
+          if (input.price !== undefined) packageData.price = input.price
+          if (input.dealer_price !== undefined) packageData.dealer_price = input.dealer_price
+          const res = await fetch(`${ctx.baseUrl}/api/admin/packages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({
+              packageData,
+              packageId: input.package_id,
+              isUpdate: action === "update",
+            }),
+          })
+          const data = await res.json()
+          return sanitize({ success: res.ok, package: data.package, message: data.error })
+        }
+
+        return { error: `Unknown action: ${action}. Use list, create, update, or toggle.` }
+      }
+
+      case "get_fulfillment_logs": {
+        const params = new URLSearchParams()
+        if (input.status) params.set("status", input.status as string)
+        if (input.page) params.set("page", String(input.page))
+        params.set("limit", String(input.limit ?? 20))
+        const res = await fetch(`${ctx.baseUrl}/api/admin/fulfillment/logs?${params}`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        return sanitize(data)
+      }
+
+      case "get_mtn_logs": {
+        const params = new URLSearchParams()
+        if (input.status) params.set("status", input.status as string)
+        params.set("limit", String(input.limit ?? 20))
+        const res = await fetch(`${ctx.baseUrl}/api/admin/fulfillment/mtn-logs?${params}`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        return sanitize(data)
+      }
+
+      case "bulk_blacklist": {
+        const phones = input.phones as string[]
+        if (!phones?.length) return { error: "phones array is required" }
+        const res = await fetch(`${ctx.baseUrl}/api/admin/blacklist/bulk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ phones, reason: input.reason ?? "Admin bulk import" }),
+        })
+        const data = await res.json()
+        return { success: res.ok, imported: data.count ?? data.imported, message: data.message ?? data.error }
+      }
+
+      case "set_mtn_provider": {
+        if (input.provider === undefined) {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/settings/mtn-provider`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return { provider: data.provider ?? data.value }
+        }
+        const res = await fetch(`${ctx.baseUrl}/api/admin/settings/mtn-provider`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ provider: input.provider }),
+        })
+        const data = await res.json()
+        return { success: res.ok, provider: data.provider ?? data.value, error: data.error }
+      }
+
+      case "toggle_afa_auto_fulfillment": {
+        if (input.enabled === undefined) {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/settings/afa-auto-fulfillment`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return { enabled: data.setting?.enabled ?? data.enabled }
+        }
+        const res = await fetch(`${ctx.baseUrl}/api/admin/settings/afa-auto-fulfillment`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ enabled: input.enabled }),
+        })
+        const data = await res.json()
+        return { success: res.ok, enabled: data.setting?.enabled ?? data.enabled, error: data.error }
+      }
+
+      case "manage_rate_limits": {
+        if (input.action === "reset") {
+          if (!input.endpoint || !input.identifier) {
+            return { error: "endpoint and identifier are required for reset" }
+          }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/rate-limits/reset`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ endpoint: input.endpoint, identifier: input.identifier }),
+          })
+          const data = await res.json()
+          return { success: res.ok, message: data.message ?? data.error }
+        }
+        // list
+        const params = new URLSearchParams()
+        if (input.endpoint) params.set("endpoint", input.endpoint as string)
+        if (input.identifier) params.set("identifier", input.identifier as string)
+        params.set("limit", String(input.limit ?? 20))
+        const res = await fetch(`${ctx.baseUrl}/api/admin/rate-limits?${params}`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        return sanitize(data)
+      }
+
+      case "get_admin_stats": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/dashboard-stats`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        return sanitize(data)
+      }
+
+      case "manage_subscription_plans": {
+        const action = input.action as string
+
+        if (action === "list") {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/subscription-plans`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return sanitize(data.plans ?? data)
+        }
+
+        if (action === "delete") {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/subscription-plans?id=${input.plan_id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return { success: res.ok, message: data.message ?? data.error }
+        }
+
+        // create or update
+        const body: Record<string, unknown> = {}
+        if (input.plan_id) body.id = input.plan_id
+        if (input.name) body.name = input.name
+        if (input.price !== undefined) body.price = input.price
+        if (input.duration_days !== undefined) body.duration_days = input.duration_days
+        if (input.is_active !== undefined) body.is_active = input.is_active
+        const res = await fetch(`${ctx.baseUrl}/api/admin/subscription-plans`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify(body),
+        })
+        const data = await res.json()
+        return sanitize({ success: res.ok, plan: data.plan ?? data, error: data.error })
+      }
+
+      case "get_wallet_transactions": {
+        const params = new URLSearchParams()
+        params.set("page", String(input.page ?? 1))
+        params.set("limit", String(input.limit ?? 10))
+        const res = await fetch(`${ctx.baseUrl}/api/wallet/transactions?${params}`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        return sanitize({ transactions: data.transactions ?? data.data ?? data, total: data.total })
+      }
+
+      case "get_transaction_history": {
+        const params = new URLSearchParams()
+        if (input.date_range) params.set("dateRange", input.date_range as string)
+        if (input.type) params.set("type", input.type as string)
+        params.set("limit", String(input.limit ?? 10))
+        params.set("page", "1")
+        const res = await fetch(`${ctx.baseUrl}/api/transactions/list?${params}`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        return sanitize({ transactions: data.transactions ?? data.data ?? data, total: data.total })
+      }
+
+      case "get_order_stats": {
+        const res = await fetch(`${ctx.baseUrl}/api/orders/stats`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        return await res.json()
+      }
+
+      case "get_subscription": {
+        const res = await fetch(`${ctx.baseUrl}/api/subscriptions/current`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        return sanitize(data)
+      }
+
+      case "get_airtime_availability": {
+        if (!ctx.shopSlug) return { error: "No shop context" }
+        const network = input.network as string
+        const res = await fetch(
+          `${ctx.baseUrl}/api/shop/airtime/public-constraints?slug=${ctx.shopSlug}&network=${encodeURIComponent(network)}`
+        )
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Failed to check availability" }
+        return {
+          network,
+          is_available: data.isAvailable,
+          all_networks_available: data.allAvailability,
+          fee_percent: data.totalFeePercent,
+          note: data.isAvailable
+            ? `A ${data.totalFeePercent}% fee applies to airtime top-ups for ${network}.`
+            : `Airtime top-up for ${network} is currently unavailable.`,
+        }
+      }
+
+      case "get_results_checker_availability": {
+        const res = await fetch(`${ctx.baseUrl}/api/shop/results-checker/availability`)
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Failed to check availability" }
+        return {
+          available_vouchers: data.counts,
+          note: "WAEC = West African Senior School Certificate, BECE = Basic Education Certificate, NOVDEC = November/December exam",
+        }
       }
 
       case "sync_fulfillment_status": {
