@@ -721,7 +721,7 @@ export default function ShopStorefront() {
                                           <div className="flex items-start justify-between">
                                             <div className="flex-1">
                                               <CardTitle className="text-2xl font-black text-gray-900 group-hover:text-violet-700 transition-colors">
-                                                {pkg.size}{pkg.size < 50 ? 'GB' : 'MB'}
+                                                {pkg.size}GB
                                               </CardTitle>
                                               <CardDescription className="text-sm font-medium text-gray-500 mt-1">{pkg.description}</CardDescription>
                                             </div>
