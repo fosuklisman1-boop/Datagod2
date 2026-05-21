@@ -105,6 +105,16 @@ export async function POST(req: NextRequest) {
   // ── System prompt ─────────────────────────────────────────────────────────
   let systemPrompt: string
 
+  const formattingRules = `
+FORMATTING RULES (always follow these):
+- Use **bold** for package names, prices, network names, and order statuses
+- Use numbered lists (1. 2. 3.) when presenting multiple packages or steps
+- Use bullet points (-) for feature lists or options
+- Add a blank line between sections when the response has multiple parts
+- For order status results, show each order on its own line with clear labels
+- Keep individual sentences short — one idea per line where possible
+- Never dump a wall of text; break it into readable chunks`
+
   if (context === "storefront") {
     systemPrompt = `You are the AI assistant for ${shopName}'s data bundle shop.
 Customers here are guests — they have no account and pay via card (Paystack).
@@ -117,7 +127,7 @@ You can:
 
 When a customer wants to buy: help them choose the right package, then call prepare_checkout.
 Do not ask for payment details — Paystack handles that.
-Keep responses concise and friendly.`
+${formattingRules}`
   } else if (context === "dashboard") {
     systemPrompt = `You are the AI assistant for the Datagod dashboard.
 You are assisting ${userContext.firstName} ${userContext.lastName} (${userContext.role}).
@@ -137,7 +147,7 @@ You can do anything this user is allowed to do:
 Always confirm the package and recipient phone number explicitly before calling place_wallet_order.
 If balance is insufficient, explain and suggest smaller bundles or topping up.
 Never reveal dealer pricing margins or internal system IDs.
-Keep responses concise and helpful.`
+${formattingRules}`
   } else {
     systemPrompt = `You are the AI assistant for the Datagod admin dashboard.
 You are assisting admin ${userContext.firstName} ${userContext.lastName}.
@@ -157,7 +167,7 @@ You have access to all platform admin tools:
 
 Always confirm destructive actions (status changes, blacklisting, toggling ordering) before executing.
 Limit order list results to 10 unless the user asks for more.
-Keep responses concise and informative.`
+${formattingRules}`
   }
 
   // ── Streaming SSE response ────────────────────────────────────────────────

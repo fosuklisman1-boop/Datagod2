@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { MessageCircle, X, Send } from "lucide-react"
 import { createClient } from "@supabase/supabase-js"
+import { ChatMessage } from "@/components/ui/chat-message"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -180,20 +181,12 @@ export function DashboardAIChatWidget() {
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-violet-600 text-white rounded-br-sm"
-                    : "bg-gray-100 text-gray-800 rounded-bl-sm"
-                }`}>
-                  {msg.content}
-                </div>
-              </div>
+              <ChatMessage key={i} role={msg.role} content={msg.content} />
             ))}
 
             {isStreaming && (
               <div className="flex justify-start">
-                <div className="max-w-[80%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
+                <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
                   {streamingContent || (
                     <span className="flex gap-1 items-center h-4">
                       <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
