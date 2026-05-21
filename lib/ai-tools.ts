@@ -554,6 +554,16 @@ const getSubscriptionTool: Anthropic.Tool = {
   },
 }
 
+const getSubscriptionPlansTool: Anthropic.Tool = {
+  name: "get_subscription_plans",
+  description: "Get all available dealer upgrade plans with names, prices, and durations. Use this when a user asks about upgrading to dealer, becoming a dealer, subscription costs, or plan options.",
+  input_schema: {
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
+}
+
 // ─── Storefront: airtime & results checker ───────────────────────────────────
 
 const getAirtimeAvailabilityTool: Anthropic.Tool = {
@@ -676,6 +686,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getOrderStatsTool,
     placeWalletOrderTool,
     getSubscriptionTool,
+    getSubscriptionPlansTool,
     getKnowledgeBaseTool,
   ]
 
@@ -1542,6 +1553,12 @@ export async function executeToolCall(
         })
         const data = await res.json()
         return sanitize(data)
+      }
+
+      case "get_subscription_plans": {
+        const res = await fetch(`${ctx.baseUrl}/api/subscriptions/plans`)
+        const data = await res.json()
+        return sanitize(data.plans ?? data)
       }
 
       case "get_airtime_availability": {
