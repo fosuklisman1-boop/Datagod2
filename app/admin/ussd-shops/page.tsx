@@ -86,8 +86,6 @@ export default function AdminUssdShopsPage() {
   // Activate modal
   const [showActivate, setShowActivate] = useState(false)
   const [activateTarget, setActivateTarget] = useState<ShopCode | null>(null)
-  const [activateAmount, setActivateAmount] = useState("")
-  const [activateMethod] = useState<"wallet">("wallet")
   const [activateTokens, setActivateTokens] = useState("0")
   const [activating, setActivating] = useState(false)
 
@@ -262,11 +260,7 @@ export default function AdminUssdShopsPage() {
       const res = await fetch(`/api/admin/ussd-shops/${activateTarget.id}/activate`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...await authHeader() },
-        body: JSON.stringify({
-          payment_method: activateMethod,
-          amount: parseFloat(activateAmount),
-          initial_tokens: parseInt(activateTokens) || 0,
-        }),
+        body: JSON.stringify({ initial_tokens: parseInt(activateTokens) || 0 }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error ?? "Failed"); return }
@@ -805,23 +799,14 @@ export default function AdminUssdShopsPage() {
             <DialogTitle>Activate — {activateTarget?.shop_name} ({activateTarget?.code})</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            <p className="text-sm text-gray-500">
-              Record the one-time activation payment from the shop owner and set the code to Active.
-            </p>
-            <div className="space-y-1">
-              <Label>Activation Fee Paid (GHS)</Label>
-              <Input
-                type="number" min="0" step="0.01" placeholder="e.g. 100.00"
-                value={activateAmount} onChange={e => setActivateAmount(e.target.value)}
-              />
-            </div>
             <div className="space-y-1">
               <Label>Initial Tokens</Label>
               <Input type="number" min="0" value={activateTokens} onChange={e => setActivateTokens(e.target.value)} />
+              <p className="text-xs text-gray-400">Tokens granted on activation. Can add more later.</p>
             </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowActivate(false)} className="flex-1">Cancel</Button>
-              <Button onClick={handleActivate} disabled={activating || !activateAmount}
+              <Button onClick={handleActivate} disabled={activating}
                 className="flex-1 bg-green-600 hover:bg-green-700">
                 {activating ? "Activating..." : "Activate Shop"}
               </Button>

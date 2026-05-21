@@ -17,16 +17,14 @@ async function requireAdmin(request: NextRequest): Promise<string | null> {
 }
 
 // POST /api/admin/ussd-shops/[id]/activate
-// Body: { amount: number, initial_tokens?: number }
-// Deducts activation fee from shop owner's wallet and activates the code.
+// Body: { initial_tokens?: number }
+// Manually activates a shop code with an optional initial token balance.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const adminId = await requireAdmin(request)
   if (!adminId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
-  const { amount, initial_tokens = 0 } = await request.json()
-
-  if (!amount || amount <= 0) return NextResponse.json({ error: "amount must be > 0" }, { status: 400 })
+  const { initial_tokens = 0 } = await request.json()
 
   const { data: shopCode } = await supabase
     .from("ussd_shop_codes")
@@ -41,29 +39,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const shopName: string = (shopCode as any).user_shops?.shop_name ?? "Your shop"
   const shopCodeStr: string = (shopCode as any).code ?? ""
   if (!shopOwnerId) return NextResponse.json({ error: "Shop owner not found" }, { status: 400 })
-
-  const { data: deductResult, error: deductError } = await supabase.rpc('deduct_wallet', {
-    p_user_id: shopOwnerId,
-    p_amount: amount,
-  })
-
-  if (deductError || !deductResult || deductResult.length === 0) {
-    return NextResponse.json({ error: "Insufficient wallet balance" }, { status: 402 })
-  }
-
-  const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
-  await supabase.from("transactions").insert([{
-    user_id: shopOwnerId,
-    type: 'debit',
-    source: 'ussd_shop_activation',
-    amount,
-    balance_before: balanceBefore,
-    balance_after: newBalance,
-    description: 'USSD shop code activation fee',
-    reference_id: id,
-    status: 'completed',
-    created_at: new Date().toISOString(),
-  }]).then(({ error }) => { if (error) console.warn("[ADMIN-USSD-ACTIVATE] tx insert failed:", error) })
 
   const { error: activateErr } = await supabase
     .from("ussd_shop_codes")
@@ -85,8 +60,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     shop_code_id: id,
     shop_id: shopCode.shop_id,
     tokens_purchased: initial_tokens,
-    amount_paid: amount,
-    payment_method: 'wallet',
+    amount_paid: 0,
+    payment_method: 'manual',
     payment_status: 'completed',
     is_activation: true,
   }])
