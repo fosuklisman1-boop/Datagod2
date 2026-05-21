@@ -193,12 +193,16 @@ export default function UpgradePage() {
     }
 
     const features = [
+        "Data Bundles — MTN, AirtelTigo & Telecel",
+        "Airtime Top-up Sales",
+        "Results Checker Vouchers (WASSCE / BECE)",
+        "Online Web Storefront",
+        "USSD Shop (*714# Integration)",
+        "Sub-Agent Network & Catalog",
+        "Bulk Order Processing",
         "Exclusive Wholesale Pricing",
-        "Crown Badge on Profile",
+        "Custom Shop Branding",
         "Priority Customer Support",
-        "Manage Sub-Agents",
-        "Bulk Order Access",
-        "Custom Shop Branding"
     ]
 
     const successBenefits = [
@@ -429,6 +433,17 @@ export default function UpgradePage() {
                                                         <tbody className="divide-y divide-gray-100">
                                                             {priceListPackages
                                                                 .filter((p) => p.network === priceListNetwork)
+                                                                .sort((a, b) => {
+                                                                    const toMb = (s: string) => {
+                                                                        const m = s.trim().match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i)
+                                                                        if (!m) { const n = parseFloat(s); return isNaN(n) ? 0 : n * 1024 }
+                                                                        const v = parseFloat(m[1])
+                                                                        if (m[2].toUpperCase() === 'MB') return v
+                                                                        if (m[2].toUpperCase() === 'TB') return v * 1024 * 1024
+                                                                        return v * 1024
+                                                                    }
+                                                                    return toMb(a.size) - toMb(b.size)
+                                                                })
                                                                 .map((pkg) => {
                                                                     const savings = pkg.regular_price - pkg.dealer_price
                                                                     return (
