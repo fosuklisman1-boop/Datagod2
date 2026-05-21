@@ -206,12 +206,60 @@ const toggleOrderingTool: Anthropic.Tool = {
   },
 }
 
+const listPendingFulfillmentTool: Anthropic.Tool = {
+  name: "list_pending_fulfillment",
+  description: "Admin only: list all paid orders that are pending manual fulfillment across shop, bulk, USSD, and USSD-shop order types. Returns id and type for each order needed by fulfill tools.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      limit: { type: "number", description: "Max orders to return (default 100)" },
+    },
+    required: [],
+  },
+}
+
+const manualFulfillOrderTool: Anthropic.Tool = {
+  name: "manual_fulfill_order",
+  description: "Admin only: trigger manual fulfillment for a single pending order by ID. Use list_pending_fulfillment first to get the correct id and type.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      order_id: { type: "string", description: "The order ID to fulfill" },
+      order_type: { type: "string", description: "Order type: shop, bulk, ussd, or ussd_shop" },
+    },
+    required: ["order_id", "order_type"],
+  },
+}
+
+const bulkManualFulfillTool: Anthropic.Tool = {
+  name: "bulk_manual_fulfill",
+  description: "Admin only: trigger manual fulfillment for multiple pending orders at once. First call list_pending_fulfillment to get the list of orders with their ids and types, then pass them here. Confirm count with the user before executing.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      orders: {
+        type: "array",
+        description: "Array of orders to fulfill, each with id and type",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            type: { type: "string", description: "shop, bulk, ussd, or ussd_shop" },
+          },
+          required: ["id", "type"],
+        },
+      },
+    },
+    required: ["orders"],
+  },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
   const storefront = [getAvailablePackagesTool, searchOrderStatusTool, prepareCheckoutTool]
   const dashboard = [...storefront, getWalletBalanceTool, getOrderHistoryTool, placeWalletOrderTool]
-  const admin = [...dashboard, getAllOrdersTool, updateOrderStatusTool, bulkUpdateOrderStatusTool, retryFailedOrderTool, getUserInfoTool, manageBlacklistTool, getPlatformStatsTool, toggleOrderingTool]
+  const admin = [...dashboard, getAllOrdersTool, updateOrderStatusTool, bulkUpdateOrderStatusTool, retryFailedOrderTool, getUserInfoTool, manageBlacklistTool, getPlatformStatsTool, toggleOrderingTool, listPendingFulfillmentTool, manualFulfillOrderTool, bulkManualFulfillTool]
 
   if (context === "admin") return admin
   if (context === "dashboard") return dashboard
@@ -515,6 +563,60 @@ export async function executeToolCall(
           .update({ ordering_enabled: input.enabled })
           .not("id", "is", null)
         return { success: !error, ordering_enabled: input.enabled, error: error?.message }
+      }
+
+      case "list_pending_fulfillment": {
+        const limit = Math.min(Number(input.limit ?? 100), 500)
+        const res = await fetch(
+          `${ctx.baseUrl}/api/admin/fulfillment/manual-fulfill?limit=${limit}`,
+          { headers: { Authorization: `Bearer ${ctx.jwtToken}` } }
+        )
+        const data = await res.json()
+        if (!data.success) return { error: data.error ?? "Failed to fetch pending orders" }
+        return sanitize({
+          total: data.pagination?.total ?? data.orders?.length ?? 0,
+          orders: (data.orders ?? []).map((o: Record<string, unknown>) => ({
+            id: o.id,
+            type: o.type,
+            network: o.network,
+            volume_gb: o.volume_gb,
+            phone: o.customer_phone,
+            status: o.order_status,
+            date: o.created_at,
+          })),
+        })
+      }
+
+      case "manual_fulfill_order": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/fulfillment/manual-fulfill`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${ctx.jwtToken}`,
+          },
+          body: JSON.stringify({ shop_order_id: input.order_id, order_type: input.order_type }),
+        })
+        const data = await res.json()
+        return { success: res.ok, message: data.message ?? data.error, tracking_id: data.tracking_id }
+      }
+
+      case "bulk_manual_fulfill": {
+        const orders = input.orders as Array<{ id: string; type: string }>
+        if (!orders?.length) return { error: "No orders provided" }
+        const res = await fetch(`${ctx.baseUrl}/api/admin/fulfillment/bulk-manual-fulfill`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${ctx.jwtToken}`,
+          },
+          body: JSON.stringify({ orders }),
+        })
+        const data = await res.json()
+        return sanitize({
+          success: res.ok,
+          message: data.message ?? data.error,
+          summary: data.summary,
+        })
       }
 
       default:
