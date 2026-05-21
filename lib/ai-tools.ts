@@ -848,8 +848,9 @@ export async function executeToolCall(
           return { error: "Shop context is missing. Please refresh the page and try again." }
         }
 
-        // Dashboard / admin: base packages table, dealer pricing applied
-        const isDealer = ctx.userRole === "dealer" || ctx.userRole === "admin"
+        // Dashboard / admin: base packages table
+        const isAdmin = ctx.userRole === "admin"
+        const isDealer = ctx.userRole === "dealer"
         let query = supabaseAdmin
           .from("packages")
           .select("id, network, size, price, dealer_price")
@@ -861,12 +862,24 @@ export async function executeToolCall(
         }
         const { data, error } = await query
         if (error) return { error: error.message }
+
+        if (isAdmin) {
+          // Admin sees both customer price and dealer price
+          return (data ?? []).map((p: Record<string, unknown>) => ({
+            id: p.id,
+            network: p.network,
+            size: p.size,
+            customer_price: p.price,
+            dealer_price: p.dealer_price,
+          }))
+        }
+
+        // Dealer/user: show their applicable price only — never expose dealer_price separately
         return sanitize((data ?? []).map((p: Record<string, unknown>) => ({
           id: p.id,
           network: p.network,
           size: p.size,
           price: isDealer && p.dealer_price && Number(p.dealer_price) > 0 ? p.dealer_price : p.price,
-          package_id: p.id,
         })))
       }
 
@@ -1382,7 +1395,7 @@ export async function executeToolCall(
             .select("id, network, name, size, price, dealer_price, is_available")
             .order("network").order("size")
           if (error) return { error: error.message }
-          return sanitize(data ?? [])
+          return data ?? []  // admin-only — no sanitize, dealer_price must be visible
         }
 
         if (action === "toggle") {
@@ -1415,7 +1428,7 @@ export async function executeToolCall(
             }),
           })
           const data = await res.json()
-          return sanitize({ success: res.ok, package: data.package, message: data.error })
+          return { success: res.ok, package: data.package, message: data.error }  // admin-only, no sanitize
         }
 
         return { error: `Unknown action: ${action}. Use list, create, update, or toggle.` }
