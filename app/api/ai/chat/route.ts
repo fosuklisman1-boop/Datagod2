@@ -105,6 +105,9 @@ export async function POST(req: NextRequest) {
   // ── System prompt ─────────────────────────────────────────────────────────
   let systemPrompt: string
 
+  const knowledgeBaseRule = `
+When a user asks a question about policies, delivery times, refunds, procedures, or anything not directly in your context — call get_knowledge_base first before answering from memory.`
+
   const formattingRules = `
 FORMATTING RULES (always follow these):
 - Use **bold** for package names, prices, network names, and order statuses
@@ -127,6 +130,7 @@ You can:
 
 When a customer wants to buy: help them choose the right package, then call prepare_checkout.
 Do not ask for payment details — Paystack handles that.
+${knowledgeBaseRule}
 ${formattingRules}`
   } else if (context === "dashboard") {
     systemPrompt = `You are the AI assistant for the Datagod dashboard.
@@ -152,6 +156,7 @@ IMPORTANT RULES:
 - If balance is insufficient, explain and suggest smaller bundles or topping up.
 - For wallet top-up, direct the user to: Dashboard → Wallet (or visit /dashboard/wallet) to add funds via card or mobile money.
 - Never reveal dealer pricing margins or internal system IDs.
+${knowledgeBaseRule}
 ${formattingRules}`
   } else {
     systemPrompt = `You are the AI assistant for the Datagod admin dashboard.

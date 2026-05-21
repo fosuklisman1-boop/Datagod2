@@ -254,10 +254,22 @@ const bulkManualFulfillTool: Anthropic.Tool = {
   },
 }
 
+const getKnowledgeBaseTool: Anthropic.Tool = {
+  name: "get_knowledge_base",
+  description: "Search the business knowledge base for answers about policies, FAQs, products, delivery times, refunds, and support procedures. Use this whenever a user asks a question you don't have direct context for.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      query: { type: "string", description: "The question or topic to look up" },
+    },
+    required: ["query"],
+  },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
-  const storefront = [getAvailablePackagesTool, searchOrderStatusTool, prepareCheckoutTool]
+  const storefront = [getAvailablePackagesTool, searchOrderStatusTool, prepareCheckoutTool, getKnowledgeBaseTool]
   const dashboard = [...storefront, getWalletBalanceTool, getOrderHistoryTool, placeWalletOrderTool]
   const admin = [...dashboard, getAllOrdersTool, updateOrderStatusTool, bulkUpdateOrderStatusTool, retryFailedOrderTool, getUserInfoTool, manageBlacklistTool, getPlatformStatsTool, toggleOrderingTool, listPendingFulfillmentTool, manualFulfillOrderTool, bulkManualFulfillTool]
 
@@ -734,6 +746,21 @@ export async function executeToolCall(
           message: data.message ?? data.error,
           summary: data.summary,
         })
+      }
+
+      case "get_knowledge_base": {
+        const contextLabel = ctx.userRole === "admin" ? "admin" : ctx.userId ? "dashboard" : "storefront"
+        const q = String(input.query ?? "")
+        const { data, error } = await supabaseAdmin
+          .from("ai_knowledge")
+          .select("category, question, answer")
+          .eq("is_active", true)
+          .contains("contexts", [contextLabel])
+          .or(`question.ilike.%${q}%,answer.ilike.%${q}%,category.ilike.%${q}%`)
+          .limit(5)
+        if (error) return { error: error.message }
+        if (!data?.length) return { found: 0, message: "No relevant entries found in the knowledge base." }
+        return { found: data.length, entries: data }
       }
 
       default:
