@@ -977,7 +977,9 @@ export default function ShopStorefront() {
           shop={{ id: shop.id, shop_name: shop.shop_name }}
           shopSlug={shopSlug}
           onCheckoutPrefill={(pkg) => {
-            const match = packages.find((p: any) => p.id === pkg.shop_package_id)
+            const match = packages.find(
+              (p: any) => p.id === pkg.shop_package_id || p.package_id === pkg.shop_package_id
+            )
             if (match) {
               setSelectedPackage(match)
               setCheckoutOpen(true)

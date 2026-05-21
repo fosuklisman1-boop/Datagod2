@@ -117,7 +117,13 @@ FORMATTING RULES (always follow these):
 - Add a blank line between sections when the response has multiple parts
 - For order status results, show each order on its own line with clear labels
 - Keep individual sentences short — one idea per line where possible
-- Never dump a wall of text; break it into readable chunks`
+- Never dump a wall of text; break it into readable chunks
+
+ACTION BUTTONS (use show_action_buttons whenever the user needs to choose):
+- Call show_action_buttons BEFORE asking the user to confirm or choose — do NOT say "type yes or no"
+- Examples: before placing an order, before a destructive admin action, when presenting a yes/no choice, when offering 2–4 alternatives
+- style: use "primary" for the main/positive action, "danger" for destructive/irreversible actions, "secondary" for cancel or alternatives
+- After calling show_action_buttons, end your message — wait for the user to click a button`
 
   if (context === "storefront") {
     systemPrompt = `You are the AI assistant for ${shopName}'s online data bundle shop.
@@ -388,9 +394,15 @@ ${formattingRules}`
               send({ type: "tool_call", tool: tc.name })
               const result = await executeToolCall(tc.name, tc.input as Record<string, unknown>, toolCtx)
 
-              // prepare_checkout is handled client-side
+              // prepare_checkout is handled client-side — opens Paystack modal
               if (tc.name === "prepare_checkout") {
                 send({ type: "checkout_prefill", data: result })
+              }
+
+              // show_action_buttons renders clickable buttons in the widget
+              if (tc.name === "show_action_buttons") {
+                const r = result as Record<string, unknown>
+                send({ type: "action_buttons", buttons: r.buttons ?? [] })
               }
 
               toolResults.push({

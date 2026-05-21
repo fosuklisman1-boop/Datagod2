@@ -17,6 +17,12 @@ interface ShopPackageData {
   price: number
 }
 
+interface ActionButton {
+  label: string
+  value: string
+  style?: "primary" | "danger" | "secondary"
+}
+
 interface Props {
   shop: { id: string; shop_name: string }
   shopSlug: string
@@ -32,10 +38,10 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
+  const [actionButtons, setActionButtons] = useState<ActionButton[] | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Restore from localStorage on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY(shopSlug))
@@ -47,7 +53,6 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
         }
       }
     } catch {}
-    // Welcome message on first open
     setMessages([{
       role: "assistant",
       content: `Hi! I'm the ${shop.shop_name} assistant. I can help you find data packages, check your order status, or answer any questions. What do you need?`,
@@ -55,12 +60,10 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     }])
   }, [shopSlug, shop.shop_name])
 
-  // Auto-scroll to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, streamingContent])
+  }, [messages, streamingContent, actionButtons])
 
-  // Focus input when chat opens
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 100)
   }, [isOpen])
@@ -71,9 +74,11 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     } catch {}
   }
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim()
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const text = (overrideText !== undefined ? overrideText : input).trim()
     if (!text || isStreaming) return
+
+    setActionButtons(null)
 
     const userMsg: Message = { role: "user", content: text, timestamp: Date.now() }
     const nextMessages = [...messages, userMsg]
@@ -83,7 +88,6 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     setIsStreaming(true)
     setStreamingContent("")
 
-    // Build Anthropic-format message history (last 20 only)
     const history = nextMessages.slice(-20).map(m => ({ role: m.role, content: m.content }))
 
     try {
@@ -118,6 +122,8 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
               setStreamingContent(assistantText)
             } else if (event.type === "checkout_prefill" && onCheckoutPrefill) {
               onCheckoutPrefill(event.data as ShopPackageData)
+            } else if (event.type === "action_buttons") {
+              setActionButtons(event.buttons as ActionButton[])
             } else if (event.type === "done") {
               break
             }
@@ -147,12 +153,16 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     }
   }
 
+  function buttonClass(style?: string) {
+    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+    if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
+  }
+
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-      {/* Chat panel */}
       {isOpen && (
         <div className="w-[calc(100vw-3rem)] sm:w-[360px] h-[520px] max-h-[calc(100vh-100px)] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
-          {/* Header */}
           <div className="bg-violet-600 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
               <p className="font-semibold text-sm">{shop.shop_name}</p>
@@ -163,6 +173,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
                 onClick={() => {
                   const welcome = { role: "assistant" as const, content: `Hi! I can help you find the right data bundle or check on an existing order. What do you need?`, timestamp: Date.now() }
                   setMessages([welcome])
+                  setActionButtons(null)
                   try { localStorage.removeItem(STORAGE_KEY(shopSlug)) } catch {}
                 }}
                 className="text-violet-200 hover:text-white transition-colors"
@@ -176,13 +187,11 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
             </div>
           </div>
 
-          {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.map((msg, i) => (
               <ChatMessage key={i} role={msg.role} content={msg.content} />
             ))}
 
-            {/* Streaming partial response */}
             {isStreaming && (
               <div className="flex justify-start">
                 <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
@@ -196,10 +205,20 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
                 </div>
               </div>
             )}
+
+            {!isStreaming && actionButtons && actionButtons.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {actionButtons.map((btn, i) => (
+                  <button key={i} onClick={() => sendMessage(btn.value)} className={buttonClass(btn.style)}>
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input */}
           <div className="border-t border-gray-100 px-3 py-3 flex items-center gap-2 flex-shrink-0">
             <input
               ref={inputRef}
@@ -211,7 +230,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
               className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 outline-none focus:border-violet-400 disabled:opacity-50 transition-colors"
             />
             <button
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={isStreaming || !input.trim()}
               className="bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl p-2 transition-colors flex-shrink-0"
             >
@@ -221,7 +240,6 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
         </div>
       )}
 
-      {/* Toggle button */}
       <button
         onClick={() => setIsOpen(o => !o)}
         className="bg-violet-600 hover:bg-violet-700 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg transition-colors"

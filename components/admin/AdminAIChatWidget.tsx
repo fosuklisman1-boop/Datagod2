@@ -16,6 +16,12 @@ interface Message {
   timestamp: number
 }
 
+interface ActionButton {
+  label: string
+  value: string
+  style?: "primary" | "danger" | "secondary"
+}
+
 const STORAGE_KEY = (uid: string) => `admin_chat_${uid}`
 const MAX_STORED = 20
 
@@ -25,6 +31,7 @@ export function AdminAIChatWidget() {
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
+  const [actionButtons, setActionButtons] = useState<ActionButton[] | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [firstName, setFirstName] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -67,7 +74,7 @@ export function AdminAIChatWidget() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, streamingContent])
+  }, [messages, streamingContent, actionButtons])
 
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 100)
@@ -80,9 +87,11 @@ export function AdminAIChatWidget() {
     } catch {}
   }
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim()
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const text = (overrideText !== undefined ? overrideText : input).trim()
     if (!text || isStreaming) return
+
+    setActionButtons(null)
 
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return
@@ -131,6 +140,8 @@ export function AdminAIChatWidget() {
             if (event.type === "text") {
               assistantText += event.content
               setStreamingContent(assistantText)
+            } else if (event.type === "action_buttons") {
+              setActionButtons(event.buttons as ActionButton[])
             } else if (event.type === "done") {
               break
             }
@@ -160,6 +171,12 @@ export function AdminAIChatWidget() {
     }
   }
 
+  function buttonClass(style?: string) {
+    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+    if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-600 bg-gray-800 text-gray-100 hover:bg-gray-700 transition-colors"
+  }
+
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
       {isOpen && (
@@ -174,6 +191,7 @@ export function AdminAIChatWidget() {
                 onClick={() => {
                   const welcome = { role: "assistant" as const, content: `Hi${firstName ? " " + firstName : ""}! I have access to all admin tools. Ask me about orders, users, stats, or anything else.`, timestamp: Date.now() }
                   setMessages([welcome])
+                  setActionButtons(null)
                   if (userId) { try { localStorage.removeItem(STORAGE_KEY(userId)) } catch {} }
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
@@ -205,6 +223,17 @@ export function AdminAIChatWidget() {
                 </div>
               </div>
             )}
+
+            {!isStreaming && actionButtons && actionButtons.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {actionButtons.map((btn, i) => (
+                  <button key={i} onClick={() => sendMessage(btn.value)} className={buttonClass(btn.style)}>
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
 
@@ -219,7 +248,7 @@ export function AdminAIChatWidget() {
               className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 outline-none focus:border-gray-400 disabled:opacity-50 transition-colors"
             />
             <button
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={isStreaming || !input.trim()}
               className="bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white rounded-xl p-2 transition-colors flex-shrink-0"
             >

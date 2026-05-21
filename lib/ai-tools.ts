@@ -672,6 +672,30 @@ const getKnowledgeBaseTool: Anthropic.Tool = {
   },
 }
 
+const showActionButtonsTool: Anthropic.Tool = {
+  name: "show_action_buttons",
+  description: "Display clickable buttons to the user for confirmations or multi-choice selections. Use this INSTEAD of asking the user to type 'yes', 'no', or choose an option — buttons are faster and clearer. Call this right before or after presenting a choice. Max 4 buttons. Example: before placing an order, call show_action_buttons with [{label:'Confirm order', value:'Yes, confirm', style:'primary'}, {label:'Cancel', value:'Cancel', style:'secondary'}].",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      buttons: {
+        type: "array",
+        description: "List of buttons to display (1–4 buttons)",
+        items: {
+          type: "object" as const,
+          properties: {
+            label: { type: "string", description: "Text shown on the button" },
+            value: { type: "string", description: "Text sent as the user's reply when this button is clicked" },
+            style: { type: "string", description: "Visual style: primary (violet, for the main action), danger (red, for destructive actions), secondary (gray, for cancel/alternatives)" },
+          },
+          required: ["label", "value"],
+        },
+      },
+    },
+    required: ["buttons"],
+  },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
@@ -683,6 +707,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getAirtimeAvailabilityTool,
     getResultsCheckerAvailabilityTool,
     getKnowledgeBaseTool,
+    showActionButtonsTool,
   ]
 
   // Dashboard: authenticated dealer/user, wallet-based ordering
@@ -699,6 +724,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getSubscriptionPlansTool,
     getMyShopTool,
     getKnowledgeBaseTool,
+    showActionButtonsTool,
   ]
 
   // Admin: platform management — full suite
@@ -748,8 +774,9 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getAdminStatsTool,
     getPlatformStatsTool,
     manageSubscriptionPlansTool,
-    // Knowledge
+    // Knowledge & UI
     getKnowledgeBaseTool,
+    showActionButtonsTool,
   ]
 }
 
@@ -794,7 +821,7 @@ export async function executeToolCall(
   try {
     switch (name) {
       case "get_available_packages": {
-        // Storefront: shop-specific packages with markup
+        // Storefront (shopSlug set, guest user): fetch only what this shop has configured
         if (ctx.shopSlug) {
           const url = new URL(`${ctx.baseUrl}/api/shop/public-packages`)
           url.searchParams.set("slug", ctx.shopSlug)
@@ -808,12 +835,17 @@ export async function executeToolCall(
             })
           }
           return sanitize(packages.map((p: Record<string, unknown>) => ({
-            id: p.id,
+            id: p.id,   // pass this as shop_package_id to prepare_checkout
             network: (p.packages as Record<string, unknown>)?.network ?? p.network,
             size: (p.packages as Record<string, unknown>)?.size ?? p.size,
             price: p.selling_price ?? (p.packages as Record<string, unknown>)?.price,
-            package_id: p.package_id,
           })))
+        }
+
+        // Guest with no shopSlug — should never happen in storefront context; refuse rather than leaking the full catalog
+        if (!ctx.userId) {
+          console.warn("[AI-TOOLS] get_available_packages called with no shopSlug and no userId")
+          return { error: "Shop context is missing. Please refresh the page and try again." }
         }
 
         // Dashboard / admin: base packages table, dealer pricing applied
@@ -1731,6 +1763,11 @@ export async function executeToolCall(
         if (error) return { error: error.message }
         if (!data?.length) return { found: 0, message: "No relevant entries found in the knowledge base." }
         return { found: data.length, entries: data }
+      }
+
+      case "show_action_buttons": {
+        const buttons = Array.isArray(input.buttons) ? input.buttons : []
+        return { __action_buttons: true, buttons, displayed: true, button_count: buttons.length }
       }
 
       default:

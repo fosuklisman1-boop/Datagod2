@@ -5,7 +5,24 @@
       "Bash(grep -A 10 \"shop_profits.*UPDATE\\\\|shop_profits.*FOR UPDATE\" /b/data/Datagod2/migrations/*.sql)",
       "Bash(grep -rn \"fetch\\(\\\\\"/api/admin[^\\\\\"]*\\\\\", { method\" --include=\"*.tsx\" --include=\"*.ts\")",
       "Skill(commit-commands:commit-push-pr)",
-      "Skill(commit-commands:commit-push-pr:*)"
+      "Skill(commit-commands:commit-push-pr:*)",
+      "Bash(git rebase *)",
+      "Bash(GIT_EDITOR=true git rebase --continue)",
+      "Bash(EDITOR=\"sed -i '1s/.*/fix: support ussd_shop orders in status update and manual fulfillment/'\" git rebase --continue)",
+      "Bash(git stash *)",
+      "Bash(git pull *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\lenovo\\\\datagod2\\\\Datagod2\" -Directory -Force)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\lenovo\\\\datagod2\\\\Datagod2\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(xargs -I {} basename {} page.tsx)",
+      "Bash(node -e \"require\\('sonner'\\); console.log\\('ok'\\)\")",
+      "Bash(Test-Path \"c:\\\\Users\\\\lenovo\\\\datagod2\\\\Datagod2\\\\node_modules\\\\sonner\")",
+      "PowerShell(Get-Command bun -ErrorAction SilentlyContinue; Get-ChildItem \"$env:USERPROFILE\\\\.bun\\\\bin\\\\bun.exe\" -ErrorAction SilentlyContinue; Get-ChildItem \"C:\\\\Users\\\\lenovo\\\\.bun\\\\bin\\\\bun.exe\" -ErrorAction SilentlyContinue)",
+      "Bash(cd /mnt/c/Users/lenovo/datagod2/Datagod2 && npx tsc --noEmit --project tsconfig.json 2>&1 | head -40)",
+      "Read(//mnt/c/Users/lenovo/datagod2/**)",
+      "Bash(grep -E \"\\\\.sql$\")",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\lenovo\\\\datagod2\\\\Datagod2\\\\app\\\\api\" -Recurse -Filter \"route.ts\" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName -replace [regex]::Escape\\(\"c:\\\\Users\\\\lenovo\\\\datagod2\\\\Datagod2\\\\\"\\), \"\" } | Sort-Object)"
     ]
   }
 }
