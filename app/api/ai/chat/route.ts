@@ -180,10 +180,10 @@ ORDERS & FULFILLMENT:
 - Retry orders blocked by a now-cleared blacklisted phone
 
 USERS:
-- List all users or look up by phone/email
-- Suspend or unsuspend a user account
-- Change a user's role (user, dealer, sub_agent, admin)
-- Manually credit or debit a user's wallet
+- List all users or look up a single user by phone/email (get_user_info returns the user's id)
+- Suspend or unsuspend a user account (needs user_id from get_user_info or list_users)
+- Change a user's role: user, dealer, sub_agent, admin (needs user_id)
+- Manually credit or debit a user's wallet (needs user_id)
 
 SHOPS:
 - List shops by status (pending/active)

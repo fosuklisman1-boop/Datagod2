@@ -42,17 +42,17 @@ const searchOrderStatusTool: Anthropic.Tool = {
 
 const prepareCheckoutTool: Anthropic.Tool = {
   name: "prepare_checkout",
-  description: "Open the checkout/payment form pre-filled with a selected package. Use this when a customer has decided what to buy on the storefront.",
+  description: "Open the checkout/payment form pre-filled with a selected package. Use this when a customer has decided what to buy on the storefront. Use the 'id' field from get_available_packages as shop_package_id.",
   input_schema: {
     type: "object" as const,
     properties: {
       shop_package_id: {
         type: "string",
-        description: "The shop package ID to pre-fill in the checkout form",
+        description: "The 'id' value from get_available_packages for the package the customer chose",
       },
-      network: { type: "string", description: "Network name" },
-      volume_gb: { type: "number", description: "Package size in GB" },
-      price: { type: "number", description: "Price in GHS as shown to the customer" },
+      network: { type: "string", description: "Network name e.g. MTN, Telecel, AT" },
+      volume_gb: { type: "number", description: "Package size in GB (the 'size' field from get_available_packages)" },
+      price: { type: "number", description: "Price in GHS (the 'price' field from get_available_packages)" },
     },
     required: ["shop_package_id", "network", "volume_gb", "price"],
   },
@@ -70,7 +70,7 @@ const getWalletBalanceTool: Anthropic.Tool = {
 
 const getOrderHistoryTool: Anthropic.Tool = {
   name: "get_order_history",
-  description: "Get the recent order history for the logged-in user.",
+  description: "Get the logged-in user's recent data bundle orders (wallet and shop orders). For wallet transaction credits/debits use get_wallet_transactions. For a full filtered history use get_transaction_history.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -99,7 +99,7 @@ const placeWalletOrderTool: Anthropic.Tool = {
 
 const getAllOrdersTool: Anthropic.Tool = {
   name: "get_all_orders",
-  description: "Admin only: get platform-wide orders with optional filters including date/time range.",
+  description: "Admin only: get platform-wide orders across all order types (wallet, shop, USSD, USSD-shop). Results include a 'table' field (orders/shop_orders/ussd_orders/ussd_shop_orders) and 'id' — both are needed when calling update_order_status or manual_fulfill_order.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -116,12 +116,12 @@ const getAllOrdersTool: Anthropic.Tool = {
 
 const updateOrderStatusTool: Anthropic.Tool = {
   name: "update_order_status",
-  description: "Admin only: update the status of a single order by ID.",
+  description: "Admin only: update the status of a single order by ID. The order ID comes from get_all_orders. Works across all order tables automatically.",
   input_schema: {
     type: "object" as const,
     properties: {
-      order_id: { type: "string", description: "The order ID to update" },
-      status: { type: "string", description: "New status: completed, failed, refunded, processing" },
+      order_id: { type: "string", description: "The order ID (from get_all_orders)" },
+      status: { type: "string", description: "New status: pending, processing, completed, failed" },
     },
     required: ["order_id", "status"],
   },
@@ -184,11 +184,11 @@ const manageBlacklistTool: Anthropic.Tool = {
 
 const getPlatformStatsTool: Anthropic.Tool = {
   name: "get_platform_stats",
-  description: "Admin only: get platform-wide order statistics and revenue summary.",
+  description: "Admin only: get order counts and revenue summary for today/week/month, calculated live across all order tables. For a full dashboard summary including airtime use get_admin_stats instead.",
   input_schema: {
     type: "object" as const,
     properties: {
-      period: { type: "string", description: "Time period: today, week, month (default: today)" },
+      period: { type: "string", description: "Time period: today, week, or month (default: today)" },
     },
     required: [],
   },
@@ -313,7 +313,7 @@ const adjustWalletBalanceTool: Anthropic.Tool = {
 
 const listShopsTool: Anthropic.Tool = {
   name: "list_shops",
-  description: "Admin only: list dealer shops filtered by status.",
+  description: "Admin only: list dealer shops filtered by status. The 'id' in each result is used as shop_id in manage_shop.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -370,18 +370,18 @@ const manageWithdrawalTool: Anthropic.Tool = {
 
 const managePackagesTool: Anthropic.Tool = {
   name: "manage_packages",
-  description: "Admin only: list all data packages, create or update a package, or toggle a package's availability on/off.",
+  description: "Admin only: list all data packages, create or update a package, or toggle a package's availability on/off. Call action='list' first to get package_id values for update/toggle.",
   input_schema: {
     type: "object" as const,
     properties: {
       action: { type: "string", description: "'list' to view all packages, 'create' to add a new one, 'update' to edit an existing one, or 'toggle' to enable/disable" },
-      package_id: { type: "string", description: "Required for update and toggle actions" },
+      package_id: { type: "string", description: "The package UUID — get this from action='list'. Required for update and toggle." },
       network: { type: "string", description: "Network name: MTN, AirtelTigo, or Telecel" },
       name: { type: "string", description: "Package display name" },
-      size: { type: "number", description: "Package size in GB" },
-      price: { type: "number", description: "Customer price in GHS" },
-      dealer_price: { type: "number", description: "Dealer price in GHS (must be less than price)" },
-      is_available: { type: "boolean", description: "For toggle: true to enable, false to disable" },
+      size: { type: "number", description: "Package size as a plain number (e.g. 1, 2, 5, 10) — stored without 'GB' suffix" },
+      price: { type: "number", description: "Customer price in GHS as a number (e.g. 5.00)" },
+      dealer_price: { type: "number", description: "Dealer price in GHS — must be lower than price" },
+      is_available: { type: "boolean", description: "For toggle action: true to enable, false to disable" },
     },
     required: ["action"],
   },
@@ -480,7 +480,7 @@ const manageRateLimitsTool: Anthropic.Tool = {
 
 const getAdminStatsTool: Anthropic.Tool = {
   name: "get_admin_stats",
-  description: "Admin only: get comprehensive platform-wide statistics including orders, revenue, and airtime data from the admin dashboard.",
+  description: "Admin only: get the full admin dashboard statistics — total orders, revenue, success rate, airtime stats, and more. Prefer this over get_platform_stats when the admin asks for a general overview.",
   input_schema: {
     type: "object" as const,
     properties: {},
@@ -509,7 +509,7 @@ const manageSubscriptionPlansTool: Anthropic.Tool = {
 
 const getWalletTransactionsTool: Anthropic.Tool = {
   name: "get_wallet_transactions",
-  description: "Get the logged-in user's wallet transaction history (credits and debits).",
+  description: "Get the logged-in user's wallet credit/debit history — top-ups, manual credits, and wallet deductions. For the list of data orders placed use get_order_history. For a combined filtered view use get_transaction_history.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -522,7 +522,7 @@ const getWalletTransactionsTool: Anthropic.Tool = {
 
 const getTransactionHistoryTool: Anthropic.Tool = {
   name: "get_transaction_history",
-  description: "Get the logged-in user's full filtered transaction history including orders and wallet activity.",
+  description: "Get the logged-in user's combined transaction history (orders + wallet activity) with date-range filtering. Use when the user asks what they spent over a time period. For wallet credits/debits only use get_wallet_transactions; for recent orders only use get_order_history.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -580,14 +580,14 @@ const getResultsCheckerAvailabilityTool: Anthropic.Tool = {
 
 const syncFulfillmentStatusTool: Anthropic.Tool = {
   name: "sync_fulfillment_status",
-  description: "Admin only: sync the fulfillment status of an MTN order from the Sykes external API. Use when an order is stuck in processing and needs a status refresh. Can sync a single order by tracking_id or mtn_order_id, or sync all pending MTN orders at once.",
+  description: "Admin only: sync an MTN order's status from the external provider. Use get_mtn_logs first to find the tracking_id or mtn_order_id for a specific order. Set sync_all_pending=true to refresh all pending MTN orders at once without needing individual IDs.",
   input_schema: {
     type: "object" as const,
     properties: {
-      tracking_id: { type: "string", description: "Sykes tracking ID for the order to sync" },
-      mtn_order_id: { type: "string", description: "MTN order ID to sync" },
-      sync_all_pending: { type: "boolean", description: "Set to true to sync all pending MTN orders from the external API" },
-      provider: { type: "string", description: "Provider name, e.g. 'mtn'" },
+      tracking_id: { type: "string", description: "Sykes tracking ID — get this from get_mtn_logs" },
+      mtn_order_id: { type: "string", description: "MTN order ID — get this from get_mtn_logs" },
+      sync_all_pending: { type: "boolean", description: "true to sync all pending MTN orders at once (no tracking_id needed)" },
+      provider: { type: "string", description: "Provider name: 'mtn' or 'datakazina'" },
     },
     required: [],
   },
