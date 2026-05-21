@@ -716,9 +716,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     searchOrderStatusTool,
     getWalletBalanceTool,
     getWalletTransactionsTool,
-    getTransactionHistoryTool,
     getOrderHistoryTool,
-    getOrderStatsTool,
     placeWalletOrderTool,
     getSubscriptionTool,
     getSubscriptionPlansTool,
@@ -758,9 +756,6 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     bulkManualFulfillTool,
     syncFulfillmentStatusTool,
     retryBlacklistedOrderTool,
-    // Logs
-    getFulfillmentLogsTool,
-    getMtnLogsTool,
     // Settings & toggles
     toggleOrderingTool,
     toggleAutoFulfillmentTool,
@@ -772,7 +767,6 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     manageRateLimitsTool,
     // Stats & plans
     getAdminStatsTool,
-    getPlatformStatsTool,
     manageSubscriptionPlansTool,
     // Knowledge & UI
     getKnowledgeBaseTool,

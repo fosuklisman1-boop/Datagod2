@@ -69,17 +69,13 @@ export async function POST(req: NextRequest) {
 
   // ── User context (dashboard + admin only) ─────────────────────────────────
   if (userId && (context === "dashboard" || context === "admin")) {
-    const [profileRes, walletRes, ordersRes] = await Promise.all([
+    const [profileRes, walletRes] = await Promise.all([
       supabaseAdmin.from("users").select("first_name, last_name, phone_number, role").eq("id", userId).single(),
       supabaseAdmin.from("wallets").select("balance").eq("user_id", userId).maybeSingle(),
-      supabaseAdmin.from("orders").select("network, size, status, created_at, phone_number").eq("user_id", userId).order("created_at", { ascending: false }).limit(5),
     ])
 
     const p = profileRes.data
     const w = walletRes.data
-    const recentOrders = (ordersRes.data ?? [])
-      .map(o => `- ${o.network} ${o.size}GB → ${o.phone_number} — ${o.status} (${new Date(o.created_at).toLocaleDateString()})`)
-      .join("\n")
 
     userContext = {
       firstName: p?.first_name ?? "",
@@ -87,7 +83,6 @@ export async function POST(req: NextRequest) {
       phone: p?.phone_number ?? "",
       role: p?.role ?? "user",
       balance: w?.balance !== undefined ? `GHS ${Number(w.balance).toFixed(2)}` : "unknown",
-      recentOrders: recentOrders || "No recent orders",
     }
   }
 
@@ -166,11 +161,10 @@ ${formattingRules}`
     systemPrompt = `You are the AI assistant for the Datagod platform dashboard.
 You are helping ${userContext.firstName} ${userContext.lastName} — account role: **${userContext.role}**.
 
-ACCOUNT CONTEXT (loaded at message time — may be seconds old; always call tools for live data):
+ACCOUNT CONTEXT:
 - Phone: ${userContext.phone}
-- Wallet balance (at send time): ${userContext.balance} — call get_wallet_balance for the current live figure
-- Recent orders (at send time): call get_order_history for the latest list
-${userContext.recentOrders}
+- Wallet balance (snapshot): ${userContext.balance} — always call get_wallet_balance before placing an order
+- Call get_order_history for recent orders
 
 ═══════════════════════════════════════════
 PLATFORM GUIDE — know this to help users
@@ -239,46 +233,17 @@ ${formattingRules}`
     systemPrompt = `You are the AI assistant for the Datagod admin dashboard.
 You are assisting admin ${userContext.firstName} ${userContext.lastName}.
 
-ACCOUNT CONTEXT (loaded at message time — call tools for live data):
-- Wallet balance (at send time): ${userContext.balance}
-- Recent orders (at send time):
-${userContext.recentOrders}
+PLATFORM: Datagod — Ghana data bundle reseller (MTN, Telecel, AT).
+Roles: user, dealer (wholesale + storefront), sub_agent, admin.
+Fulfillment providers: Sykes/Datakazina (MTN), AFA (AT/Telecel).
 
-═══════════════════════════════════════════
-PLATFORM OVERVIEW (know this to advise well)
-═══════════════════════════════════════════
+ORDER TABLES (each has an 'id' field — use the 'table' value from get_all_orders):
+- orders: dealer wallet orders (status field)
+- shop_orders: Paystack storefront orders (order_status field)
+- ussd_orders / ussd_shop_orders: USSD *714# orders (order_status field)
+- api_orders: V1 API key orders (status field; no payment_status)
 
-HOW THE PLATFORM WORKS:
-- Datagod is a data bundle reseller platform for Ghana (MTN, Telecel/Vodafone, AT/AirtelTigo)
-- Three user roles: user (regular), dealer (reseller with wholesale pricing), sub_agent (under a dealer), admin
-- Dealers pay a subscription fee to unlock wholesale pricing and their own storefront
-- Dealers get a public storefront URL (/shop/[slug]) where their customers buy via Paystack
-- Orders flow: customer pays → Paystack webhook → order created → auto-fulfillment provider delivers data
-- Fulfillment providers: Sykes (MTN), Datakazina (MTN alt), AFA (AT/Telecel)
-- Wallet: dealers top up their wallet via Paystack, then use it to place orders programmatically
-- Sub-agents operate under a dealer's shop with their own pricing markup
-- USSD shop (*714#): allows dealers to receive orders via USSD; runs on token balance
-
-ORDER TABLES:
-- orders: wallet/bulk orders placed by dealers directly (status field = status)
-- shop_orders: Paystack orders from dealer storefronts (order_status field)
-- ussd_orders: orders placed via USSD *714# (order_status field)
-- ussd_shop_orders: USSD orders from dealer-specific USSD shops (order_status field)
-- api_orders: orders placed via the V1 REST API using an API key (status field = status; no payment_status column)
-
-ADMIN PANEL PAGES (at /admin/*):
-- /admin — dashboard overview with stats
-- /admin/orders — all platform orders with filters
-- /admin/users — user management (roles, suspension, wallets)
-- /admin/shops — dealer shop management (approve/reject)
-- /admin/packages — data package management
-- /admin/blacklist — phone blacklist management
-- /admin/withdrawals — dealer withdrawal requests
-- /admin/fulfillment — manual fulfillment, logs, MTN balance
-- /admin/settings — platform toggles (ordering, auto-fulfillment, MTN provider)
-- /admin/subscription-plans — dealer plan management
-- /admin/rate-limits — view/reset throttled users
-- /admin/ai-knowledge — manage what the AI knows
+ADMIN PAGES: /admin, /admin/orders, /admin/users, /admin/shops, /admin/packages, /admin/blacklist, /admin/withdrawals, /admin/fulfillment, /admin/settings, /admin/subscription-plans, /admin/rate-limits, /admin/ai-knowledge
 
 You have access to all platform admin tools:
 
@@ -364,7 +329,7 @@ ${formattingRules}`
         while (keepRunning) {
           const response = await anthropic.messages.create({
             model: "claude-haiku-4-5-20251001",
-            max_tokens: 1024,
+            max_tokens: 600,
             system: systemPrompt,
             tools,
             messages: currentMessages,
@@ -409,10 +374,12 @@ ${formattingRules}`
                 send({ type: "action_buttons", buttons: r.buttons ?? [] })
               }
 
+              const resultStr = JSON.stringify(result)
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: tc.id,
-                content: JSON.stringify(result),
+                // cap result size to avoid exploding context in agentic loops
+                content: resultStr.length > 3000 ? resultStr.slice(0, 3000) + "…[truncated]" : resultStr,
               })
             }
 

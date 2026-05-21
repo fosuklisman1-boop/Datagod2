@@ -107,7 +107,7 @@ export function DashboardAIChatWidget() {
     setIsStreaming(true)
     setStreamingContent("")
 
-    const history = nextMessages.slice(-20).map(m => ({ role: m.role, content: m.content }))
+    const history = nextMessages.slice(-10).map(m => ({ role: m.role, content: m.content }))
 
     try {
       const res = await fetch("/api/ai/chat", {
