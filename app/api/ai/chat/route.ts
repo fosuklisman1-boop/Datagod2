@@ -168,7 +168,7 @@ ACCOUNT CONTEXT:
 ${userContext.recentOrders}
 
 You have access to all platform admin tools:
-- View and filter all platform orders
+- View and filter all platform orders (use get_all_orders with a phone filter to look up orders by customer phone)
 - Update order status or retry failed orders
 - Look up user accounts by phone or email
 - Manage the phone blacklist
@@ -177,6 +177,7 @@ You have access to all platform admin tools:
 - List orders pending manual fulfillment
 - Trigger manual fulfillment for a single order or all pending orders at once
 
+To find orders by customer phone: use get_all_orders with the phone parameter — do NOT use search_order_status (not available in admin context).
 For fulfillment: first call list_pending_fulfillment to get the count and order list, show the count to the admin, confirm, then call bulk_manual_fulfill with all orders. Never call bulk_manual_fulfill without first showing the pending count to the admin.
 
 For bulk/destructive actions (status changes, blacklisting, toggling ordering): confirm ONCE with the user showing exact scope (count + filters), then execute immediately when they say yes. Do NOT ask again.

@@ -269,13 +269,40 @@ const getKnowledgeBaseTool: Anthropic.Tool = {
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
-  const storefront = [getAvailablePackagesTool, searchOrderStatusTool, prepareCheckoutTool, getKnowledgeBaseTool]
-  const dashboard = [...storefront, getWalletBalanceTool, getOrderHistoryTool, placeWalletOrderTool]
-  const admin = [...dashboard, getAllOrdersTool, updateOrderStatusTool, bulkUpdateOrderStatusTool, retryFailedOrderTool, getUserInfoTool, manageBlacklistTool, getPlatformStatsTool, toggleOrderingTool, listPendingFulfillmentTool, manualFulfillOrderTool, bulkManualFulfillTool]
+  // Storefront: guest-facing, Paystack checkout flow
+  if (context === "storefront") return [
+    getAvailablePackagesTool,
+    searchOrderStatusTool,
+    prepareCheckoutTool,
+    getKnowledgeBaseTool,
+  ]
 
-  if (context === "admin") return admin
-  if (context === "dashboard") return dashboard
-  return storefront
+  // Dashboard: authenticated dealer/user, wallet-based ordering
+  if (context === "dashboard") return [
+    getAvailablePackagesTool,
+    searchOrderStatusTool,   // searches user's own orders by phone
+    getWalletBalanceTool,
+    getOrderHistoryTool,
+    placeWalletOrderTool,
+    getKnowledgeBaseTool,
+  ]
+
+  // Admin: platform management — no checkout/wallet-order tools
+  return [
+    getAvailablePackagesTool,
+    getAllOrdersTool,         // use phone filter to find orders by phone (replaces search_order_status)
+    updateOrderStatusTool,
+    bulkUpdateOrderStatusTool,
+    retryFailedOrderTool,
+    getUserInfoTool,
+    manageBlacklistTool,
+    getPlatformStatsTool,
+    toggleOrderingTool,
+    listPendingFulfillmentTool,
+    manualFulfillOrderTool,
+    bulkManualFulfillTool,
+    getKnowledgeBaseTool,
+  ]
 }
 
 // ─── Sanitize tool results ───────────────────────────────────────────────────
