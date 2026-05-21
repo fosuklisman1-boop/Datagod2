@@ -33,5 +33,11 @@ LEFT JOIN sub_agent_catalog sac
   AND sac.is_active = true
   AND u.parent_shop_id IS NOT NULL
 WHERE o.payment_status = 'completed'
-  AND (o.profit_amount IS NULL OR o.profit_amount = 0)
+  AND (
+    -- Sub-agent's own profit was never stored
+    (o.profit_amount IS NULL OR o.profit_amount = 0)
+    OR
+    -- Parent shop margin was never stored (all old sub-agent orders before migration)
+    (u.parent_shop_id IS NOT NULL AND (o.parent_profit_amount IS NULL OR o.parent_profit_amount = 0))
+  )
 ORDER BY u.shop_name, o.created_at;
