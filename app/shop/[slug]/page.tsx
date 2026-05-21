@@ -710,6 +710,17 @@ export default function ShopStorefront() {
                               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                 {packages
                                   .filter(p => p.packages.network === selectedNetwork)
+                                  .sort((a, b) => {
+                                    const toMb = (s: string) => {
+                                      const m = s.trim().match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i)
+                                      if (!m) { const n = parseFloat(s); return isNaN(n) ? 0 : n * 1024 }
+                                      const v = parseFloat(m[1])
+                                      if (m[2].toUpperCase() === 'MB') return v
+                                      if (m[2].toUpperCase() === 'TB') return v * 1024 * 1024
+                                      return v * 1024
+                                    }
+                                    return toMb(a.packages.size) - toMb(b.packages.size)
+                                  })
                                   .map((shopPkg) => {
                                     const pkg = shopPkg.packages
                                     const totalPrice = pkg.price + shopPkg.profit_margin
