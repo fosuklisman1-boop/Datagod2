@@ -37,12 +37,13 @@ export function networkMenu(shopName: string, networks: string[]): string {
   const sorted = sortNetworks(networks)
   const lines = sorted.map((n, i) => `${i + 1}. ${n}`)
   lines.push('0. Back')
-  return `${shopName}\nSelect Network:\n` + lines.join('\n')
+  return `${gsm7(shopName)}\nSelect Network:\n` + lines.join('\n')
 }
 
-function hasUnicode(s: string): boolean {
-  for (const ch of s) if (ch.codePointAt(0)! > 127) return true
-  return false
+// Strip characters outside printable ASCII — prevents emoji/Unicode from
+// triggering UCS-2 encoding on the carrier and halving the screen limit.
+function gsm7(s: string): string {
+  return s.replace(/[^\x20-\x7E]/g, '').trim()
 }
 
 export function bundleMenu(
@@ -52,8 +53,8 @@ export function bundleMenu(
   total: number
 ): { text: string; shown: number } {
   const offset = page * PAGE_SIZE
-  const limit = hasUnicode(shopName) ? 80 : 160
-  const header = `${shopName}\nSelect Bundle:\n`
+  const limit = 160
+  const header = `${gsm7(shopName)}\nSelect Bundle:\n`
   const back = '0. Back'
 
   let body = ''
@@ -86,7 +87,7 @@ export function confirmMenu(shopName: string, network: string, size: string, pri
   const localDialing = formatLocal(dialingPhone)
   const localRecipient = formatLocal(recipient)
   return (
-    `${shopName}\n` +
+    `${gsm7(shopName)}\n` +
     `${size} ${network}\n` +
     `To: ${localRecipient}\n` +
     `GHS ${price.toFixed(2)} from\n${localDialing}\n\n` +
