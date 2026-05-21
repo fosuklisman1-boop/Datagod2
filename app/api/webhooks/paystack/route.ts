@@ -327,10 +327,12 @@ export async function POST(request: NextRequest) {
             created_at: new Date().toISOString(),
           }])
           if (profitErr) {
-            console.error("[WEBHOOK] Failed to credit USSD shop profit:", profitErr)
+            console.error("[WEBHOOK] Failed to credit USSD shop profit:", profitErr.message, profitErr.code, profitErr.details)
           } else {
             console.log(`[WEBHOOK] ✓ Shop profit credited: GHS ${ussdShopOrder.profit_amount} for shop ${ussdShopOrder.shop_id}`)
           }
+        } else {
+          console.log(`[WEBHOOK] USSD shop profit_amount is ${ussdShopOrder.profit_amount} — skipping profit insert for order ${ussdShopOrder.id}`)
         }
 
         // Credit parent shop wholesale margin (sub-agent orders only)
@@ -343,7 +345,7 @@ export async function POST(request: NextRequest) {
             created_at: new Date().toISOString(),
           }])
           if (parentProfitErr) {
-            console.error("[WEBHOOK] Failed to credit parent shop profit for USSD sub-agent order:", parentProfitErr)
+            console.error("[WEBHOOK] Failed to credit parent shop profit for USSD sub-agent order:", parentProfitErr.message, parentProfitErr.code, parentProfitErr.details)
           } else {
             console.log(`[WEBHOOK] ✓ Parent shop profit credited: GHS ${ussdShopOrder.parent_profit_amount} for shop ${ussdShopOrder.parent_shop_id}`)
           }
