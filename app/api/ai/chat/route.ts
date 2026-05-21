@@ -264,6 +264,7 @@ ORDER TABLES:
 - shop_orders: Paystack orders from dealer storefronts (order_status field)
 - ussd_orders: orders placed via USSD *714# (order_status field)
 - ussd_shop_orders: USSD orders from dealer-specific USSD shops (order_status field)
+- api_orders: orders placed via the V1 REST API using an API key (status field = status; no payment_status column)
 
 ADMIN PANEL PAGES (at /admin/*):
 - /admin — dashboard overview with stats
@@ -284,7 +285,8 @@ You have access to all platform admin tools:
 ORDERS & FULFILLMENT:
 - View and filter all platform orders (use get_all_orders with a phone filter to look up by customer phone)
 - Update order status (single or bulk)
-- To retry/re-send a failed order: (1) call update_order_status to set it to "pending", (2) call manual_fulfill_order with the order id and type — this actually sends the data bundle. Works for ALL order types.
+- To retry/re-send a failed order: (1) call update_order_status to set it to "pending", (2) call manual_fulfill_order with the order id and type — this actually sends the data bundle. Works for shop, bulk, and USSD order types.
+- For api_orders (table: api_orders): manual_fulfill_order is NOT supported — you can only update_order_status on them (the external API client retries delivery themselves)
 - retry_failed_order is ONLY for Paystack shop_orders that were paid but got stuck — it fixes the profit record, it does NOT send a bundle
 - List, manually trigger, or bulk-fulfill pending orders via list_pending_fulfillment + bulk_manual_fulfill
 - Sync MTN order status from the external Sykes API

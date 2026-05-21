@@ -99,7 +99,7 @@ const placeWalletOrderTool: Anthropic.Tool = {
 
 const getAllOrdersTool: Anthropic.Tool = {
   name: "get_all_orders",
-  description: "Admin only: get platform-wide orders across all order types (wallet, shop, USSD, USSD-shop). Results include a 'table' field (orders/shop_orders/ussd_orders/ussd_shop_orders) and 'id' — both are needed when calling update_order_status or manual_fulfill_order.",
+  description: "Admin only: get platform-wide orders across all order types (wallet, shop, USSD, USSD-shop, API). Results include a 'table' field (orders/shop_orders/ussd_orders/ussd_shop_orders/api_orders) and 'id' — both are needed when calling update_order_status or manual_fulfill_order.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -220,7 +220,7 @@ const listPendingFulfillmentTool: Anthropic.Tool = {
 
 const manualFulfillOrderTool: Anthropic.Tool = {
   name: "manual_fulfill_order",
-  description: "Admin only: trigger manual fulfillment (actually send the data bundle) for a single order. Works for all order types. Use this to retry delivery for any failed or stuck order — it is the correct tool for re-sending data bundles. The order_type comes from get_all_orders 'table' field: shop_orders→shop, orders→bulk, ussd_orders→ussd, ussd_shop_orders→ussd_shop. The order must be set to pending/processing status first.",
+  description: "Admin only: trigger manual fulfillment (actually send the data bundle) for a single order. Works for shop, bulk, and USSD order types. Use this to retry delivery for failed or stuck orders. The order_type comes from get_all_orders 'table' field: shop_orders→shop, orders→bulk, ussd_orders→ussd, ussd_shop_orders→ussd_shop. NOTE: api_orders (table: api_orders) are NOT supported here — for API orders you can only update_order_status. The order must be set to pending/processing status first.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -1025,17 +1025,27 @@ export async function executeToolCall(
         if (dateFrom) ussdShopQ = ussdShopQ.gte("created_at", dateFrom)
         if (dateTo) ussdShopQ = ussdShopQ.lte("created_at", dateTo)
 
-        const [{ data: ordersData, error: e1 }, { data: shopData, error: e2 }, { data: ussdData, error: e3 }, { data: ussdShopData, error: e4 }] = await Promise.all([ordersQ, shopQ, ussdQ, ussdShopQ])
+        // api_orders: no payment_status column — all rows are valid orders
+        let apiQ = supabaseAdmin.from("api_orders").select("id, network, volume_gb, status, recipient_phone, created_at").order("created_at", { ascending: false }).limit(limit)
+        if (status) apiQ = apiQ.eq("status", status)
+        if (network) apiQ = apiQ.ilike("network", network)
+        if (phone) apiQ = apiQ.eq("recipient_phone", phone)
+        if (dateFrom) apiQ = apiQ.gte("created_at", dateFrom)
+        if (dateTo) apiQ = apiQ.lte("created_at", dateTo)
+
+        const [{ data: ordersData, error: e1 }, { data: shopData, error: e2 }, { data: ussdData, error: e3 }, { data: ussdShopData, error: e4 }, { data: apiData, error: e5 }] = await Promise.all([ordersQ, shopQ, ussdQ, ussdShopQ, apiQ])
         if (e1) return { error: e1.message }
         if (e2) return { error: e2.message }
         if (e3) return { error: e3.message }
         if (e4) return { error: e4.message }
+        if (e5) return { error: e5.message }
 
         const combined = [
           ...(ordersData ?? []).map(o => ({ id: o.id, table: "orders", network: o.network, size: o.size, status: o.status, phone: o.phone_number, created_at: o.created_at })),
           ...(shopData ?? []).map(o => ({ id: o.id, table: "shop_orders", network: o.network, size: `${o.volume_gb}`, status: o.order_status, phone: o.customer_phone, created_at: o.created_at })),
           ...(ussdData ?? []).map(o => ({ id: o.id, table: "ussd_orders", network: o.network, size: o.package_size, status: o.order_status, phone: o.recipient_phone, created_at: o.created_at })),
           ...(ussdShopData ?? []).map(o => ({ id: o.id, table: "ussd_shop_orders", network: o.network, size: o.package_size, status: o.order_status, phone: o.recipient_phone, created_at: o.created_at })),
+          ...(apiData ?? []).map(o => ({ id: o.id, table: "api_orders", network: o.network, size: `${o.volume_gb}`, status: o.status, phone: o.recipient_phone, created_at: o.created_at })),
         ]
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .slice(0, limit)
@@ -1048,12 +1058,13 @@ export async function executeToolCall(
         const newStatus = input.status as string
         const now = new Date().toISOString()
 
-        // orders uses status field; the other three use order_status
+        // orders and api_orders use status field; shop/ussd tables use order_status
         const attempts = [
           supabaseAdmin.from("orders").update({ status: newStatus, updated_at: now }).eq("id", id).select("id"),
           supabaseAdmin.from("shop_orders").update({ order_status: newStatus }).eq("id", id).select("id"),
           supabaseAdmin.from("ussd_orders").update({ order_status: newStatus }).eq("id", id).select("id"),
           supabaseAdmin.from("ussd_shop_orders").update({ order_status: newStatus }).eq("id", id).select("id"),
+          supabaseAdmin.from("api_orders").update({ status: newStatus }).eq("id", id).select("id"),
         ]
 
         for (const attempt of attempts) {
@@ -1090,14 +1101,22 @@ export async function executeToolCall(
           return q
         }
 
-        const [{ error: e1 }, { error: e2 }, { error: e3 }, { error: e4 }] = await Promise.all([
+        // api_orders uses status field but has no updated_at or payment_status columns
+        let apiQ = supabaseAdmin.from("api_orders").update({ status: newStatus })
+        if (input.filter_status) apiQ = apiQ.eq("status", input.filter_status as string)
+        if (input.filter_network) apiQ = apiQ.ilike("network", input.filter_network as string)
+        if (input.date_from) apiQ = apiQ.gte("created_at", input.date_from as string)
+        if (input.date_to) apiQ = apiQ.lte("created_at", input.date_to as string)
+
+        const [{ error: e1 }, { error: e2 }, { error: e3 }, { error: e4 }, { error: e5 }] = await Promise.all([
           buildBulkQ("orders", "status"),
           buildBulkQ("shop_orders", "order_status", { field: "payment_status", value: "completed" }),
           buildBulkQ("ussd_orders", "order_status", { field: "payment_status", value: "completed" }),
           buildBulkQ("ussd_shop_orders", "order_status", { field: "payment_status", value: "completed" }),
+          apiQ,
         ])
 
-        const errs = [e1, e2, e3, e4].filter(Boolean)
+        const errs = [e1, e2, e3, e4, e5].filter(Boolean)
         if (errs.length) return { error: errs.map(e => e!.message).join("; ") }
         return { success: true, message: `Orders updated to "${newStatus}" across all order types.` }
       }
