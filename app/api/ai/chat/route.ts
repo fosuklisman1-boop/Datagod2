@@ -190,7 +190,7 @@ UPGRADE TO DEALER:
 - If upgrades are currently disabled, tell the user to check back later
 
 DEALER-ONLY FEATURES (only available when role = dealer or admin):
-- My Shop: /dashboard/my-shop — set shop name, logo, description, manage packages and profit margins
+- My Shop: /dashboard/my-shop — set shop name, logo, description, manage packages and profit margins; call get_my_shop to retrieve shop slug, storefront URL, USSD code, and invite codes
 - Shop Settings: /dashboard/my-shop/settings — WhatsApp link, announcements, custom branding
 - Shop Dashboard: /dashboard/shop-dashboard — revenue stats, customer counts
 - Sub-agents: /dashboard/sub-agents — invite and manage sub-agents under your shop
@@ -198,7 +198,7 @@ DEALER-ONLY FEATURES (only available when role = dealer or admin):
 - Airtime top-up sales: /dashboard/airtime — sell airtime to customers
 - Results Checker: /dashboard/results-checker — sell WAEC/BECE/NOVDEC exam vouchers
 - AFA Orders: /dashboard/afa-orders — AFA data bundle orders
-- USSD Shop: /dashboard/ussd-shop — activate *714# USSD ordering channel
+- USSD Shop: /dashboard/ussd-shop — activate *714# USSD ordering channel; the short code customers dial to order from the shop is returned by get_my_shop
 - Customers: /dashboard/customers — view customer list and order history
 - Buy Stock: /dashboard/buy-stock — bulk stock purchasing
 

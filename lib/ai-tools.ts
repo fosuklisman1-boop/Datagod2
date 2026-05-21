@@ -554,6 +554,16 @@ const getSubscriptionTool: Anthropic.Tool = {
   },
 }
 
+const getMyShopTool: Anthropic.Tool = {
+  name: "get_my_shop",
+  description: "Get the logged-in dealer's shop details: shop name, storefront URL slug, USSD shop code (the short code customers dial), USSD token balance, and active sub-agent invite codes. Use when a user asks about their shop code, shop URL, USSD code, or invite link.",
+  input_schema: {
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
+}
+
 const getSubscriptionPlansTool: Anthropic.Tool = {
   name: "get_subscription_plans",
   description: "Get all available dealer upgrade plans with names, prices, and durations. Use this when a user asks about upgrading to dealer, becoming a dealer, subscription costs, or plan options.",
@@ -687,6 +697,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     placeWalletOrderTool,
     getSubscriptionTool,
     getSubscriptionPlansTool,
+    getMyShopTool,
     getKnowledgeBaseTool,
   ]
 
@@ -1553,6 +1564,52 @@ export async function executeToolCall(
         })
         const data = await res.json()
         return sanitize(data)
+      }
+
+      case "get_my_shop": {
+        if (!ctx.userId) return { error: "Not authenticated" }
+
+        // Fetch the user's shop
+        const { data: shop, error: shopErr } = await supabaseAdmin
+          .from("user_shops")
+          .select("id, shop_name, shop_slug, is_active, parent_shop_id")
+          .eq("user_id", ctx.userId)
+          .maybeSingle()
+
+        if (shopErr || !shop) return { error: "No shop found for this account. Dealers get a shop after upgrading at /dashboard/upgrade." }
+
+        // Fetch USSD code and invite codes in parallel
+        const [ussdRes, invitesRes] = await Promise.all([
+          supabaseAdmin
+            .from("ussd_shop_codes")
+            .select("code, status, token_balance, activation_fee_paid")
+            .eq("shop_id", shop.id)
+            .maybeSingle(),
+          supabaseAdmin
+            .from("shop_invites")
+            .select("code, status, created_at")
+            .eq("shop_id", shop.id)
+            .eq("status", "active")
+            .order("created_at", { ascending: false })
+            .limit(3),
+        ])
+
+        return {
+          shop_name: shop.shop_name,
+          shop_slug: shop.shop_slug,
+          storefront_url: `/shop/${shop.shop_slug}`,
+          is_active: shop.is_active,
+          is_sub_agent_shop: !!shop.parent_shop_id,
+          ussd_shop: ussdRes.data
+            ? {
+                code: ussdRes.data.code,
+                status: ussdRes.data.status,
+                token_balance: ussdRes.data.token_balance,
+                activated: ussdRes.data.activation_fee_paid,
+              }
+            : null,
+          invite_codes: (invitesRes.data ?? []).map(i => i.code),
+        }
       }
 
       case "get_subscription_plans": {
