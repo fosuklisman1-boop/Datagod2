@@ -168,7 +168,7 @@ export function DashboardAIChatWidget() {
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[75vh] sm:h-[520px] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
+        <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[520px] max-h-[calc(100vh-100px)] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
           <div className="bg-violet-600 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
               <p className="font-semibold text-sm">Datagod Assistant</p>
