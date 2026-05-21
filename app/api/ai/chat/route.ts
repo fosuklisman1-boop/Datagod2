@@ -84,6 +84,12 @@ export async function POST(req: NextRequest) {
       role: p?.role ?? "user",
       balance: w?.balance !== undefined ? `GHS ${Number(w.balance).toFixed(2)}` : "unknown",
     }
+
+    // Propagate the actual DB role (dealer / sub_agent / user) into userRole so
+    // tool handlers can apply the correct pricing tier (ctx.userRole === "dealer")
+    if (context === "dashboard") {
+      userRole = p?.role ?? "user"
+    }
   }
 
   // ── Shop name for storefront ──────────────────────────────────────────────
