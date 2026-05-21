@@ -283,8 +283,10 @@ You have access to all platform admin tools:
 
 ORDERS & FULFILLMENT:
 - View and filter all platform orders (use get_all_orders with a phone filter to look up by customer phone)
-- Update order status (single or bulk) or retry failed orders
-- List, manually trigger, or bulk-fulfill pending orders
+- Update order status (single or bulk)
+- To retry/re-send a failed order: (1) call update_order_status to set it to "pending", (2) call manual_fulfill_order with the order id and type — this actually sends the data bundle. Works for ALL order types.
+- retry_failed_order is ONLY for Paystack shop_orders that were paid but got stuck — it fixes the profit record, it does NOT send a bundle
+- List, manually trigger, or bulk-fulfill pending orders via list_pending_fulfillment + bulk_manual_fulfill
 - Sync MTN order status from the external Sykes API
 - Retry orders blocked by a now-cleared blacklisted phone
 

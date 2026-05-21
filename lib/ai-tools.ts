@@ -145,11 +145,11 @@ const bulkUpdateOrderStatusTool: Anthropic.Tool = {
 
 const retryFailedOrderTool: Anthropic.Tool = {
   name: "retry_failed_order",
-  description: "Admin only: retry fulfillment for a failed or stuck order.",
+  description: "Admin only: fix a Paystack storefront order (shop_orders table only) that was paid but got stuck as 'failed' — resets status to pending and creates any missing profit record. This does NOT send a data bundle. After calling this, call manual_fulfill_order to actually deliver the bundle. Do NOT use this for orders from the orders, ussd_orders, or ussd_shop_orders tables — those will return 'Order not found'.",
   input_schema: {
     type: "object" as const,
     properties: {
-      order_id: { type: "string", description: "The order ID to retry" },
+      order_id: { type: "string", description: "The shop_order ID to fix (must be from shop_orders / table: shop_orders in get_all_orders)" },
     },
     required: ["order_id"],
   },
@@ -220,12 +220,12 @@ const listPendingFulfillmentTool: Anthropic.Tool = {
 
 const manualFulfillOrderTool: Anthropic.Tool = {
   name: "manual_fulfill_order",
-  description: "Admin only: trigger manual fulfillment for a single pending order by ID. Use list_pending_fulfillment first to get the correct id and type.",
+  description: "Admin only: trigger manual fulfillment (actually send the data bundle) for a single order. Works for all order types. Use this to retry delivery for any failed or stuck order — it is the correct tool for re-sending data bundles. The order_type comes from get_all_orders 'table' field: shop_orders→shop, orders→bulk, ussd_orders→ussd, ussd_shop_orders→ussd_shop. The order must be set to pending/processing status first.",
   input_schema: {
     type: "object" as const,
     properties: {
-      order_id: { type: "string", description: "The order ID to fulfill" },
-      order_type: { type: "string", description: "Order type: shop, bulk, ussd, or ussd_shop" },
+      order_id: { type: "string", description: "The order ID to fulfill (from get_all_orders)" },
+      order_type: { type: "string", description: "Order type derived from the 'table' field in get_all_orders: shop (shop_orders), bulk (orders), ussd (ussd_orders), ussd_shop (ussd_shop_orders)" },
     },
     required: ["order_id", "order_type"],
   },
