@@ -18,7 +18,10 @@ const PAGE_SIZE = 5
 
 function sizeToMb(size: string): number {
   const m = size.trim().match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i)
-  if (!m) return 0
+  if (!m) {
+    const n = parseFloat(size)
+    return isNaN(n) ? 0 : n * 1024  // bare number treated as GB
+  }
   const v = parseFloat(m[1])
   switch (m[2].toUpperCase()) {
     case 'MB': return v
