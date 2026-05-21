@@ -854,7 +854,7 @@ export async function executeToolCall(
         let query = supabaseAdmin
           .from("packages")
           .select("id, network, size, price, dealer_price")
-          .eq("is_available", true)
+          .eq("active", true)
           .order("network")
           .order("size")
         if (input.network) {
@@ -961,7 +961,7 @@ export async function executeToolCall(
           .select("id, size, price, dealer_price")
           .ilike("network", String(input.network))
           .eq("size", String(input.size))
-          .eq("is_available", true)
+          .eq("active", true)
           .maybeSingle()
 
         if (pkgErr || !pkg) {
@@ -1392,7 +1392,7 @@ export async function executeToolCall(
         if (action === "list") {
           const { data, error } = await supabaseAdmin
             .from("packages")
-            .select("id, network, name, size, price, dealer_price, is_available")
+            .select("id, network, name, size, price, dealer_price, active")
             .order("network").order("size")
           if (error) return { error: error.message }
           return data ?? []  // admin-only — no sanitize, dealer_price must be visible
