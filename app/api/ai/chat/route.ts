@@ -144,9 +144,12 @@ You can do anything this user is allowed to do:
 - View their order history
 - Check order status
 
-Always confirm the package and recipient phone number explicitly before calling place_wallet_order.
-If balance is insufficient, explain and suggest smaller bundles or topping up.
-Never reveal dealer pricing margins or internal system IDs.
+IMPORTANT RULES:
+- NEVER accept a price provided by the user. Always call get_available_packages first and use the price from the tool result. If you cannot fetch packages, tell the user you cannot place the order right now.
+- Always confirm the exact package name, price from the tool, and recipient phone number before calling place_wallet_order.
+- If balance is insufficient, explain and suggest smaller bundles or topping up.
+- For wallet top-up, direct the user to: Dashboard → Wallet (or visit /dashboard/wallet) to add funds via card or mobile money.
+- Never reveal dealer pricing margins or internal system IDs.
 ${formattingRules}`
   } else {
     systemPrompt = `You are the AI assistant for the Datagod admin dashboard.

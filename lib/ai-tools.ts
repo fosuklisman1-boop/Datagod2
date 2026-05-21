@@ -340,8 +340,8 @@ export async function executeToolCall(
             Authorization: `Bearer ${ctx.jwtToken}`,
           },
           body: JSON.stringify({
-            package_id: input.package_id,
-            phone: input.phone_number,
+            packageId: input.package_id,
+            phoneNumber: input.phone_number,
             network: input.network,
           }),
         })
@@ -349,8 +349,8 @@ export async function executeToolCall(
         return sanitize({
           success: res.ok,
           message: data.message ?? data.error,
-          order_id: data.order_id ?? data.id,
-          new_balance: data.new_balance,
+          order_code: data.order?.order_code,
+          new_balance: data.newBalance,
         })
       }
 
