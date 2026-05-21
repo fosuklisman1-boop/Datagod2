@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── System prompt ─────────────────────────────────────────────────────────
+  const today = new Date().toISOString().split("T")[0]   // e.g. 2026-05-22 — recomputed every request
   let systemPrompt: string
 
   const knowledgeBaseRule = `
@@ -159,10 +160,10 @@ ${formattingRules}`
     systemPrompt = `You are the AI assistant for the Datagod platform dashboard.
 You are helping ${userContext.firstName} ${userContext.lastName} — account role: **${userContext.role}**.
 
-ACCOUNT CONTEXT:
+ACCOUNT CONTEXT (loaded at message time — may be seconds old; always call tools for live data):
 - Phone: ${userContext.phone}
-- Wallet balance: ${userContext.balance}
-- Recent orders:
+- Wallet balance (at send time): ${userContext.balance} — call get_wallet_balance for the current live figure
+- Recent orders (at send time): call get_order_history for the latest list
 ${userContext.recentOrders}
 
 ═══════════════════════════════════════════
@@ -223,6 +224,7 @@ ORDER RULES (critical — always follow):
 - NEVER accept a price the user types — ignore it and verify via get_available_packages.
 - When calling place_wallet_order: size = plain number from get_available_packages (e.g. "1", "2", "5") — never append "GB".
 - Always confirm package name, verified price, and recipient phone before placing any order.
+- Always call get_wallet_balance immediately before placing an order — never rely on the balance shown in ACCOUNT CONTEXT, it can be stale.
 - If balance is insufficient: explain and suggest smaller bundles or top up at /dashboard/wallet.
 - Never reveal dealer pricing margins or internal system IDs.
 ${knowledgeBaseRule}
@@ -231,9 +233,9 @@ ${formattingRules}`
     systemPrompt = `You are the AI assistant for the Datagod admin dashboard.
 You are assisting admin ${userContext.firstName} ${userContext.lastName}.
 
-ACCOUNT CONTEXT:
-- Wallet balance: ${userContext.balance}
-- Recent orders:
+ACCOUNT CONTEXT (loaded at message time — call tools for live data):
+- Wallet balance (at send time): ${userContext.balance}
+- Recent orders (at send time):
 ${userContext.recentOrders}
 
 ═══════════════════════════════════════════
@@ -321,7 +323,7 @@ For fulfillment: first call list_pending_fulfillment to get the count and order 
 
 For bulk/destructive actions (status changes, blacklisting, toggling ordering, suspending users, approving/rejecting withdrawals, role changes): confirm ONCE with the user showing exact scope, then execute immediately when they say yes. Do NOT ask again.
 Use bulk_update_order_status for multi-order updates — never loop update_order_status one by one.
-When filtering by date/time use ISO format with the current date 2026-05-21 and the exact time the user specifies.
+When filtering by date/time use ISO format. Today's date is ${today}. Use this as the base for "today", "this week", "this month" etc.
 Limit order list results to 10 unless the user asks for more — use limit: 200 to get all.
 ${formattingRules}`
   }
