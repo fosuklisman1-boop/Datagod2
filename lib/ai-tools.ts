@@ -254,6 +254,68 @@ const bulkManualFulfillTool: Anthropic.Tool = {
   },
 }
 
+const syncFulfillmentStatusTool: Anthropic.Tool = {
+  name: "sync_fulfillment_status",
+  description: "Admin only: sync the fulfillment status of an MTN order from the Sykes external API. Use when an order is stuck in processing and needs a status refresh. Can sync a single order by tracking_id or mtn_order_id, or sync all pending MTN orders at once.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      tracking_id: { type: "string", description: "Sykes tracking ID for the order to sync" },
+      mtn_order_id: { type: "string", description: "MTN order ID to sync" },
+      sync_all_pending: { type: "boolean", description: "Set to true to sync all pending MTN orders from the external API" },
+      provider: { type: "string", description: "Provider name, e.g. 'mtn'" },
+    },
+    required: [],
+  },
+}
+
+const retryBlacklistedOrderTool: Anthropic.Tool = {
+  name: "retry_blacklisted_order",
+  description: "Admin only: retry an order that was blocked because the recipient phone was blacklisted. Only works if the phone has since been removed from the blacklist. Always check the blacklist status first before calling.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      order_id: { type: "string", description: "The ID of the blocked order to retry" },
+      order_type: { type: "string", description: "Order type: 'shop' (storefront/Paystack) or 'bulk' (wallet/dealer). Defaults to shop." },
+    },
+    required: ["order_id"],
+  },
+}
+
+const toggleAutoFulfillmentTool: Anthropic.Tool = {
+  name: "toggle_auto_fulfillment",
+  description: "Admin only: get or set the auto-fulfillment setting for AT/Telecel/BigTime. Call with no arguments to see the current state. Pass enabled=true/false to change it.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      enabled: { type: "boolean", description: "true to enable auto-fulfillment, false to disable. Omit to just read the current status." },
+    },
+    required: [],
+  },
+}
+
+const toggleMtnAutoFulfillmentTool: Anthropic.Tool = {
+  name: "toggle_mtn_auto_fulfillment",
+  description: "Admin only: get or set the MTN-specific auto-fulfillment toggle. Call with no arguments to see the current state. Pass enabled=true/false to change it.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      enabled: { type: "boolean", description: "true to enable MTN auto-fulfillment, false to disable. Omit to just read the current status." },
+    },
+    required: [],
+  },
+}
+
+const getMtnBalanceTool: Anthropic.Tool = {
+  name: "get_mtn_balance",
+  description: "Admin only: check the current balance in the MTN Sykes fulfillment account used to send data bundles.",
+  input_schema: {
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
+}
+
 const getKnowledgeBaseTool: Anthropic.Tool = {
   name: "get_knowledge_base",
   description: "Search the business knowledge base for answers about policies, FAQs, products, delivery times, refunds, and support procedures. Use this whenever a user asks a question you don't have direct context for.",
@@ -301,6 +363,11 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     listPendingFulfillmentTool,
     manualFulfillOrderTool,
     bulkManualFulfillTool,
+    syncFulfillmentStatusTool,
+    retryBlacklistedOrderTool,
+    toggleAutoFulfillmentTool,
+    toggleMtnAutoFulfillmentTool,
+    getMtnBalanceTool,
     getKnowledgeBaseTool,
   ]
 }
@@ -773,6 +840,77 @@ export async function executeToolCall(
           message: data.message ?? data.error,
           summary: data.summary,
         })
+      }
+
+      case "sync_fulfillment_status": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/fulfillment/sync-status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({
+            tracking_id: input.tracking_id,
+            mtn_order_id: input.mtn_order_id,
+            sync_all_pending: input.sync_all_pending,
+            provider: input.provider,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) return { success: false, error: data.error ?? data.message }
+        // sync_all_pending returns { updated, unchanged, failed }; single returns { success, message, newStatus }
+        return sanitize(data)
+      }
+
+      case "retry_blacklisted_order": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/fulfillment/retry-blacklisted`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ order_id: input.order_id, order_type: input.order_type ?? "shop" }),
+        })
+        const data = await res.json()
+        return { success: res.ok, message: data.message ?? data.error }
+      }
+
+      case "toggle_auto_fulfillment": {
+        if (input.enabled === undefined) {
+          // Read current status
+          const res = await fetch(`${ctx.baseUrl}/api/admin/settings/auto-fulfillment`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return { enabled: data.setting?.enabled ?? data.enabled, networks: data.setting?.networks }
+        }
+        const res = await fetch(`${ctx.baseUrl}/api/admin/settings/auto-fulfillment`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ enabled: input.enabled }),
+        })
+        const data = await res.json()
+        return { success: res.ok, enabled: data.setting?.enabled ?? data.enabled, error: data.error }
+      }
+
+      case "toggle_mtn_auto_fulfillment": {
+        if (input.enabled === undefined) {
+          // Read current status
+          const res = await fetch(`${ctx.baseUrl}/api/admin/settings/mtn-auto-fulfillment`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return { enabled: data.enabled, updated_at: data.updated_at }
+        }
+        const res = await fetch(`${ctx.baseUrl}/api/admin/settings/mtn-auto-fulfillment`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ enabled: input.enabled }),
+        })
+        const data = await res.json()
+        return { success: res.ok, enabled: data.enabled, error: data.error }
+      }
+
+      case "get_mtn_balance": {
+        const res = await fetch(`${ctx.baseUrl}/api/admin/fulfillment/mtn-balance`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const data = await res.json()
+        return sanitize(data)
       }
 
       case "get_knowledge_base": {
