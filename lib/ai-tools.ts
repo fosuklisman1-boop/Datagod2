@@ -553,10 +553,10 @@ export async function executeToolCall(
             "Content-Type": "application/json",
             Authorization: `Bearer ${ctx.jwtToken}`,
           },
-          body: JSON.stringify({ order_id: input.order_id }),
+          body: JSON.stringify({ orderId: input.order_id }),
         })
         const data = await res.json()
-        return { success: res.ok, message: data.message ?? data.error }
+        return sanitize({ success: res.ok, summary: data.summary, results: data.results, error: data.error })
       }
 
       case "get_user_info": {
@@ -580,16 +580,20 @@ export async function executeToolCall(
 
       case "manage_blacklist": {
         if (input.action === "add") {
-          const { error } = await supabaseAdmin
-            .from("blacklisted_phone_numbers")
-            .upsert({ phone_number: input.phone_number, reason: input.reason ?? "Admin action", created_at: new Date().toISOString() })
-          return { success: !error, action: "added", error: error?.message }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/blacklist`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ phone_number: input.phone_number, reason: input.reason ?? "Admin action" }),
+          })
+          const data = await res.json()
+          return { success: res.ok, action: "added", message: data.message, error: data.error }
         } else {
-          const { error } = await supabaseAdmin
-            .from("blacklisted_phone_numbers")
-            .delete()
-            .eq("phone_number", input.phone_number as string)
-          return { success: !error, action: "removed", error: error?.message }
+          const res = await fetch(
+            `${ctx.baseUrl}/api/admin/blacklist?phone=${encodeURIComponent(input.phone_number as string)}`,
+            { method: "DELETE", headers: { Authorization: `Bearer ${ctx.jwtToken}` } }
+          )
+          const data = await res.json()
+          return { success: res.ok, action: "removed", message: data.message, error: data.error }
         }
       }
 
@@ -605,17 +609,31 @@ export async function executeToolCall(
           since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
         }
 
-        const { data, error } = await supabaseAdmin
-          .from("orders")
-          .select("status, price")
-          .gte("created_at", since)
-        if (error) return { error: error.message }
+        // Count across all 4 order tables in parallel
+        const [
+          { data: ordersData },
+          { data: shopData },
+          { data: ussdData },
+          { data: ussdShopData },
+        ] = await Promise.all([
+          supabaseAdmin.from("orders").select("status, price").gte("created_at", since),
+          supabaseAdmin.from("shop_orders").select("order_status, total_price").eq("payment_status", "completed").gte("created_at", since),
+          supabaseAdmin.from("ussd_orders").select("order_status, amount").eq("payment_status", "completed").gte("created_at", since),
+          supabaseAdmin.from("ussd_shop_orders").select("order_status, amount").eq("payment_status", "completed").gte("created_at", since),
+        ])
 
-        const total = data.length
-        const completed = data.filter(o => o.status === "completed").length
-        const failed = data.filter(o => o.status === "failed").length
-        const processing = data.filter(o => o.status === "processing" || o.status === "pending").length
-        const revenue = data.filter(o => o.status === "completed").reduce((s, o) => s + Number(o.price ?? 0), 0)
+        const all = [
+          ...(ordersData ?? []).map(o => ({ status: o.status, price: Number(o.price ?? 0) })),
+          ...(shopData ?? []).map(o => ({ status: o.order_status, price: Number(o.total_price ?? 0) })),
+          ...(ussdData ?? []).map(o => ({ status: o.order_status, price: Number(o.amount ?? 0) })),
+          ...(ussdShopData ?? []).map(o => ({ status: o.order_status, price: Number(o.amount ?? 0) })),
+        ]
+
+        const total = all.length
+        const completed = all.filter(o => o.status === "completed").length
+        const failed = all.filter(o => o.status === "failed").length
+        const processing = all.filter(o => o.status === "processing" || o.status === "pending").length
+        const revenue = all.filter(o => o.status === "completed").reduce((s, o) => s + o.price, 0)
 
         return {
           period,
@@ -629,11 +647,13 @@ export async function executeToolCall(
       }
 
       case "toggle_ordering": {
-        const { error } = await supabaseAdmin
-          .from("app_settings")
-          .update({ ordering_enabled: input.enabled })
-          .not("id", "is", null)
-        return { success: !error, ordering_enabled: input.enabled, error: error?.message }
+        const res = await fetch(`${ctx.baseUrl}/api/admin/settings`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ ordering_enabled: input.enabled }),
+        })
+        const data = await res.json()
+        return { success: res.ok, ordering_enabled: data.settings?.ordering_enabled, error: data.error }
       }
 
       case "list_pending_fulfillment": {
