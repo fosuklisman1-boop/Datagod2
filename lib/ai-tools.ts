@@ -352,23 +352,48 @@ export async function executeToolCall(
       }
 
       case "search_order_status": {
-        if (!ctx.shopId) return { error: "Shop context required" }
-        const res = await fetch(`${ctx.baseUrl}/api/shop/orders/search`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone: input.phone_number, shopId: ctx.shopId }),
-        })
-        const data = await res.json()
+        // Storefront: search within the shop by phone
+        if (ctx.shopId) {
+          const res = await fetch(`${ctx.baseUrl}/api/shop/orders/search`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phone: input.phone_number, shopId: ctx.shopId }),
+          })
+          const data = await res.json()
+          return sanitize({
+            found: data.count ?? 0,
+            orders: (data.orders ?? []).map((o: Record<string, unknown>) => ({
+              reference: o.reference_code ?? o.id,
+              type: o.type,
+              network: o.network,
+              volume_gb: o.volume_gb,
+              price: o.total_price,
+              order_status: o.order_status ?? o.status,
+              payment_status: o.payment_status,
+              date: o.created_at,
+            })),
+          })
+        }
+
+        // Dashboard: search the user's own orders in combined_orders_view by recipient phone
+        const { data, error } = await supabaseAdmin
+          .from("combined_orders_view")
+          .select("id, network, volume_gb, status, phone_number, created_at, type, price")
+          .eq("shop_owner_id", ctx.userId!)
+          .eq("phone_number", input.phone_number as string)
+          .order("created_at", { ascending: false })
+          .limit(10)
+        if (error) return { error: error.message }
         return sanitize({
-          found: data.count ?? 0,
-          orders: (data.orders ?? []).map((o: Record<string, unknown>) => ({
-            reference: o.reference_code ?? o.id,
-            type: o.type,
+          found: data?.length ?? 0,
+          orders: (data ?? []).map(o => ({
+            id: o.id,
             network: o.network,
-            volume_gb: o.volume_gb,
-            price: o.total_price,
-            order_status: o.order_status ?? o.status,
-            payment_status: o.payment_status,
+            size: o.volume_gb,
+            status: o.status,
+            phone: o.phone_number,
+            price: o.price,
+            type: o.type,
             date: o.created_at,
           })),
         })
@@ -388,14 +413,13 @@ export async function executeToolCall(
 
       case "get_order_history": {
         const limit = Math.min(Number(input.limit ?? 5), 10)
-        const { data, error } = await supabaseAdmin
-          .from("orders")
-          .select("id, network, size, status, created_at, phone_number")
-          .eq("user_id", ctx.userId!)
-          .order("created_at", { ascending: false })
-          .limit(limit)
-        if (error) return { error: error.message }
-        return sanitize(data)
+        const res = await fetch(
+          `${ctx.baseUrl}/api/orders/list?limit=${limit}&page=1`,
+          { headers: { Authorization: `Bearer ${ctx.jwtToken}` } }
+        )
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Failed to fetch orders" }
+        return sanitize({ orders: data.orders, total: data.pagination?.total })
       }
 
       case "place_wallet_order": {
