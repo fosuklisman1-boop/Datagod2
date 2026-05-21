@@ -643,16 +643,18 @@ export async function executeToolCall(
           { headers: { Authorization: `Bearer ${ctx.jwtToken}` } }
         )
         const data = await res.json()
-        if (!data.success) return { error: data.error ?? "Failed to fetch pending orders" }
+        if (!res.ok || !data.success) return { error: data.error ?? "Failed to fetch pending orders" }
         return sanitize({
           total: data.pagination?.total ?? data.orders?.length ?? 0,
           orders: (data.orders ?? []).map((o: Record<string, unknown>) => ({
             id: o.id,
             type: o.type,
             network: o.network,
-            volume_gb: o.volume_gb,
+            size: o.volume_gb,
             phone: o.customer_phone,
+            name: o.customer_name,
             status: o.order_status,
+            amount: o.amount,
             date: o.created_at,
           })),
         })
