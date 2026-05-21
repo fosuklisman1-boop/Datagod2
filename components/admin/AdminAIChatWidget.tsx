@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { MessageCircle, X, Send } from "lucide-react"
+import { MessageCircle, X, Send, Trash2 } from "lucide-react"
 import { createClient } from "@supabase/supabase-js"
 import { ChatMessage } from "@/components/ui/chat-message"
 
@@ -169,9 +169,22 @@ export function AdminAIChatWidget() {
               <p className="font-semibold text-sm">Admin AI Assistant</p>
               <p className="text-gray-400 text-xs">Full platform access</p>
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-white transition-colors">
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const welcome = { role: "assistant" as const, content: `Hi${firstName ? " " + firstName : ""}! I have access to all admin tools. Ask me about orders, users, stats, or anything else.`, timestamp: Date.now() }
+                  setMessages([welcome])
+                  if (userId) { try { localStorage.removeItem(STORAGE_KEY(userId)) } catch {} }
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+                title="Clear chat"
+              >
+                <Trash2 size={15} />
+              </button>
+              <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-white transition-colors">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3">

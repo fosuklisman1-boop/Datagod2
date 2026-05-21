@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { MessageCircle, X, Send } from "lucide-react"
+import { MessageCircle, X, Send, Trash2 } from "lucide-react"
 import { createClient } from "@supabase/supabase-js"
 import { ChatMessage } from "@/components/ui/chat-message"
 
@@ -174,9 +174,22 @@ export function DashboardAIChatWidget() {
               <p className="font-semibold text-sm">Datagod Assistant</p>
               {balance && <p className="text-violet-200 text-xs">Wallet: {balance}</p>}
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-violet-200 hover:text-white transition-colors">
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const welcome = { role: "assistant" as const, content: `Hi${firstName ? " " + firstName : ""}! Your wallet balance is ${balance ?? "loading..."}. I can help you buy data, check your orders, or answer any questions.`, timestamp: Date.now() }
+                  setMessages([welcome])
+                  if (userId) { try { localStorage.removeItem(STORAGE_KEY(userId)) } catch {} }
+                }}
+                className="text-violet-200 hover:text-white transition-colors"
+                title="Clear chat"
+              >
+                <Trash2 size={15} />
+              </button>
+              <button onClick={() => setIsOpen(false)} className="text-violet-200 hover:text-white transition-colors">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3">

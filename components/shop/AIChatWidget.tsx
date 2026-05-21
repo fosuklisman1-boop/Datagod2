@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { MessageCircle, X, Send } from "lucide-react"
+import { MessageCircle, X, Send, Trash2 } from "lucide-react"
 import { ChatMessage } from "@/components/ui/chat-message"
 
 interface Message {
@@ -158,9 +158,22 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
               <p className="font-semibold text-sm">{shop.shop_name}</p>
               <p className="text-violet-200 text-xs">AI Assistant</p>
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-violet-200 hover:text-white transition-colors">
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const welcome = { role: "assistant" as const, content: `Hi! I can help you find the right data bundle or check on an existing order. What do you need?`, timestamp: Date.now() }
+                  setMessages([welcome])
+                  try { localStorage.removeItem(STORAGE_KEY(shopSlug)) } catch {}
+                }}
+                className="text-violet-200 hover:text-white transition-colors"
+                title="Clear chat"
+              >
+                <Trash2 size={15} />
+              </button>
+              <button onClick={() => setIsOpen(false)} className="text-violet-200 hover:text-white transition-colors">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Messages */}
