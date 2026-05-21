@@ -29,6 +29,7 @@ export interface USSDShopSession {
   bundleSize?: string
   bundlePrice?: number
   bundlePage?: number
+  bundlePageShown?: number        // actual bundles shown on the last rendered menu page
   bundleCache?: ShopBundleOption[]
   bundleTotal?: number
   recipientPhone?: string

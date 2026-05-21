@@ -40,13 +40,42 @@ export function networkMenu(shopName: string, networks: string[]): string {
   return `${shopName}\nSelect Network:\n` + lines.join('\n')
 }
 
-export function bundleMenu(shopName: string, bundles: ShopBundleOption[], page: number, total: number): string {
+function hasUnicode(s: string): boolean {
+  for (const ch of s) if (ch.codePointAt(0)! > 127) return true
+  return false
+}
+
+export function bundleMenu(
+  shopName: string,
+  bundles: ShopBundleOption[],
+  page: number,
+  total: number
+): { text: string; shown: number } {
   const offset = page * PAGE_SIZE
-  const lines = bundles.map((b, i) => `${offset + i + 1}. ${b.size} - GHS ${b.price.toFixed(2)}`)
-  const hasMore = offset + bundles.length < total
-  if (hasMore) lines.push(`${offset + bundles.length + 1}. More...`)
-  lines.push('0. Back')
-  return `${shopName}\nSelect Bundle:\n` + lines.join('\n')
+  const limit = hasUnicode(shopName) ? 80 : 160
+  const header = `${shopName}\nSelect Bundle:\n`
+  const back = '0. Back'
+
+  let body = ''
+  let shown = 0
+
+  for (let i = 0; i < bundles.length; i++) {
+    const line = `${offset + i + 1}. ${bundles[i].size} - GHS ${bundles[i].price.toFixed(2)}\n`
+    const afterThis = i + 1
+    const hasMoreAfterThis = afterThis < bundles.length || (offset + afterThis) < total
+    const moreLine = hasMoreAfterThis ? `${offset + afterThis + 1}. More...\n` : ''
+
+    const fits = header.length + body.length + line.length + moreLine.length + back.length <= limit
+    if (!fits && i > 0) break
+
+    body += line
+    shown++
+  }
+
+  const hasMore = shown < bundles.length || (offset + shown) < total
+  if (hasMore) body += `${offset + shown + 1}. More...\n`
+
+  return { text: header + body + back, shown }
 }
 
 export function recipientPrompt(): string {

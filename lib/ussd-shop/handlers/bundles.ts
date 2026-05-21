@@ -175,6 +175,7 @@ export async function handleSelectNetwork(
     return cont(`Payment not available for your number.\nContact the shop.\n\n${networkMenu(session.shopName!, networks)}`)
   }
 
+  const firstMenu = bundleMenu(session.shopName!, allBundles.slice(0, PAGE_SIZE), 0, allBundles.length)
   await setSession(sessionId, {
     ...session,
     step: 'SELECT_BUNDLE',
@@ -183,9 +184,10 @@ export async function handleSelectNetwork(
     bundlePage: 0,
     bundleCache: allBundles,
     bundleTotal: allBundles.length,
+    bundlePageShown: firstMenu.shown,
   })
 
-  return cont(bundleMenu(session.shopName!, allBundles.slice(0, PAGE_SIZE), 0, allBundles.length))
+  return cont(firstMenu.text)
 }
 
 // ── SELECT_BUNDLE ─────────────────────────────────────────────────────────────
@@ -205,19 +207,30 @@ export async function handleSelectBundle(
   const offset = page * PAGE_SIZE
   const pageSlice = allBundles.slice(offset, offset + PAGE_SIZE)
 
-  const moreIndex = offset + pageSlice.length + 1
+  const shown = session.bundlePageShown ?? pageSlice.length
+  const moreIndex = offset + shown + 1
   const chosen = parseInt(input.trim(), 10)
 
-  if (chosen === moreIndex && offset + pageSlice.length < total) {
+  if (chosen === moreIndex && offset + shown < total) {
     const nextPage = page + 1
     const nextSlice = allBundles.slice(nextPage * PAGE_SIZE, (nextPage + 1) * PAGE_SIZE)
-    await setSession(sessionId, { ...session, bundlePage: nextPage })
-    return cont(bundleMenu(session.shopName!, nextSlice, nextPage, total))
+    const nextMenu = bundleMenu(session.shopName!, nextSlice, nextPage, total)
+    await setSession(sessionId, { ...session, bundlePage: nextPage, bundlePageShown: nextMenu.shown })
+    return cont(nextMenu.text)
   }
 
   const bundleIndex = chosen - offset - 1
+  if (bundleIndex < 0 || bundleIndex >= shown) {
+    const menu = bundleMenu(session.shopName!, pageSlice, page, total)
+    await setSession(sessionId, { ...session, bundlePageShown: menu.shown })
+    return cont(menu.text)
+  }
   const selected = allBundles[bundleIndex]
-  if (!selected) return cont(bundleMenu(session.shopName!, pageSlice, page, total))
+  if (!selected) {
+    const menu = bundleMenu(session.shopName!, pageSlice, page, total)
+    await setSession(sessionId, { ...session, bundlePageShown: menu.shown })
+    return cont(menu.text)
+  }
 
   await setSession(sessionId, {
     ...session,
@@ -237,10 +250,11 @@ export async function handleEnterRecipient(
   session: USSDShopSession
 ): Promise<UzoResponse> {
   if (input.trim() === '0') {
-    await setSession(sessionId, { ...session, step: 'SELECT_BUNDLE' })
     const pg = session.bundlePage ?? 0
     const all = session.bundleCache ?? []
-    return cont(bundleMenu(session.shopName!, all.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE), pg, session.bundleTotal ?? all.length))
+    const backMenu = bundleMenu(session.shopName!, all.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE), pg, session.bundleTotal ?? all.length)
+    await setSession(sessionId, { ...session, step: 'SELECT_BUNDLE', bundlePageShown: backMenu.shown })
+    return cont(backMenu.text)
   }
 
   const raw = input.trim().replace(/\s+/g, '')
