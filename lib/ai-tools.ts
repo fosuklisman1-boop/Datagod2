@@ -225,6 +225,7 @@ function sanitize(obj: unknown): unknown {
 export interface ToolContext {
   userId?: string
   jwtToken?: string
+  userRole?: string
   shopId?: string
   shopSlug?: string
   baseUrl: string
@@ -240,23 +241,47 @@ export async function executeToolCall(
   try {
     switch (name) {
       case "get_available_packages": {
-        const url = new URL(`${ctx.baseUrl}/api/shop/public-packages`)
-        if (ctx.shopSlug) url.searchParams.set("slug", ctx.shopSlug)
-        const res = await fetch(url.toString())
-        const data = await res.json()
-        let packages = data.packages ?? []
-        if (input.network) {
-          packages = packages.filter((p: Record<string, unknown>) => {
-            const network = (p.packages as Record<string, unknown>)?.network ?? p.network
-            return String(network).toLowerCase() === String(input.network).toLowerCase()
-          })
+        // Storefront: shop-specific packages with markup
+        if (ctx.shopSlug) {
+          const url = new URL(`${ctx.baseUrl}/api/shop/public-packages`)
+          url.searchParams.set("slug", ctx.shopSlug)
+          const res = await fetch(url.toString())
+          const data = await res.json()
+          let packages = data.packages ?? []
+          if (input.network) {
+            packages = packages.filter((p: Record<string, unknown>) => {
+              const network = (p.packages as Record<string, unknown>)?.network ?? p.network
+              return String(network).toLowerCase() === String(input.network).toLowerCase()
+            })
+          }
+          return sanitize(packages.map((p: Record<string, unknown>) => ({
+            id: p.id,
+            network: (p.packages as Record<string, unknown>)?.network ?? p.network,
+            size: (p.packages as Record<string, unknown>)?.size ?? p.size,
+            price: p.selling_price ?? (p.packages as Record<string, unknown>)?.price,
+            package_id: p.package_id,
+          })))
         }
-        return sanitize(packages.map((p: Record<string, unknown>) => ({
+
+        // Dashboard / admin: base packages table, dealer pricing applied
+        const isDealer = ctx.userRole === "dealer" || ctx.userRole === "admin"
+        let query = supabaseAdmin
+          .from("packages")
+          .select("id, network, size, price, dealer_price")
+          .eq("is_available", true)
+          .order("network")
+          .order("size")
+        if (input.network) {
+          query = query.ilike("network", String(input.network))
+        }
+        const { data, error } = await query
+        if (error) return { error: error.message }
+        return sanitize((data ?? []).map((p: Record<string, unknown>) => ({
           id: p.id,
-          network: (p.packages as Record<string, unknown>)?.network ?? p.network,
-          size: (p.packages as Record<string, unknown>)?.size ?? p.size,
-          price: p.selling_price ?? (p.packages as Record<string, unknown>)?.price,
-          package_id: p.package_id,
+          network: p.network,
+          size: p.size,
+          price: isDealer && p.dealer_price && Number(p.dealer_price) > 0 ? p.dealer_price : p.price,
+          package_id: p.id,
         })))
       }
 
@@ -387,12 +412,12 @@ export async function executeToolCall(
       case "manage_blacklist": {
         if (input.action === "add") {
           const { error } = await supabaseAdmin
-            .from("blacklisted_phones")
+            .from("blacklisted_phone_numbers")
             .upsert({ phone_number: input.phone_number, reason: input.reason ?? "Admin action", created_at: new Date().toISOString() })
           return { success: !error, action: "added", error: error?.message }
         } else {
           const { error } = await supabaseAdmin
-            .from("blacklisted_phones")
+            .from("blacklisted_phone_numbers")
             .delete()
             .eq("phone_number", input.phone_number as string)
           return { success: !error, action: "removed", error: error?.message }

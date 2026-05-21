@@ -172,6 +172,7 @@ Keep responses concise and informative.`
         const toolCtx = {
           userId,
           jwtToken,
+          userRole,
           shopId,
           shopSlug,
           baseUrl: getBaseUrl(req),
