@@ -6,12 +6,12 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, Users, Store as StoreIcon, AlertCircle } from "lucide-react"
+import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, Users, Store as StoreIcon, AlertCircle, List, TrendingDown, Tag } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 interface Plan {
     id: string
@@ -34,6 +34,10 @@ export default function UpgradePage() {
     const [daysLeft, setDaysLeft] = useState<number | null>(null)
     const [showSuccessModal, setShowSuccessModal] = useState(false)
     const [upgradesEnabled, setUpgradesEnabled] = useState<boolean>(true)
+    const [showPriceList, setShowPriceList] = useState(false)
+    const [priceListPackages, setPriceListPackages] = useState<any[]>([])
+    const [priceListLoading, setPriceListLoading] = useState(false)
+    const [priceListNetwork, setPriceListNetwork] = useState<string | null>(null)
 
     useEffect(() => {
         fetchUserData()
@@ -134,6 +138,28 @@ export default function UpgradePage() {
             }
         } catch (error) {
             toast.error("Error verifying payment", { id: "verify-upgrade" })
+        }
+    }
+
+    const handleViewPriceList = async () => {
+        if (priceListPackages.length > 0) {
+            setShowPriceList(true)
+            return
+        }
+        setPriceListLoading(true)
+        try {
+            const res = await fetch("/api/shop/dealer-price-list")
+            const data = await res.json()
+            if (data.packages) {
+                setPriceListPackages(data.packages)
+                const networks = Array.from(new Set<string>(data.packages.map((p: any) => p.network)))
+                setPriceListNetwork(networks[0] ?? null)
+            }
+        } catch {
+            toast.error("Failed to load price list")
+        } finally {
+            setPriceListLoading(false)
+            setShowPriceList(true)
         }
     }
 
@@ -294,7 +320,19 @@ export default function UpgradePage() {
                                         ))}
                                     </ul>
                                 </CardContent>
-                                <CardFooter className="pb-8">
+                                <CardFooter className="pb-8 flex flex-col gap-3">
+                                    <Button
+                                        variant="outline"
+                                        className="w-full h-10 font-semibold border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400 transition-all"
+                                        onClick={handleViewPriceList}
+                                    >
+                                        {priceListLoading ? (
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        ) : (
+                                            <List className="w-4 h-4 mr-2" />
+                                        )}
+                                        View Price List
+                                    </Button>
                                     <Button
                                         className={cn(
                                             "w-full h-12 text-lg font-bold transition-all duration-300",
@@ -337,6 +375,106 @@ export default function UpgradePage() {
                     </div>
                 </div>
             </div>
+
+                {/* Dealer Price List Modal */}
+                <Dialog open={showPriceList} onOpenChange={setShowPriceList}>
+                    <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
+                        <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+                            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+                                <Tag className="w-5 h-5 text-amber-500" />
+                                Dealer Price List
+                            </DialogTitle>
+                            <p className="text-sm text-gray-500 mt-1">Exclusive wholesale pricing available to all DATAGOD dealers</p>
+                        </DialogHeader>
+
+                        {priceListLoading ? (
+                            <div className="flex items-center justify-center py-20">
+                                <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+                            </div>
+                        ) : (
+                            <div className="flex flex-col overflow-hidden flex-1">
+                                {/* Network Tabs */}
+                                {(() => {
+                                    const networks = Array.from(new Set<string>(priceListPackages.map((p) => p.network)))
+                                    return (
+                                        <>
+                                            <div className="flex gap-1 px-6 pt-4 pb-2 border-b flex-shrink-0 overflow-x-auto">
+                                                {networks.map((net) => (
+                                                    <button
+                                                        key={net}
+                                                        onClick={() => setPriceListNetwork(net)}
+                                                        className={cn(
+                                                            "px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all",
+                                                            priceListNetwork === net
+                                                                ? "bg-amber-500 text-white shadow"
+                                                                : "bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-700"
+                                                        )}
+                                                    >
+                                                        {net}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                            <div className="overflow-y-auto flex-1 px-6 py-4">
+                                                {priceListNetwork && (
+                                                    <table className="w-full text-sm">
+                                                        <thead>
+                                                            <tr className="text-left">
+                                                                <th className="pb-3 font-semibold text-gray-500 uppercase text-xs tracking-wide">Package</th>
+                                                                <th className="pb-3 font-semibold text-gray-500 uppercase text-xs tracking-wide text-right">Regular</th>
+                                                                <th className="pb-3 font-semibold text-amber-600 uppercase text-xs tracking-wide text-right">Dealer Price</th>
+                                                                <th className="pb-3 font-semibold text-green-600 uppercase text-xs tracking-wide text-right">Savings</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100">
+                                                            {priceListPackages
+                                                                .filter((p) => p.network === priceListNetwork)
+                                                                .map((pkg) => {
+                                                                    const savings = pkg.regular_price - pkg.dealer_price
+                                                                    return (
+                                                                        <tr key={pkg.id} className="hover:bg-amber-50/50 transition-colors">
+                                                                            <td className="py-3 pr-4">
+                                                                                <div className="font-bold text-gray-900">{pkg.size}GB</div>
+                                                                                {pkg.description && (
+                                                                                    <div className="text-xs text-gray-400 mt-0.5 truncate max-w-[160px]">{pkg.description}</div>
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="py-3 text-right text-gray-400 line-through">
+                                                                                GHS {pkg.regular_price.toFixed(2)}
+                                                                            </td>
+                                                                            <td className="py-3 text-right font-black text-amber-600 text-base">
+                                                                                GHS {pkg.dealer_price.toFixed(2)}
+                                                                            </td>
+                                                                            <td className="py-3 text-right">
+                                                                                {pkg.has_discount ? (
+                                                                                    <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                                                                                        <TrendingDown className="w-3 h-3" />
+                                                                                        GHS {savings.toFixed(2)}
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="text-gray-300 text-xs">—</span>
+                                                                                )}
+                                                                            </td>
+                                                                        </tr>
+                                                                    )
+                                                                })}
+                                                        </tbody>
+                                                    </table>
+                                                )}
+                                            </div>
+                                        </>
+                                    )
+                                })()}
+                            </div>
+                        )}
+
+                        <div className="px-6 py-4 border-t flex-shrink-0 bg-amber-50/60">
+                            <p className="text-xs text-amber-700 text-center font-medium">
+                                These prices are available exclusively to active DATAGOD Dealers.
+                            </p>
+                        </div>
+                    </DialogContent>
+                </Dialog>
 
                 {/* Congratulations Modal */}
                 <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
