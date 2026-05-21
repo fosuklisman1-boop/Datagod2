@@ -60,17 +60,27 @@ export async function handleEnterShopCode(
   let networks: string[] = []
 
   if (parentShopId) {
-    const { data: catalogRows } = await supabase
-      .from("sub_agent_catalog")
+    // New model: sub-agent's own package list
+    const { data: sapRows } = await supabase
+      .from("sub_agent_shop_packages")
       .select("package_id")
-      .eq("shop_id", parentShopId)
+      .eq("shop_id", shopCode.shop_id)
       .eq("is_active", true)
 
-    if (catalogRows?.length) {
+    const packageIds = sapRows?.length
+      ? sapRows.map(r => r.package_id)
+      : await supabase
+          .from("sub_agent_catalog")
+          .select("package_id")
+          .eq("shop_id", parentShopId)
+          .eq("is_active", true)
+          .then(r => r.data?.map(r => r.package_id) ?? [])
+
+    if (packageIds.length) {
       const { data: pkgRows } = await supabase
         .from("packages")
         .select("network")
-        .in("id", catalogRows.map(r => r.package_id))
+        .in("id", packageIds)
         .eq("active", true)
 
       const seen = new Set<string>()

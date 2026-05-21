@@ -49,15 +49,41 @@ async function fetchShopBundles(
   parentShopId?: string
 ): Promise<ShopBundleOption[]> {
   if (parentShopId) {
-    const [catalogRows, isDealer] = await Promise.all([
-      supabase
-        .from("sub_agent_catalog")
-        .select("package_id, wholesale_margin, sub_agent_profit_margin")
-        .eq("shop_id", parentShopId)
-        .eq("is_active", true)
-        .then(r => r.data),
-      shopOwnerIsDealer(parentShopId),
-    ])
+    const isDealer = await shopOwnerIsDealer(parentShopId)
+
+    // New model: sub-agent has their own package list with parent_price already set
+    const { data: sapRows } = await supabase
+      .from("sub_agent_shop_packages")
+      .select("package_id, parent_price, sub_agent_profit_margin")
+      .eq("shop_id", shopId)
+      .eq("is_active", true)
+
+    if (sapRows?.length) {
+      const { data: pkgRows } = await supabase
+        .from("packages")
+        .select("id, size")
+        .in("id", sapRows.map(r => r.package_id))
+        .eq("network", network)
+        .eq("active", true)
+
+      if (pkgRows?.length) {
+        const sapMap = Object.fromEntries(sapRows.map(r => [r.package_id, r]))
+        return pkgRows
+          .map(pkg => ({
+            id: pkg.id,
+            size: pkg.size,
+            price: Number(sapMap[pkg.id].parent_price) + Number(sapMap[pkg.id].sub_agent_profit_margin),
+          }))
+          .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
+      }
+    }
+
+    // Old model fallback: use parent's sub_agent_catalog
+    const { data: catalogRows } = await supabase
+      .from("sub_agent_catalog")
+      .select("package_id, wholesale_margin, sub_agent_profit_margin")
+      .eq("shop_id", parentShopId)
+      .eq("is_active", true)
 
     if (!catalogRows?.length) return []
 
@@ -267,25 +293,40 @@ export async function handleConfirm(
   let parentProfitAmount = 0
 
   if (parentShopId) {
-    const [catalogRow, parentIsDealer] = await Promise.all([
-      supabase
+    const parentIsDealer = await shopOwnerIsDealer(parentShopId)
+
+    // New model: sub_agent_shop_packages
+    const { data: sapRow } = await supabase
+      .from("sub_agent_shop_packages")
+      .select("parent_price, sub_agent_profit_margin, packages!inner(price, dealer_price, active)")
+      .eq("shop_id", shopId!)
+      .eq("package_id", bundleId!)
+      .eq("is_active", true)
+      .maybeSingle()
+
+    if (sapRow && (sapRow as any).packages?.active) {
+      profitAmount = Number(sapRow.sub_agent_profit_margin)
+      const bp = basePrice((sapRow as any).packages, parentIsDealer)
+      parentProfitAmount = Math.max(0, Number(sapRow.parent_price) - bp)
+      verifiedPrice = Number(sapRow.parent_price) + profitAmount
+    } else {
+      // Old model fallback: sub_agent_catalog
+      const { data: catalogRow } = await supabase
         .from("sub_agent_catalog")
         .select("wholesale_margin, sub_agent_profit_margin, packages!inner(price, dealer_price, active)")
         .eq("shop_id", parentShopId)
         .eq("package_id", bundleId!)
         .eq("is_active", true)
         .maybeSingle()
-        .then(r => r.data),
-      shopOwnerIsDealer(parentShopId),
-    ])
 
-    if (!catalogRow || !(catalogRow as any).packages?.active) {
-      return end('Bundle no longer available. Please try again.')
+      if (!catalogRow || !(catalogRow as any).packages?.active) {
+        return end('Bundle no longer available. Please try again.')
+      }
+
+      profitAmount = Number(catalogRow.sub_agent_profit_margin)
+      parentProfitAmount = Number(catalogRow.wholesale_margin)
+      verifiedPrice = basePrice((catalogRow as any).packages, parentIsDealer) + parentProfitAmount + profitAmount
     }
-
-    profitAmount = Number(catalogRow.sub_agent_profit_margin)
-    parentProfitAmount = Number(catalogRow.wholesale_margin)
-    verifiedPrice = basePrice((catalogRow as any).packages, parentIsDealer) + parentProfitAmount + profitAmount
   } else {
     const [shopPkg, shopIsDealer] = await Promise.all([
       supabase
