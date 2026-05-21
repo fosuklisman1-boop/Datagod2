@@ -495,31 +495,34 @@ export async function handleSubmitOtp(
     return end('Order cancelled.')
   }
 
-  try {
-    const { status } = await submitOtp(session.pendingOrderId!, input.trim())
-    console.log("[USSD-SHOP-OTP] submitOtp status:", status, "order:", session.pendingOrderId)
+  const otp = input.trim()
+  const orderId = session.pendingOrderId!
 
-    if (status === 'send_otp') {
-      return cont('Invalid OTP.\nTry again:\n\n0. Cancel')
-    }
+  // Mark pending before closing session to prevent re-OTP prompt on quick redial
+  await supabase
+    .from("ussd_shop_orders")
+    .update({ payment_status: 'pending', updated_at: new Date().toISOString() })
+    .eq("id", orderId)
 
-    if (status === 'failed') {
+  after(async () => {
+    await new Promise(r => setTimeout(r, 3000))
+    try {
+      const { status } = await submitOtp(orderId, otp)
+      console.log("[USSD-SHOP-OTP] submitOtp status:", status, "order:", orderId)
+      if (status === 'failed') {
+        await supabase
+          .from("ussd_shop_orders")
+          .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+      }
+    } catch (err) {
+      console.error("[USSD-SHOP-OTP] submitOtp error:", err)
       await supabase
         .from("ussd_shop_orders")
         .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
-        .eq("id", session.pendingOrderId)
-      return end('OTP verification failed.\nPlease try again later.')
+        .eq("id", orderId)
     }
+  })
 
-    // OTP accepted — close the session immediately so the USSD channel is free
-    // before Paystack dispatches the MoMo push (open session blocks the pop-up).
-    await supabase
-      .from("ussd_shop_orders")
-      .update({ payment_status: 'pending', updated_at: new Date().toISOString() })
-      .eq("id", session.pendingOrderId)
-    return end('OTP verified!\nCheck your phone for\na MoMo authorization\nprompt and approve\nto complete payment.')
-  } catch (err) {
-    console.error("[USSD-SHOP-OTP] submitOtp error:", err)
-    return cont('Error verifying OTP.\nTry again:\n\n0. Cancel')
-  }
+  return end('Check your phone for\na MoMo authorization\nprompt and approve\nto complete payment.')
 }
