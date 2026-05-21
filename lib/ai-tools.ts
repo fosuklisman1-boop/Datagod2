@@ -89,11 +89,11 @@ const placeWalletOrderTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      package_id: { type: "string", description: "The base package ID" },
+      network: { type: "string", description: "Network name exactly as returned by get_available_packages e.g. MTN, Telecel, AT" },
+      size: { type: "string", description: "Package size exactly as returned by get_available_packages e.g. 1, 2, 5, 10" },
       phone_number: { type: "string", description: "Recipient phone number for the data bundle" },
-      network: { type: "string", description: "Network name (MTN, Telecel, AT)" },
     },
-    required: ["package_id", "phone_number", "network"],
+    required: ["network", "size", "phone_number"],
   },
 }
 
@@ -333,6 +333,19 @@ export async function executeToolCall(
       }
 
       case "place_wallet_order": {
+        // Look up the real package ID by network + size — never trust Claude to carry a UUID
+        const { data: pkg, error: pkgErr } = await supabaseAdmin
+          .from("packages")
+          .select("id, size, price, dealer_price")
+          .ilike("network", String(input.network))
+          .eq("size", String(input.size))
+          .eq("is_available", true)
+          .maybeSingle()
+
+        if (pkgErr || !pkg) {
+          return { error: `Package not found: ${input.network} ${input.size}GB. Please call get_available_packages to see what is available.` }
+        }
+
         const res = await fetch(`${ctx.baseUrl}/api/orders/purchase`, {
           method: "POST",
           headers: {
@@ -340,7 +353,7 @@ export async function executeToolCall(
             Authorization: `Bearer ${ctx.jwtToken}`,
           },
           body: JSON.stringify({
-            packageId: input.package_id,
+            packageId: pkg.id,
             phoneNumber: input.phone_number,
             network: input.network,
           }),
