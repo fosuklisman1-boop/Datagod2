@@ -37,6 +37,7 @@ import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
+import { AIChatWidget } from "@/components/shop/AIChatWidget"
 
 export default function ShopStorefront() {
   const params = useParams()
@@ -955,7 +956,7 @@ export default function ShopStorefront() {
             href={shopSettings.whatsapp_link}
             target="_blank"
             rel="noopener noreferrer"
-            className="fixed bottom-6 right-6 p-4 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 z-50 flex items-center justify-center"
+            className="fixed bottom-24 right-6 p-4 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 z-50 flex items-center justify-center"
             title="Contact on WhatsApp"
           >
             <MessageCircle className="w-6 h-6" />
@@ -970,6 +971,20 @@ export default function ShopStorefront() {
         title={activeAnnouncement?.title || ""}
         message={activeAnnouncement?.message || ""}
       />
+
+      {shop && (
+        <AIChatWidget
+          shop={{ id: shop.id, shop_name: shop.shop_name }}
+          shopSlug={shopSlug}
+          onCheckoutPrefill={(pkg) => {
+            const match = packages.find((p: any) => p.id === pkg.shop_package_id)
+            if (match) {
+              setSelectedPackage(match)
+              setCheckoutOpen(true)
+            }
+          }}
+        />
+      )}
     </div >
   )
 }

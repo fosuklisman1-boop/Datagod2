@@ -69,6 +69,13 @@ export const RATE_LIMITS = {
         windowMs: 60 * 1000, // 1 minute
         message: 'Too many search requests. Please slow down.',
     },
+
+    // AI chat
+    AI_CHAT: {
+        maxRequests: 20,
+        windowMs: 60 * 1000, // 1 minute
+        message: 'Too many chat messages. Please wait a moment.',
+    },
 } as const
 
 /**
