@@ -241,6 +241,7 @@ export async function handleConfirm(
   // Re-fetch retail price from DB to prevent stale session attacks
   let verifiedPrice: number
   let profitAmount: number
+  let parentProfitAmount = 0
 
   if (parentShopId) {
     const { data: catalogRow } = await supabase
@@ -256,7 +257,8 @@ export async function handleConfirm(
     }
 
     profitAmount = Number(catalogRow.sub_agent_profit_margin)
-    verifiedPrice = Number((catalogRow as any).packages.price) + Number(catalogRow.wholesale_margin) + profitAmount
+    parentProfitAmount = Number(catalogRow.wholesale_margin)
+    verifiedPrice = Number((catalogRow as any).packages.price) + parentProfitAmount + profitAmount
   } else {
     const { data: shopPkg } = await supabase
       .from("shop_packages")
@@ -317,6 +319,8 @@ export async function handleConfirm(
       amount: chargeAmount,
       shop_price: verifiedPrice,
       profit_amount: profitAmount,
+      parent_shop_id: parentShopId ?? null,
+      parent_profit_amount: parentProfitAmount,
       shop_name: session.shopName ?? null,
       customer_email: customerEmail ?? null,
       shop_owner_email: shopOwnerEmail,

@@ -317,7 +317,7 @@ export async function POST(request: NextRequest) {
           })
           .eq("id", ussdShopOrder.id)
 
-        // Credit shop profit (DB trigger auto-syncs shop_available_balance)
+        // Credit sub-agent shop profit (DB trigger auto-syncs shop_available_balance)
         if (Number(ussdShopOrder.profit_amount) > 0) {
           const { error: profitErr } = await supabase.from("shop_profits").insert([{
             shop_id: ussdShopOrder.shop_id,
@@ -330,6 +330,22 @@ export async function POST(request: NextRequest) {
             console.error("[WEBHOOK] Failed to credit USSD shop profit:", profitErr)
           } else {
             console.log(`[WEBHOOK] ✓ Shop profit credited: GHS ${ussdShopOrder.profit_amount} for shop ${ussdShopOrder.shop_id}`)
+          }
+        }
+
+        // Credit parent shop wholesale margin (sub-agent orders only)
+        if (ussdShopOrder.parent_shop_id && Number(ussdShopOrder.parent_profit_amount) > 0) {
+          const { error: parentProfitErr } = await supabase.from("shop_profits").insert([{
+            shop_id: ussdShopOrder.parent_shop_id,
+            ussd_shop_order_id: ussdShopOrder.id,
+            profit_amount: ussdShopOrder.parent_profit_amount,
+            status: "credited",
+            created_at: new Date().toISOString(),
+          }])
+          if (parentProfitErr) {
+            console.error("[WEBHOOK] Failed to credit parent shop profit for USSD sub-agent order:", parentProfitErr)
+          } else {
+            console.log(`[WEBHOOK] ✓ Parent shop profit credited: GHS ${ussdShopOrder.parent_profit_amount} for shop ${ussdShopOrder.parent_shop_id}`)
           }
         }
 
