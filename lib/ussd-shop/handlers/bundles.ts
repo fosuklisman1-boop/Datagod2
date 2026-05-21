@@ -28,23 +28,42 @@ function sizeToMb(size: string): number {
   }
 }
 
+async function shopOwnerIsDealer(shopId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from("user_shops")
+    .select("users!inner(role)")
+    .eq("id", shopId)
+    .single()
+  return (data as any)?.users?.role === 'dealer'
+}
+
+function basePrice(pkg: { price: number; dealer_price?: number | null }, isDealer: boolean): number {
+  return isDealer && pkg.dealer_price && Number(pkg.dealer_price) > 0
+    ? Number(pkg.dealer_price)
+    : Number(pkg.price)
+}
+
 async function fetchShopBundles(
   shopId: string,
   network: string,
   parentShopId?: string
 ): Promise<ShopBundleOption[]> {
   if (parentShopId) {
-    const { data: catalogRows } = await supabase
-      .from("sub_agent_catalog")
-      .select("package_id, wholesale_margin, sub_agent_profit_margin")
-      .eq("shop_id", parentShopId)
-      .eq("is_active", true)
+    const [catalogRows, isDealer] = await Promise.all([
+      supabase
+        .from("sub_agent_catalog")
+        .select("package_id, wholesale_margin, sub_agent_profit_margin")
+        .eq("shop_id", parentShopId)
+        .eq("is_active", true)
+        .then(r => r.data),
+      shopOwnerIsDealer(parentShopId),
+    ])
 
     if (!catalogRows?.length) return []
 
     const { data: pkgRows } = await supabase
       .from("packages")
-      .select("id, size, price")
+      .select("id, size, price, dealer_price")
       .in("id", catalogRows.map(r => r.package_id))
       .eq("network", network)
       .eq("active", true)
@@ -56,22 +75,26 @@ async function fetchShopBundles(
       .map(pkg => ({
         id: pkg.id,
         size: pkg.size,
-        price: Number(pkg.price) + Number(catMap[pkg.id].wholesale_margin) + Number(catMap[pkg.id].sub_agent_profit_margin),
+        price: basePrice(pkg, isDealer) + Number(catMap[pkg.id].wholesale_margin) + Number(catMap[pkg.id].sub_agent_profit_margin),
       }))
       .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
   }
 
-  const { data: spRows } = await supabase
-    .from("shop_packages")
-    .select("package_id, profit_margin")
-    .eq("shop_id", shopId)
-    .eq("is_available", true)
+  const [spRows, isDealer] = await Promise.all([
+    supabase
+      .from("shop_packages")
+      .select("package_id, profit_margin")
+      .eq("shop_id", shopId)
+      .eq("is_available", true)
+      .then(r => r.data),
+    shopOwnerIsDealer(shopId),
+  ])
 
   if (!spRows?.length) return []
 
   const { data: pkgRows } = await supabase
     .from("packages")
-    .select("id, size, price")
+    .select("id, size, price, dealer_price")
     .in("id", spRows.map(r => r.package_id))
     .eq("network", network)
     .eq("active", true)
@@ -83,7 +106,7 @@ async function fetchShopBundles(
     .map(pkg => ({
       id: pkg.id,
       size: pkg.size,
-      price: Number(pkg.price) + Number(profitMap[pkg.id] ?? 0),
+      price: basePrice(pkg, isDealer) + Number(profitMap[pkg.id] ?? 0),
     }))
     .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
 }
@@ -244,13 +267,17 @@ export async function handleConfirm(
   let parentProfitAmount = 0
 
   if (parentShopId) {
-    const { data: catalogRow } = await supabase
-      .from("sub_agent_catalog")
-      .select("wholesale_margin, sub_agent_profit_margin, packages!inner(price, active)")
-      .eq("shop_id", parentShopId)
-      .eq("package_id", bundleId!)
-      .eq("is_active", true)
-      .maybeSingle()
+    const [catalogRow, parentIsDealer] = await Promise.all([
+      supabase
+        .from("sub_agent_catalog")
+        .select("wholesale_margin, sub_agent_profit_margin, packages!inner(price, dealer_price, active)")
+        .eq("shop_id", parentShopId)
+        .eq("package_id", bundleId!)
+        .eq("is_active", true)
+        .maybeSingle()
+        .then(r => r.data),
+      shopOwnerIsDealer(parentShopId),
+    ])
 
     if (!catalogRow || !(catalogRow as any).packages?.active) {
       return end('Bundle no longer available. Please try again.')
@@ -258,22 +285,26 @@ export async function handleConfirm(
 
     profitAmount = Number(catalogRow.sub_agent_profit_margin)
     parentProfitAmount = Number(catalogRow.wholesale_margin)
-    verifiedPrice = Number((catalogRow as any).packages.price) + parentProfitAmount + profitAmount
+    verifiedPrice = basePrice((catalogRow as any).packages, parentIsDealer) + parentProfitAmount + profitAmount
   } else {
-    const { data: shopPkg } = await supabase
-      .from("shop_packages")
-      .select("profit_margin, packages!inner(price, active)")
-      .eq("shop_id", shopId!)
-      .eq("package_id", bundleId!)
-      .eq("is_available", true)
-      .maybeSingle()
+    const [shopPkg, shopIsDealer] = await Promise.all([
+      supabase
+        .from("shop_packages")
+        .select("profit_margin, packages!inner(price, dealer_price, active)")
+        .eq("shop_id", shopId!)
+        .eq("package_id", bundleId!)
+        .eq("is_available", true)
+        .maybeSingle()
+        .then(r => r.data),
+      shopOwnerIsDealer(shopId!),
+    ])
 
     if (!shopPkg || !(shopPkg as any).packages?.active) {
       return end('Bundle no longer available. Please try again.')
     }
 
     profitAmount = Number(shopPkg.profit_margin)
-    verifiedPrice = Number((shopPkg as any).packages.price) + profitAmount
+    verifiedPrice = basePrice((shopPkg as any).packages, shopIsDealer) + profitAmount
   }
 
   if (Math.abs(verifiedPrice - bundlePrice!) > 0.01) {
