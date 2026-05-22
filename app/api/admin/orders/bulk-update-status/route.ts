@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates, type NotificationType } from "@/lib/notification-service"
+import { sendPushToUser } from "@/lib/push-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 // Initialize Supabase with service role key
@@ -277,6 +278,16 @@ export async function POST(request: NextRequest) {
               console.warn(`[NOTIFICATION] Failed to send ${notifications.length} bulk notifications:`, notifError)
             } else {
               console.log(`[NOTIFICATION] Sent ${notifications.length} bulk order status notifications`)
+              orders.forEach((order) => {
+                const isCompleted = status === "completed"
+                sendPushToUser(order.user_id, {
+                  title: isCompleted ? "Order Completed" : "Order Failed",
+                  body: isCompleted
+                    ? `Your ${order.network} ${order.size} data order has been completed.`
+                    : `Your ${order.network} ${order.size} data order has failed. Please contact support.`,
+                  data: { url: `/dashboard/my-orders` },
+                }).catch(() => {})
+              })
             }
           }
         } catch (error) {
@@ -479,6 +490,16 @@ export async function POST(request: NextRequest) {
               console.warn(`[NOTIFICATION] Failed to send ${notifications.length} shop notifications:`, notifError)
             } else {
               console.log(`[NOTIFICATION] Sent ${notifications.length} shop order status notifications`)
+              shopOrderDetails.forEach((order) => {
+                const isCompleted = status === "completed"
+                sendPushToUser(order.user_id, {
+                  title: isCompleted ? "Order Completed" : "Order Failed",
+                  body: isCompleted
+                    ? `Your ${order.network} ${order.volume_gb}GB data order has been completed.`
+                    : `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support.`,
+                  data: { url: `/dashboard/my-orders` },
+                }).catch(() => {})
+              })
             }
           }
         } catch (error) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     payment_status: 'completed',
   }]).then(({ error }) => { if (error) console.warn("[ADMIN-USSD-TOKENS] audit insert failed:", error) })
 
-  // Send token top-up email to shop owner (non-blocking)
+  // Send token top-up email + push to shop owner (non-blocking)
   ;(async () => {
     try {
       const { data: owner } = await supabase.from("users").select("email, first_name").eq("id", shopOwnerId).single()
@@ -74,6 +75,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       console.warn("[ADMIN-USSD-TOKENS] email failed (non-fatal):", err)
     }
   })()
+
+  sendPushToUser(shopOwnerId, {
+    title: "Sessions Added",
+    body: `${tokens} session${tokens !== 1 ? 's' : ''} added to your shop code ${shopCodeStr}. New balance: ${newBalance}.`,
+    data: { url: `/dashboard/ussd-shop` },
+  }).catch(() => {})
 
   return NextResponse.json({ success: true, new_token_balance: newBalance })
 }

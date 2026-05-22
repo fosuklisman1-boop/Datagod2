@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
+import { sendPushToUser } from "@/lib/push-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -77,7 +78,8 @@ export async function POST(req: NextRequest) {
 
             const batchResults = {
                 sms: { sent: 0, failed: 0 },
-                email: { sent: 0, failed: 0 }
+                email: { sent: 0, failed: 0 },
+                push: { sent: 0, failed: 0 },
             }
 
             await Promise.all(recipients.map(async (user: any) => {
@@ -114,6 +116,21 @@ export async function POST(req: NextRequest) {
                         else batchResults.email.failed++
                     } catch (e) {
                         batchResults.email.failed++
+                    }
+                }
+
+                // Push
+                if (channels.includes("push") && user.id) {
+                    try {
+                        const { sent } = await sendPushToUser(user.id, {
+                            title: subject || "Notification",
+                            body: message,
+                            data: { url: "/dashboard" },
+                        })
+                        if (sent > 0) batchResults.push.sent++
+                        else batchResults.push.failed++
+                    } catch (e) {
+                        batchResults.push.failed++
                     }
                 }
             }))

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -115,6 +116,28 @@ export async function POST(request: NextRequest) {
             else console.log("[WEBHOOK] ✓ USSD shop tokens credited:", shopTokenPurchase.tokens_purchased, "to code:", shopTokenPurchase.shop_code_id)
           }
         }
+
+        // Push notification to shop owner (non-blocking)
+        ;(async () => {
+          try {
+            const { data: shopRow } = await supabase
+              .from("user_shops").select("user_id").eq("id", shopTokenPurchase.shop_id).single()
+            if (!shopRow?.user_id) return
+            if (shopTokenPurchase.is_activation) {
+              await sendPushToUser(shopRow.user_id, {
+                title: "Shop Code Activated",
+                body: `Your USSD shop code is now active with ${shopTokenPurchase.tokens_purchased} session${shopTokenPurchase.tokens_purchased !== 1 ? 's' : ''}.`,
+                data: { url: `/dashboard/ussd-shop` },
+              })
+            } else {
+              await sendPushToUser(shopRow.user_id, {
+                title: "Sessions Purchased",
+                body: `${shopTokenPurchase.tokens_purchased} session${shopTokenPurchase.tokens_purchased !== 1 ? 's' : ''} added to your shop.`,
+                data: { url: `/dashboard/ussd-shop` },
+              })
+            }
+          } catch { /* non-fatal */ }
+        })()
 
         return NextResponse.json({ received: true })
       }
@@ -519,7 +542,7 @@ export async function POST(request: NextRequest) {
       if (isUssdShopActivation || isUssdShopToken) {
         const { data: purchase } = await supabase
           .from("ussd_shop_token_purchases")
-          .select("id, shop_code_id, tokens_purchased, payment_status")
+          .select("id, shop_code_id, shop_id, tokens_purchased, payment_status")
           .eq("id", paymentData.order_id)
           .single()
 
@@ -569,6 +592,28 @@ export async function POST(request: NextRequest) {
             else console.log("[WEBHOOK] ✓ USSD shop tokens credited:", purchase.tokens_purchased)
           }
         }
+
+        // Push notification to shop owner (non-blocking)
+        ;(async () => {
+          try {
+            const { data: shopRow } = await supabase
+              .from("user_shops").select("user_id").eq("id", purchase.shop_id).single()
+            if (!shopRow?.user_id) return
+            if (isUssdShopActivation) {
+              await sendPushToUser(shopRow.user_id, {
+                title: "Shop Code Activated",
+                body: `Your USSD shop code is now active with ${purchase.tokens_purchased} session${purchase.tokens_purchased !== 1 ? 's' : ''}.`,
+                data: { url: `/dashboard/ussd-shop` },
+              })
+            } else {
+              await sendPushToUser(shopRow.user_id, {
+                title: "Sessions Purchased",
+                body: `${purchase.tokens_purchased} session${purchase.tokens_purchased !== 1 ? 's' : ''} added to your shop.`,
+                data: { url: `/dashboard/ussd-shop` },
+              })
+            }
+          } catch { /* non-fatal */ }
+        })()
 
         return NextResponse.json({ received: true })
       }

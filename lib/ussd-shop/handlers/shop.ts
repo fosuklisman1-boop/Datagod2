@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { UzoResponse } from "../types"
 import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetworks } from "../menus"
 import { setSession } from "../session"
+import { sendPushToUser } from "../../push-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,12 +50,23 @@ export async function handleEnterShopCode(
   // Fetch shop name and whether it is a sub-agent (has parent_shop_id)
   const { data: shopRow } = await supabase
     .from("user_shops")
-    .select("shop_name, parent_shop_id")
+    .select("shop_name, parent_shop_id, user_id")
     .eq("id", shopCode.shop_id)
     .single()
 
   const shopName = shopRow?.shop_name ?? 'Shop'
   const parentShopId: string | null = (shopRow as any)?.parent_shop_id ?? null
+  const shopOwnerId: string | null = (shopRow as any)?.user_id ?? null
+
+  // Alert shop owner when sessions drop to 10
+  const remainingTokens = shopCode.token_balance - 1
+  if (remainingTokens === 10 && shopOwnerId) {
+    sendPushToUser(shopOwnerId, {
+      title: "Low Sessions Warning",
+      body: `Your USSD shop "${shopName}" has only 10 sessions remaining. Top up to avoid service interruption.`,
+      data: { url: `/dashboard/ussd-shop` },
+    }).catch(() => {})
+  }
 
   // Fetch distinct available networks — source depends on shop type
   let networks: string[] = []

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     is_activation: true,
   }])
 
-  // Send activation email to shop owner (non-blocking)
+  // Send activation email + push to shop owner (non-blocking)
   ;(async () => {
     try {
       const { data: owner } = await supabase.from("users").select("email, first_name").eq("id", shopOwnerId).single()
@@ -83,6 +84,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       console.warn("[ADMIN-USSD-ACTIVATE] email failed (non-fatal):", err)
     }
   })()
+
+  sendPushToUser(shopOwnerId, {
+    title: "Shop Code Activated",
+    body: `Your USSD shop code ${shopCodeStr} for "${shopName}" is now active with ${initial_tokens} session${initial_tokens !== 1 ? 's' : ''}.`,
+    data: { url: `/dashboard/ussd-shop` },
+  }).catch(() => {})
 
   return NextResponse.json({ success: true, status: 'active' })
 }

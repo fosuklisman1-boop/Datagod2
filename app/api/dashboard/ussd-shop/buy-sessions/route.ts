@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -82,5 +83,12 @@ export async function POST(request: NextRequest) {
     payment_status: 'completed',
   }])
 
-  return NextResponse.json({ success: true, new_token_balance: shopCode.token_balance + sessions })
+  const newTokenBalance = shopCode.token_balance + sessions
+  sendPushToUser(user.id, {
+    title: "Sessions Purchased",
+    body: `${sessions} session${sessions !== 1 ? 's' : ''} added to your shop. New balance: ${newTokenBalance}.`,
+    data: { url: `/dashboard/ussd-shop` },
+  }).catch(() => {})
+
+  return NextResponse.json({ success: true, new_token_balance: newTokenBalance })
 }

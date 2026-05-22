@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { notificationService } from "./notification-service"
+import { sendPushToUser } from "./push-service"
 import { notifyFulfillmentFailure } from "./sms-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -945,6 +946,11 @@ class ATiShareService {
                 { reference_id: orderId }
               )
               console.log(`[CODECRAFT-LOG] ✅ Notification sent to user ${userId}`)
+              sendPushToUser(userId, {
+                title: "Order Fulfilled Successfully",
+                body: `Your AT-iShare data order to ${phoneNumber} has been delivered successfully.`,
+                data: { url: `/dashboard/my-orders` },
+              }).catch(() => {})
             }
           } catch (notifError) {
             console.error(`[CODECRAFT-LOG] Failed to send notification:`, notifError)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -220,6 +221,11 @@ export async function POST(request: NextRequest) {
         console.warn("[NOTIFICATION] Failed to send complaint submitted notification:", notifError)
       } else {
         console.log("[NOTIFICATION] Complaint submitted notification sent to user", userId)
+        sendPushToUser(userId, {
+          title: notificationData.title,
+          body: notificationData.message,
+          data: { url: `/dashboard/complaints?id=${complaint[0].id}` },
+        }).catch(() => {})
       }
     } catch (notifError) {
       console.warn("[NOTIFICATION] Failed to send complaint submitted notification:", notifError)

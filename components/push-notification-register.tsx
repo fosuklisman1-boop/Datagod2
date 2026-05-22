@@ -1,77 +1,79 @@
-'use client';
+'use client'
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  const output = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; i++) {
+    output[i] = rawData.charCodeAt(i)
+  }
+  return output
+}
+
+async function subscribeToPush(registration: ServiceWorkerRegistration, userId: string) {
+  const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  if (!vapidKey) {
+    console.warn('[Push] NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set')
+    return
+  }
+
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(vapidKey),
+  })
+
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscription, userId }),
+  })
+}
 
 export function PushNotificationRegister() {
-  const [isSupported, setIsSupported] = useState(false);
-  const [isSubscribed, setIsSubscribed] = useState(false);
-
   useEffect(() => {
-    // Check if push notifications are supported
-    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-    setIsSupported(supported);
+    if (
+      typeof window === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      !('PushManager' in window) ||
+      !('Notification' in window)
+    ) {
+      return
+    }
 
-    if (supported) {
-      navigator.serviceWorker.ready.then(async (registration) => {
-        try {
-          // Check if already subscribed
-          const subscription = await registration.pushManager.getSubscription();
-          setIsSubscribed(!!subscription);
+    let cancelled = false
 
-          // Request notification permission
-          if (Notification.permission === 'default') {
-            const permission = await Notification.requestPermission();
-            if (permission === 'granted') {
-              await subscribeToPush(registration);
-            }
-          } else if (Notification.permission === 'granted' && !subscription) {
-            await subscribeToPush(registration);
-          }
-        } catch (error) {
-          console.log('[Push Notifications] Setup error:', error);
+    const setup = async () => {
+      // Get the authenticated user ID — we need it to link the subscription
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user || cancelled) return
+
+      const registration = await navigator.serviceWorker.ready
+
+      const existing = await registration.pushManager.getSubscription()
+
+      if (Notification.permission === 'granted') {
+        if (!existing) await subscribeToPush(registration, user.id)
+        return
+      }
+
+      if (Notification.permission === 'default') {
+        const permission = await Notification.requestPermission()
+        if (permission === 'granted' && !cancelled) {
+          await subscribeToPush(registration, user.id)
         }
-      });
+      }
+
+      // 'denied' — user blocked; nothing to do
     }
-  }, []);
 
-  const subscribeToPush = async (registration: ServiceWorkerRegistration) => {
-    try {
-      // Generate a VAPID key for your server
-      // For now, using a placeholder - replace with your actual VAPID key
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(
-          process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
-          'BKlzIREJUg3PfRtOLUHaCpbLLmAhJrKBkKdVkMvdJL9ZLxxgS7L7zK1K8Z3L7LmPL7L7L7L7L7L7L7L7L7L7L7L7L'
-        ),
-      });
+    setup().catch((err) => console.warn('[Push] Setup error:', err))
 
-      // Save subscription to server
-      await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(subscription),
-      });
+    return () => { cancelled = true }
+  }, [])
 
-      setIsSubscribed(true);
-      console.log('[Push Notifications] Subscribed successfully');
-    } catch (error) {
-      console.log('[Push Notifications] Subscription failed:', error);
-    }
-  };
-
-  // Helper function to convert VAPID key
-  const urlBase64ToUint8Array = (base64String: string) => {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    const buffer = new ArrayBuffer(rawData.length);
-    const outputArray = new Uint8Array(buffer);
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-  };
-
-  return null;
+  return null
 }

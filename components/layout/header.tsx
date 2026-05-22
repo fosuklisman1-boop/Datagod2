@@ -4,6 +4,7 @@ import { ShoppingCart, User, LogOut, Headphones, Mail, Phone, MessageCircle, Cro
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { NotificationCenter } from "@/components/notification-center"
+import { PwaInstallButton } from "@/components/pwa-install-button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,6 +58,9 @@ export function Header() {
 
       {/* Right side - icons and user menu */}
       <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
+        {/* PWA install — Android shows native prompt; iOS shows step-by-step guide */}
+        <PwaInstallButton />
+
         {/* Notification Center */}
         <NotificationCenter />
 

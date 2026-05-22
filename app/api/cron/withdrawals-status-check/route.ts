@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { getTransferStatus } from "@/lib/moolre-transfer"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,6 +54,11 @@ async function notifyCompletion(withdrawal: any) {
       read: false,
     }])
     if (notifError) console.warn("[CRON-NOTIFY] Notification error:", notifError)
+    else sendPushToUser(shop.user_id, {
+      title: notificationData.title,
+      body: notificationData.message,
+      data: { url: `/dashboard/shop-dashboard` },
+    }).catch(() => {})
 
     const { data: userData } = await supabase
       .from("users")

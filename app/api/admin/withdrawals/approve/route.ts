@@ -4,6 +4,7 @@ import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { initiateTransfer } from "@/lib/moolre-transfer"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -61,6 +62,11 @@ async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
       read: false,
     }])
     if (notifError) console.warn("[NOTIFICATION] Failed:", notifError)
+    else sendPushToUser(shop.user_id, {
+      title: notificationData.title,
+      body: notificationData.message,
+      data: { url: `/dashboard/shop-dashboard` },
+    }).catch(() => {})
 
     const { data: userData } = await supabase
       .from("users")

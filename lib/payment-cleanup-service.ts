@@ -6,6 +6,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notificationTemplates } from "@/lib/notification-service"
+import { sendPushToUser } from "./push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -221,6 +222,11 @@ export async function cleanupAbandonedPayments(
               action_url: "/dashboard/wallet",
               read: false,
             }])
+            sendPushToUser(payment.user_id, {
+              title: notifData.title,
+              body: `${notifData.message} Credited amount: GHS ${netAmount.toFixed(2)}.`,
+              data: { url: "/dashboard/wallet" },
+            }).catch(() => {})
           } catch (notifError) {
             console.warn("[PAYMENT-CLEANUP] In-app notification error:", notifError)
           }
@@ -422,6 +428,11 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
               action_url: "/dashboard/wallet",
               read: false,
             }])
+            sendPushToUser(userId, {
+              title: notifData.title,
+              body: `${notifData.message} Credited amount: GHS ${netAmount.toFixed(2)}.`,
+              data: { url: "/dashboard/wallet" },
+            }).catch(() => {})
           } catch (notifError) {
             console.warn("[PAYMENT-VERIFY] In-app notification error:", notifError)
           }

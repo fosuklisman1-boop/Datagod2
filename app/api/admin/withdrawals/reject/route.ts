@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -84,6 +85,11 @@ export async function POST(request: NextRequest) {
             console.warn("[NOTIFICATION] Failed to send notification:", notifError)
           } else {
             console.log(`[NOTIFICATION] Withdrawal rejection notification sent to user ${shop.user_id}`)
+            sendPushToUser(shop.user_id, {
+              title: notificationData.title,
+              body: notificationData.message,
+              data: { url: `/dashboard/shop-dashboard` },
+            }).catch(() => {})
           }
         } catch (notifError) {
           console.warn("[NOTIFICATION] Failed to send notification:", notifError)

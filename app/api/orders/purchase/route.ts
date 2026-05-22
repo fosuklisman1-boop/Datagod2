@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
+import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { atishareService } from "@/lib/at-ishare-service"
@@ -464,6 +465,11 @@ export async function POST(request: NextRequest) {
         console.warn("[NOTIFICATION] Failed to send purchase notification:", notifError)
       } else {
         console.log(`[NOTIFICATION] Purchase success notification sent to user ${userId}`)
+        sendPushToUser(userId, {
+          title: notificationData.title,
+          body: `${notificationData.message} Order: ${network} - ${verifiedSize}GB.`,
+          data: { url: `/dashboard/my-orders?orderId=${order[0].id}` },
+        }).catch(() => {})
       }
     } catch (notifError) {
       console.warn("[NOTIFICATION] Failed to send purchase notification:", notifError)

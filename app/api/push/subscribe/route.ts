@@ -1,34 +1,43 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabase'
 
-// Store subscriptions in a simple in-memory map or database
-// For production, use a database like Supabase
-const subscriptions = new Map();
-
-export const runtime = 'nodejs';
+export const runtime = 'nodejs'
 
 export async function POST(request: Request) {
   try {
-    const subscription = await request.json();
+    const { subscription, userId } = await request.json()
 
-    if (!subscription || !subscription.endpoint) {
-      return NextResponse.json(
-        { error: 'Invalid subscription' },
-        { status: 400 }
-      );
+    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      return NextResponse.json({ error: 'Invalid subscription object' }, { status: 400 })
     }
 
-    // Store subscription
-    subscriptions.set(subscription.endpoint, subscription);
+    if (!userId) {
+      return NextResponse.json({ error: 'userId is required' }, { status: 400 })
+    }
 
-    // In production, save to database
-    console.log('[Push API] Subscription saved:', subscription.endpoint);
+    // Upsert so re-subscribing the same device doesn't create duplicates
+    const { error } = await supabaseAdmin
+      .from('push_subscriptions')
+      .upsert(
+        {
+          user_id: userId,
+          endpoint: subscription.endpoint,
+          p256dh: subscription.keys.p256dh,
+          auth: subscription.keys.auth,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'endpoint' }
+      )
 
-    return NextResponse.json({ success: true });
+    if (error) {
+      console.error('[Push] Subscribe DB error:', error)
+      return NextResponse.json({ error: 'Failed to save subscription' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('[Push API] Subscription error:', error);
-    return NextResponse.json(
-      { error: 'Failed to save subscription' },
-      { status: 500 }
-    );
+    console.error('[Push] Subscribe error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -21,7 +21,8 @@ import {
     Search,
     X,
     History,
-    ChevronLeft
+    ChevronLeft,
+    Bell
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -138,7 +139,7 @@ export default function BroadcastPage() {
 
     const handleSend = async () => {
         if (channels.length === 0) {
-            toast.error("Please select at least one channel (SMS or Email)")
+            toast.error("Please select at least one channel (SMS, Email, or Push)")
             return
         }
 
@@ -300,7 +301,7 @@ export default function BroadcastPage() {
                                 Broadcast Messaging
                             </h1>
                         </div>
-                        <p className="text-gray-500">Reach your users via SMS or Email broadcasts</p>
+                        <p className="text-gray-500">Reach your users via SMS, Email, or Push broadcasts</p>
                     </div>
                     <Button
                         variant="outline"
@@ -411,22 +412,32 @@ export default function BroadcastPage() {
                                     Channels
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent className="flex gap-4">
-                                <label className={`flex-1 flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("email") ? "bg-pink-50 border-pink-500" : "hover:bg-gray-50"}`}>
-                                    <Checkbox checked={channels.includes("email")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "email"] : prev.filter(c => c !== "email"))} />
+                            <CardContent className="flex flex-col gap-3">
+                                <div className="flex gap-3">
+                                    <label className={`flex-1 flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("email") ? "bg-pink-50 border-pink-500" : "hover:bg-gray-50"}`}>
+                                        <Checkbox checked={channels.includes("email")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "email"] : prev.filter(c => c !== "email"))} />
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-pink-700">Email</span>
+                                            <span className="text-xs text-gray-500">Premium HTML template</span>
+                                        </div>
+                                        <Mail className="ml-auto w-5 h-5 text-pink-400" />
+                                    </label>
+                                    <label className={`flex-1 flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("sms") ? "bg-emerald-50 border-emerald-500" : "hover:bg-gray-50"}`}>
+                                        <Checkbox checked={channels.includes("sms")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "sms"] : prev.filter(c => c !== "sms"))} />
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-emerald-700">SMS</span>
+                                            <span className="text-xs text-gray-500">Fast delivery</span>
+                                        </div>
+                                        <MessageSquare className="ml-auto w-5 h-5 text-emerald-400" />
+                                    </label>
+                                </div>
+                                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("push") ? "bg-violet-50 border-violet-500" : "hover:bg-gray-50"}`}>
+                                    <Checkbox checked={channels.includes("push")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "push"] : prev.filter(c => c !== "push"))} />
                                     <div className="flex flex-col">
-                                        <span className="font-semibold text-pink-700">Email</span>
-                                        <span className="text-xs text-gray-500">Premium HTML template</span>
+                                        <span className="font-semibold text-violet-700">Push Notification</span>
+                                        <span className="text-xs text-gray-500">In-browser notification — only reaches users who have allowed notifications</span>
                                     </div>
-                                    <Mail className="ml-auto w-5 h-5 text-pink-400" />
-                                </label>
-                                <label className={`flex-1 flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("sms") ? "bg-emerald-50 border-emerald-500" : "hover:bg-gray-50"}`}>
-                                    <Checkbox checked={channels.includes("sms")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "sms"] : prev.filter(c => c !== "sms"))} />
-                                    <div className="flex flex-col">
-                                        <span className="font-semibold text-emerald-700">SMS</span>
-                                        <span className="text-xs text-gray-500">Fast delivery</span>
-                                    </div>
-                                    <MessageSquare className="ml-auto w-5 h-5 text-emerald-400" />
+                                    <Bell className="ml-auto w-5 h-5 text-violet-400" />
                                 </label>
                             </CardContent>
                         </Card>
