@@ -6,23 +6,23 @@ import { supabase } from '@/lib/supabase'
 import { urlBase64ToUint8Array } from '@/lib/vapid-utils'
 
 export function PushOptInBanner() {
-  const [visible, setVisible] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const [show, setShow] = useState(false)
   const [enabling, setEnabling] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
+
+    // Only show if the browser supports push and user hasn't decided yet
     if (
-      typeof window === 'undefined' ||
       !('Notification' in window) ||
       !('serviceWorker' in navigator) ||
-      !('PushManager' in window)
+      !('PushManager' in window) ||
+      Notification.permission !== 'default'
     ) return
 
-    if (Notification.permission === 'default') {
-      // Small delay so it doesn't flash instantly on load
-      const t = setTimeout(() => setVisible(true), 1500)
-      return () => clearTimeout(t)
-    }
+    const t = setTimeout(() => setShow(true), 1200)
+    return () => clearTimeout(t)
   }, [])
 
   const handleEnable = async () => {
@@ -54,23 +54,30 @@ export function PushOptInBanner() {
       console.warn('[PushBanner] enable failed:', err)
     } finally {
       setEnabling(false)
-      setVisible(false)
+      setShow(false)
     }
   }
 
-  const handleDismiss = () => {
-    setDismissed(true)
-    setVisible(false)
-  }
-
-  if (!visible || dismissed) return null
+  // Don't render anything until client has mounted (avoids hydration mismatch)
+  if (!mounted) return null
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-md animate-in slide-in-from-bottom-4 duration-300">
-      <div className="relative flex items-start gap-4 bg-white border border-violet-200 rounded-2xl shadow-xl px-5 py-4">
+    <div
+      style={{
+        position: 'fixed',
+        bottom: '1rem',
+        left: '50%',
+        transform: `translateX(-50%) translateY(${show ? '0' : '120%'})`,
+        transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        zIndex: 9999,
+        width: 'min(calc(100vw - 2rem), 440px)',
+      }}
+      aria-live="polite"
+    >
+      <div className="relative flex items-start gap-4 bg-white border border-violet-200 rounded-2xl shadow-2xl px-5 py-4">
         {/* Dismiss */}
         <button
-          onClick={handleDismiss}
+          onClick={() => setShow(false)}
           className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
           aria-label="Dismiss"
         >
@@ -83,7 +90,7 @@ export function PushOptInBanner() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-w-0 pr-4">
+        <div className="flex-1 min-w-0 pr-5">
           <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
             Stay in the loop
             <Sparkles className="w-3.5 h-3.5 text-violet-500" />
@@ -96,12 +103,12 @@ export function PushOptInBanner() {
             <button
               onClick={handleEnable}
               disabled={enabling}
-              className="flex-1 text-sm font-semibold bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+              className="flex-1 text-sm font-semibold bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
             >
               {enabling ? 'Enabling…' : 'Enable notifications'}
             </button>
             <button
-              onClick={handleDismiss}
+              onClick={() => setShow(false)}
               className="text-sm text-gray-400 hover:text-gray-600 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
             >
               Not now
