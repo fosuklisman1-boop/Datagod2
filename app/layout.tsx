@@ -18,6 +18,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // viewport-fit=cover extends content into the notch/Dynamic Island area so the
+  // apple-touch-startup-image media queries can match the full physical screen height.
+  viewportFit: "cover",
   themeColor: "#4f46e5",
 };
 
@@ -37,7 +40,9 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    // black-translucent: status bar overlays the app instead of consuming space,
+    // allowing the splash image to fill the full screen including the notch area.
+    statusBarStyle: "black-translucent",
     title: "DATAGOD",
   },
   formatDetection: {
