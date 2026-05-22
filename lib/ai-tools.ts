@@ -1142,10 +1142,21 @@ export async function executeToolCall(
         const newStatus = input.status as string
         const now = new Date().toISOString()
 
-        // orders and api_orders use status field; shop/ussd tables use order_status
+        // shop_orders: route through the proper endpoint so notifications fire
+        const { data: shopCheck } = await supabaseAdmin.from("shop_orders").select("id").eq("id", id).maybeSingle()
+        if (shopCheck) {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/shop-orders/update-status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ orderIds: [id], status: newStatus }),
+          })
+          const data = await res.json()
+          return { success: res.ok, message: data.error ?? "Status updated" }
+        }
+
+        // All other tables: direct update (no notification endpoints exist for these)
         const attempts = [
           supabaseAdmin.from("orders").update({ status: newStatus, updated_at: now }).eq("id", id).select("id"),
-          supabaseAdmin.from("shop_orders").update({ order_status: newStatus }).eq("id", id).select("id"),
           supabaseAdmin.from("ussd_orders").update({ order_status: newStatus }).eq("id", id).select("id"),
           supabaseAdmin.from("ussd_shop_orders").update({ order_status: newStatus }).eq("id", id).select("id"),
           supabaseAdmin.from("api_orders").update({ status: newStatus }).eq("id", id).select("id"),
@@ -1166,15 +1177,43 @@ export async function executeToolCall(
         }
 
         const newStatus = input.new_status as string
+        const now = new Date().toISOString()
 
+        // ── shop_orders: fetch matching IDs first, then route through the proper
+        //    endpoint so notifications, profit crediting, and emails all fire.
+        let shopOrderIdQuery = supabaseAdmin
+          .from("shop_orders")
+          .select("id")
+          .eq("payment_status", "completed")
+        if (input.filter_status) shopOrderIdQuery = shopOrderIdQuery.eq("order_status", input.filter_status as string)
+        if (input.filter_network) shopOrderIdQuery = shopOrderIdQuery.ilike("network", input.filter_network as string)
+        if (input.date_from) shopOrderIdQuery = shopOrderIdQuery.gte("created_at", input.date_from as string)
+        if (input.date_to) shopOrderIdQuery = shopOrderIdQuery.lte("created_at", input.date_to as string)
+
+        const { data: shopIds, error: shopIdErr } = await shopOrderIdQuery
+        if (shopIdErr) return { error: shopIdErr.message }
+
+        let shopResult: { success: boolean; count?: number } = { success: true, count: 0 }
+        if (shopIds && shopIds.length > 0) {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/shop-orders/update-status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ orderIds: shopIds.map(o => o.id), status: newStatus }),
+          })
+          const data = await res.json()
+          if (!res.ok) return { error: data.error ?? "Failed to update shop orders" }
+          shopResult = { success: true, count: shopIds.length }
+        }
+
+        // ── All other tables: direct update (no notification endpoints for these)
         function buildBulkQ(
-          table: "orders" | "shop_orders" | "ussd_orders" | "ussd_shop_orders",
+          table: "orders" | "ussd_orders" | "ussd_shop_orders",
           statusField: "status" | "order_status",
           extraFilter?: { field: string; value: string }
         ) {
           let q = supabaseAdmin.from(table).update(
             statusField === "status"
-              ? { status: newStatus, updated_at: new Date().toISOString() }
+              ? { status: newStatus, updated_at: now }
               : { order_status: newStatus }
           )
           if (extraFilter) q = q.eq(extraFilter.field, extraFilter.value)
@@ -1185,24 +1224,22 @@ export async function executeToolCall(
           return q
         }
 
-        // api_orders uses status field but has no updated_at or payment_status columns
         let apiQ = supabaseAdmin.from("api_orders").update({ status: newStatus })
         if (input.filter_status) apiQ = apiQ.eq("status", input.filter_status as string)
         if (input.filter_network) apiQ = apiQ.ilike("network", input.filter_network as string)
         if (input.date_from) apiQ = apiQ.gte("created_at", input.date_from as string)
         if (input.date_to) apiQ = apiQ.lte("created_at", input.date_to as string)
 
-        const [{ error: e1 }, { error: e2 }, { error: e3 }, { error: e4 }, { error: e5 }] = await Promise.all([
+        const [{ error: e1 }, { error: e3 }, { error: e4 }, { error: e5 }] = await Promise.all([
           buildBulkQ("orders", "status"),
-          buildBulkQ("shop_orders", "order_status", { field: "payment_status", value: "completed" }),
           buildBulkQ("ussd_orders", "order_status", { field: "payment_status", value: "completed" }),
           buildBulkQ("ussd_shop_orders", "order_status", { field: "payment_status", value: "completed" }),
           apiQ,
         ])
 
-        const errs = [e1, e2, e3, e4, e5].filter(Boolean)
+        const errs = [e1, e3, e4, e5].filter(Boolean)
         if (errs.length) return { error: errs.map(e => e!.message).join("; ") }
-        return { success: true, message: `Orders updated to "${newStatus}" across all order types.` }
+        return { success: true, shop_orders_notified: shopResult.count, message: `Orders updated to "${newStatus}" across all order types.` }
       }
 
       case "retry_failed_order": {
