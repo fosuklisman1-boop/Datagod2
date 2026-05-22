@@ -313,11 +313,13 @@ const adjustWalletBalanceTool: Anthropic.Tool = {
 
 const listShopsTool: Anthropic.Tool = {
   name: "list_shops",
-  description: "Admin only: list dealer shops filtered by status. The 'id' in each result is used as shop_id in manage_shop.",
+  description: "Admin only: list dealer shops. Filter by status and/or search by shop name or owner name to keep results small. The 'id' in each result is used as shop_id in manage_shop.",
   input_schema: {
     type: "object" as const,
     properties: {
       status: { type: "string", description: "Filter by status: pending, active, or all (default: all)" },
+      search: { type: "string", description: "Search by shop name (partial match)" },
+      limit: { type: "number", description: "Max results to return (default 20)" },
     },
     required: [],
   },
@@ -1331,14 +1333,21 @@ export async function executeToolCall(
 
       case "list_shops": {
         const status = (input.status as string) ?? "all"
+        const search = (input.search as string | undefined) ?? ""
+        const limit = Number(input.limit ?? 20)
+        const params = new URLSearchParams()
+        if (status !== "all") params.set("status", status)
+        if (search) params.set("search", search)
+        params.set("limit", String(limit))
+        const qs = params.toString()
         const res = await fetch(
-          `${ctx.baseUrl}/api/admin/shops${status !== "all" ? `?status=${status}` : ""}`,
+          `${ctx.baseUrl}/api/admin/shops${qs ? `?${qs}` : ""}`,
           { headers: { Authorization: `Bearer ${ctx.jwtToken}` } }
         )
         const data = await res.json()
         if (!res.ok) return { error: data.error ?? "Failed to fetch shops" }
-        const shops = (data.shops ?? data ?? [])
-        return sanitize(shops.map((s: Record<string, unknown>) => ({
+        const shops: Record<string, unknown>[] = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : []
+        return sanitize(shops.map((s) => ({
           id: s.id,
           name: s.shop_name,
           slug: s.shop_slug,
