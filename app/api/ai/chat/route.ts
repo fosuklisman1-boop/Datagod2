@@ -219,9 +219,9 @@ SUPPORT:
 - Re-verify a stuck Paystack payment at /dashboard/payment-reverify
 
 USSD ORDERING (for customers who prefer feature phones or offline ordering):
-Datagod supports two USSD flows:
-1. **Direct wallet ordering** — dial ${ussdDialCode} to get a menu, select a bundle, and pay from your Datagod wallet or via Paystack OTP. You must have a Datagod account and wallet balance (or Paystack payment).
-2. **USSD Shop ordering** — each dealer has a unique 4-digit shop code. Customers dial ${ussdDialCode.replace(/#$/, "")}*{shopCode}# to order directly from that dealer's shop without needing a Datagod account. The dealer sets up this code on their USSD shop page. If a customer gives you a shop code (e.g. 1234), tell them to dial ${ussdDialCode.replace(/#$/, "")}*1234# to place an order.
+Datagod has two separate USSD services:
+1. **Direct wallet ordering** — dial the Datagod USSD code to reach the main menu (Buy Data Bundle, AFA Registration). Navigate with number keys to pick a network, bundle, and recipient, then pay via Datagod wallet or MoMo prompt. Requires a Datagod account with wallet balance.
+2. **USSD Shop ordering** — customers dial ${ussdDialCode} and are immediately prompted "Enter shop code:". They type the dealer's **4-digit shop code** and get that shop's bundle catalog — no Datagod account needed. Dealers find and share their 4-digit shop code from their USSD shop page (/dashboard/ussd-shop). Never tell a customer to append the shop code to the dial string — they enter it when the menu asks.
 
 YOUR ROLE:
 - Answer questions about Datagod's services, pricing, registration, features, and processes
@@ -310,9 +310,7 @@ DEALER-ONLY FEATURES (only available when role = dealer or admin):
 - Airtime top-up sales: /dashboard/airtime — sell airtime to customers
 - Results Checker: /dashboard/results-checker — sell WAEC/BECE/NOVDEC exam vouchers
 - AFA Orders: /dashboard/afa-orders — AFA data bundle orders
-- USSD Shop: /dashboard/ussd-shop — activate USSD ordering for the shop. Two flows exist:
-  (1) Direct: any wallet user dials ${ussdDialCode} and gets a bundle menu (no shop-specific code needed)
-  (2) Shop-specific: the dealer's unique 4-digit USSD shop code lets customers dial ${ussdDialCode.replace(/#$/, "")}*{shopCode}# to order from that shop without a Datagod account. The dealer's shop code is returned by get_my_shop.
+- USSD Shop: /dashboard/ussd-shop — activate a USSD shop code for the shop. Customers dial ${ussdDialCode}, get prompted "Enter shop code:", type the dealer's 4-digit code, then browse and buy bundles — no Datagod account needed. The dealer's 4-digit code is returned by get_my_shop. The shop code is ENTERED at the menu prompt, not appended to the dial string.
 - Customers: /dashboard/customers — view customer list and order history
 - Buy Stock: /dashboard/buy-stock — bulk stock purchasing
 
@@ -355,8 +353,8 @@ Fulfillment providers: Sykes/Datakazina (MTN), AFA (AT/Telecel).
 ORDER TABLES (each has an 'id' field — use the 'table' value from get_all_orders):
 - orders: dealer wallet orders (status field)
 - shop_orders: Paystack storefront orders (order_status field)
-- ussd_orders: direct USSD orders placed via ${ussdDialCode} (wallet/Paystack payment; order_status field)
-- ussd_shop_orders: shop-specific USSD orders via ${ussdDialCode.replace(/#$/, "")}*{shopCode}# where shopCode is a dealer's 4-digit USSD code (order_status field)
+- ussd_orders: direct USSD orders (wallet/MoMo payment via the Datagod USSD menu; order_status field)
+- ussd_shop_orders: shop-specific USSD orders — customer dialed ${ussdDialCode}, entered a dealer's 4-digit shop code at the menu prompt, and bought from that shop (order_status field)
 - api_orders: V1 API key orders (status field; no payment_status)
 
 ADMIN PAGES: /admin, /admin/orders, /admin/users, /admin/shops, /admin/packages, /admin/blacklist, /admin/withdrawals, /admin/fulfillment, /admin/settings, /admin/subscription-plans, /admin/rate-limits, /admin/ai-knowledge
@@ -395,7 +393,7 @@ PACKAGES:
 - size is stored as a plain number string — never include 'GB' (e.g. size=5 not "5GB")
 
 USSD SHOP CODES:
-- Dealers activate a USSD shop code to let customers order via ${ussdDialCode.replace(/#$/, "")}*{shopCode}# (e.g. ${ussdDialCode.replace(/#$/, "")}*1234#)
+- Dealers activate a USSD shop code (4-digit) so customers can order by dialing ${ussdDialCode} and entering the code when prompted — NOT as a dial-string extension
 - Each dealer has a unique 4-digit code stored in the ussd_shop_codes table
 - Use manage_ussd_shop to list all codes, get a specific code (by UUID or 4-digit code), create a new code for a shop, activate a code (sends push + email to dealer), or add tokens to a code
 - Admin page: /admin/ussd-shops — view activation revenue, token balances, and manage all shop codes
