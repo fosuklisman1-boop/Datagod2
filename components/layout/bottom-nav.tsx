@@ -30,22 +30,23 @@ export function BottomNav() {
 
   if (!isMobile) return null
 
-  const items = isAdmin ? ADMIN_NAV : USER_NAV
+  const onAdminPage = pathname.startsWith("/admin")
+  const items = isAdmin && onAdminPage ? ADMIN_NAV : USER_NAV
 
-  // Colour tokens per role
-  const activeColor = isAdmin
+  // Colour tokens — admin theme only applies when inside /admin pages
+  const activeColor = isAdmin && onAdminPage
     ? "text-violet-600 dark:text-violet-400"
     : isDealer
       ? "text-amber-500 dark:text-amber-400"
       : "text-blue-600 dark:text-blue-400"
 
-  const fabGradient = isAdmin
+  const fabGradient = isAdmin && onAdminPage
     ? "bg-gradient-to-br from-violet-500 to-violet-700 ring-4 ring-violet-100 dark:ring-violet-900"
     : isDealer
       ? "bg-gradient-to-br from-amber-400 to-amber-600 ring-4 ring-amber-100 dark:ring-amber-900"
       : "bg-gradient-to-br from-blue-500 to-blue-700 ring-4 ring-blue-100 dark:ring-blue-900"
 
-  const fabLabelColor = isAdmin
+  const fabLabelColor = isAdmin && onAdminPage
     ? "text-violet-600"
     : isDealer ? "text-amber-500" : "text-blue-600"
 
