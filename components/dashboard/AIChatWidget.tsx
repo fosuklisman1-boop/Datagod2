@@ -228,8 +228,8 @@ export function DashboardAIChatWidget() {
   return (
     <div ref={wrapperRef} className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[520px] max-h-[calc(100vh-100px)] bg-white/70 backdrop-blur-2xl rounded-2xl shadow-2xl shadow-indigo-500/10 border border-white/40 flex flex-col overflow-hidden">
-          <div className="bg-violet-600/85 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[520px] max-h-[calc(100vh-100px)] bg-white/12 backdrop-blur-3xl backdrop-saturate-150 rounded-2xl border border-white/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.06),0_24px_48px_rgba(0,0,0,0.14),0_4px_16px_rgba(99,102,241,0.15)] flex flex-col overflow-hidden">
+          <div className="bg-violet-500/55 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/20">
             <div>
               <p className="font-semibold text-sm">Datagod Assistant</p>
               {balance && <p className="text-violet-200 text-xs">Wallet: {balance}</p>}
@@ -289,7 +289,7 @@ export function DashboardAIChatWidget() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="border-t border-white/30 bg-white/40 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
+          <div className="border-t border-white/20 bg-white/8 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
             <input
               ref={inputRef}
               value={input}
@@ -297,7 +297,7 @@ export function DashboardAIChatWidget() {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Type a message..."
-              className="flex-1 text-sm bg-white/60 border border-white/50 rounded-xl px-3 py-2 outline-none focus:border-violet-400 disabled:opacity-50 transition-colors placeholder:text-gray-400"
+              className="flex-1 text-sm bg-white/30 border border-white/40 rounded-xl px-3 py-2 outline-none focus:border-violet-400/80 focus:bg-white/50 disabled:opacity-50 transition-all placeholder:text-gray-500 text-gray-800"
             />
             <button
               onClick={() => sendMessage()}
