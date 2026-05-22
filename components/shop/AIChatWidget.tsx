@@ -300,16 +300,16 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
 
       <div className="relative">
         {!isOpen && (
-          <span className="absolute inset-0 rounded-full bg-blue-500 animate-ping opacity-10 pointer-events-none" />
+          <span className="absolute inset-0 rounded-full bg-violet-500 animate-ping opacity-15 pointer-events-none" />
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative flex items-center gap-2 bg-gray-900 border border-blue-500/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 hover:border-blue-400 transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-violet-700 border border-violet-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:bg-violet-600 hover:border-violet-300 transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open AI chat"
         >
           {isOpen
             ? <X size={18} />
-            : <><Sparkles size={17} className="text-blue-400" /><span className="text-sm font-semibold">Ask</span></>
+            : <><Sparkles size={17} className="text-violet-200" /><span className="text-sm font-semibold">Ask</span></>
           }
         </button>
       </div>
