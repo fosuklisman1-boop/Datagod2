@@ -27,16 +27,15 @@ const getAvailablePackagesTool: Anthropic.Tool = {
 
 const searchOrderStatusTool: Anthropic.Tool = {
   name: "search_order_status",
-  description: "Check the status of orders by customer phone number. Use when a customer asks about their order.",
+  description: "Check the status of an order by phone number, order ID (UUID), or reference code. Use when a customer asks about their order.",
   input_schema: {
     type: "object" as const,
     properties: {
-      phone_number: {
-        type: "string",
-        description: "The customer phone number to search orders for",
-      },
+      phone_number: { type: "string", description: "The customer phone number to search orders for" },
+      order_id: { type: "string", description: "A specific order UUID to look up directly" },
+      reference_code: { type: "string", description: "A specific order reference code to look up directly" },
     },
-    required: ["phone_number"],
+    required: [],
   },
 }
 
@@ -70,14 +69,12 @@ const getWalletBalanceTool: Anthropic.Tool = {
 
 const getOrderHistoryTool: Anthropic.Tool = {
   name: "get_order_history",
-  description: "Get the logged-in user's recent data bundle orders (wallet and shop orders). For wallet transaction credits/debits use get_wallet_transactions. For a full filtered history use get_transaction_history.",
+  description: "Get the logged-in user's recent data bundle orders, or look up a single order by ID. For wallet transaction credits/debits use get_wallet_transactions. For a full filtered history use get_transaction_history.",
   input_schema: {
     type: "object" as const,
     properties: {
-      limit: {
-        type: "number",
-        description: "Number of recent orders to fetch (default 5, max 10)",
-      },
+      order_id: { type: "string", description: "Look up a single specific order by its UUID instead of listing recent orders" },
+      limit: { type: "number", description: "Number of recent orders to fetch (default 5, max 10)" },
     },
     required: [],
   },
@@ -99,10 +96,11 @@ const placeWalletOrderTool: Anthropic.Tool = {
 
 const getAllOrdersTool: Anthropic.Tool = {
   name: "get_all_orders",
-  description: "Admin only: get platform-wide orders across all order types (wallet, shop, USSD, USSD-shop, API). Results include a 'table' field (orders/shop_orders/ussd_orders/ussd_shop_orders/api_orders) and 'id' — both are needed when calling update_order_status or manual_fulfill_order.",
+  description: "Admin only: get platform-wide orders across all order types (wallet, shop, USSD, USSD-shop, API). Pass order_id to look up a single specific order across all tables. Results include a 'table' field and 'id' — both needed for update_order_status or manual_fulfill_order.",
   input_schema: {
     type: "object" as const,
     properties: {
+      order_id: { type: "string", description: "Look up a single specific order by UUID across all order tables" },
       status: { type: "string", description: "Filter by status: pending, processing, completed, failed" },
       network: { type: "string", description: "Filter by network" },
       phone: { type: "string", description: "Filter by customer phone number" },
@@ -910,6 +908,38 @@ export async function executeToolCall(
       }
 
       case "search_order_status": {
+        // Single lookup by order UUID
+        if (input.order_id) {
+          const res = await fetch(`${ctx.baseUrl}/api/shop/orders/${input.order_id}`, {
+            headers: { Authorization: ctx.jwtToken ? `Bearer ${ctx.jwtToken}` : "" },
+          })
+          if (res.ok) {
+            const data = await res.json()
+            return sanitize(data.order ?? data)
+          }
+          // Fallback: wallet order
+          const { data, error } = await supabaseAdmin
+            .from("orders")
+            .select("id, network, size, status, phone_number, created_at, order_code")
+            .eq("id", input.order_id as string)
+            .maybeSingle()
+          if (error || !data) return { error: "Order not found" }
+          return sanitize(data)
+        }
+
+        // Single lookup by reference code
+        if (input.reference_code) {
+          const { data, error } = await supabaseAdmin
+            .from("shop_orders")
+            .select("id, reference_code, network, volume_gb, order_status, payment_status, customer_phone, created_at")
+            .eq("reference_code", input.reference_code as string)
+            .maybeSingle()
+          if (error || !data) return { error: `No order found with reference code ${input.reference_code}` }
+          return sanitize(data)
+        }
+
+        if (!input.phone_number) return { error: "Provide phone_number, order_id, or reference_code" }
+
         // Storefront: search within the shop by phone
         if (ctx.shopId) {
           const res = await fetch(`${ctx.baseUrl}/api/shop/orders/search`, {
@@ -970,6 +1000,16 @@ export async function executeToolCall(
       }
 
       case "get_order_history": {
+        if (input.order_id) {
+          const { data, error } = await supabaseAdmin
+            .from("combined_orders_view")
+            .select("id, network, volume_gb, status, phone_number, created_at, type, price, order_code")
+            .eq("user_id", ctx.userId!)
+            .eq("id", input.order_id as string)
+            .maybeSingle()
+          if (error || !data) return { error: "Order not found" }
+          return sanitize(data)
+        }
         const limit = Math.min(Number(input.limit ?? 5), 10)
         const res = await fetch(
           `${ctx.baseUrl}/api/orders/list?limit=${limit}&page=1`,
@@ -1016,6 +1056,24 @@ export async function executeToolCall(
       }
 
       case "get_all_orders": {
+        // Single order lookup — try each table in parallel and return the match
+        if (input.order_id) {
+          const id = input.order_id as string
+          const [r1, r2, r3, r4, r5] = await Promise.all([
+            supabaseAdmin.from("orders").select("id, network, size, status, phone_number, created_at").eq("id", id).maybeSingle(),
+            supabaseAdmin.from("shop_orders").select("id, network, volume_gb, order_status, customer_phone, created_at, reference_code").eq("id", id).maybeSingle(),
+            supabaseAdmin.from("ussd_orders").select("id, network, package_size, order_status, recipient_phone, created_at").eq("id", id).maybeSingle(),
+            supabaseAdmin.from("ussd_shop_orders").select("id, network, package_size, order_status, recipient_phone, created_at").eq("id", id).maybeSingle(),
+            supabaseAdmin.from("api_orders").select("id, network, volume_gb, status, recipient_phone, created_at").eq("id", id).maybeSingle(),
+          ])
+          if (r1.data) return { ...r1.data, table: "orders" }
+          if (r2.data) return { ...r2.data, table: "shop_orders" }
+          if (r3.data) return { ...r3.data, table: "ussd_orders" }
+          if (r4.data) return { ...r4.data, table: "ussd_shop_orders" }
+          if (r5.data) return { ...r5.data, table: "api_orders" }
+          return { error: "Order not found" }
+        }
+
         const limit = Number(input.limit ?? 10)
         const status = input.status as string | undefined
         const network = input.network as string | undefined
