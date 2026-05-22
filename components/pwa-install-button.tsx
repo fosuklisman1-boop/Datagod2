@@ -28,13 +28,29 @@ export function PwaInstallButton() {
             return
         }
 
+        // Check if the event was already captured by the inline <head> script
+        const w = window as Window & { __deferredInstallPrompt?: Event & { prompt: () => Promise<void> } }
+        if (w.__deferredInstallPrompt) {
+            deferredPrompt.current = w.__deferredInstallPrompt
+            setMode("android")
+            return
+        }
+
+        // Listen for future events (fires after this component mounts) and for
+        // the synthetic event dispatched by the inline script on slow hydration
         const handler = (e: Event) => {
-            e.preventDefault()
-            deferredPrompt.current = e as Event & { prompt: () => Promise<void> }
+            if (e.type === "beforeinstallprompt") e.preventDefault()
+            const prompt = e.type === "pwaInstallReady" ? w.__deferredInstallPrompt : e as Event & { prompt: () => Promise<void> }
+            if (!prompt) return
+            deferredPrompt.current = prompt
             setMode("android")
         }
         window.addEventListener("beforeinstallprompt", handler)
-        return () => window.removeEventListener("beforeinstallprompt", handler)
+        window.addEventListener("pwaInstallReady", handler)
+        return () => {
+            window.removeEventListener("beforeinstallprompt", handler)
+            window.removeEventListener("pwaInstallReady", handler)
+        }
     }, [])
 
     if (!mode) return null

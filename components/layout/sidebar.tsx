@@ -799,7 +799,7 @@ export function Sidebar() {
         {/* Community & Logout */}
         < div className={
           cn(
-            "p-4 border-t space-y-2",
+            "p-4 pb-24 md:pb-4 border-t space-y-2",
             userRole === 'dealer' ? "border-amber-600/20" : "border-blue-500"
           )
         }>

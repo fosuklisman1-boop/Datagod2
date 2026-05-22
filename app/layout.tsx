@@ -148,6 +148,18 @@ export default function RootLayout({
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-750-1334.jpg"  media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-640-1136.jpg"  media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
 
+        {/* Capture beforeinstallprompt before React hydrates */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.addEventListener('beforeinstallprompt', function(e) {
+                e.preventDefault();
+                window.__deferredInstallPrompt = e;
+                window.dispatchEvent(new Event('pwaInstallReady'));
+              });
+            `,
+          }}
+        />
         {/* Paystack Script */}
         <script src="https://js.paystack.co/v1/inline.js" async></script>
         {/* Service Worker Registration - inline for PWA detection */}
