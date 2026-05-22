@@ -50,40 +50,32 @@ export default function LoginForm() {
         return
       }
 
+      // Subscribe BEFORE login so we never miss the SIGNED_IN event.
+      // Uses a 5s timeout as a safety net for very slow connections.
+      const sessionReady = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 5000)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+          if (event === "SIGNED_IN") {
+            clearTimeout(timer)
+            subscription.unsubscribe()
+            resolve()
+          }
+        })
+      })
+
       await authService.login(formData.email, formData.password)
       toast.success("Login successful!")
 
-      // Wait longer for session to be fully established
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Wait for session to be fully established (event-driven, not a fixed delay)
+      await sessionReady
 
-      // Check if user is a sub-agent (has parent_shop_id)
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          const { data: userShop } = await supabase
-            .from("user_shops")
-            .select("id, parent_shop_id")
-            .eq("user_id", user.id)
-            .single()
-
-          // If user is a sub-agent (has parent_shop_id), redirect to buy-stock page
-          if (userShop?.parent_shop_id) {
-            console.log("[LOGIN] Sub-agent detected, redirecting to buy-stock")
-            window.location.href = "/dashboard/buy-stock"
-            return
-          }
-        }
-      } catch (shopError) {
-        console.warn("[LOGIN] Could not check shop status:", shopError)
-        // Continue with default redirect if check fails
-      }
-
-      // Redirect to the specified URL (from query params) or dashboard
-      window.location.href = redirectTo
+      // router.push keeps the React app alive — in-memory session is already set,
+      // no dependency on localStorage write completing before navigation.
+      // Sub-agent redirect is handled by the dashboard page itself.
+      router.push(redirectTo)
     } catch (error: any) {
       const { message } = getAuthErrorMessage(error)
       toast.error(message)
-      console.error("Login error:", error)
     } finally {
       setIsLoading(false)
     }
