@@ -317,7 +317,7 @@ export function getProvider(name: ProviderName, apiKey: string): AIProvider {
 export function resolveProviderForContext(
   context: "storefront" | "dashboard" | "admin",
   config: AIProviderConfig
-): { provider: AIProvider; model: string } {
+): { provider: AIProvider; model: string; providerName: ProviderName } {
   const fallbackKey = process.env.ANTHROPIC_API_KEY ?? ""
 
   const providerName: ProviderName =
@@ -340,8 +340,9 @@ export function resolveProviderForContext(
     return {
       provider: new AnthropicAdapter(fallbackKey),
       model: (DEFAULT_CONFIG as Record<string, string>)[`${context}_model`] ?? "claude-haiku-4-5-20251001",
+      providerName: "anthropic",
     }
   }
 
-  return { provider: getProvider(providerName, apiKey), model }
+  return { provider: getProvider(providerName, apiKey), model, providerName }
 }

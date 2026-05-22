@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   }
 
   const aiConfig = await loadAIConfig()
-  const { provider: aiProvider, model: aiModel } = resolveProviderForContext(context, aiConfig)
+  const { provider: aiProvider, model: aiModel, providerName: aiProviderName } = resolveProviderForContext(context, aiConfig)
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   let userId: string | undefined
@@ -418,15 +418,31 @@ ${formattingRules}`
 
         send({ type: "done" })
       } catch (err) {
-        console.error("[AI-CHAT] Error:", err)
-        let msg = "Something went wrong. Please try again."
+        const errMsg = err instanceof Error ? err.message : String(err)
         const status = (err as Record<string, unknown>)?.status as number | undefined
-        if (status === 529 || (err instanceof Error && err.message.toLowerCase().includes("overload"))) {
+        const code = (err as Record<string, unknown>)?.code as string | undefined
+        console.error(`[AI-CHAT] provider=${aiProviderName} model=${aiModel} status=${status} code=${code}`, errMsg)
+
+        let msg = "Something went wrong. Please try again."
+
+        const isQuota =
+          errMsg.toLowerCase().includes("quota") ||
+          errMsg.includes("RESOURCE_EXHAUSTED") ||
+          errMsg.toLowerCase().includes("insufficient") ||
+          code === "insufficient_quota"
+
+        if (status === 529 || errMsg.toLowerCase().includes("overload")) {
           msg = "The AI service is temporarily overloaded. Please try again in a moment."
-        } else if (status === 429 || (err instanceof Error && err.message.toLowerCase().includes("rate limit"))) {
-          msg = "Too many requests. Please wait a moment and try again."
+        } else if (status === 429 || errMsg.toLowerCase().includes("rate limit")) {
+          if (isQuota) {
+            msg = `API quota or billing issue with ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Add billing or check your quota in Admin → AI Settings.`
+          } else {
+            msg = "Too many requests. Please wait a moment and try again."
+          }
         } else if (status === 401 || status === 403) {
-          msg = "AI service configuration error. Please contact support."
+          msg = `Invalid API key for ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Update it in Admin → AI Settings.`
+        } else if (status === 400) {
+          msg = "The AI provider rejected the request — check the model and API key in Admin → AI Settings."
         } else if (status && status >= 500) {
           msg = "The AI service is temporarily unavailable. Please try again shortly."
         }
