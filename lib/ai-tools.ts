@@ -1138,37 +1138,16 @@ export async function executeToolCall(
       }
 
       case "update_order_status": {
-        const id = input.order_id as string
-        const newStatus = input.status as string
-        const now = new Date().toISOString()
-
-        // shop_orders: route through the proper endpoint so notifications fire
-        const { data: shopCheck } = await supabaseAdmin.from("shop_orders").select("id").eq("id", id).maybeSingle()
-        if (shopCheck) {
-          const res = await fetch(`${ctx.baseUrl}/api/admin/shop-orders/update-status`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-            body: JSON.stringify({ orderIds: [id], status: newStatus }),
-          })
-          const data = await res.json()
-          return { success: res.ok, message: data.error ?? "Status updated" }
-        }
-
-        // All other tables: direct update (no notification endpoints exist for these)
-        const attempts = [
-          supabaseAdmin.from("orders").update({ status: newStatus, updated_at: now }).eq("id", id).select("id"),
-          supabaseAdmin.from("ussd_orders").update({ order_status: newStatus }).eq("id", id).select("id"),
-          supabaseAdmin.from("ussd_shop_orders").update({ order_status: newStatus }).eq("id", id).select("id"),
-          supabaseAdmin.from("api_orders").update({ status: newStatus }).eq("id", id).select("id"),
-        ]
-
-        for (const attempt of attempts) {
-          const { data, error } = await attempt
-          if (error) return { success: false, error: error.message }
-          if (data?.length) return { success: true }
-        }
-
-        return { success: false, error: "Order not found" }
+        // Route through the bulk-update endpoint — it handles notifications,
+        // profit crediting, and MTN tracking for all order table types.
+        const res = await fetch(`${ctx.baseUrl}/api/admin/orders/bulk-update-status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ orderIds: [input.order_id], status: input.status }),
+        })
+        const data = await res.json()
+        if (!res.ok) return { success: false, error: data.error ?? "Update failed" }
+        return { success: true }
       }
 
       case "bulk_update_order_status": {
@@ -1177,69 +1156,49 @@ export async function executeToolCall(
         }
 
         const newStatus = input.new_status as string
-        const now = new Date().toISOString()
+        const fs = input.filter_status as string | undefined
+        const fn = input.filter_network as string | undefined
+        const df = input.date_from as string | undefined
+        const dt = input.date_to as string | undefined
 
-        // ── shop_orders: fetch matching IDs first, then route through the proper
-        //    endpoint so notifications, profit crediting, and emails all fire.
-        let shopOrderIdQuery = supabaseAdmin
-          .from("shop_orders")
-          .select("id")
-          .eq("payment_status", "completed")
-        if (input.filter_status) shopOrderIdQuery = shopOrderIdQuery.eq("order_status", input.filter_status as string)
-        if (input.filter_network) shopOrderIdQuery = shopOrderIdQuery.ilike("network", input.filter_network as string)
-        if (input.date_from) shopOrderIdQuery = shopOrderIdQuery.gte("created_at", input.date_from as string)
-        if (input.date_to) shopOrderIdQuery = shopOrderIdQuery.lte("created_at", input.date_to as string)
-
-        const { data: shopIds, error: shopIdErr } = await shopOrderIdQuery
-        if (shopIdErr) return { error: shopIdErr.message }
-
-        let shopResult: { success: boolean; count?: number } = { success: true, count: 0 }
-        if (shopIds && shopIds.length > 0) {
-          const res = await fetch(`${ctx.baseUrl}/api/admin/shop-orders/update-status`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-            body: JSON.stringify({ orderIds: shopIds.map(o => o.id), status: newStatus }),
-          })
-          const data = await res.json()
-          if (!res.ok) return { error: data.error ?? "Failed to update shop orders" }
-          shopResult = { success: true, count: shopIds.length }
-        }
-
-        // ── All other tables: direct update (no notification endpoints for these)
-        function buildBulkQ(
-          table: "orders" | "ussd_orders" | "ussd_shop_orders",
-          statusField: "status" | "order_status",
-          extraFilter?: { field: string; value: string }
-        ) {
-          let q = supabaseAdmin.from(table).update(
-            statusField === "status"
-              ? { status: newStatus, updated_at: now }
-              : { order_status: newStatus }
-          )
-          if (extraFilter) q = q.eq(extraFilter.field, extraFilter.value)
-          if (input.filter_status) q = q.eq(statusField, input.filter_status as string)
-          if (input.filter_network) q = q.ilike("network", input.filter_network as string)
-          if (input.date_from) q = q.gte("created_at", input.date_from as string)
-          if (input.date_to) q = q.lte("created_at", input.date_to as string)
+        // Collect matching IDs from all five order tables in parallel
+        function applyFilters(q: any, statusField: "status" | "order_status", paymentFilter?: string) {
+          if (paymentFilter) q = q.eq("payment_status", paymentFilter)
+          if (fs) q = q.eq(statusField, fs)
+          if (fn) q = q.ilike("network", fn)
+          if (df) q = q.gte("created_at", df)
+          if (dt) q = q.lte("created_at", dt)
           return q
         }
 
-        let apiQ = supabaseAdmin.from("api_orders").update({ status: newStatus })
-        if (input.filter_status) apiQ = apiQ.eq("status", input.filter_status as string)
-        if (input.filter_network) apiQ = apiQ.ilike("network", input.filter_network as string)
-        if (input.date_from) apiQ = apiQ.gte("created_at", input.date_from as string)
-        if (input.date_to) apiQ = apiQ.lte("created_at", input.date_to as string)
-
-        const [{ error: e1 }, { error: e3 }, { error: e4 }, { error: e5 }] = await Promise.all([
-          buildBulkQ("orders", "status"),
-          buildBulkQ("ussd_orders", "order_status", { field: "payment_status", value: "completed" }),
-          buildBulkQ("ussd_shop_orders", "order_status", { field: "payment_status", value: "completed" }),
-          apiQ,
+        const [r1, r2, r3, r4, r5] = await Promise.all([
+          applyFilters(supabaseAdmin.from("orders").select("id"), "status"),
+          applyFilters(supabaseAdmin.from("shop_orders").select("id"), "order_status", "completed"),
+          applyFilters(supabaseAdmin.from("ussd_orders").select("id"), "order_status", "completed"),
+          applyFilters(supabaseAdmin.from("ussd_shop_orders").select("id"), "order_status", "completed"),
+          applyFilters(supabaseAdmin.from("api_orders").select("id"), "status"),
         ])
 
-        const errs = [e1, e3, e4, e5].filter(Boolean)
-        if (errs.length) return { error: errs.map(e => e!.message).join("; ") }
-        return { success: true, shop_orders_notified: shopResult.count, message: `Orders updated to "${newStatus}" across all order types.` }
+        const err = [r1.error, r2.error, r3.error, r4.error, r5.error].find(Boolean)
+        if (err) return { error: err.message }
+
+        const allIds = [
+          ...(r1.data ?? []), ...(r2.data ?? []), ...(r3.data ?? []),
+          ...(r4.data ?? []), ...(r5.data ?? []),
+        ].map(o => o.id)
+
+        if (allIds.length === 0) return { success: true, count: 0, message: "No matching orders found." }
+
+        // Pass all IDs to the bulk-update endpoint — it handles notifications,
+        // profit crediting, and MTN tracking for every order type.
+        const res = await fetch(`${ctx.baseUrl}/api/admin/orders/bulk-update-status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({ orderIds: allIds, status: newStatus }),
+        })
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Bulk update failed" }
+        return { success: true, count: allIds.length, message: `${allIds.length} orders updated to "${newStatus}".` }
       }
 
       case "retry_failed_order": {
