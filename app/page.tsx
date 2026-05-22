@@ -687,8 +687,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
           </div>
         </div>
       </footer>
+      <HomeAIChatWidget />
     </div>
-
-    <HomeAIChatWidget />
   )
 }
