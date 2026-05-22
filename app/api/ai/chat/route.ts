@@ -50,6 +50,25 @@ async function loadUssdDialCode(): Promise<string> {
   }
 }
 
+// ── Guest purchase URL cache (30s TTL) ───────────────────────────────────────
+let guestPurchaseUrlCache: { url: string; ts: number } | null = null
+
+async function loadGuestPurchaseUrl(): Promise<string> {
+  if (guestPurchaseUrlCache && Date.now() - guestPurchaseUrlCache.ts < 30_000) return guestPurchaseUrlCache.url
+  try {
+    const { data } = await supabaseAdmin
+      .from("support_settings")
+      .select("guest_purchase_url")
+      .limit(1)
+      .maybeSingle()
+    const url = data?.guest_purchase_url || "/#how-it-works"
+    guestPurchaseUrlCache = { url, ts: Date.now() }
+    return url
+  } catch {
+    return "/#how-it-works"
+  }
+}
+
 function getBaseUrl(req: NextRequest): string {
   const host = req.headers.get("host") ?? "localhost:3000"
   const proto = process.env.NODE_ENV === "production" ? "https" : "http"
@@ -64,7 +83,7 @@ export async function POST(req: NextRequest) {
     shopId?: string
   }
 
-  const [aiConfig, ussdDialCode] = await Promise.all([loadAIConfig(), loadUssdDialCode()])
+  const [aiConfig, ussdDialCode, guestPurchaseUrl] = await Promise.all([loadAIConfig(), loadUssdDialCode(), loadGuestPurchaseUrl()])
   const { provider: aiProvider, model: aiModel, providerName: aiProviderName } = resolveProviderForContext(context, aiConfig)
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -233,7 +252,7 @@ YOUR ROLE:
 PAGE NAVIGATION (use show_action_buttons with url= for these):
 - "I want to sign up" / "create an account" → button: label="Create Account", url="/auth/signup", style="primary"
 - "I want to log in" / "already have an account" → button: label="Log In", url="/auth/login", style="primary"
-- "I want to buy without an account" / "buy as guest" → explain they need to visit a dealer's storefront page. If they have a shop link, direct them there. If not, show a button: label="Go to Home", url="/", style="primary" so they can find a shop from the homepage.
+- "I want to buy without an account" / "buy as guest" → show a button immediately: label="Buy as Guest", url="${guestPurchaseUrl}", style="primary". No need to explain first — just show the button so they can tap it.
 - "Go back to home" / "home page" → button: label="Go to Home", url="/", style="secondary"
 - Whenever you're sending a visitor somewhere (register, login, find a shop), ALWAYS include a navigation button — never just tell them to "visit /auth/signup". Show the button.
 
