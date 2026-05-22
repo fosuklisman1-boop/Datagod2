@@ -10,6 +10,7 @@ import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { PeriodicSyncRegister } from "@/components/periodic-sync-register";
 import { BackgroundSyncRegister } from "@/components/background-sync-register";
 import { PushNotificationRegister } from "@/components/push-notification-register";
+import { PushOptInBanner } from "@/components/push-opt-in-banner";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -169,6 +170,7 @@ export default function RootLayout({
             <PeriodicSyncRegister />
             <BackgroundSyncRegister />
             <PushNotificationRegister />
+            <PushOptInBanner />
             <ChristmasThemeProvider />
             <InactivityLogoutProvider />
             {children}
