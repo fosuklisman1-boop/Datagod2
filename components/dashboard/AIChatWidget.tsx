@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { MessageCircle, X, Send, Trash2 } from "lucide-react"
+import { Bot, X, Send, Trash2 } from "lucide-react"
 import { createClient } from "@supabase/supabase-js"
 import { ChatMessage } from "@/components/ui/chat-message"
 
@@ -25,19 +25,32 @@ interface ActionButton {
 const STORAGE_KEY = (uid: string) => `dashboard_chat_${uid}`
 const MAX_STORED = 20
 
+const hints = [
+  "Check your wallet balance",
+  "Place a data order instantly",
+  "View your order history",
+  "Manage your account",
+]
+
 export function DashboardAIChatWidget() {
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
-  const [streamingContent, setStreamingContent] = useState("")
   const [actionButtons, setActionButtons] = useState<ActionButton[] | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [firstName, setFirstName] = useState("")
   const [balance, setBalance] = useState<string | null>(null)
+  const [hintIndex, setHintIndex] = useState(0)
+  const [hintVisible, setHintVisible] = useState(true)
+  const [typedContent, setTypedContent] = useState("")
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const tokenRef = useRef<string | null>(null)
+  const charQueueRef = useRef<string[]>([])
+  const typedContentRef = useRef("")
+  const displayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     async function init() {
@@ -76,10 +89,23 @@ export function DashboardAIChatWidget() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, streamingContent, actionButtons])
+  }, [messages, typedContent, actionButtons])
 
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 100)
+  }, [isOpen])
+
+  // Rotate hint text while panel is closed
+  useEffect(() => {
+    if (isOpen) return
+    const id = setInterval(() => {
+      setHintVisible(false)
+      setTimeout(() => {
+        setHintIndex(i => (i + 1) % hints.length)
+        setHintVisible(true)
+      }, 300)
+    }, 3000)
+    return () => clearInterval(id)
   }, [isOpen])
 
   function persist(msgs: Message[]) {
@@ -89,11 +115,28 @@ export function DashboardAIChatWidget() {
     } catch {}
   }
 
+  const drainChar = useCallback(() => {
+    if (charQueueRef.current.length === 0) {
+      displayTimerRef.current = null
+      return
+    }
+    typedContentRef.current += charQueueRef.current.shift()!
+    setTypedContent(typedContentRef.current)
+    displayTimerRef.current = setTimeout(drainChar, 12)
+  }, [])
+
   const sendMessage = useCallback(async (overrideText?: string) => {
     const text = (overrideText !== undefined ? overrideText : input).trim()
     if (!text || isStreaming) return
 
     setActionButtons(null)
+
+    // Reset typewriter state
+    charQueueRef.current = []
+    typedContentRef.current = ""
+    setTypedContent("")
+    if (displayTimerRef.current) clearTimeout(displayTimerRef.current)
+    displayTimerRef.current = null
 
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return
@@ -105,7 +148,6 @@ export function DashboardAIChatWidget() {
     persist(nextMessages)
     setInput("")
     setIsStreaming(true)
-    setStreamingContent("")
 
     const history = nextMessages.slice(-10).map(m => ({ role: m.role, content: m.content }))
 
@@ -141,9 +183,12 @@ export function DashboardAIChatWidget() {
             const event = JSON.parse(line)
             if (event.type === "text") {
               assistantText += event.content
-              setStreamingContent(assistantText)
+              charQueueRef.current.push(...(event.content as string).split(""))
+              if (!displayTimerRef.current) drainChar()
             } else if (event.type === "error") {
               assistantText = event.content ?? "Something went wrong. Please try again."
+              charQueueRef.current.push(...assistantText.split(""))
+              if (!displayTimerRef.current) drainChar()
             } else if (event.type === "action_buttons") {
               setActionButtons(event.buttons as ActionButton[])
             } else if (event.type === "done") {
@@ -162,10 +207,18 @@ export function DashboardAIChatWidget() {
       setMessages(errMessages)
       persist(errMessages)
     } finally {
+      // Flush any remaining queued chars instantly
+      if (charQueueRef.current.length > 0) {
+        typedContentRef.current += charQueueRef.current.splice(0).join("")
+        setTypedContent(typedContentRef.current)
+      }
+      if (displayTimerRef.current) {
+        clearTimeout(displayTimerRef.current)
+        displayTimerRef.current = null
+      }
       setIsStreaming(false)
-      setStreamingContent("")
     }
-  }, [input, isStreaming, messages, userId])
+  }, [input, isStreaming, messages, userId, drainChar])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -181,7 +234,7 @@ export function DashboardAIChatWidget() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
         <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[520px] max-h-[calc(100vh-100px)] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
           <div className="bg-violet-600 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
@@ -215,8 +268,13 @@ export function DashboardAIChatWidget() {
 
             {isStreaming && (
               <div className="flex justify-start">
-                <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
-                  {streamingContent || (
+                <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800 whitespace-pre-wrap">
+                  {typedContent ? (
+                    <>
+                      {typedContent}
+                      <span className="inline-block w-[2px] h-[13px] bg-gray-500 animate-pulse ml-0.5 align-middle rounded-full" />
+                    </>
+                  ) : (
                     <span className="flex gap-1 items-center h-4">
                       <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                       <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -261,13 +319,26 @@ export function DashboardAIChatWidget() {
         </div>
       )}
 
-      <button
-        onClick={() => setIsOpen(o => !o)}
-        className="bg-violet-600 hover:bg-violet-700 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg transition-colors"
-        aria-label="Open AI assistant"
-      >
-        {isOpen ? <X size={22} /> : <MessageCircle size={22} />}
-      </button>
+      {!isOpen && (
+        <div className={`transition-opacity duration-300 ${hintVisible ? "opacity-100" : "opacity-0"}`}>
+          <div className="bg-white/95 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg border border-violet-100">
+            <p className="text-xs font-semibold text-violet-600 whitespace-nowrap">{hints[hintIndex]}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="relative">
+        {!isOpen && (
+          <span className="absolute inset-0 rounded-full bg-violet-400 animate-ping opacity-20 pointer-events-none" />
+        )}
+        <button
+          onClick={() => setIsOpen(o => !o)}
+          className="relative bg-gradient-to-br from-violet-500 via-purple-600 to-violet-700 text-white rounded-full w-16 h-16 flex items-center justify-center shadow-xl shadow-violet-500/40 hover:shadow-violet-500/60 transition-all duration-300 hover:scale-105 active:scale-95"
+          aria-label="Open AI assistant"
+        >
+          {isOpen ? <X size={22} /> : <Bot size={26} />}
+        </button>
+      </div>
     </div>
   )
 }
