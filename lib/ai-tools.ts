@@ -157,10 +157,11 @@ const retryFailedOrderTool: Anthropic.Tool = {
 
 const getUserInfoTool: Anthropic.Tool = {
   name: "get_user_info",
-  description: "Admin only: look up a user account by phone number or email.",
+  description: "Admin only: look up a user account by user ID, phone number, or email.",
   input_schema: {
     type: "object" as const,
     properties: {
+      user_id: { type: "string", description: "User UUID — fastest lookup when you already have the ID" },
       phone: { type: "string", description: "User phone number to search" },
       email: { type: "string", description: "User email to search" },
     },
@@ -327,15 +328,16 @@ const listShopsTool: Anthropic.Tool = {
 
 const manageShopTool: Anthropic.Tool = {
   name: "manage_shop",
-  description: "Admin only: approve or reject a dealer shop application. Always confirm shopId and action before executing.",
+  description: "Admin only: get details of, approve, or reject a dealer shop. Use 'get' to look up a specific shop by its ID or slug.",
   input_schema: {
     type: "object" as const,
     properties: {
-      shop_id: { type: "string", description: "The shop ID to approve or reject" },
-      action: { type: "string", description: "'approve' or 'reject'" },
+      shop_id: { type: "string", description: "The shop UUID. Required for approve/reject; used by get if no slug provided." },
+      action: { type: "string", description: "'get' to fetch a single shop's details, 'approve' to approve a pending shop, 'reject' to reject it" },
+      slug: { type: "string", description: "The shop slug (URL-friendly name). Used by get to look up by slug instead of ID." },
       reason: { type: "string", description: "Reason for rejection (required for reject)" },
     },
-    required: ["shop_id", "action"],
+    required: ["action"],
   },
 }
 
@@ -356,12 +358,12 @@ const listWithdrawalsTool: Anthropic.Tool = {
 
 const manageWithdrawalTool: Anthropic.Tool = {
   name: "manage_withdrawal",
-  description: "Admin only: approve, reject, or mark a withdrawal as completed. Approve triggers a Moolre payout. Complete marks an already-approved withdrawal as paid. Always confirm before acting.",
+  description: "Admin only: get details of, approve, reject, or complete a withdrawal. Use 'get' to look up a specific withdrawal by ID before acting on it.",
   input_schema: {
     type: "object" as const,
     properties: {
-      withdrawal_id: { type: "string", description: "The withdrawal request ID" },
-      action: { type: "string", description: "'approve', 'reject', or 'complete'" },
+      withdrawal_id: { type: "string", description: "The withdrawal request ID. Required for get, approve, reject, and complete." },
+      action: { type: "string", description: "'get' to fetch a single withdrawal's full details, 'approve' to approve and trigger payout, 'reject' to decline, 'complete' to mark an approved withdrawal as paid" },
       reason: { type: "string", description: "Reason (required for reject)" },
     },
     required: ["withdrawal_id", "action"],
@@ -1159,12 +1161,13 @@ export async function executeToolCall(
       }
 
       case "get_user_info": {
-        if (!input.phone && !input.email) return { error: "Provide phone or email" }
+        if (!input.user_id && !input.phone && !input.email) return { error: "Provide user_id, phone, or email" }
         let query = supabaseAdmin
           .from("users")
           .select("id, first_name, last_name, email, phone_number, role, created_at")
-        if (input.phone) query = query.eq("phone_number", input.phone as string)
-        if (input.email) query = query.eq("email", input.email as string)
+        if (input.user_id) query = query.eq("id", input.user_id as string)
+        else if (input.phone) query = query.eq("phone_number", input.phone as string)
+        else if (input.email) query = query.eq("email", input.email as string)
         const { data, error } = await query.maybeSingle()
         if (error || !data) return { error: "User not found" }
 
@@ -1386,6 +1389,19 @@ export async function executeToolCall(
       }
 
       case "manage_shop": {
+        if (input.action === "get") {
+          let query = supabaseAdmin
+            .from("user_shops")
+            .select("id, shop_name, shop_slug, is_active, created_at, user_id, bank_name, account_number, momo_number, momo_network")
+          if (input.shop_id) query = query.eq("id", input.shop_id as string)
+          else if (input.slug) query = query.eq("shop_slug", input.slug as string)
+          else return { error: "Provide shop_id or slug for get" }
+          const { data, error } = await query.maybeSingle()
+          if (error || !data) return { error: "Shop not found" }
+          return sanitize(data)
+        }
+
+        if (!input.shop_id) return { error: "shop_id is required for approve/reject" }
         const endpoint = input.action === "approve"
           ? `${ctx.baseUrl}/api/admin/shops/approve`
           : `${ctx.baseUrl}/api/admin/shops/reject`
@@ -1420,13 +1436,25 @@ export async function executeToolCall(
       }
 
       case "manage_withdrawal": {
+        if (!input.withdrawal_id) return { error: "withdrawal_id is required" }
+
+        if (input.action === "get") {
+          const { data, error } = await supabaseAdmin
+            .from("withdrawal_requests")
+            .select("id, shop_id, amount, status, bank_name, account_number, account_name, created_at, updated_at, rejection_reason")
+            .eq("id", input.withdrawal_id as string)
+            .maybeSingle()
+          if (error || !data) return { error: "Withdrawal not found" }
+          return sanitize(data)
+        }
+
         const endpoints: Record<string, string> = {
           approve: `${ctx.baseUrl}/api/admin/withdrawals/approve`,
           reject: `${ctx.baseUrl}/api/admin/withdrawals/reject`,
           complete: `${ctx.baseUrl}/api/admin/withdrawals/complete`,
         }
         const url = endpoints[input.action as string]
-        if (!url) return { error: `Invalid action: ${input.action}. Use approve, reject, or complete.` }
+        if (!url) return { error: `Invalid action: ${input.action}. Use get, approve, reject, or complete.` }
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
