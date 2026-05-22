@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, X, Send, Trash2 } from "lucide-react"
+import { Sparkles, X, Send, Trash2, ChevronDown } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { createClient } from "@supabase/supabase-js"
 import { ChatMessage } from "@/components/ui/chat-message"
@@ -56,9 +56,11 @@ export function DashboardAIChatWidget() {
   const [hintVisible, setHintVisible] = useState(true)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const tokenRef = useRef<string | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -219,6 +221,16 @@ export function DashboardAIChatWidget() {
     }
   }
 
+  function handleScroll() {
+    const el = scrollContainerRef.current
+    if (!el) return
+    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 60)
+  }
+
+  function scrollToBottom() {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
   function buttonClass(style?: string) {
     if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
@@ -253,40 +265,52 @@ export function DashboardAIChatWidget() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {messages.map((msg, i) => (
-              <ChatMessage key={i} role={msg.role} content={msg.content} />
-            ))}
+          <div className="flex-1 relative overflow-hidden">
+            <div ref={scrollContainerRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4 space-y-3">
+              {messages.map((msg, i) => (
+                <ChatMessage key={i} role={msg.role} content={msg.content} />
+              ))}
 
-            {isStreaming && (
-              <div className="flex justify-start">
-                <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
-                  {streamingContent ? (
-                    <ReactMarkdown components={mdComponents}>
-                      {streamingContent + "▋"}
-                    </ReactMarkdown>
-                  ) : (
-                    <span className="flex gap-1.5 items-center h-4">
-                      <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
-                      <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "200ms" }} />
-                      <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "400ms" }} />
-                    </span>
-                  )}
+              {isStreaming && (
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
+                    {streamingContent ? (
+                      <ReactMarkdown components={mdComponents}>
+                        {streamingContent + "▋"}
+                      </ReactMarkdown>
+                    ) : (
+                      <span className="flex gap-1.5 items-center h-4">
+                        <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
+                        <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "200ms" }} />
+                        <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "400ms" }} />
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {!isStreaming && actionButtons && actionButtons.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                {actionButtons.map((btn, i) => (
-                  <button key={i} onClick={() => sendMessage(btn.value)} className={buttonClass(btn.style)}>
-                    {btn.label}
-                  </button>
-                ))}
-              </div>
-            )}
+              {!isStreaming && actionButtons && actionButtons.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {actionButtons.map((btn, i) => (
+                    <button key={i} onClick={() => sendMessage(btn.value)} className={buttonClass(btn.style)}>
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-            <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
+
+            {showScrollBtn && (
+              <button
+                onClick={scrollToBottom}
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-indigo-600/85 backdrop-blur-sm border border-indigo-400/50 text-white shadow-lg hover:bg-indigo-600 transition-all hover:scale-110 active:scale-95"
+                aria-label="Scroll to bottom"
+              >
+                <ChevronDown size={16} />
+              </button>
+            )}
           </div>
 
           <div className="border-t border-white/20 bg-white/8 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
