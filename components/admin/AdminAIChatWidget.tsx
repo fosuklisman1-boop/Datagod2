@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Bot, X, Send, Trash2 } from "lucide-react"
+import { Sparkles, X, Send, Trash2 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { createClient } from "@supabase/supabase-js"
 import { ChatMessage } from "@/components/ui/chat-message"
@@ -318,14 +318,17 @@ export function AdminAIChatWidget() {
 
       <div className="relative">
         {!isOpen && (
-          <span className="absolute inset-0 rounded-full bg-gray-500 animate-ping opacity-15 pointer-events-none" />
+          <span className="absolute inset-0 rounded-full bg-blue-500 animate-ping opacity-10 pointer-events-none" />
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative bg-gradient-to-br from-gray-600 via-gray-800 to-gray-900 text-white rounded-full w-16 h-16 flex items-center justify-center shadow-xl shadow-gray-900/50 hover:shadow-gray-900/70 transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-gray-900 border border-blue-500/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 hover:border-blue-400 transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open admin AI assistant"
         >
-          {isOpen ? <X size={22} /> : <Bot size={26} />}
+          {isOpen
+            ? <X size={18} />
+            : <><Sparkles size={17} className="text-blue-400" /><span className="text-sm font-semibold">Ask</span></>
+          }
         </button>
       </div>
     </div>
