@@ -49,6 +49,15 @@ const config = {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
+      keyframes: {
+        thinking: {
+          '0%, 80%, 100%': { transform: 'scale(0.6)', opacity: '0.4' },
+          '40%': { transform: 'scale(1)', opacity: '1' },
+        },
+      },
+      animation: {
+        thinking: 'thinking 1.4s ease-in-out infinite',
+      },
     },
   },
   plugins: [require('tailwindcss-animate')],

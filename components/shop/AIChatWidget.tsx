@@ -255,10 +255,10 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
                       <span className="inline-block w-[2px] h-[13px] bg-gray-500 animate-pulse ml-0.5 align-middle rounded-full" />
                     </>
                   ) : (
-                    <span className="flex gap-1 items-center h-4">
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                    <span className="flex gap-1.5 items-center h-4">
+                      <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
+                      <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "200ms" }} />
+                      <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "400ms" }} />
                     </span>
                   )}
                 </div>
