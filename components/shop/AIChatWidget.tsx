@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Bot, X, Send, Trash2 } from "lucide-react"
+import ReactMarkdown from "react-markdown"
 import { ChatMessage } from "@/components/ui/chat-message"
 
 interface Message {
@@ -39,21 +40,27 @@ const hints = [
   "MTN · Telecel · AirtelTigo",
 ]
 
+const mdComponents = {
+  p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
+  ul: ({ children }: any) => <ul className="list-disc pl-4 mb-1 space-y-0.5">{children}</ul>,
+  ol: ({ children }: any) => <ol className="list-decimal pl-4 mb-1 space-y-0.5">{children}</ol>,
+  li: ({ children }: any) => <li>{children}</li>,
+  strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
+  code: ({ children }: any) => <code className="bg-gray-200 rounded px-1 text-xs font-mono">{children}</code>,
+}
+
 export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
+  const [streamingContent, setStreamingContent] = useState("")
   const [actionButtons, setActionButtons] = useState<ActionButton[] | null>(null)
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
-  const [typedContent, setTypedContent] = useState("")
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const charQueueRef = useRef<string[]>([])
-  const typedContentRef = useRef("")
-  const displayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     try {
@@ -75,13 +82,12 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, typedContent, actionButtons])
+  }, [messages, streamingContent, actionButtons])
 
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 100)
   }, [isOpen])
 
-  // Rotate hint text while panel is closed
   useEffect(() => {
     if (isOpen) return
     const id = setInterval(() => {
@@ -100,28 +106,12 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     } catch {}
   }
 
-  const drainChar = useCallback(() => {
-    if (charQueueRef.current.length === 0) {
-      displayTimerRef.current = null
-      return
-    }
-    typedContentRef.current += charQueueRef.current.shift()!
-    setTypedContent(typedContentRef.current)
-    displayTimerRef.current = setTimeout(drainChar, 12)
-  }, [])
-
   const sendMessage = useCallback(async (overrideText?: string) => {
     const text = (overrideText !== undefined ? overrideText : input).trim()
     if (!text || isStreaming) return
 
     setActionButtons(null)
-
-    // Reset typewriter state
-    charQueueRef.current = []
-    typedContentRef.current = ""
-    setTypedContent("")
-    if (displayTimerRef.current) clearTimeout(displayTimerRef.current)
-    displayTimerRef.current = null
+    setStreamingContent("")
 
     const userMsg: Message = { role: "user", content: text, timestamp: Date.now() }
     const nextMessages = [...messages, userMsg]
@@ -161,12 +151,10 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
             const event = JSON.parse(line)
             if (event.type === "text") {
               assistantText += event.content
-              charQueueRef.current.push(...(event.content as string).split(""))
-              if (!displayTimerRef.current) drainChar()
+              setStreamingContent(assistantText)
             } else if (event.type === "error") {
               assistantText = event.content ?? "Something went wrong. Please try again."
-              charQueueRef.current.push(...assistantText.split(""))
-              if (!displayTimerRef.current) drainChar()
+              setStreamingContent(assistantText)
             } else if (event.type === "checkout_prefill" && onCheckoutPrefill) {
               onCheckoutPrefill(event.data as ShopPackageData)
             } else if (event.type === "action_buttons") {
@@ -187,18 +175,10 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       setMessages(errMessages)
       persist(errMessages)
     } finally {
-      // Flush any remaining queued chars instantly
-      if (charQueueRef.current.length > 0) {
-        typedContentRef.current += charQueueRef.current.splice(0).join("")
-        setTypedContent(typedContentRef.current)
-      }
-      if (displayTimerRef.current) {
-        clearTimeout(displayTimerRef.current)
-        displayTimerRef.current = null
-      }
       setIsStreaming(false)
+      setStreamingContent("")
     }
-  }, [input, isStreaming, messages, shopSlug, shop.id, onCheckoutPrefill, drainChar])
+  }, [input, isStreaming, messages, shopSlug, shop.id, onCheckoutPrefill])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -248,12 +228,11 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
 
             {isStreaming && (
               <div className="flex justify-start">
-                <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800 whitespace-pre-wrap">
-                  {typedContent ? (
-                    <>
-                      {typedContent}
-                      <span className="inline-block w-[2px] h-[13px] bg-gray-500 animate-pulse ml-0.5 align-middle rounded-full" />
-                    </>
+                <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
+                  {streamingContent ? (
+                    <ReactMarkdown components={mdComponents}>
+                      {streamingContent + "▋"}
+                    </ReactMarkdown>
                   ) : (
                     <span className="flex gap-1.5 items-center h-4">
                       <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
