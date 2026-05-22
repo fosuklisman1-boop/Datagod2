@@ -4,13 +4,31 @@ import { NextRequest } from "next/server"
 import { aiTools, executeToolCall, AIChatContext } from "@/lib/ai-tools"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { AIProviderConfig, DEFAULT_CONFIG, resolveProviderForContext } from "@/lib/ai-providers"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+// ── AI config cache (30s TTL) ─────────────────────────────────────────────────
+let configCache: { data: AIProviderConfig; ts: number } | null = null
+
+async function loadAIConfig(): Promise<AIProviderConfig> {
+  if (configCache && Date.now() - configCache.ts < 30_000) return configCache.data
+  try {
+    const { data } = await supabaseAdmin
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "ai_provider_config")
+      .maybeSingle()
+    const cfg: AIProviderConfig = (data?.value as AIProviderConfig) ?? DEFAULT_CONFIG
+    configCache = { data: cfg, ts: Date.now() }
+    return cfg
+  } catch {
+    return DEFAULT_CONFIG
+  }
+}
 
 function getBaseUrl(req: NextRequest): string {
   const host = req.headers.get("host") ?? "localhost:3000"
@@ -20,11 +38,14 @@ function getBaseUrl(req: NextRequest): string {
 
 export async function POST(req: NextRequest) {
   const { messages, context, shopSlug, shopId } = await req.json() as {
-    messages: Anthropic.MessageParam[]
+    messages: Anthropic.MessageParam[]   // kept as Anthropic format internally
     context: AIChatContext
     shopSlug?: string
     shopId?: string
   }
+
+  const aiConfig = await loadAIConfig()
+  const { provider: aiProvider, model: aiModel } = resolveProviderForContext(context, aiConfig)
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   let userId: string | undefined
@@ -336,44 +357,33 @@ ${formattingRules}`
         const currentMessages: Anthropic.MessageParam[] = [...messages]
         const tools = aiTools(context)
 
-        // Agentic loop — runs until Claude stops calling tools
+        // Agentic loop — runs until the provider stops calling tools
         let keepRunning = true
         while (keepRunning) {
-          const response = await anthropic.messages.create({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 600,
+          const response = await aiProvider.createMessage({
+            model: aiModel,
+            maxTokens: 600,
             system: systemPrompt,
             tools,
             messages: currentMessages,
           })
 
-          // Collect text and tool_use blocks from this response
-          let textAccumulated = ""
-          const toolCalls: Anthropic.ToolUseBlock[] = []
-
-          for (const block of response.content) {
-            if (block.type === "text") {
-              textAccumulated += block.text
-            } else if (block.type === "tool_use") {
-              toolCalls.push(block)
-            }
-          }
-
           // Stream any text
-          if (textAccumulated) {
-            send({ type: "text", content: textAccumulated })
+          if (response.text) {
+            send({ type: "text", content: response.text })
           }
 
-          // Append assistant turn to history
-          currentMessages.push({ role: "assistant", content: response.content })
+          // Append assistant turn to history (in Anthropic format regardless of provider)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          currentMessages.push({ role: "assistant", content: response.anthropicContent as any })
 
-          if (response.stop_reason === "tool_use" && toolCalls.length > 0) {
+          if (response.stopReason === "tool_use" && response.toolCalls.length > 0) {
             // Execute all tool calls and collect results
             const toolResults: Anthropic.ToolResultBlockParam[] = []
 
-            for (const tc of toolCalls) {
+            for (const tc of response.toolCalls) {
               send({ type: "tool_call", tool: tc.name })
-              const result = await executeToolCall(tc.name, tc.input as Record<string, unknown>, toolCtx)
+              const result = await executeToolCall(tc.name, tc.input, toolCtx)
 
               // prepare_checkout is handled client-side — opens Paystack modal
               if (tc.name === "prepare_checkout") {

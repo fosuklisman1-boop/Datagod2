@@ -469,6 +469,29 @@ export function Sidebar() {
                 </Button>
               </Link>
 
+              <Link href="/admin/ai-settings" onClick={() => handleNavigation("/admin/ai-settings")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/ai-settings" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/ai-settings" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/ai-settings" && "opacity-70"
+                  )}
+                  title={!isOpen ? "AI Settings" : undefined}
+                  disabled={loadingPath === "/admin/ai-settings"}
+                >
+                  {loadingPath === "/admin/ai-settings" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "AI Settings"}
+                </Button>
+              </Link>
+
               <Link href="/admin/subscriptions" onClick={() => handleNavigation("/admin/subscriptions")}>
                 <Button
                   variant="ghost"

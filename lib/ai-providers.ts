@@ -1,0 +1,385 @@
+import Anthropic from "@anthropic-ai/sdk"
+import OpenAI from "openai"
+import { GoogleGenerativeAI, Content, Part } from "@google/generative-ai"
+
+// ── Shared types ──────────────────────────────────────────────────────────────
+
+// Minimal content-block shape we reconstruct for Anthropic-format history.
+// We avoid using Anthropic.ContentBlock directly because newer SDK versions
+// add required fields (citations, caller) that don't exist in synthesised blocks.
+type AnthropicContentLike = { type: string; [key: string]: unknown }
+
+export interface NormalizedResponse {
+  text: string
+  toolCalls: { id: string; name: string; input: Record<string, unknown> }[]
+  stopReason: "end_turn" | "tool_use"
+  // Anthropic-format content blocks for pushing back to message history
+  anthropicContent: AnthropicContentLike[]
+}
+
+export interface AIProvider {
+  createMessage(params: {
+    model: string
+    maxTokens: number
+    system: string
+    tools: Anthropic.Tool[]
+    messages: Anthropic.MessageParam[]
+  }): Promise<NormalizedResponse>
+}
+
+// ── Anthropic adapter ─────────────────────────────────────────────────────────
+
+class AnthropicAdapter implements AIProvider {
+  private client: Anthropic
+  constructor(apiKey: string) {
+    this.client = new Anthropic({ apiKey })
+  }
+
+  async createMessage({ model, maxTokens, system, tools, messages }: Parameters<AIProvider["createMessage"]>[0]): Promise<NormalizedResponse> {
+    const response = await this.client.messages.create({
+      model,
+      max_tokens: maxTokens,
+      system,
+      tools,
+      messages,
+    })
+
+    const text = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map(b => b.text)
+      .join("")
+
+    const toolCalls = response.content
+      .filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")
+      .map(b => ({ id: b.id, name: b.name, input: b.input as Record<string, unknown> }))
+
+    return {
+      text,
+      toolCalls,
+      stopReason: response.stop_reason === "tool_use" ? "tool_use" : "end_turn",
+      anthropicContent: response.content as unknown as AnthropicContentLike[],
+    }
+  }
+}
+
+// ── OpenAI adapter ────────────────────────────────────────────────────────────
+
+function toOpenAIMessages(messages: Anthropic.MessageParam[]): OpenAI.ChatCompletionMessageParam[] {
+  const out: OpenAI.ChatCompletionMessageParam[] = []
+
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      if (typeof msg.content === "string") {
+        out.push({ role: "user", content: msg.content })
+      } else {
+        const toolResults = msg.content.filter(
+          (b): b is Anthropic.ToolResultBlockParam => b.type === "tool_result"
+        )
+        if (toolResults.length > 0) {
+          for (const tr of toolResults) {
+            out.push({
+              role: "tool",
+              tool_call_id: tr.tool_use_id,
+              content: typeof tr.content === "string"
+                ? tr.content
+                : Array.isArray(tr.content)
+                  ? tr.content.filter(b => b.type === "text").map(b => (b as Anthropic.TextBlockParam).text).join("")
+                  : "",
+            })
+          }
+        } else {
+          const text = msg.content
+            .filter((b): b is Anthropic.TextBlockParam => b.type === "text")
+            .map(b => b.text)
+            .join("")
+          out.push({ role: "user", content: text })
+        }
+      }
+    } else if (msg.role === "assistant") {
+      if (typeof msg.content === "string") {
+        out.push({ role: "assistant", content: msg.content })
+      } else {
+        const textBlocks = msg.content.filter((b): b is Anthropic.TextBlock => b.type === "text")
+        const toolBlocks = msg.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")
+        const text = textBlocks.map(b => b.text).join("") || null
+        const tool_calls = toolBlocks.map(b => ({
+          id: b.id,
+          type: "function" as const,
+          function: { name: b.name, arguments: JSON.stringify(b.input) },
+        }))
+        const assistantMsg: OpenAI.ChatCompletionAssistantMessageParam = {
+          role: "assistant",
+          content: text,
+        }
+        if (tool_calls.length > 0) assistantMsg.tool_calls = tool_calls
+        out.push(assistantMsg)
+      }
+    }
+  }
+
+  return out
+}
+
+class OpenAIAdapter implements AIProvider {
+  private client: OpenAI
+  constructor(apiKey: string) {
+    this.client = new OpenAI({ apiKey })
+  }
+
+  async createMessage({ model, maxTokens, system, tools, messages }: Parameters<AIProvider["createMessage"]>[0]): Promise<NormalizedResponse> {
+    const openaiTools: OpenAI.ChatCompletionTool[] = tools.map(t => ({
+      type: "function" as const,
+      function: {
+        name: t.name,
+        description: t.description ?? "",
+        parameters: t.input_schema as Record<string, unknown>,
+      },
+    }))
+
+    const openaiMessages: OpenAI.ChatCompletionMessageParam[] = [
+      { role: "system", content: system },
+      ...toOpenAIMessages(messages),
+    ]
+
+    const response = await this.client.chat.completions.create({
+      model,
+      max_tokens: maxTokens,
+      tools: openaiTools.length > 0 ? openaiTools : undefined,
+      messages: openaiMessages,
+    })
+
+    const choice = response.choices[0]
+    const text = choice.message.content ?? ""
+    const rawToolCalls = choice.message.tool_calls ?? []
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const toolCalls = rawToolCalls.map((tc: any) => ({
+      id: tc.id as string,
+      name: tc.function?.name as string ?? "",
+      input: (() => { try { return JSON.parse(tc.function?.arguments ?? "{}") } catch { return {} } })() as Record<string, unknown>,
+    }))
+
+    // Reconstruct Anthropic-format content for history
+    const anthropicContent: AnthropicContentLike[] = []
+    if (text) anthropicContent.push({ type: "text", text })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const tc of rawToolCalls as any[]) {
+      anthropicContent.push({
+        type: "tool_use",
+        id: tc.id,
+        name: tc.function?.name ?? "",
+        input: (() => { try { return JSON.parse(tc.function?.arguments ?? "{}") } catch { return {} } })(),
+      })
+    }
+    if (anthropicContent.length === 0) anthropicContent.push({ type: "text", text: "" })
+
+    return {
+      text,
+      toolCalls,
+      stopReason: choice.finish_reason === "tool_calls" ? "tool_use" : "end_turn",
+      anthropicContent,
+    }
+  }
+}
+
+// ── Gemini adapter ────────────────────────────────────────────────────────────
+
+function findToolName(messages: Anthropic.MessageParam[], toolUseId: string): string {
+  for (const msg of messages) {
+    if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block.type === "tool_use" && block.id === toolUseId) return block.name
+      }
+    }
+  }
+  return "unknown_tool"
+}
+
+function toGeminiContents(messages: Anthropic.MessageParam[]): Content[] {
+  const out: Content[] = []
+
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      if (typeof msg.content === "string") {
+        out.push({ role: "user", parts: [{ text: msg.content }] })
+      } else {
+        const toolResults = msg.content.filter(
+          (b): b is Anthropic.ToolResultBlockParam => b.type === "tool_result"
+        )
+        if (toolResults.length > 0) {
+          const parts: Part[] = toolResults.map(tr => ({
+            functionResponse: {
+              name: findToolName(messages, tr.tool_use_id),
+              response: {
+                content: typeof tr.content === "string"
+                  ? tr.content
+                  : Array.isArray(tr.content)
+                    ? tr.content.filter(b => b.type === "text").map(b => (b as Anthropic.TextBlockParam).text).join("")
+                    : "",
+              },
+            },
+          }))
+          out.push({ role: "user", parts })
+        } else {
+          const text = msg.content
+            .filter((b): b is Anthropic.TextBlockParam => b.type === "text")
+            .map(b => b.text)
+            .join("")
+          out.push({ role: "user", parts: [{ text }] })
+        }
+      }
+    } else if (msg.role === "assistant") {
+      if (typeof msg.content === "string") {
+        out.push({ role: "model", parts: [{ text: msg.content }] })
+      } else {
+        const parts: Part[] = []
+        for (const block of msg.content) {
+          if (block.type === "text" && block.text) parts.push({ text: block.text })
+          if (block.type === "tool_use") {
+            parts.push({ functionCall: { name: block.name, args: block.input as Record<string, unknown> } })
+          }
+        }
+        if (parts.length > 0) out.push({ role: "model", parts })
+      }
+    }
+  }
+
+  return out
+}
+
+class GeminiAdapter implements AIProvider {
+  private client: GoogleGenerativeAI
+  constructor(apiKey: string) {
+    this.client = new GoogleGenerativeAI(apiKey)
+  }
+
+  async createMessage({ model, maxTokens, system, tools, messages }: Parameters<AIProvider["createMessage"]>[0]): Promise<NormalizedResponse> {
+    const genModel = this.client.getGenerativeModel({
+      model,
+      systemInstruction: system,
+      generationConfig: { maxOutputTokens: maxTokens },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tools: tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.name, description: t.description ?? "", parameters: t.input_schema as any })) }] as any : undefined,
+      toolConfig: tools.length > 0
+        ? { functionCallingConfig: { mode: "AUTO" as unknown as import("@google/generative-ai").FunctionCallingMode } }
+        : undefined,
+    })
+
+    const contents = toGeminiContents(messages)
+    const response = await genModel.generateContent({ contents })
+
+    const candidate = response.response.candidates?.[0]
+    const parts = candidate?.content?.parts ?? []
+
+    let text = ""
+    const toolCalls: { id: string; name: string; input: Record<string, unknown> }[] = []
+    const anthropicContent: AnthropicContentLike[] = []
+
+    for (const part of parts) {
+      if (part.text) {
+        text += part.text
+        anthropicContent.push({ type: "text", text: part.text })
+      }
+      if (part.functionCall) {
+        const id = `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const input = ((part.functionCall as unknown as Record<string, unknown>).args ?? {}) as Record<string, unknown>
+        toolCalls.push({ id, name: part.functionCall.name, input })
+        anthropicContent.push({ type: "tool_use", id, name: part.functionCall.name, input })
+      }
+    }
+
+    if (anthropicContent.length === 0) anthropicContent.push({ type: "text", text: "" })
+
+    return {
+      text,
+      toolCalls,
+      stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
+      anthropicContent,
+    }
+  }
+}
+
+// ── Provider config types ─────────────────────────────────────────────────────
+
+export type ProviderName = "anthropic" | "openai" | "gemini"
+
+export interface AIProviderConfig {
+  anthropic_api_key?: string
+  openai_api_key?: string
+  gemini_api_key?: string
+  storefront_provider?: ProviderName
+  storefront_model?: string
+  dashboard_provider?: ProviderName
+  dashboard_model?: string
+  admin_provider?: ProviderName
+  admin_model?: string
+}
+
+export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }[]> = {
+  anthropic: [
+    { id: "claude-haiku-4-5-20251001", label: "Claude Haiku (Fast)" },
+    { id: "claude-sonnet-4-6", label: "Claude Sonnet (Balanced)" },
+    { id: "claude-opus-4-7", label: "Claude Opus (Powerful)" },
+  ],
+  openai: [
+    { id: "gpt-4o-mini", label: "GPT-4o Mini (Fast)" },
+    { id: "gpt-4o", label: "GPT-4o (Balanced)" },
+    { id: "gpt-4.1", label: "GPT-4.1 (Powerful)" },
+  ],
+  gemini: [
+    { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Fast)" },
+    { id: "gemini-1.5-pro", label: "Gemini 1.5 Pro (Balanced)" },
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (Powerful)" },
+  ],
+}
+
+export const DEFAULT_CONFIG: AIProviderConfig = {
+  storefront_provider: "anthropic",
+  storefront_model: "claude-haiku-4-5-20251001",
+  dashboard_provider: "anthropic",
+  dashboard_model: "claude-haiku-4-5-20251001",
+  admin_provider: "anthropic",
+  admin_model: "claude-haiku-4-5-20251001",
+}
+
+// ── Factory ───────────────────────────────────────────────────────────────────
+
+export function getProvider(name: ProviderName, apiKey: string): AIProvider {
+  switch (name) {
+    case "openai": return new OpenAIAdapter(apiKey)
+    case "gemini": return new GeminiAdapter(apiKey)
+    default: return new AnthropicAdapter(apiKey)
+  }
+}
+
+export function resolveProviderForContext(
+  context: "storefront" | "dashboard" | "admin",
+  config: AIProviderConfig
+): { provider: AIProvider; model: string } {
+  const fallbackKey = process.env.ANTHROPIC_API_KEY ?? ""
+
+  const providerName: ProviderName =
+    context === "storefront" ? (config.storefront_provider ?? "anthropic")
+    : context === "dashboard" ? (config.dashboard_provider ?? "anthropic")
+    : (config.admin_provider ?? "anthropic")
+
+  const model: string =
+    context === "storefront" ? (config.storefront_model ?? DEFAULT_CONFIG.storefront_model!)
+    : context === "dashboard" ? (config.dashboard_model ?? DEFAULT_CONFIG.dashboard_model!)
+    : (config.admin_model ?? DEFAULT_CONFIG.admin_model!)
+
+  const apiKey: string =
+    providerName === "openai" ? (config.openai_api_key || "")
+    : providerName === "gemini" ? (config.gemini_api_key || "")
+    : (config.anthropic_api_key || fallbackKey)
+
+  // Fallback to Anthropic env key if the chosen provider has no key configured
+  if (!apiKey) {
+    return {
+      provider: new AnthropicAdapter(fallbackKey),
+      model: DEFAULT_CONFIG[`${context}_model` as keyof AIProviderConfig] as string ?? "claude-haiku-4-5-20251001",
+    }
+  }
+
+  return { provider: getProvider(providerName, apiKey), model }
+}
