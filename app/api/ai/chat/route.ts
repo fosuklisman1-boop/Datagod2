@@ -305,7 +305,11 @@ WITHDRAWALS:
 - Approve (triggers Moolre payout), reject, or mark as completed
 
 PACKAGES:
-- List, create, update, or toggle availability of data packages
+- To list packages: call manage_packages action='list' — always pass network= to filter (e.g. network='MTN') so results stay small
+- To update price/name: (1) call action='list' with network filter → find the exact package_id UUID → (2) call action='update' with that UUID and only the fields changing
+- To toggle on/off: same two-step — list first to get UUID, then action='toggle'
+- To create: call action='create' with network, name, size (number), price, dealer_price
+- size is stored as a plain number string — never include 'GB' (e.g. size=5 not "5GB")
 
 BLACKLIST:
 - Add/remove single phone numbers or bulk-import a list

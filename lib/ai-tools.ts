@@ -12,7 +12,7 @@ export type AIChatContext = "storefront" | "dashboard" | "admin"
 
 const getAvailablePackagesTool: Anthropic.Tool = {
   name: "get_available_packages",
-  description: "Get the list of data packages available in this shop. Use this to show options to customers or confirm prices before ordering.",
+  description: "Get available data packages. Pass network= to filter by a specific network (MTN, Telecel, AT) and keep results small. Results are sorted by size ascending.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -370,18 +370,18 @@ const manageWithdrawalTool: Anthropic.Tool = {
 
 const managePackagesTool: Anthropic.Tool = {
   name: "manage_packages",
-  description: "Admin only: list all data packages, create or update a package, or toggle a package's availability on/off. Call action='list' first to get package_id values for update/toggle.",
+  description: "Admin only: list, create, update, or toggle data packages. WORKFLOW: (1) always call action='list' with network filter first to get the exact package_id UUID, (2) then call action='update' or 'toggle' with that UUID. Never guess a package_id.",
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", description: "'list' to view all packages, 'create' to add a new one, 'update' to edit an existing one, or 'toggle' to enable/disable" },
-      package_id: { type: "string", description: "The package UUID — get this from action='list'. Required for update and toggle." },
-      network: { type: "string", description: "Network name: MTN, AirtelTigo, or Telecel" },
+      action: { type: "string", description: "'list' to view packages (filter by network to keep results small), 'create' to add a new one, 'update' to edit an existing one, 'toggle' to enable/disable" },
+      package_id: { type: "string", description: "The package UUID from action='list'. Required for update and toggle." },
+      network: { type: "string", description: "Network name: MTN, AirtelTigo, or Telecel. Use this to filter list results — always pass it when you know the network." },
       name: { type: "string", description: "Package display name" },
-      size: { type: "number", description: "Package size as a plain number (e.g. 1, 2, 5, 10) — stored without 'GB' suffix" },
-      price: { type: "number", description: "Customer price in GHS as a number (e.g. 5.00)" },
+      size: { type: "number", description: "Package size as a plain number (e.g. 1, 2, 5, 10) — no 'GB' suffix" },
+      price: { type: "number", description: "Customer price in GHS (e.g. 5.00)" },
       dealer_price: { type: "number", description: "Dealer price in GHS — must be lower than price" },
-      is_available: { type: "boolean", description: "For toggle action: true to enable, false to disable" },
+      is_available: { type: "boolean", description: "For toggle: true to enable, false to disable" },
     },
     required: ["action"],
   },
@@ -850,16 +850,17 @@ export async function executeToolCall(
           .select("id, network, size, price, dealer_price")
           .eq("active", true)
           .order("network")
-          .order("size")
         if (input.network) {
-          query = query.ilike("network", String(input.network))
+          query = query.ilike("network", `%${String(input.network)}%`)
         }
         const { data, error } = await query
         if (error) return { error: error.message }
 
+        // Sort by size numerically (DB sorts "10" before "2" alphabetically)
+        const rows = (data ?? []).sort((a, b) => Number(a.size) - Number(b.size))
+
         if (isAdmin) {
-          // Admin sees both customer price and dealer price
-          return (data ?? []).map((p: Record<string, unknown>) => ({
+          return rows.map((p: Record<string, unknown>) => ({
             id: p.id,
             network: p.network,
             size: p.size,
@@ -868,8 +869,7 @@ export async function executeToolCall(
           }))
         }
 
-        // Dealer/user: show their applicable price only — never expose dealer_price separately
-        return sanitize((data ?? []).map((p: Record<string, unknown>) => ({
+        return sanitize(rows.map((p: Record<string, unknown>) => ({
           id: p.id,
           network: p.network,
           size: p.size,
@@ -1403,12 +1403,17 @@ export async function executeToolCall(
         const action = input.action as string
 
         if (action === "list") {
-          const { data, error } = await supabaseAdmin
+          let q = supabaseAdmin
             .from("packages")
             .select("id, network, name, size, price, dealer_price, active")
-            .order("network").order("size")
+            .order("network")
+          // Apply network filter when provided — keeps result small and avoids truncation
+          if (input.network) q = q.ilike("network", `%${input.network}%`)
+          const { data, error } = await q
           if (error) return { error: error.message }
-          return data ?? []  // admin-only — no sanitize, dealer_price must be visible
+          // Sort by size numerically so AI sees correct ordering (1, 2, 5, 10 not 1, 10, 2, 5)
+          const sorted = (data ?? []).sort((a, b) => Number(a.size) - Number(b.size))
+          return sorted  // admin-only — no sanitize, dealer_price must be visible
         }
 
         if (action === "toggle") {
