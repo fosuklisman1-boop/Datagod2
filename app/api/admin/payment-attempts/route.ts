@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { notifyAdminsPush } from "@/lib/push-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
@@ -406,6 +407,13 @@ export async function PATCH(request: NextRequest) {
         } catch (smsError) {
           console.warn("[ADMIN-PAYMENT-ATTEMPTS] SMS/Email failed:", smsError)
         }
+
+        // Notify admins via push (non-blocking)
+        notifyAdminsPush({
+          title: '💰 Wallet Top-up',
+          body: `GHS ${creditAmount.toFixed(2)} manually completed — new balance: GHS ${newBalance.toFixed(2)}`,
+          data: { url: '/admin/payments' },
+        }).catch(() => {})
 
       } else if (paymentType === "shop_order" && attempt.order_id && attempt.shop_id) {
         // ===== SHOP ORDER: Update payment status + trigger fulfillment =====

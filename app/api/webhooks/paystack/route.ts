@@ -883,6 +883,13 @@ export async function POST(request: NextRequest) {
                 reference: reference
               }).catch(() => {})
             }
+            import('@/lib/push-service').then(({ notifyAdminsPush }) => {
+              notifyAdminsPush({
+                title: '💰 Wallet Top-up',
+                body: `GHS ${creditAmount.toFixed(2)} topped up by ${userData?.first_name || 'a user'} — new balance: GHS ${newBalance.toFixed(2)}`,
+                data: { url: '/admin/payments' },
+              }).catch(() => {})
+            }).catch(() => {})
           }
         }
       }
