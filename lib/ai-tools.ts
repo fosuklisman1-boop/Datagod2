@@ -868,10 +868,21 @@ export async function executeToolCall(
           })))
         }
 
-        // Guest with no shopSlug — should never happen in storefront context; refuse rather than leaking the full catalog
+        // Home/public context — no shop, no user; show base catalog at retail price
         if (!ctx.userId) {
-          console.warn("[AI-TOOLS] get_available_packages called with no shopSlug and no userId")
-          return { error: "Shop context is missing. Please refresh the page and try again." }
+          let query = supabaseAdmin
+            .from("packages")
+            .select("id, network, size, price")
+            .eq("active", true)
+            .order("network")
+          if (input.network) query = query.ilike("network", `%${String(input.network)}%`)
+          const { data, error } = await query
+          if (error) return { error: error.message }
+          return sanitize(
+            (data ?? [])
+              .sort((a, b) => Number(a.size) - Number(b.size))
+              .map((p: Record<string, unknown>) => ({ id: p.id, network: p.network, size: p.size, price: p.price }))
+          )
         }
 
         // Dashboard / admin: base packages table
