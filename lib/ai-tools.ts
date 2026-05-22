@@ -695,7 +695,7 @@ const getKnowledgeBaseTool: Anthropic.Tool = {
 
 const showActionButtonsTool: Anthropic.Tool = {
   name: "show_action_buttons",
-  description: "Display clickable buttons to the user for confirmations or multi-choice selections. Use this INSTEAD of asking the user to type 'yes', 'no', or choose an option — buttons are faster and clearer. Call this right before or after presenting a choice. Max 4 buttons. Example: before placing an order, call show_action_buttons with [{label:'Confirm order', value:'Yes, confirm', style:'primary'}, {label:'Cancel', value:'Cancel', style:'secondary'}].",
+  description: "Display clickable buttons to the user for confirmations, multi-choice selections, or page navigation. Use this INSTEAD of asking the user to type 'yes', 'no', or choose an option — buttons are faster and clearer. Call this right before or after presenting a choice. Max 4 buttons. For navigation buttons (e.g. Sign Up, Log In, Buy as Guest), set url to the page path instead of value — clicking the button will navigate to that page.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -706,10 +706,11 @@ const showActionButtonsTool: Anthropic.Tool = {
           type: "object" as const,
           properties: {
             label: { type: "string", description: "Text shown on the button" },
-            value: { type: "string", description: "Text sent as the user's reply when this button is clicked" },
-            style: { type: "string", description: "Visual style: primary (violet, for the main action), danger (red, for destructive actions), secondary (gray, for cancel/alternatives)" },
+            value: { type: "string", description: "Text sent as the user's reply when this button is clicked. Not needed if url is set." },
+            url: { type: "string", description: "If set, clicking this button navigates to this page path (e.g. '/auth/signup', '/auth/login', '/shop/my-shop-slug'). Use for page navigation instead of sending a message." },
+            style: { type: "string", description: "Visual style: primary (blue, for the main action), danger (red, for destructive actions), secondary (gray, for cancel/alternatives)" },
           },
-          required: ["label", "value"],
+          required: ["label"],
         },
       },
     },

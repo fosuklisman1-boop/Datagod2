@@ -12,7 +12,8 @@ interface Message {
 
 interface ActionButton {
   label: string
-  value: string
+  value?: string
+  url?: string
   style?: "primary" | "danger" | "secondary"
 }
 
@@ -233,7 +234,15 @@ export function HomeAIChatWidget() {
             {actionButtons && (
               <div className="flex flex-wrap gap-2 justify-end">
                 {actionButtons.map((btn, i) => (
-                  <button key={i} onClick={() => { setActionButtons(null); sendMessage(btn.value) }} className={getButtonClass(btn.style)}>
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setActionButtons(null)
+                      if (btn.url) { window.location.href = btn.url }
+                      else if (btn.value) sendMessage(btn.value)
+                    }}
+                    className={getButtonClass(btn.style)}
+                  >
                     {btn.label}
                   </button>
                 ))}
