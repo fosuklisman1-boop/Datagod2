@@ -1,11 +1,13 @@
 // Client-safe constants and types — no SDK imports, safe to use in "use client" components.
 
-export type ProviderName = "anthropic" | "openai" | "gemini"
+export type ProviderName = "anthropic" | "openai" | "gemini" | "deepseek" | "groq"
 
 export interface AIProviderConfig {
   anthropic_api_key?: string
   openai_api_key?: string
   gemini_api_key?: string
+  deepseek_api_key?: string
+  groq_api_key?: string
   storefront_provider?: ProviderName
   storefront_model?: string
   dashboard_provider?: ProviderName
@@ -29,6 +31,15 @@ export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }
     { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Fast)" },
     { id: "gemini-1.5-pro", label: "Gemini 1.5 Pro (Balanced)" },
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (Powerful)" },
+  ],
+  deepseek: [
+    { id: "deepseek-chat", label: "DeepSeek V3 (Fast)" },
+    { id: "deepseek-reasoner", label: "DeepSeek R1 (Reasoning)" },
+  ],
+  groq: [
+    { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Balanced)" },
+    { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B (Fast)" },
+    { id: "gemma2-9b-it", label: "Gemma 2 9B (Fast)" },
   ],
 }
 

@@ -127,8 +127,8 @@ function toOpenAIMessages(messages: Anthropic.MessageParam[]): OpenAI.ChatComple
 
 class OpenAIAdapter implements AIProvider {
   private client: OpenAI
-  constructor(apiKey: string) {
-    this.client = new OpenAI({ apiKey })
+  constructor(apiKey: string, baseURL?: string) {
+    this.client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) })
   }
 
   async createMessage({ model, maxTokens, system, tools, messages }: Parameters<AIProvider["createMessage"]>[0]): Promise<NormalizedResponse> {
@@ -308,9 +308,11 @@ class GeminiAdapter implements AIProvider {
 
 export function getProvider(name: ProviderName, apiKey: string): AIProvider {
   switch (name) {
-    case "openai": return new OpenAIAdapter(apiKey)
-    case "gemini": return new GeminiAdapter(apiKey)
-    default: return new AnthropicAdapter(apiKey)
+    case "openai":    return new OpenAIAdapter(apiKey)
+    case "gemini":    return new GeminiAdapter(apiKey)
+    case "deepseek":  return new OpenAIAdapter(apiKey, "https://api.deepseek.com")
+    case "groq":      return new OpenAIAdapter(apiKey, "https://api.groq.com/openai/v1")
+    default:          return new AnthropicAdapter(apiKey)
   }
 }
 
@@ -331,8 +333,10 @@ export function resolveProviderForContext(
     : (config.admin_model ?? DEFAULT_CONFIG.admin_model!)
 
   const apiKey: string =
-    providerName === "openai" ? (config.openai_api_key || "")
-    : providerName === "gemini" ? (config.gemini_api_key || "")
+    providerName === "openai"    ? (config.openai_api_key    || "")
+    : providerName === "gemini"  ? (config.gemini_api_key    || "")
+    : providerName === "deepseek"? (config.deepseek_api_key  || "")
+    : providerName === "groq"    ? (config.groq_api_key      || "")
     : (config.anthropic_api_key || fallbackKey)
 
   // Fallback to Anthropic env key if the chosen provider has no key configured

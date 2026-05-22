@@ -21,6 +21,10 @@ interface ConfigState {
   openai_api_key_masked: string
   gemini_key_set: boolean
   gemini_api_key_masked: string
+  deepseek_key_set: boolean
+  deepseek_api_key_masked: string
+  groq_key_set: boolean
+  groq_api_key_masked: string
   storefront_provider: ProviderName
   storefront_model: string
   dashboard_provider: ProviderName
@@ -33,6 +37,8 @@ const PROVIDER_LABELS: Record<ProviderName, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Google Gemini",
+  deepseek: "DeepSeek",
+  groq: "Groq",
 }
 
 const CONTEXT_LABELS: Record<AIChatContext, string> = {
@@ -48,6 +54,10 @@ const defaultConfig: ConfigState = {
   openai_api_key_masked: "",
   gemini_key_set: false,
   gemini_api_key_masked: "",
+  deepseek_key_set: false,
+  deepseek_api_key_masked: "",
+  groq_key_set: false,
+  groq_api_key_masked: "",
   storefront_provider: "anthropic",
   storefront_model: "claude-haiku-4-5-20251001",
   dashboard_provider: "anthropic",
@@ -62,9 +72,9 @@ export default function AISettingsPage() {
   const [config, setConfig] = useState<ConfigState>(defaultConfig)
 
   // Separate state for new key inputs (only sent when non-empty)
-  const [newKeys, setNewKeys] = useState({ anthropic: "", openai: "", gemini: "" })
-  const [showKeys, setShowKeys] = useState({ anthropic: false, openai: false, gemini: false })
-  const [savingKeys, setSavingKeys] = useState({ anthropic: false, openai: false, gemini: false })
+  const [newKeys, setNewKeys] = useState({ anthropic: "", openai: "", gemini: "", deepseek: "", groq: "" })
+  const [showKeys, setShowKeys] = useState({ anthropic: false, openai: false, gemini: false, deepseek: false, groq: false })
+  const [savingKeys, setSavingKeys] = useState({ anthropic: false, openai: false, gemini: false, deepseek: false, groq: false })
   const [savingAssignment, setSavingAssignment] = useState(false)
 
   // "same for all" toggle
@@ -109,7 +119,7 @@ export default function AISettingsPage() {
     }
   }
 
-  async function saveKey(provider: "anthropic" | "openai" | "gemini") {
+  async function saveKey(provider: "anthropic" | "openai" | "gemini" | "deepseek" | "groq") {
     const key = newKeys[provider].trim()
     if (!key) { toast.error("Enter a key first"); return }
     setSavingKeys(s => ({ ...s, [provider]: true }))
@@ -174,11 +184,13 @@ export default function AISettingsPage() {
     setConfig(c => ({ ...c, [`${ctx}_model`]: model }))
   }
 
-  const providers: ProviderName[] = ["anthropic", "openai", "gemini"]
-  const keyInfo: { provider: "anthropic" | "openai" | "gemini"; label: string; placeholder: string; color: string }[] = [
-    { provider: "anthropic", label: "Anthropic", placeholder: "sk-ant-api03-...", color: "bg-orange-500" },
-    { provider: "openai", label: "OpenAI", placeholder: "sk-proj-...", color: "bg-green-600" },
-    { provider: "gemini", label: "Google Gemini", placeholder: "AIzaSy...", color: "bg-blue-600" },
+  const providers: ProviderName[] = ["anthropic", "openai", "gemini", "deepseek", "groq"]
+  const keyInfo: { provider: "anthropic" | "openai" | "gemini" | "deepseek" | "groq"; label: string; placeholder: string; color: string }[] = [
+    { provider: "anthropic", label: "Anthropic",    placeholder: "sk-ant-api03-...", color: "bg-orange-500" },
+    { provider: "openai",    label: "OpenAI",       placeholder: "sk-proj-...",      color: "bg-green-600" },
+    { provider: "gemini",    label: "Google Gemini",placeholder: "AIzaSy...",        color: "bg-blue-600"  },
+    { provider: "deepseek",  label: "DeepSeek",     placeholder: "sk-...",           color: "bg-sky-500"   },
+    { provider: "groq",      label: "Groq",         placeholder: "gsk_...",          color: "bg-purple-600"},
   ]
 
   return (

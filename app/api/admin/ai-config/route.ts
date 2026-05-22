@@ -37,9 +37,13 @@ export async function GET(request: NextRequest) {
     anthropic_api_key_masked: maskKey(cfg.anthropic_api_key),
     openai_api_key_masked: maskKey(cfg.openai_api_key),
     gemini_api_key_masked: maskKey(cfg.gemini_api_key),
+    deepseek_api_key_masked: maskKey(cfg.deepseek_api_key),
+    groq_api_key_masked: maskKey(cfg.groq_api_key),
     anthropic_key_set: !!(cfg.anthropic_api_key),
     openai_key_set: !!(cfg.openai_api_key),
     gemini_key_set: !!(cfg.gemini_api_key),
+    deepseek_key_set: !!(cfg.deepseek_api_key),
+    groq_key_set: !!(cfg.groq_api_key),
     storefront_provider: cfg.storefront_provider ?? DEFAULT_CONFIG.storefront_provider,
     storefront_model: cfg.storefront_model ?? DEFAULT_CONFIG.storefront_model,
     dashboard_provider: cfg.dashboard_provider ?? DEFAULT_CONFIG.dashboard_provider,
@@ -58,6 +62,8 @@ export async function PUT(request: NextRequest) {
     anthropic_api_key_new?: string
     openai_api_key_new?: string
     gemini_api_key_new?: string
+    deepseek_api_key_new?: string
+    groq_api_key_new?: string
   }
 
   // Load existing config so we don't overwrite keys the user didn't touch
@@ -81,6 +87,12 @@ export async function PUT(request: NextRequest) {
     gemini_api_key: body.gemini_api_key_new !== undefined
       ? body.gemini_api_key_new || current.gemini_api_key
       : current.gemini_api_key,
+    deepseek_api_key: body.deepseek_api_key_new !== undefined
+      ? body.deepseek_api_key_new || current.deepseek_api_key
+      : current.deepseek_api_key,
+    groq_api_key: body.groq_api_key_new !== undefined
+      ? body.groq_api_key_new || current.groq_api_key
+      : current.groq_api_key,
     storefront_provider: body.storefront_provider ?? current.storefront_provider,
     storefront_model: body.storefront_model ?? current.storefront_model,
     dashboard_provider: body.dashboard_provider ?? current.dashboard_provider,
