@@ -142,6 +142,8 @@ export function DashboardAIChatWidget() {
             if (event.type === "text") {
               assistantText += event.content
               setStreamingContent(assistantText)
+            } else if (event.type === "error") {
+              assistantText = event.content ?? "Something went wrong. Please try again."
             } else if (event.type === "action_buttons") {
               setActionButtons(event.buttons as ActionButton[])
             } else if (event.type === "done") {
@@ -151,11 +153,10 @@ export function DashboardAIChatWidget() {
         }
       }
 
-      if (assistantText) {
-        const finalMessages = [...nextMessages, { role: "assistant" as const, content: assistantText, timestamp: Date.now() }]
-        setMessages(finalMessages)
-        persist(finalMessages)
-      }
+      const finalText = assistantText || "Sorry, I couldn't get a response. Please try again."
+      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now() }]
+      setMessages(finalMessages)
+      persist(finalMessages)
     } catch {
       const errMessages = [...nextMessages, { role: "assistant" as const, content: "Sorry, something went wrong. Please try again.", timestamp: Date.now() }]
       setMessages(errMessages)

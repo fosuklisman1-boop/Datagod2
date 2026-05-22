@@ -399,7 +399,8 @@ ${formattingRules}`
         send({ type: "done" })
       } catch (err) {
         console.error("[AI-CHAT] Error:", err)
-        send({ type: "error", content: "Something went wrong. Please try again." })
+        const msg = err instanceof Error ? err.message : "Something went wrong. Please try again."
+        send({ type: "error", content: msg })
       } finally {
         controller.close()
       }
