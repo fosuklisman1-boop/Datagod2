@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, X, Send, Trash2, ChevronDown } from "lucide-react"
+import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { createClient } from "@supabase/supabase-js"
 import { ChatMessage } from "@/components/ui/chat-message"
@@ -330,6 +330,18 @@ export function AdminAIChatWidget() {
             </button>
           </div>
         </div>
+      )}
+
+      {!isOpen && (
+        <button
+          onClick={() => window.location.reload()}
+          className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 text-gray-500 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-gray-50 hover:text-gray-700 transition-all active:scale-95"
+          aria-label="Hard refresh page"
+          title="Hard refresh"
+        >
+          <RefreshCw size={11} />
+          <span>Refresh</span>
+        </button>
       )}
 
       {!isOpen && (
