@@ -368,6 +368,25 @@ const manageWithdrawalTool: Anthropic.Tool = {
   },
 }
 
+// ─── Admin: USSD shop codes ───────────────────────────────────────────────────
+
+const manageUssdShopTool: Anthropic.Tool = {
+  name: "manage_ussd_shop",
+  description: "Admin only: list, create, activate, or add tokens to USSD shop codes. Use 'list' first to get the code ID before activating or adding tokens.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", description: "'list' to view all USSD shop codes, 'create' to create a new code for a shop, 'activate' to activate a pending code, 'add_tokens' to credit sessions to an active code" },
+      ussd_shop_code_id: { type: "string", description: "The USSD shop code ID (UUID). Required for activate and add_tokens." },
+      shop_id: { type: "string", description: "The shop ID to associate the code with. Required for create." },
+      initial_tokens: { type: "number", description: "Initial session tokens to credit when activating. Optional for activate." },
+      tokens: { type: "number", description: "Number of session tokens to add. Required for add_tokens." },
+      code: { type: "string", description: "4-digit USSD code to assign. Optional for create — auto-generated if omitted." },
+    },
+    required: ["action"],
+  },
+}
+
 // ─── Admin: packages ─────────────────────────────────────────────────────────
 
 const managePackagesTool: Anthropic.Tool = {
@@ -747,6 +766,8 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     // Withdrawals
     listWithdrawalsTool,
     manageWithdrawalTool,
+    // USSD shops
+    manageUssdShopTool,
     // Packages
     managePackagesTool,
     // Blacklist
@@ -1459,6 +1480,54 @@ export async function executeToolCall(
         }
 
         return { error: `Unknown action: ${action}. Use list, create, update, or toggle.` }
+      }
+
+      case "manage_ussd_shop": {
+        const action = input.action as string
+
+        if (action === "list") {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return Array.isArray(data.data) ? data.data : data
+        }
+
+        if (action === "create") {
+          if (!input.shop_id) return { error: "shop_id is required for create" }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ shop_id: input.shop_id, code: input.code }),
+          })
+          const data = await res.json()
+          return { success: res.ok, ...data }
+        }
+
+        if (action === "activate") {
+          if (!input.ussd_shop_code_id) return { error: "ussd_shop_code_id is required for activate" }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops/${input.ussd_shop_code_id}/activate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ initial_tokens: input.initial_tokens }),
+          })
+          const data = await res.json()
+          return { success: res.ok, ...data }
+        }
+
+        if (action === "add_tokens") {
+          if (!input.ussd_shop_code_id) return { error: "ussd_shop_code_id is required for add_tokens" }
+          if (!input.tokens) return { error: "tokens is required for add_tokens" }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops/${input.ussd_shop_code_id}/tokens`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ tokens: input.tokens }),
+          })
+          const data = await res.json()
+          return { success: res.ok, ...data }
+        }
+
+        return { error: `Unknown action: ${action}. Use list, create, activate, or add_tokens.` }
       }
 
       case "get_fulfillment_logs": {
