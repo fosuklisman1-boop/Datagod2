@@ -106,156 +106,88 @@ export default function DashboardPage() {
   }, [user, authLoading, router])
 
   useEffect(() => {
-    if (user) {
-      fetchUserInfo()
-      fetchDashboardStats()
-      fetchRecentActivity()
-      fetchWalletBalance()
-      // Trigger background check for scheduled order status updates
-      checkScheduledOrders()
-    }
+    if (!user) return
+    loadDashboardData()
+    // Fire-and-forget background order status check
+    fetch("/api/orders/check-status", { method: "GET" }).catch(() => {})
   }, [user])
 
-  const checkScheduledOrders = async () => {
+  const loadDashboardData = async () => {
     try {
-      // Silently check for scheduled order updates in background
-      await fetch("/api/orders/check-status", { method: "GET" })
-    } catch (error) {
-      // Silently fail - this is a background task
-      console.error("Background order check failed:", error)
-    }
-  }
+      // Get session once, then fan out all fetches in parallel
+      const [{ data: { user: authUser } }, { data: { session } }] = await Promise.all([
+        supabase.auth.getUser(),
+        supabase.auth.getSession(),
+      ])
 
-  const fetchUserInfo = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user?.id) {
-        setUserEmail(user.email || "")
+      const token = session?.access_token
 
-        // Fetch user profile from users table
-        const { data: userProfile, error } = await supabase
-          .from("users")
-          .select("first_name, last_name, role, phone_number")
-          .eq("id", user.id)
-          .single()
+      await Promise.allSettled([
+        // User profile + name
+        (async () => {
+          if (!authUser?.id) return
+          setUserEmail(authUser.email || "")
 
-        if (!error && userProfile) {
-          // Use last_name if available, otherwise use first_name, otherwise use email prefix
-          const name = userProfile.last_name || userProfile.first_name || user.email?.split("@")[0] || "User"
-          setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
-          setUserRole(userProfile.role || "user")
+          const { data: profile } = await supabase
+            .from("users")
+            .select("first_name, last_name, role, phone_number")
+            .eq("id", authUser.id)
+            .single()
 
-          // Check if user has phone number, show modal if not
-          if (!userProfile.phone_number) {
-            setShowPhoneRequired(true)
-          }
-        } else {
-          // Fallback to email prefix if profile not found
-          const name = user.email?.split("@")[0] || "User"
-          setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
-          setUserRole("user")
-        }
-
-        // Get user's creation date
-        const createdAt = user.created_at
-        if (createdAt) {
-          const date = new Date(createdAt)
-          const now = new Date()
-          const diffTime = Math.abs(now.getTime() - date.getTime())
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-
-          if (diffDays < 1) {
-            setJoinDate("Today")
-          } else if (diffDays < 7) {
-            setJoinDate(`${diffDays} days ago`)
-          } else if (diffDays < 30) {
-            const weeks = Math.floor(diffDays / 7)
-            setJoinDate(`${weeks} week${weeks > 1 ? "s" : ""} ago`)
-          } else if (diffDays < 365) {
-            const months = Math.floor(diffDays / 30)
-            setJoinDate(`${months} month${months > 1 ? "s" : ""} ago`)
+          if (profile) {
+            const name = profile.last_name || profile.first_name || authUser.email?.split("@")[0] || "User"
+            setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
+            setUserRole(profile.role || "user")
+            if (!profile.phone_number) setShowPhoneRequired(true)
           } else {
-            const years = Math.floor(diffDays / 365)
-            setJoinDate(`${years} year${years > 1 ? "s" : ""} ago`)
+            const name = authUser.email?.split("@")[0] || "User"
+            setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
+            setUserRole("user")
           }
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching user info:", error)
-    }
-  }
 
-  const fetchDashboardStats = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        console.error("No auth session")
-        return
-      }
+          if (authUser.created_at) {
+            const diffDays = Math.ceil(Math.abs(Date.now() - new Date(authUser.created_at).getTime()) / 86400000)
+            if (diffDays < 1) setJoinDate("Today")
+            else if (diffDays < 7) setJoinDate(`${diffDays} days ago`)
+            else if (diffDays < 30) setJoinDate(`${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? "s" : ""} ago`)
+            else if (diffDays < 365) setJoinDate(`${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? "s" : ""} ago`)
+            else setJoinDate(`${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? "s" : ""} ago`)
+          }
+        })(),
 
-      const response = await fetch("/api/dashboard/stats", {
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-      })
-      if (!response.ok) {
-        throw new Error("Failed to fetch stats")
-      }
-      const result = await response.json()
-      if (result.success) {
-        setStats(result.stats)
-        console.log("Dashboard stats loaded:", result.stats)
-      }
-    } catch (error) {
-      console.error("Error fetching dashboard stats:", error)
-    }
-  }
+        // Dashboard stats
+        token
+          ? fetch("/api/dashboard/stats", { headers: { Authorization: `Bearer ${token}` } })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d?.success) setStats(d.stats) })
+          : Promise.resolve(),
 
-  const fetchRecentActivity = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
+        // Recent transactions
+        token
+          ? fetch("/api/transactions/list?limit=3", { headers: { Authorization: `Bearer ${token}` } })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => {
+                if (!d) return
+                setRecentActivity((d.transactions || []).map((txn: any) => ({
+                  id: txn.id,
+                  description: txn.description,
+                  amount: txn.amount,
+                  type: txn.type,
+                  timestamp: txn.created_at,
+                })))
+              })
+          : Promise.resolve(),
 
-      const response = await fetch("/api/transactions/list?limit=3", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
-      if (response.ok) {
-        const data = await response.json()
-        const activities = (data.transactions || []).map((txn: any) => ({
-          id: txn.id,
-          description: txn.description,
-          amount: txn.amount,
-          type: txn.type,
-          timestamp: txn.created_at,
-        }))
-        setRecentActivity(activities)
-      }
-    } catch (error) {
-      console.error("Error fetching recent activity:", error)
-    }
-  }
-
-  const fetchWalletBalance = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        console.error("No auth session")
-        setWalletBalance(0)
-        return
-      }
-
-      const response = await fetch("/api/wallet/balance", {
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-      })
-      const data = await response.json()
-      setWalletBalance(data.balance ?? 0)
-    } catch (error) {
-      console.error("Error fetching wallet balance:", error)
-      setWalletBalance(0)
+        // Wallet balance
+        token
+          ? fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${token}` } })
+              .then(r => r.json())
+              .then(d => setWalletBalance(d.balance ?? 0))
+              .catch(() => setWalletBalance(0))
+          : Promise.resolve(),
+      ])
+    } catch {
+      // silent — individual settled results handle their own errors
     }
   }
 
