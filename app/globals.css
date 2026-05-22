@@ -162,3 +162,20 @@ html, body {
   overflow-x: hidden;
 }
 
+/* Header clearance that accounts for iOS safe-area-inset-top on notched devices.
+   The fixed header grows by env(safe-area-inset-top) when viewportFit=cover is set,
+   so main content must add the same amount to its top padding. */
+.pt-safe-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 5rem);
+}
+@media (min-width: 768px) {
+  .pt-safe-header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 6rem);
+  }
+}
+@media (min-width: 1024px) {
+  .pt-safe-header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 7rem);
+  }
+}
+

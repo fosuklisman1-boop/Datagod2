@@ -218,7 +218,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   }
 
   return (
-    <div ref={wrapperRef} className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+    <div ref={wrapperRef} className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
         <div className="w-[calc(100vw-3rem)] sm:w-[360px] h-[520px] max-h-[calc(100vh-100px)] bg-white/12 backdrop-blur-3xl backdrop-saturate-150 rounded-2xl border border-white/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.06),0_24px_48px_rgba(0,0,0,0.14),0_4px_16px_rgba(139,92,246,0.15)] flex flex-col overflow-hidden">
           <div className="bg-violet-500/55 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/20">

@@ -52,7 +52,11 @@ export function Header() {
   }
 
   return (
-    <div className={`h-14 md:h-16 border-b border-gray-200 flex items-center justify-between px-2 sm:px-3 md:px-4 lg:px-6 fixed right-0 left-0 top-0 z-30 transition-all duration-300 w-full ${isDealer ? "bg-amber-50/90 backdrop-blur" : "bg-white"}`}>
+    <div
+      className={`fixed right-0 left-0 top-0 z-30 transition-all duration-300 w-full border-b border-gray-200 ${isDealer ? "bg-amber-50/90 backdrop-blur" : "bg-white"}`}
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
+      <div className="h-14 md:h-16 flex items-center justify-between px-2 sm:px-3 md:px-4 lg:px-6">
       {/* Left side - empty for now */}
       <div></div>
 
@@ -140,6 +144,7 @@ export function Header() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
       </div>
     </div>
   )
