@@ -2,18 +2,7 @@
 
 import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-
-function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const rawData = window.atob(base64)
-  const buffer: ArrayBuffer = new ArrayBuffer(rawData.length)
-  const output = new Uint8Array(buffer)
-  for (let i = 0; i < rawData.length; i++) {
-    output[i] = rawData.charCodeAt(i)
-  }
-  return output
-}
+import { urlBase64ToUint8Array } from '@/lib/vapid-utils'
 
 async function subscribeToPush(registration: ServiceWorkerRegistration, userId: string) {
   const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
@@ -48,27 +37,16 @@ export function PushNotificationRegister() {
     let cancelled = false
 
     const setup = async () => {
-      // Get the authenticated user ID — we need it to link the subscription
+      // Only auto-subscribe if the user already granted permission (returning subscriber)
+      // New users see the opt-in prompt inside NotificationCenter instead
+      if (Notification.permission !== 'granted') return
+
       const { data: { user } } = await supabase.auth.getUser()
       if (!user || cancelled) return
 
       const registration = await navigator.serviceWorker.ready
-
       const existing = await registration.pushManager.getSubscription()
-
-      if (Notification.permission === 'granted') {
-        if (!existing) await subscribeToPush(registration, user.id)
-        return
-      }
-
-      if (Notification.permission === 'default') {
-        const permission = await Notification.requestPermission()
-        if (permission === 'granted' && !cancelled) {
-          await subscribeToPush(registration, user.id)
-        }
-      }
-
-      // 'denied' — user blocked; nothing to do
+      if (!existing) await subscribeToPush(registration, user.id)
     }
 
     setup().catch((err) => console.warn('[Push] Setup error:', err))

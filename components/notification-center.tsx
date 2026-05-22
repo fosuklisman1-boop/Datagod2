@@ -4,9 +4,10 @@ import { useEffect, useState } from "react"
 import { notificationService, type Notification } from "@/lib/notification-service"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
-import { Bell, X, Check, CheckCircle2, Trash2 } from "lucide-react"
+import { Bell, X, Check, CheckCircle2, Trash2, BellRing } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { supabase } from "@/lib/supabase"
 
 export function NotificationCenter() {
   const { user } = useAuth()
@@ -14,13 +15,49 @@ export function NotificationCenter() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | null>(null)
+  const [enablingPush, setEnablingPush] = useState(false)
 
   useEffect(() => {
     if (!user?.id) return
-
     loadNotifications()
     subscribeToNotifications()
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPushPermission(Notification.permission)
+    }
   }, [user?.id])
+
+  const handleEnablePush = async () => {
+    if (!user?.id || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+    setEnablingPush(true)
+    try {
+      const permission = await Notification.requestPermission()
+      setPushPermission(permission)
+      if (permission !== 'granted') return
+
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      if (!vapidKey) return
+
+      const registration = await navigator.serviceWorker.ready
+      const existing = await registration.pushManager.getSubscription()
+      if (existing) return
+
+      const { urlBase64ToUint8Array } = await import('@/lib/vapid-utils')
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      })
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription, userId: user.id }),
+      })
+    } catch (err) {
+      console.warn('[Push] Enable failed:', err)
+    } finally {
+      setEnablingPush(false)
+    }
+  }
 
   const loadNotifications = async () => {
     if (!user?.id) return
@@ -126,6 +163,24 @@ export function NotificationCenter() {
               </button>
             </div>
           </div>
+
+          {/* Push opt-in banner — only shown when permission hasn't been decided */}
+          {pushPermission === 'default' && (
+            <div className="flex items-center gap-3 px-4 py-3 bg-violet-50 border-b border-violet-100">
+              <BellRing className="w-5 h-5 text-violet-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-violet-800">Get push notifications</p>
+                <p className="text-xs text-violet-600">Stay updated even when the app is closed.</p>
+              </div>
+              <button
+                onClick={handleEnablePush}
+                disabled={enablingPush}
+                className="shrink-0 text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+              >
+                {enablingPush ? "Enabling…" : "Enable"}
+              </button>
+            </div>
+          )}
 
           {/* Notifications List */}
           <div className="overflow-y-auto flex-1">
