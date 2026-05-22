@@ -2,6 +2,7 @@
 
 import { Sidebar } from "./sidebar"
 import { Header } from "./header"
+import { BottomNav } from "./bottom-nav"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
@@ -116,11 +117,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <Header />
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto md:overflow-y-auto md:overflow-x-hidden pt-20 md:pt-24 lg:pt-28 p-2 sm:p-3 md:p-4 lg:p-6">
+        <main className="flex-1 overflow-auto md:overflow-y-auto md:overflow-x-hidden pt-20 md:pt-24 lg:pt-28 p-2 sm:p-3 md:p-4 lg:p-6 pb-24 md:pb-6">
           <div className="w-full max-w-7xl mx-auto">
             {children}
           </div>
         </main>
+        <BottomNav />
       </div>
 
       {/* Announcement Modal */}
