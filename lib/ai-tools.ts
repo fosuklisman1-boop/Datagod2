@@ -954,6 +954,9 @@ export async function executeToolCall(
 
         if (!input.phone_number) return { error: "Provide phone_number, order_id, or reference_code" }
 
+        // Home context with no auth: phone lookups are not allowed (prevents enumeration)
+        if (!ctx.userId && !ctx.shopId) return { error: "Phone number lookup requires logging in. Use order ID or reference code to check your order." }
+
         // Storefront: search within the shop by phone
         if (ctx.shopId) {
           const res = await fetch(`${ctx.baseUrl}/api/shop/orders/search`, {
@@ -1070,6 +1073,7 @@ export async function executeToolCall(
       }
 
       case "get_all_orders": {
+        if (ctx.userRole !== "admin") return { error: "Not authorized" }
         // Single order lookup — try each table in parallel and return the match
         if (input.order_id) {
           const id = input.order_id as string
@@ -1080,11 +1084,11 @@ export async function executeToolCall(
             supabaseAdmin.from("ussd_shop_orders").select("id, network, package_size, order_status, recipient_phone, created_at").eq("id", id).maybeSingle(),
             supabaseAdmin.from("api_orders").select("id, network, volume_gb, status, recipient_phone, created_at").eq("id", id).maybeSingle(),
           ])
-          if (r1.data) return { ...r1.data, table: "orders" }
-          if (r2.data) return { ...r2.data, table: "shop_orders" }
-          if (r3.data) return { ...r3.data, table: "ussd_orders" }
-          if (r4.data) return { ...r4.data, table: "ussd_shop_orders" }
-          if (r5.data) return { ...r5.data, table: "api_orders" }
+          if (r1.data) return sanitize({ ...r1.data, table: "orders" })
+          if (r2.data) return sanitize({ ...r2.data, table: "shop_orders" })
+          if (r3.data) return sanitize({ ...r3.data, table: "ussd_orders" })
+          if (r4.data) return sanitize({ ...r4.data, table: "ussd_shop_orders" })
+          if (r5.data) return sanitize({ ...r5.data, table: "api_orders" })
           return { error: "Order not found" }
         }
 
@@ -1460,7 +1464,7 @@ export async function executeToolCall(
         if (input.action === "get") {
           let query = supabaseAdmin
             .from("user_shops")
-            .select("id, shop_name, shop_slug, is_active, created_at, user_id, bank_name, account_number, momo_number, momo_network")
+            .select("id, shop_name, shop_slug, is_active, created_at, user_id")
           if (input.shop_id) query = query.eq("id", input.shop_id as string)
           else if (input.slug) query = query.eq("shop_slug", input.slug as string)
           else return { error: "Provide shop_id or slug for get" }
@@ -1986,7 +1990,8 @@ export async function executeToolCall(
 
       case "get_knowledge_base": {
         const contextLabel = ctx.userRole === "admin" ? "admin" : ctx.userId ? "dashboard" : "storefront"
-        const q = String(input.query ?? "")
+        // Escape ilike wildcards to prevent full-table dumps via % or _ injection
+        const q = String(input.query ?? "").replace(/[%_\\]/g, "\\$&").slice(0, 200)
         const { data, error } = await supabaseAdmin
           .from("ai_knowledge")
           .select("category, question, answer")

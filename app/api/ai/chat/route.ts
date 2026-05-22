@@ -69,10 +69,11 @@ async function loadGuestPurchaseUrl(): Promise<string> {
   }
 }
 
-function getBaseUrl(req: NextRequest): string {
-  const host = req.headers.get("host") ?? "localhost:3000"
-  const proto = process.env.NODE_ENV === "production" ? "https" : "http"
-  return `${proto}://${host}`
+function getBaseUrl(): string {
+  // Never derive from the Host header — that's attacker-controlled and enables SSRF with JWT forwarding.
+  // NEXT_PUBLIC_APP_URL must be set in production (e.g. https://datagod.store).
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")
+  return process.env.NODE_ENV === "production" ? "" : "http://localhost:3000"
 }
 
 export async function POST(req: NextRequest) {
@@ -119,7 +120,15 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Rate limit ────────────────────────────────────────────────────────────
-  const rl = await applyRateLimit(req, "ai_chat", RATE_LIMITS.AI_CHAT.maxRequests, RATE_LIMITS.AI_CHAT.windowMs, userId)
+  // Unauthenticated home requests fall back to IP — cap them tightly since
+  // there is no per-user identity to bind the limit to.
+  const rlKey = userId ?? (
+    req.headers.get("cf-connecting-ip") ||
+    req.headers.get("x-real-ip") ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown"
+  )
+  const rl = await applyRateLimit(req, "ai_chat", RATE_LIMITS.AI_CHAT.maxRequests, RATE_LIMITS.AI_CHAT.windowMs, rlKey)
   if (!rl.allowed) {
     return new Response(
       JSON.stringify({ error: RATE_LIMITS.AI_CHAT.message }),
@@ -160,7 +169,8 @@ export async function POST(req: NextRequest) {
       .select("shop_name")
       .eq("shop_slug", shopSlug)
       .maybeSingle()
-    if (shop?.shop_name) shopName = shop.shop_name
+    // Strip non-printable/non-ASCII characters to prevent prompt injection via shop name
+    if (shop?.shop_name) shopName = shop.shop_name.replace(/[^\x20-\x7E]/g, "").trim().slice(0, 60) || "this shop"
   }
 
   // ── System prompt ─────────────────────────────────────────────────────────
@@ -468,7 +478,7 @@ ${formattingRules}`
           userRole,
           shopId,
           shopSlug,
-          baseUrl: getBaseUrl(req),
+          baseUrl: getBaseUrl(),
         }
 
         const currentMessages: Anthropic.MessageParam[] = [...messages]

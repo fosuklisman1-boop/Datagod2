@@ -238,8 +238,12 @@ export function HomeAIChatWidget() {
                     key={i}
                     onClick={() => {
                       setActionButtons(null)
-                      if (btn.url) { window.location.href = btn.url }
-                      else if (btn.value) sendMessage(btn.value)
+                      if (btn.url) {
+                        // Only allow same-origin absolute URLs or relative paths — never javascript: or external redirects
+                        const isRelative = btn.url.startsWith("/")
+                        const isSameOrigin = (() => { try { return new URL(btn.url).origin === window.location.origin } catch { return false } })()
+                        if (isRelative || isSameOrigin) window.location.href = btn.url
+                      } else if (btn.value) sendMessage(btn.value)
                     }}
                     className={getButtonClass(btn.style)}
                   >
