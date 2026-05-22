@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -150,6 +151,14 @@ export async function POST(req: NextRequest) {
           if (!emailRes.success) notificationResults.email_error = emailRes.error || "Unknown Email error"
         }
       }
+      // Push to user (device receives it regardless of auth ban state)
+      sendPushToUser(userId, {
+        title: isSuspending ? '⚠️ Account Suspended' : '✅ Account Restored',
+        body: isSuspending
+          ? `Your account has been suspended${reason ? ': ' + reason : ''}. Contact support to appeal.`
+          : 'Your account has been restored. You can now log in again.',
+        data: { url: '/' },
+      }).catch(() => {})
     } catch (notifErr: any) {
       console.warn("[ADMIN-SUSPEND-USER] Notification error (non-fatal):", notifErr)
       notificationResults.sms_error = notifErr.message

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -114,6 +115,16 @@ export async function POST(request: NextRequest) {
   if (error) {
     if (error.code === '23505') return NextResponse.json({ error: "Code already taken" }, { status: 409 })
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Notify shop owner
+  const { data: shop } = await supabase.from('user_shops').select('user_id').eq('id', shop_id).single()
+  if (shop?.user_id) {
+    sendPushToUser(shop.user_id, {
+      title: '📱 USSD Code Created',
+      body: `Your new USSD shop code *714*${finalCode}# is ready. Share it with your customers!`,
+      data: { url: '/dashboard/ussd-shop' },
+    }).catch(() => {})
   }
 
   return NextResponse.json({ data }, { status: 201 })

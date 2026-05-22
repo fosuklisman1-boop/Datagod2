@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -214,6 +215,15 @@ export async function POST(request: NextRequest) {
       console.warn("[NOTIFICATION] Error sending admin balance notification:", notificationError)
       // Don't fail the operation
     }
+
+    // Push notification to user (non-blocking)
+    sendPushToUser(userId, {
+      title: type === 'credit' ? '💳 Wallet Credited' : '💳 Wallet Debited',
+      body: type === 'credit'
+        ? `GHS ${amount.toFixed(2)} has been added to your wallet. New balance: GHS ${newBalance.toFixed(2)}`
+        : `GHS ${amount.toFixed(2)} has been deducted from your wallet. New balance: GHS ${newBalance.toFixed(2)}`,
+      data: { url: '/dashboard/wallet' },
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

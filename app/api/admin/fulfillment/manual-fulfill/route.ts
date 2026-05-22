@@ -4,6 +4,7 @@ import { createMTNOrder, saveMTNTracking, MTNOrderRequest } from "@/lib/mtn-fulf
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { notifyAdminsPush } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -51,6 +52,13 @@ export async function POST(request: NextRequest) {
         table
       )
 
+      if (result.success) {
+        notifyAdminsPush({
+          title: '📦 USSD Order Fulfilled',
+          body: `Manual fulfillment sent for ${ussdOrder.network} order #${String(shop_order_id).slice(0, 8)}`,
+          data: { url: '/admin/orders' },
+        }).catch(() => {})
+      }
       return NextResponse.json({
         success: result.success,
         message: result.message,
@@ -64,6 +72,12 @@ export async function POST(request: NextRequest) {
     if (!result.success) {
       return NextResponse.json({ error: result.message }, { status: 400 })
     }
+
+    notifyAdminsPush({
+      title: '📦 Order Fulfilled',
+      body: `Manual fulfillment queued for ${order_type} order #${String(shop_order_id).slice(0, 8)}`,
+      data: { url: '/admin/orders' },
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -108,6 +109,18 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[UPDATE-ROLE] User ${userId} role updated to: ${targetRole}`)
+
+        const roleLabels: Record<string, string> = {
+          dealer: 'Dealer',
+          sub_agent: 'Sub-agent',
+          admin: 'Admin',
+          user: 'Standard user',
+        }
+        sendPushToUser(userId, {
+          title: '🎉 Account Upgraded',
+          body: `Your account role has been updated to ${roleLabels[targetRole] || targetRole}. Refresh the app to see your new access.`,
+          data: { url: '/dashboard' },
+        }).catch(() => {})
 
         return NextResponse.json({
             success: true,
