@@ -170,6 +170,13 @@ export async function processManualFulfillment(
               true
             ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
           })
+          import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+            notifyAdminsPush({
+              title: '⚠️ Fulfillment Failed',
+              body: `${orderData.network || "Codecraft"} ${volumeGb}GB to ${phone} — ${codecraftResponse.message || "Failed"} (Order: ${orderId.substring(0, 8)})`,
+              data: { url: '/admin/orders' },
+            }).catch(() => {})
+          }).catch(() => {})
 
           return { success: false, message: codecraftResponse.message || "Codecraft API Error", orderId }
         }

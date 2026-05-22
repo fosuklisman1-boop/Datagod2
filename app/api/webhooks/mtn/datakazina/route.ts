@@ -202,6 +202,13 @@ async function handleOrderFailed(traceId: string, mtnOrderId: string, message: s
             String(orderId),
             true // skip email fallback — handled separately
         )
+        import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+          notifyAdminsPush({
+            title: '⚠️ Fulfillment Failed',
+            body: `MTN ${tracking.size_gb || "?"}GB to ${tracking.recipient_phone} — ${message} (Order: ${String(orderId).substring(0, 8)})`,
+            data: { url: '/admin/orders' },
+          }).catch(() => {})
+        }).catch(() => {})
     } catch (e) {
         log("warn", "Webhook.DataKazina", "Failed to notify admins of failure", { traceId, error: String(e) })
     }

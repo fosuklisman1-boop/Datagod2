@@ -717,6 +717,14 @@ export async function notifyFulfillmentFailure(
 ): Promise<void> {
   const message = SMSTemplates.fulfillmentFailed(orderId, customerPhone, network, volumeGb.toString(), reason)
   await notifyAdmins(message, 'fulfillment_failure', orderId, skipEmailFallback)
+
+  import('./push-service').then(({ notifyAdminsPush }) => {
+    notifyAdminsPush({
+      title: '⚠️ Fulfillment Failed',
+      body: `${network} ${volumeGb}GB to ${customerPhone} — ${reason} (Order: ${orderId.substring(0, 8)})`,
+      data: { url: '/admin/orders' },
+    }).catch(() => {})
+  }).catch(() => {})
 }
 
 /**

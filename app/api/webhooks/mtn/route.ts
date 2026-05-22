@@ -363,6 +363,13 @@ async function handleOrderFailed(
         true // skip email fallback — email is handled separately
       )
       log("info", "Webhook", "Notified admins of failure", { traceId })
+      import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+        notifyAdminsPush({
+          title: '⚠️ Fulfillment Failed',
+          body: `${order.network} ${(order.size_mb / 1000)}GB to ${tracking.recipient_phone} — ${order.message || "Order could not be processed"} (Order: ${orderId.substring(0, 8)})`,
+          data: { url: '/admin/orders' },
+        }).catch(() => {})
+      }).catch(() => {})
     } catch (smsError) {
       log("warn", "Webhook", "Failed to notify admins of failure", { traceId, error: String(smsError) })
     }

@@ -102,3 +102,21 @@ export async function broadcastPush(
   if (error || !data?.length) return { sent: 0, removed: 0 }
   return sendToSubscriptions(data, payload)
 }
+
+/** Send a push notification to all admin users (role = 'admin'). */
+export async function notifyAdminsPush(
+  payload: PushPayload
+): Promise<{ sent: number; removed: number }> {
+  const { data: admins, error } = await supabaseAdmin
+    .from('users')
+    .select('id')
+    .eq('role', 'admin')
+
+  if (error || !admins?.length) return { sent: 0, removed: 0 }
+
+  const results = await Promise.all(admins.map((a) => sendPushToUser(a.id, payload)))
+  return results.reduce(
+    (acc, r) => ({ sent: acc.sent + r.sent, removed: acc.removed + r.removed }),
+    { sent: 0, removed: 0 }
+  )
+}

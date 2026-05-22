@@ -304,6 +304,13 @@ async function handleMTNAutoFulfillment(
       } catch (smsError) {
         console.error("[FULFILLMENT] Failed to notify admins of failure:", smsError)
       }
+      import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+        notifyAdminsPush({
+          title: '⚠️ Fulfillment Failed',
+          body: `${network} ${volumeGb}GB to ${phoneNumber} — ${mtnResponse.message || "Order could not be processed"} (Order: ${shopOrderId.substring(0, 8)})`,
+          data: { url: '/admin/orders' },
+        }).catch(() => {})
+      }).catch(() => {})
 
       // Send error Email
       try {
