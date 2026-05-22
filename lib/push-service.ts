@@ -11,7 +11,6 @@ export interface PushPayload {
   title: string
   body: string
   icon?: string
-  badge?: string
   data?: Record<string, unknown>
 }
 
@@ -51,7 +50,6 @@ async function sendToSubscriptions(
     title: payload.title,
     body: payload.body,
     icon: payload.icon || '/icons/icon-192x192.png',
-    badge: payload.badge || '/icons/icon-192x192.png',
     data: payload.data || {},
   })
 

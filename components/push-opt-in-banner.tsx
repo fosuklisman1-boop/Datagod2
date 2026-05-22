@@ -1,28 +1,34 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bell, X, Sparkles } from 'lucide-react'
+import { Bell, X, Sparkles, Share, Plus } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { urlBase64ToUint8Array } from '@/lib/vapid-utils'
+import { isIOS, isStandalone, isPushAvailable } from '@/lib/pwa-utils'
+
+type BannerMode = 'push' | 'ios-install' | null
 
 export function PushOptInBanner() {
   const [mounted, setMounted] = useState(false)
+  const [mode, setMode] = useState<BannerMode>(null)
   const [show, setShow] = useState(false)
   const [enabling, setEnabling] = useState(false)
 
   useEffect(() => {
     setMounted(true)
 
-    // Only show if the browser supports push and user hasn't decided yet
-    if (
-      !('Notification' in window) ||
-      !('serviceWorker' in navigator) ||
-      !('PushManager' in window) ||
-      Notification.permission !== 'default'
-    ) return
+    // Already decided — nothing to show
+    if ('Notification' in window && Notification.permission !== 'default') return
 
-    const t = setTimeout(() => setShow(true), 1200)
-    return () => clearTimeout(t)
+    if (isIOS() && !isStandalone()) {
+      // iOS Safari: can't subscribe yet, prompt to install
+      setMode('ios-install')
+      setTimeout(() => setShow(true), 1200)
+    } else if (isPushAvailable()) {
+      // All other supported contexts (Chrome, Firefox, installed PWA on iOS)
+      setMode('push')
+      setTimeout(() => setShow(true), 1200)
+    }
   }, [])
 
   const handleEnable = async () => {
@@ -58,8 +64,7 @@ export function PushOptInBanner() {
     }
   }
 
-  // Don't render anything until client has mounted (avoids hydration mismatch)
-  if (!mounted) return null
+  if (!mounted || mode === null) return null
 
   return (
     <div
@@ -75,7 +80,6 @@ export function PushOptInBanner() {
       aria-live="polite"
     >
       <div className="relative flex items-start gap-4 bg-white border border-violet-200 rounded-2xl shadow-2xl px-5 py-4">
-        {/* Dismiss */}
         <button
           onClick={() => setShow(false)}
           className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
@@ -84,37 +88,64 @@ export function PushOptInBanner() {
           <X className="w-4 h-4" />
         </button>
 
-        {/* Icon */}
         <div className="shrink-0 mt-0.5 w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center">
           <Bell className="w-5 h-5 text-violet-600" />
         </div>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0 pr-5">
-          <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-            Stay in the loop
-            <Sparkles className="w-3.5 h-3.5 text-violet-500" />
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
-            Get instant alerts for order updates, withdrawals, and payments — even when the app is closed.
-          </p>
-
-          <div className="flex items-center gap-2 mt-3">
-            <button
-              onClick={handleEnable}
-              disabled={enabling}
-              className="flex-1 text-sm font-semibold bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
-            >
-              {enabling ? 'Enabling…' : 'Enable notifications'}
-            </button>
+        {mode === 'push' ? (
+          <div className="flex-1 min-w-0 pr-5">
+            <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+              Stay in the loop
+              <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+              Get instant alerts for order updates, withdrawals, and payments — even when the app is closed.
+            </p>
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                onClick={handleEnable}
+                disabled={enabling}
+                className="flex-1 text-sm font-semibold bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+              >
+                {enabling ? 'Enabling…' : 'Enable notifications'}
+              </button>
+              <button
+                onClick={() => setShow(false)}
+                className="text-sm text-gray-400 hover:text-gray-600 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        ) : (
+          // iOS Safari — prompt to install PWA first
+          <div className="flex-1 min-w-0 pr-5">
+            <p className="text-sm font-semibold text-gray-900">Add to Home Screen</p>
+            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+              To receive push notifications on iPhone, install this app first:
+            </p>
+            <ol className="mt-2 space-y-1">
+              <li className="flex items-center gap-2 text-xs text-gray-600">
+                <Share className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                Tap the <span className="font-semibold">Share</span> button in Safari
+              </li>
+              <li className="flex items-center gap-2 text-xs text-gray-600">
+                <Plus className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                Select <span className="font-semibold">Add to Home Screen</span>
+              </li>
+              <li className="flex items-center gap-2 text-xs text-gray-600">
+                <Bell className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                Open the app and enable notifications
+              </li>
+            </ol>
             <button
               onClick={() => setShow(false)}
-              className="text-sm text-gray-400 hover:text-gray-600 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
+              className="mt-3 text-xs text-gray-400 hover:text-gray-600"
             >
-              Not now
+              Dismiss
             </button>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

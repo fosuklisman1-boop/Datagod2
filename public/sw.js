@@ -109,12 +109,13 @@ self.addEventListener('push', (event) => {
   if (!event.data) return
 
   let title = 'DATAGOD'
+  // Unique tag per notification so iOS APNs stacks them instead of replacing the previous one.
+  // badge omitted — iOS requires a small monochrome PNG; the app icon triggers a broken render.
   const options = {
     body: 'You have a new notification.',
     icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-192x192.png',
     vibrate: [200, 100, 200],
-    tag: 'datagod-notification',
+    tag: Date.now().toString(),
     requireInteraction: false,
     data: {},
   }
@@ -124,6 +125,7 @@ self.addEventListener('push', (event) => {
     title = payload.title || title
     options.body = payload.body || options.body
     options.data = payload.data || {}
+    // Only override tag if caller explicitly provides one (grouping intent)
     if (payload.tag) options.tag = payload.tag
     if (payload.requireInteraction) options.requireInteraction = payload.requireInteraction
   } catch {
