@@ -1,7 +1,7 @@
-// DATAGOD Service Worker — v2
+// DATAGOD Service Worker — v3
 // Vanilla (no CDN deps), versioned caches, fintech-safe caching rules
 
-const CACHE_VERSION = 'v2'
+const CACHE_VERSION = 'v3'
 const STATIC_CACHE = `datagod-static-${CACHE_VERSION}`
 const PAGES_CACHE  = `datagod-pages-${CACHE_VERSION}`
 const ALL_CACHES   = [STATIC_CACHE, PAGES_CACHE]
@@ -83,18 +83,20 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Static assets (JS, CSS, fonts, images) — cache-first
+  // Static assets (JS, CSS, fonts, images) — stale-while-revalidate
+  // Serve from cache immediately for speed, always fetch fresh in background
+  // so the next visit gets updated code after a deployment.
   const isStatic = /\.(js|css|woff2?|ttf|eot|svg|png|jpg|jpeg|ico|webp|avif)(\?|$)/.test(url.pathname)
   if (isStatic) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached
-        return fetch(request).then((res) => {
-          if (res.status === 200) {
-            caches.open(STATIC_CACHE).then((c) => c.put(request, res.clone()))
-          }
+      caches.open(STATIC_CACHE).then(async (cache) => {
+        const cached = await cache.match(request)
+        const fetchPromise = fetch(request).then((res) => {
+          if (res.status === 200) cache.put(request, res.clone())
           return res
-        })
+        }).catch(() => null)
+        // Return cached version immediately if available; otherwise wait for network
+        return cached || fetchPromise
       })
     )
     return

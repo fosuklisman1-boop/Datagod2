@@ -21,11 +21,19 @@ export function useAuth() {
         if (sessionError) throw sessionError
 
         if (mounted) {
+          // No valid session — clear any stale localStorage keys that could
+          // cause loading loops or wrong role state on the next visit
+          if (!session) {
+            localStorage.removeItem("userRole")
+            localStorage.removeItem("userPendingOrdersCount")
+            localStorage.removeItem("adminPendingOrdersCount")
+          }
           setUser(session?.user ?? null)
           setLoading(false)
         }
       } catch (err) {
         if (mounted) {
+          localStorage.removeItem("userRole")
           setError(err instanceof Error ? err : new Error("Auth error"))
           setLoading(false)
         }

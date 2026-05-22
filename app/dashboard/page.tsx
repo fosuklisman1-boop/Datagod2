@@ -66,28 +66,33 @@ export default function DashboardPage() {
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
   const [showPhoneRequired, setShowPhoneRequired] = useState(false)
 
-  // Check if user is a sub-agent and redirect immediately
+  // Check if user is a sub-agent and redirect immediately.
+  // Timeout after 5s so a slow/hanging Supabase query never permanently
+  // blocks the dashboard behind a spinner.
   useEffect(() => {
     const checkSubAgent = async () => {
       if (!user) return
 
       try {
-        const { data: userShop } = await supabase
+        const timeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 5000)
+        )
+        const query = supabase
           .from("user_shops")
           .select("id, parent_shop_id")
           .eq("user_id", user.id)
           .single()
 
+        const { data: userShop } = await Promise.race([query, timeout])
+
         if (userShop?.parent_shop_id) {
-          // Sub-agent detected - redirect immediately
-          console.log("[DASHBOARD] Sub-agent detected, redirecting to buy-stock")
           router.replace("/dashboard/buy-stock")
           return
         }
 
         setIsSubAgent(false)
       } catch {
-        // No shop or error - not a sub-agent
+        // Query error, timeout, or no shop found — not a sub-agent, proceed
         setIsSubAgent(false)
       }
     }

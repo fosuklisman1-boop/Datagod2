@@ -9,6 +9,10 @@ export function ServiceWorkerRegister() {
     navigator.serviceWorker
       .register("/sw.js")
       .then((registration) => {
+        // Force a check for a new SW on every page load (default is 24h).
+        // This ensures users get fresh code after deployments without waiting.
+        registration.update()
+
         registration.addEventListener("updatefound", () => {
           const worker = registration.installing
           if (!worker) return
