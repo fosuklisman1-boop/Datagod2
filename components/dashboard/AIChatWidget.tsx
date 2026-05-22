@@ -228,8 +228,8 @@ export function DashboardAIChatWidget() {
   return (
     <div ref={wrapperRef} className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[520px] max-h-[calc(100vh-100px)] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
-          <div className="bg-violet-600 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[520px] max-h-[calc(100vh-100px)] bg-white/70 backdrop-blur-2xl rounded-2xl shadow-2xl shadow-indigo-500/10 border border-white/40 flex flex-col overflow-hidden">
+          <div className="bg-violet-600/85 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
               <p className="font-semibold text-sm">Datagod Assistant</p>
               {balance && <p className="text-violet-200 text-xs">Wallet: {balance}</p>}
@@ -289,7 +289,7 @@ export function DashboardAIChatWidget() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="border-t border-gray-100 px-3 py-3 flex items-center gap-2 flex-shrink-0">
+          <div className="border-t border-white/30 bg-white/40 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
             <input
               ref={inputRef}
               value={input}
@@ -297,7 +297,7 @@ export function DashboardAIChatWidget() {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Type a message..."
-              className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 outline-none focus:border-violet-400 disabled:opacity-50 transition-colors"
+              className="flex-1 text-sm bg-white/60 border border-white/50 rounded-xl px-3 py-2 outline-none focus:border-violet-400 disabled:opacity-50 transition-colors placeholder:text-gray-400"
             />
             <button
               onClick={() => sendMessage()}

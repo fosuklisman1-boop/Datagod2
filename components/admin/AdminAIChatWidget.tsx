@@ -226,8 +226,8 @@ export function AdminAIChatWidget() {
   return (
     <div ref={wrapperRef} className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[420px] h-[580px] max-h-[calc(100vh-100px)] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
-          <div className="bg-gray-900 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="w-[calc(100vw-3rem)] sm:w-[420px] h-[580px] max-h-[calc(100vh-100px)] bg-gray-900/70 backdrop-blur-2xl rounded-2xl shadow-2xl shadow-black/30 border border-white/10 flex flex-col overflow-hidden">
+          <div className="bg-gray-900/80 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/10">
             <div>
               <p className="font-semibold text-sm">Admin AI Assistant</p>
               <p className="text-gray-400 text-xs">Full platform access</p>
@@ -251,7 +251,7 @@ export function AdminAIChatWidget() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-transparent">
             {messages.map((msg, i) => (
               <ChatMessage key={i} role={msg.role} content={msg.content} variant="dark" />
             ))}
@@ -287,7 +287,7 @@ export function AdminAIChatWidget() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="border-t border-gray-100 px-3 py-3 flex items-center gap-2 flex-shrink-0">
+          <div className="border-t border-white/10 bg-gray-900/60 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
             <input
               ref={inputRef}
               value={input}
@@ -295,7 +295,7 @@ export function AdminAIChatWidget() {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Ask anything..."
-              className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 outline-none focus:border-gray-400 disabled:opacity-50 transition-colors"
+              className="flex-1 text-sm bg-white/10 border border-white/20 text-white rounded-xl px-3 py-2 outline-none focus:border-white/40 disabled:opacity-50 transition-colors placeholder:text-gray-400"
             />
             <button
               onClick={() => sendMessage()}
