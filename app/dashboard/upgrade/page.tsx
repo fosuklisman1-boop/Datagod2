@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,6 +38,13 @@ export default function UpgradePage() {
     const [priceListPackages, setPriceListPackages] = useState<any[]>([])
     const [priceListLoading, setPriceListLoading] = useState(false)
     const [priceListNetwork, setPriceListNetwork] = useState<string | null>(null)
+    const verifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    useEffect(() => {
+      return () => {
+        if (verifyTimerRef.current) clearTimeout(verifyTimerRef.current)
+      }
+    }, [])
 
     useEffect(() => {
         fetchUserData()
@@ -128,8 +135,7 @@ export default function UpgradePage() {
                 toast.success("Welcome to the Dealer Club!", { id: "verify-upgrade" })
                 setShowSuccessModal(true)
                 router.refresh()
-                // Wait a bit then refresh status
-                setTimeout(() => {
+                verifyTimerRef.current = setTimeout(() => {
                     fetchUserData()
                     fetchCurrentSubscription()
                 }, 2000)

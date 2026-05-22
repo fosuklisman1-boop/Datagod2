@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useUserRole } from "@/hooks/use-user-role"
@@ -58,17 +58,17 @@ export default function DataPackagesPage() {
   }, [user, authLoading, router])
 
   useEffect(() => {
+    // logos and settings don't need auth — load immediately
+    loadNetworkLogos()
+    loadGlobalSettings()
+  }, [])
+
+  useEffect(() => {
     if (user) {
       loadPackages()
       loadWallet()
     }
   }, [user])
-
-  useEffect(() => {
-    loadNetworkLogos()
-    loadPackages()
-    loadGlobalSettings()
-  }, [])
 
   const loadGlobalSettings = async () => {
     try {
@@ -320,30 +320,26 @@ export default function DataPackagesPage() {
     }
   }
 
-  // Filter packages
-  const filteredPackages = packages.filter((pkg) => {
-    const networkMatch = selectedNetwork === "All" || pkg.network === selectedNetwork
-    const searchMatch = pkg.size.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pkg.network.toLowerCase().includes(searchTerm.toLowerCase())
-    return networkMatch && searchMatch
-  }).sort((a, b) => {
-    // Network priority order when "All" is selected
-    const networkOrder = ["MTN", "Telecel", "AT-iShare", "AT-BigTime"]
-
-    // Get network indices (use 999 for unknown networks to sort them last)
-    const aNetworkIndex = networkOrder.indexOf(a.network) >= 0 ? networkOrder.indexOf(a.network) : 999
-    const bNetworkIndex = networkOrder.indexOf(b.network) >= 0 ? networkOrder.indexOf(b.network) : 999
-
-    // If networks are different, sort by network priority
-    if (aNetworkIndex !== bNetworkIndex) {
-      return aNetworkIndex - bNetworkIndex
-    }
-
-    // If same network, sort by data size (ascending) - convert to MB for proper numeric comparison
-    const aSizeInMB = extractSizeValue(a.size)
-    const bSizeInMB = extractSizeValue(b.size)
-    return aSizeInMB - bSizeInMB
-  })
+  const filteredPackages = useMemo(() => {
+    const NETWORK_ORDER = ["MTN", "Telecel", "AT-iShare", "AT-BigTime"]
+    const search = searchTerm.toLowerCase()
+    return packages
+      .filter((pkg) => {
+        const networkMatch = selectedNetwork === "All" || pkg.network === selectedNetwork
+        const searchMatch = !search ||
+          pkg.size.toLowerCase().includes(search) ||
+          pkg.network.toLowerCase().includes(search)
+        return networkMatch && searchMatch
+      })
+      .sort((a, b) => {
+        const ai = NETWORK_ORDER.indexOf(a.network)
+        const bi = NETWORK_ORDER.indexOf(b.network)
+        const aNI = ai >= 0 ? ai : 999
+        const bNI = bi >= 0 ? bi : 999
+        if (aNI !== bNI) return aNI - bNI
+        return extractSizeValue(a.size) - extractSizeValue(b.size)
+      })
+  }, [packages, selectedNetwork, searchTerm])
 
   return (
     <DashboardLayout>

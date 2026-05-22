@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ShoppingCart, CheckCircle, Clock, AlertCircle, Loader2, MessageSquare } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
@@ -13,6 +13,7 @@ import { toast } from "sonner"
 import { ComplaintModal } from "@/components/complaint-modal"
 import { Input } from "@/components/ui/input"
 import { Search } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -66,6 +67,7 @@ export default function MyOrdersPage() {
   const [page, setPage] = useState(1)
   const [complaintModalOpen, setComplaintModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pageSize = 10
 
   // Auth protection
@@ -76,35 +78,26 @@ export default function MyOrdersPage() {
     }
   }, [user, authLoading, router])
 
+  // Debounce fetches so rapid filter clicks only trigger one request
   useEffect(() => {
-    if (user) {
-      fetchOrdersData()
+    if (!user) return
+    if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current)
+    fetchDebounceRef.current = setTimeout(fetchOrdersData, 300)
+    return () => {
+      if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current)
     }
   }, [filters, page, user])
 
   const fetchOrdersData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      // Get user and session in parallel — one less round-trip vs sequential calls
+      const [{ data: { user } }, { data: { session } }] = await Promise.all([
+        supabase.auth.getUser(),
+        supabase.auth.getSession(),
+      ])
+      if (!user || !session?.access_token) return
 
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
-
-      // Fetch stats
-      const statsResponse = await fetch("/api/orders/stats", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
-      if (statsResponse.ok) {
-        const statsData = await statsResponse.json()
-        setStats(statsData)
-        // Sync pending count to localStorage for sidebar badge
-        localStorage.setItem('userPendingOrdersCount', statsData.pending.toString())
-        console.log('[MY-ORDERS] Updated localStorage with pending count:', statsData.pending)
-      }
-
-      // Fetch orders list
+      const token = session.access_token
       const queryParams = new URLSearchParams()
       queryParams.append("page", page.toString())
       queryParams.append("limit", pageSize.toString())
@@ -112,17 +105,22 @@ export default function MyOrdersPage() {
       if (filters.status !== "all") queryParams.append("status", filters.status)
       if (filters.dateRange !== "all") queryParams.append("dateRange", filters.dateRange)
 
-      const ordersResponse = await fetch(`/api/orders/list?${queryParams.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
-      if (ordersResponse.ok) {
-        const ordersData = await ordersResponse.json()
+      // Fetch stats and orders in parallel
+      const [statsRes, ordersRes] = await Promise.all([
+        fetch("/api/orders/stats", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/orders/list?${queryParams.toString()}`, { headers: { Authorization: `Bearer ${token}` } }),
+      ])
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json()
+        setStats(statsData)
+        localStorage.setItem('userPendingOrdersCount', statsData.pending.toString())
+      }
+      if (ordersRes.ok) {
+        const ordersData = await ordersRes.json()
         setOrders(ordersData.orders || [])
       }
     } catch (error) {
-      console.error("Error fetching orders data:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load orders"
       toast.error(errorMessage)
     } finally {
@@ -133,8 +131,19 @@ export default function MyOrdersPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <div className="space-y-6 px-2 sm:px-4">
+          <Skeleton className="h-8 w-36" />
+          <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 rounded-xl" />
+            ))}
+          </div>
+          <Skeleton className="h-12 w-full rounded-xl" />
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 w-full rounded-xl" />
+            ))}
+          </div>
         </div>
       </DashboardLayout>
     )

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Wallet, Plus, Minus, TrendingUp, TrendingDown, AlertCircle, Loader2, RefreshCw, CheckCircle } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import { WalletTopUp } from "@/components/wallet-top-up"
 import { SuccessModal } from "@/components/success-modal"
 import { supabase } from "@/lib/supabase"
@@ -74,16 +75,6 @@ export default function WalletPage() {
       router.push("/auth/login")
     }
   }, [user, authLoading, router])
-
-  // Proactively refresh JWT on wallet page load so top-up calls don't get
-  // blocked by an expired token (initialize endpoint returns 401 if user_id
-  // cannot be extracted from a stale JWT).
-  useEffect(() => {
-    supabase.auth.refreshSession().catch(() => {
-      // Refresh failure means the session is truly expired — the auth state
-      // change listener in use-auth.ts will handle the redirect to login.
-    })
-  }, [])
 
   useEffect(() => {
     if (user) {
@@ -360,8 +351,15 @@ export default function WalletPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <div className="space-y-6 px-2 sm:px-4">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-40 w-full rounded-2xl" />
+          <div className="grid grid-cols-3 gap-4">
+            <Skeleton className="h-24 rounded-xl" />
+            <Skeleton className="h-24 rounded-xl" />
+            <Skeleton className="h-24 rounded-xl" />
+          </div>
+          <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       </DashboardLayout>
     )

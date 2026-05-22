@@ -151,15 +151,12 @@ export function Sidebar() {
       return
     }
 
-    // Listen for changes in localStorage (read both user and admin counts separately)
+    // Only update state when counts actually change to avoid needless re-renders
     const handleStorageChange = () => {
-      const userCount = localStorage.getItem('userPendingOrdersCount')
-      const adminCount = localStorage.getItem('adminPendingOrdersCount')
-
-      setUserPendingOrderCount(userCount ? parseInt(userCount, 10) : 0)
-      setAdminPendingOrderCount(adminCount ? parseInt(adminCount, 10) : 0)
-
-      console.log('[SIDEBAR] Updated counts - User:', userCount, 'Admin:', adminCount)
+      const next = parseInt(localStorage.getItem('userPendingOrdersCount') || '0', 10)
+      const nextAdmin = parseInt(localStorage.getItem('adminPendingOrdersCount') || '0', 10)
+      setUserPendingOrderCount(prev => prev !== next ? next : prev)
+      setAdminPendingOrderCount(prev => prev !== nextAdmin ? nextAdmin : prev)
     }
 
     // Check localStorage immediately
