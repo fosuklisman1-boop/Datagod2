@@ -720,9 +720,11 @@ const showActionButtonsTool: Anthropic.Tool = {
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
-  // Home: public receptionist — FAQ and package listing only, no auth
+  // Home: public receptionist — no auth required, visitors may be guests
   if (context === "home") return [
     getAvailablePackagesTool,
+    searchOrderStatusTool,      // lookup by order_id or reference_code — no login needed
+    getSubscriptionPlansTool,   // "how much does dealer cost?" — public endpoint
     getKnowledgeBaseTool,
     showActionButtonsTool,
   ]
