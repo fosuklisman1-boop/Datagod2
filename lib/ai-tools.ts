@@ -372,16 +372,16 @@ const manageWithdrawalTool: Anthropic.Tool = {
 
 const manageUssdShopTool: Anthropic.Tool = {
   name: "manage_ussd_shop",
-  description: "Admin only: list, create, activate, or add tokens to USSD shop codes. Use 'list' first to get the code ID before activating or adding tokens.",
+  description: "Admin only: list, get, create, activate, or add tokens to USSD shop codes. Use 'get' to look up a specific code by its UUID or 4-digit code number. Use 'list' to browse all codes.",
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", description: "'list' to view all USSD shop codes, 'create' to create a new code for a shop, 'activate' to activate a pending code, 'add_tokens' to credit sessions to an active code" },
-      ussd_shop_code_id: { type: "string", description: "The USSD shop code ID (UUID). Required for activate and add_tokens." },
+      action: { type: "string", description: "'list' to view all USSD shop codes, 'get' to fetch a single code by ID or 4-digit code, 'create' to create a new code for a shop, 'activate' to activate a pending code, 'add_tokens' to credit sessions to an active code" },
+      ussd_shop_code_id: { type: "string", description: "The USSD shop code UUID. Used by get (if no code provided), activate, and add_tokens." },
+      code: { type: "string", description: "The 4-digit USSD code number (e.g. '1234'). Used by get to look up by code number; optional for create (auto-generated if omitted)." },
       shop_id: { type: "string", description: "The shop ID to associate the code with. Required for create." },
       initial_tokens: { type: "number", description: "Initial session tokens to credit when activating. Optional for activate." },
       tokens: { type: "number", description: "Number of session tokens to add. Required for add_tokens." },
-      code: { type: "string", description: "4-digit USSD code to assign. Optional for create — auto-generated if omitted." },
     },
     required: ["action"],
   },
@@ -1500,6 +1500,28 @@ export async function executeToolCall(
           return Array.isArray(data.data) ? data.data : data
         }
 
+        if (action === "get") {
+          // Lookup by UUID — direct endpoint
+          if (input.ussd_shop_code_id) {
+            const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops/${input.ussd_shop_code_id}`, {
+              headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+            })
+            const data = await res.json()
+            return res.ok ? (data.data ?? data) : { error: data.error ?? "Not found" }
+          }
+          // Lookup by 4-digit code — fetch list and filter
+          if (input.code) {
+            const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops`, {
+              headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+            })
+            const data = await res.json()
+            const all = Array.isArray(data.data) ? data.data : []
+            const match = all.find((c: Record<string, unknown>) => String(c.code) === String(input.code))
+            return match ?? { error: `No USSD shop code found with code ${input.code}` }
+          }
+          return { error: "Provide either ussd_shop_code_id (UUID) or code (4-digit number) for get" }
+        }
+
         if (action === "create") {
           if (!input.shop_id) return { error: "shop_id is required for create" }
           const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops`, {
@@ -1534,7 +1556,7 @@ export async function executeToolCall(
           return { success: res.ok, ...data }
         }
 
-        return { error: `Unknown action: ${action}. Use list, create, activate, or add_tokens.` }
+        return { error: `Unknown action: ${action}. Use list, get, create, activate, or add_tokens.` }
       }
 
       case "get_fulfillment_logs": {
