@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { AIProviderConfig, DEFAULT_CONFIG } from "@/lib/ai-providers"
+import { AIProviderConfig, DEFAULT_CONFIG } from "@/lib/ai-provider-config"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0

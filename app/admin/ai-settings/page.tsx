@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Eye, EyeOff, Save, Bot, RefreshCw } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { ProviderName, PROVIDER_MODELS } from "@/lib/ai-providers"
+import { ProviderName, PROVIDER_MODELS } from "@/lib/ai-provider-config"
 
 type AIChatContext = "storefront" | "dashboard" | "admin"
 
