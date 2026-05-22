@@ -317,18 +317,18 @@ export function getProvider(name: ProviderName, apiKey: string): AIProvider {
 }
 
 export function resolveProviderForContext(
-  context: "storefront" | "dashboard" | "admin",
+  context: "storefront" | "dashboard" | "admin" | "home",
   config: AIProviderConfig
 ): { provider: AIProvider; model: string; providerName: ProviderName } {
   const fallbackKey = process.env.ANTHROPIC_API_KEY ?? ""
 
   const providerName: ProviderName =
-    context === "storefront" ? (config.storefront_provider ?? "anthropic")
+    context === "storefront" || context === "home" ? (config.storefront_provider ?? "anthropic")
     : context === "dashboard" ? (config.dashboard_provider ?? "anthropic")
     : (config.admin_provider ?? "anthropic")
 
   const model: string =
-    context === "storefront" ? (config.storefront_model ?? DEFAULT_CONFIG.storefront_model!)
+    context === "storefront" || context === "home" ? (config.storefront_model ?? DEFAULT_CONFIG.storefront_model!)
     : context === "dashboard" ? (config.dashboard_model ?? DEFAULT_CONFIG.dashboard_model!)
     : (config.admin_model ?? DEFAULT_CONFIG.admin_model!)
 

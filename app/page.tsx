@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import StorefrontRedirector from "@/components/StorefrontRedirector"
+import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
 
 function Step({
   number,
@@ -687,5 +688,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
         </div>
       </footer>
     </div>
+
+    <HomeAIChatWidget />
   )
 }

@@ -6,7 +6,7 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export type AIChatContext = "storefront" | "dashboard" | "admin"
+export type AIChatContext = "storefront" | "dashboard" | "admin" | "home"
 
 // ─── Tool schemas ────────────────────────────────────────────────────────────
 
@@ -720,6 +720,13 @@ const showActionButtonsTool: Anthropic.Tool = {
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
+  // Home: public receptionist — FAQ and package listing only, no auth
+  if (context === "home") return [
+    getAvailablePackagesTool,
+    getKnowledgeBaseTool,
+    showActionButtonsTool,
+  ]
+
   // Storefront: guest-facing, Paystack checkout flow
   if (context === "storefront") return [
     getAvailablePackagesTool,
