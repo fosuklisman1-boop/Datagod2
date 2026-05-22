@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { type NotificationType } from "@/lib/notification-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { sendEmail } from "@/lib/email-service"
+import { sendPushToUser } from "@/lib/push-service"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -63,52 +65,136 @@ export async function POST(request: NextRequest) {
       console.warn("[SHOP-ORDERS-UPDATE] Error updating MTN tracking:", mtnError)
     }
 
-    // Send notifications to users about their order status change
+    // Send in-app, push, and email notifications
     try {
       const { data: shopOrders, error: ordersError } = await supabase
         .from("shop_orders")
-        .select("id, user_id, network, volume_gb, phone_number")
+        .select("id, user_id, network, volume_gb, phone_number, customer_email, customer_name, reference_code, total_price")
         .in("id", orderIds)
 
       if (!ordersError && shopOrders && shopOrders.length > 0) {
-        // Batch insert all notifications at once instead of looping
-        const notifications = shopOrders.map((order) => {
-          let title = "Order Updated"
-          let message = ""
+        // ── Title / message helpers ───────────────────────────────────────────
+        function buildTitle(s: string) {
+          if (s === "completed")  return "Order Completed"
+          if (s === "processing") return "Order Processing"
+          if (s === "failed")     return "Order Failed"
+          return "Order Status Updated"
+        }
+        function buildMessage(order: (typeof shopOrders)[0], s: string) {
+          const desc = `${order.network} ${order.volume_gb}GB`
+          if (s === "completed")  return `Your ${desc} data order has been delivered to ${order.phone_number}.`
+          if (s === "processing") return `Your ${desc} data order is now being processed for ${order.phone_number}.`
+          if (s === "failed")     return `Your ${desc} data order for ${order.phone_number} could not be delivered. Please contact support.`
+          return `Your ${desc} data order status has been updated to: ${s}.`
+        }
 
-          if (status === "completed") {
-            title = "Order Completed"
-            message = `Your ${order.network} ${order.volume_gb}GB data order has been completed. Phone: ${order.phone_number}`
-          } else if (status === "processing") {
-            title = "Order Processing"
-            message = `Your ${order.network} ${order.volume_gb}GB data order is now being processed. Phone: ${order.phone_number}`
-          } else if (status === "failed") {
-            title = "Order Failed"
-            message = `Your ${order.network} ${order.volume_gb}GB data order has failed. Please contact support. Phone: ${order.phone_number}`
-          } else {
-            title = "Order Status Updated"
-            message = `Your order status has been updated to: ${status}. Phone: ${order.phone_number}`
-          }
-
-          return {
+        // 1. In-app notifications (batch insert — only for logged-in users)
+        const notifications = shopOrders
+          .filter(o => o.user_id)
+          .map(order => ({
             user_id: order.user_id,
-            title,
-            message,
+            title: buildTitle(status),
+            message: buildMessage(order, status),
             type: "order_update" as NotificationType,
             reference_id: order.id,
-            action_url: `/dashboard/shop-orders`,
+            action_url: `/dashboard/my-orders`,
             read: false,
+          }))
+
+        if (notifications.length > 0) {
+          const { error: notifError } = await supabase.from("notifications").insert(notifications)
+          if (notifError) {
+            console.warn(`[SHOP-ORDERS-UPDATE] In-app notifications failed:`, notifError)
+          } else {
+            console.log(`[SHOP-ORDERS-UPDATE] ✓ ${notifications.length} in-app notifications sent`)
           }
-        })
+        }
 
-        const { error: notifError } = await supabase
-          .from("notifications")
-          .insert(notifications)
+        // 2. Push notifications — one per unique user_id, fire-and-forget
+        const uniqueUserIds = [...new Set(shopOrders.map(o => o.user_id).filter(Boolean))]
+        if (uniqueUserIds.length > 0) {
+          Promise.allSettled(
+            uniqueUserIds.map(userId => {
+              const userOrders = shopOrders.filter(o => o.user_id === userId)
+              const title = buildTitle(status)
+              const body = userOrders.length === 1
+                ? buildMessage(userOrders[0], status)
+                : `${userOrders.length} of your data orders have been ${status}.`
+              return sendPushToUser(userId, { title, body, data: { url: "/dashboard/my-orders" } })
+            })
+          ).then(results => {
+            const failed = results.filter(r => r.status === "rejected").length
+            console.log(`[SHOP-ORDERS-UPDATE] ✓ Push: ${uniqueUserIds.length - failed}/${uniqueUserIds.length} users notified`)
+          }).catch(() => {})
+        }
 
-        if (notifError) {
-          console.warn(`[SHOP-ORDERS-UPDATE] Failed to send ${notifications.length} notifications:`, notifError)
-        } else {
-          console.log(`[SHOP-ORDERS-UPDATE] ✓ Sent ${notifications.length} status notifications`)
+        // 3. Email notifications — one per unique customer_email, fire-and-forget
+        const emailMap = new Map<string, typeof shopOrders>()
+        for (const order of shopOrders) {
+          if (!order.customer_email) continue
+          const key = order.customer_email.toLowerCase()
+          if (!emailMap.has(key)) emailMap.set(key, [])
+          emailMap.get(key)!.push(order)
+        }
+
+        if (emailMap.size > 0) {
+          const statusLabel = status === "completed" ? "Delivered" : status === "processing" ? "Processing" : status === "failed" ? "Failed" : "Updated"
+          const statusColor = status === "completed" ? "#16a34a" : status === "processing" ? "#d97706" : status === "failed" ? "#dc2626" : "#6366f1"
+
+          Promise.allSettled(
+            [...emailMap.entries()].map(([email, orders]) => {
+              const firstName = orders[0].customer_name?.split(" ")[0] ?? "Customer"
+              const orderRows = orders.map(o => `
+                <tr>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151;">${o.network} ${o.volume_gb}GB</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#374151;">${o.phone_number}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;">
+                    <span style="display:inline-block;padding:2px 10px;border-radius:999px;background:${statusColor}20;color:${statusColor};font-weight:600;font-size:12px;">${statusLabel}</span>
+                  </td>
+                </tr>`).join("")
+
+              const htmlContent = `
+                <div style="font-family:Inter,-apple-system,BlinkMacSystemFont,Arial,sans-serif;background:#f3f4f6;padding:20px 0;">
+                  <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.07);">
+                    <div style="background:#0f172a;padding:28px 24px;text-align:center;background-image:radial-gradient(#1e293b 1px,#0f172a 1px);background-size:20px 20px;">
+                      <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#fbbf24;">DATAGOD</p>
+                      <h1 style="margin:8px 0 0;font-size:22px;font-weight:700;color:#fff;">Order Status Update</h1>
+                    </div>
+                    <div style="padding:28px 24px;">
+                      <p style="margin:0 0 16px;font-size:15px;color:#374151;">Hi ${firstName},</p>
+                      <p style="margin:0 0 20px;font-size:14px;color:#6b7280;">
+                        ${orders.length === 1
+                          ? `Your data order has been marked as <strong style="color:${statusColor};">${statusLabel}</strong>.`
+                          : `${orders.length} of your data orders have been marked as <strong style="color:${statusColor};">${statusLabel}</strong>.`}
+                      </p>
+                      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+                        <thead>
+                          <tr style="background:#f9fafb;">
+                            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;font-weight:600;border-bottom:2px solid #e5e7eb;">Package</th>
+                            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;font-weight:600;border-bottom:2px solid #e5e7eb;">Phone</th>
+                            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;font-weight:600;border-bottom:2px solid #e5e7eb;">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>${orderRows}</tbody>
+                      </table>
+                      ${status === "failed" ? `<p style="margin:0 0 16px;font-size:13px;color:#dc2626;background:#fef2f2;padding:12px;border-radius:8px;border-left:3px solid #dc2626;">If you were charged, a refund will be processed within 3–5 business days. Contact support if you have questions.</p>` : ""}
+                      <p style="margin:16px 0 0;font-size:13px;color:#9ca3af;text-align:center;">DataGod · Accra, Ghana</p>
+                    </div>
+                  </div>
+                </div>`
+
+              return sendEmail({
+                to: [{ email, name: orders[0].customer_name ?? undefined }],
+                subject: `Your DataGod order is ${statusLabel}`,
+                htmlContent,
+                type: "order_status_update",
+                referenceId: orders[0].id,
+              })
+            })
+          ).then(results => {
+            const failed = results.filter(r => r.status === "rejected").length
+            console.log(`[SHOP-ORDERS-UPDATE] ✓ Email: ${emailMap.size - failed}/${emailMap.size} customers notified`)
+          }).catch(() => {})
         }
       }
     } catch (notifError) {
