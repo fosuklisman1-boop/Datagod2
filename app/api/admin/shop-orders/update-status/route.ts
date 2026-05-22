@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
           if (s === "failed")     return "Order Failed"
           return "Order Status Updated"
         }
-        function buildMessage(order: (typeof shopOrders)[0], s: string) {
+        function buildMessage(order: NonNullable<typeof shopOrders>[0], s: string) {
           const desc = `${order.network} ${order.volume_gb}GB`
           if (s === "completed")  return `Your ${desc} data order has been delivered to ${order.phone_number}.`
           if (s === "processing") return `Your ${desc} data order is now being processed for ${order.phone_number}.`
