@@ -30,6 +30,26 @@ async function loadAIConfig(): Promise<AIProviderConfig> {
   }
 }
 
+// ── USSD dial code cache (30s TTL) ────────────────────────────────────────────
+let ussdDialCodeCache: { code: string; ts: number } | null = null
+const DEFAULT_USSD_DIAL_CODE = "714"
+
+async function loadUssdDialCode(): Promise<string> {
+  if (ussdDialCodeCache && Date.now() - ussdDialCodeCache.ts < 30_000) return ussdDialCodeCache.code
+  try {
+    const { data } = await supabaseAdmin
+      .from("app_settings")
+      .select("ussd_shop_dial_code")
+      .limit(1)
+      .maybeSingle()
+    const code = data?.ussd_shop_dial_code ?? DEFAULT_USSD_DIAL_CODE
+    ussdDialCodeCache = { code, ts: Date.now() }
+    return code
+  } catch {
+    return DEFAULT_USSD_DIAL_CODE
+  }
+}
+
 function getBaseUrl(req: NextRequest): string {
   const host = req.headers.get("host") ?? "localhost:3000"
   const proto = process.env.NODE_ENV === "production" ? "https" : "http"
@@ -44,7 +64,7 @@ export async function POST(req: NextRequest) {
     shopId?: string
   }
 
-  const aiConfig = await loadAIConfig()
+  const [aiConfig, ussdDialCode] = await Promise.all([loadAIConfig(), loadUssdDialCode()])
   const { provider: aiProvider, model: aiModel, providerName: aiProviderName } = resolveProviderForContext(context, aiConfig)
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -165,7 +185,7 @@ ABOUT DATAGOD:
 
 WHO CAN USE DATAGOD:
 1. **Regular users** — create a free account, top up a wallet, and buy data bundles at retail price
-2. **Dealers** — upgrade to get wholesale pricing, run their own branded online data shop, earn profit on every sale, and activate a USSD channel (*714#) for customers
+2. **Dealers** — upgrade to get wholesale pricing, run their own branded online data shop, earn profit on every sale, and activate a USSD ordering channel for customers
 3. **Sub-agents** — sell under a dealer's shop and earn commissions without managing inventory
 4. **Guest buyers** — buy directly from any dealer's public storefront (no account needed)
 
@@ -197,6 +217,11 @@ SUPPORT:
 - Submit complaints or disputes inside the dashboard at /dashboard/complaints
 - Use the knowledge base or contact support for refund policies and delivery SLAs
 - Re-verify a stuck Paystack payment at /dashboard/payment-reverify
+
+USSD ORDERING (for customers who prefer feature phones or offline ordering):
+Datagod supports two USSD flows, both accessed via the short code *${ussdDialCode}#:
+1. **Direct wallet ordering** — dial *${ussdDialCode}# to get a menu, select a bundle, and pay from your Datagod wallet or via Paystack OTP. You must have a Datagod account and wallet balance (or Paystack payment).
+2. **USSD Shop ordering** — each dealer has a unique 4-digit shop code. Customers dial *${ussdDialCode}*{shopCode}# to order directly from that dealer's shop without needing a Datagod account. The dealer sets up this code on their USSD shop page. If a customer gives you a shop code (e.g. 1234), tell them to dial *${ussdDialCode}*1234# to place an order.
 
 YOUR ROLE:
 - Answer questions about Datagod's services, pricing, registration, features, and processes
@@ -285,7 +310,9 @@ DEALER-ONLY FEATURES (only available when role = dealer or admin):
 - Airtime top-up sales: /dashboard/airtime — sell airtime to customers
 - Results Checker: /dashboard/results-checker — sell WAEC/BECE/NOVDEC exam vouchers
 - AFA Orders: /dashboard/afa-orders — AFA data bundle orders
-- USSD Shop: /dashboard/ussd-shop — activate *714# USSD ordering channel; the short code customers dial to order from the shop is returned by get_my_shop
+- USSD Shop: /dashboard/ussd-shop — activate USSD ordering for the shop. Two flows exist:
+  (1) Direct: any wallet user dials *${ussdDialCode}# and gets a bundle menu (no shop-specific code needed)
+  (2) Shop-specific: the dealer's unique 4-digit USSD shop code lets customers dial *${ussdDialCode}*{shopCode}# to order from that shop without a Datagod account. The dealer's shop code is returned by get_my_shop.
 - Customers: /dashboard/customers — view customer list and order history
 - Buy Stock: /dashboard/buy-stock — bulk stock purchasing
 
@@ -328,7 +355,8 @@ Fulfillment providers: Sykes/Datakazina (MTN), AFA (AT/Telecel).
 ORDER TABLES (each has an 'id' field — use the 'table' value from get_all_orders):
 - orders: dealer wallet orders (status field)
 - shop_orders: Paystack storefront orders (order_status field)
-- ussd_orders / ussd_shop_orders: USSD *714# orders (order_status field)
+- ussd_orders: direct USSD orders placed via *${ussdDialCode}# (wallet/Paystack payment; order_status field)
+- ussd_shop_orders: shop-specific USSD orders via *${ussdDialCode}*{shopCode}# where shopCode is a dealer's 4-digit USSD code (order_status field)
 - api_orders: V1 API key orders (status field; no payment_status)
 
 ADMIN PAGES: /admin, /admin/orders, /admin/users, /admin/shops, /admin/packages, /admin/blacklist, /admin/withdrawals, /admin/fulfillment, /admin/settings, /admin/subscription-plans, /admin/rate-limits, /admin/ai-knowledge
@@ -365,6 +393,12 @@ PACKAGES:
 - To toggle on/off: same two-step — list first to get UUID, then action='toggle'
 - To create: call action='create' with network, name, size (number), price, dealer_price
 - size is stored as a plain number string — never include 'GB' (e.g. size=5 not "5GB")
+
+USSD SHOP CODES:
+- Dealers activate a USSD shop code to let customers order via *${ussdDialCode}*{shopCode}# (e.g. *${ussdDialCode}*1234#)
+- Each dealer has a unique 4-digit code stored in the ussd_shop_codes table
+- Use manage_ussd_shop to list all codes, get a specific code (by UUID or 4-digit code), create a new code for a shop, activate a code (sends push + email to dealer), or add tokens to a code
+- Admin page: /admin/ussd-shops — view activation revenue, token balances, and manage all shop codes
 
 BLACKLIST:
 - Add/remove single phone numbers or bulk-import a list
