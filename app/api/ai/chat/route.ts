@@ -415,7 +415,17 @@ ${formattingRules}`
         send({ type: "done" })
       } catch (err) {
         console.error("[AI-CHAT] Error:", err)
-        const msg = err instanceof Error ? err.message : "Something went wrong. Please try again."
+        let msg = "Something went wrong. Please try again."
+        const status = (err as Record<string, unknown>)?.status as number | undefined
+        if (status === 529 || (err instanceof Error && err.message.toLowerCase().includes("overload"))) {
+          msg = "The AI service is temporarily overloaded. Please try again in a moment."
+        } else if (status === 429 || (err instanceof Error && err.message.toLowerCase().includes("rate limit"))) {
+          msg = "Too many requests. Please wait a moment and try again."
+        } else if (status === 401 || status === 403) {
+          msg = "AI service configuration error. Please contact support."
+        } else if (status && status >= 500) {
+          msg = "The AI service is temporarily unavailable. Please try again shortly."
+        }
         send({ type: "error", content: msg })
       } finally {
         controller.close()
