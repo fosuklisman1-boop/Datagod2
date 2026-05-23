@@ -817,7 +817,7 @@ export default function ShopDashboardPage() {
 
         {/* Tabs for Orders, Profits, and Withdrawals */}
         <Tabs defaultValue="orders" className="space-y-4">
-          <TabsList className="bg-white/40 backdrop-blur border border-white/20">
+          <TabsList className="bg-white/40 backdrop-blur border border-white/20 flex-wrap h-auto gap-1">
             <TabsTrigger value="orders">Recent Orders ({orders.length})</TabsTrigger>
             <TabsTrigger value="profits">Profit History ({profits.length})</TabsTrigger>
             <TabsTrigger value="withdrawals">Withdrawals ({withdrawals.length})</TabsTrigger>
