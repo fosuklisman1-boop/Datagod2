@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
-import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -403,16 +402,6 @@ export async function POST(request: NextRequest) {
 
     // NOTE: Blacklist notification SMS and admin alerts are sent AFTER payment verification
     // See: webhook and payment verify endpoints for SMS delivery
-
-    // Push shop owner so they see the order arrive in real time
-    if (shopData?.user_id) {
-      const order = data[0]
-      sendPushToUser(shopData.user_id, {
-        title: '🛒 New Order',
-        body: `${order.network} ${order.volume_gb}GB → ${order.customer_phone} (GHS ${order.total_price?.toFixed(2)})`,
-        data: { url: '/dashboard/shop/orders' },
-      }).catch(() => {})
-    }
 
     return NextResponse.json({
       success: true,

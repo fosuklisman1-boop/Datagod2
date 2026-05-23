@@ -634,6 +634,17 @@ export async function POST(request: NextRequest) {
               .update({ payment_status: "completed", transaction_id: event.data.id, updated_at: new Date().toISOString() })
               .eq("id", paymentData.order_id)
 
+            // Push shop owner — payment confirmed
+            supabase.from('user_shops').select('user_id').eq('id', paymentData.shop_id).single().then(({ data: shop }) => {
+              if (shop?.user_id) {
+                sendPushToUser(shop.user_id, {
+                  title: '🛒 Order Paid',
+                  body: `${shopOrderData.network} ${shopOrderData.volume_gb}GB → ${shopOrderData.customer_phone} (GHS ${shopOrderData.total_price?.toFixed(2)})`,
+                  data: { url: '/dashboard/shop/orders' },
+                }).catch(() => {})
+              }
+            }).catch(() => {})
+
             // Auto-fulfillment trigger via unified endpoint
             try {
               const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")

@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
+import { sendPushToUser } from "@/lib/push-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import {
@@ -216,6 +217,17 @@ export async function POST(request: NextRequest) {
           console.error("[WALLET-DEBIT] Failed to update shop order:", updateShopOrderError)
         } else {
           console.log("[WALLET-DEBIT] ✓ Shop order payment status updated to completed")
+
+          // Push shop owner — wallet payment confirmed
+          supabase.from('user_shops').select('user_id').eq('id', shopOrder.shop_id).single().then(({ data: shop }) => {
+            if (shop?.user_id) {
+              sendPushToUser(shop.user_id, {
+                title: '🛒 Order Paid',
+                body: `${shopOrder.network} ${shopOrder.volume_gb}GB → ${shopOrder.customer_phone} (GHS ${shopOrder.total_price?.toFixed(2)})`,
+                data: { url: '/dashboard/shop/orders' },
+              }).catch(() => {})
+            }
+          }).catch(() => {})
 
           // Track customer NOW that payment is confirmed
           // This prevents inflated customer revenue from abandoned orders
