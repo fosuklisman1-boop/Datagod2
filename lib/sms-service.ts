@@ -161,7 +161,7 @@ export const SMSTemplates = {
 
   // OTP required — sent after session ends so customer knows to redial
   ussdOtpRequired: () =>
-    `DTGOD: As a first-time user, your purchase requires a one-time PIN (OTP) to verify your number. Redial the USSD code and enter the OTP sent to your phone to complete your order. You have 10 minutes.`,
+    `DTGOD: Your data purchase needs an OTP to complete. Redial the USSD code and enter the OTP when asked. Valid for 10 mins.`,
 
   // USSD AFA registration payment received
   ussdAfaPaymentReceived: () =>
