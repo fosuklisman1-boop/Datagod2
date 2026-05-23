@@ -161,7 +161,7 @@ export const SMSTemplates = {
 
   // OTP required — sent after session ends so customer knows to redial
   ussdOtpRequired: () =>
-    `DTGOD: Your order is pending. Redial and enter the number sent to your phone to complete. Expires in 10 mins.`,
+    `DTGOD: Your order is pending. Dial again and enter the number sent to your phone to complete. Expires in 10 mins.`,
 
   // USSD AFA registration payment received
   ussdAfaPaymentReceived: () =>
