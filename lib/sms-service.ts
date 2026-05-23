@@ -190,16 +190,13 @@ export const SMSTemplates = {
  * Returns: +233XXXXXXXXX
  */
 function normalizePhoneNumber(phone: string): string {
-  // Remove spaces, dashes, parentheses
   phone = phone.replace(/[\s\-\(\)]/g, '')
 
-  // If starts with 0 (local Ghana format), replace with +233
   if (phone.startsWith('0')) {
     phone = '+233' + phone.substring(1)
-  }
-
-  // If doesn't have country code, add it
-  if (!phone.startsWith('+')) {
+  } else if (phone.startsWith('233') && !phone.startsWith('+233')) {
+    phone = '+' + phone
+  } else if (!phone.startsWith('+')) {
     phone = '+233' + phone
   }
 
