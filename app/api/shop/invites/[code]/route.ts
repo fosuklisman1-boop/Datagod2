@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -138,7 +139,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         inviter_shop:user_shops!inviter_shop_id (
           id,
           shop_name,
-          tier_level
+          tier_level,
+          user_id
         )
       `)
       .eq("invite_code", code.toUpperCase())
@@ -325,6 +327,15 @@ export async function POST(request: NextRequest, { params }: Params) {
         accepted_at: new Date().toISOString()
       })
       .eq("id", invite.id)
+
+    // Push the shop owner who sent the invite
+    if (invite.inviter_shop?.user_id) {
+      sendPushToUser(invite.inviter_shop.user_id, {
+        title: '🤝 Sub-agent Joined',
+        body: `${shop_name} just accepted your invite and joined your network!`,
+        data: { url: '/dashboard/shop/sub-agents' },
+      }).catch(() => {})
+    }
 
     return NextResponse.json({
       success: true,
