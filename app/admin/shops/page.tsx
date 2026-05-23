@@ -286,7 +286,7 @@ export default function AdminShopsPage() {
                 {/* Shop Info */}
                 <div>
                   <h3 className="font-semibold mb-3">Shop Information</h3>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-gray-600">Name</p>
                       <p className="font-semibold">{shopDetails.shop.shop_name}</p>
@@ -311,7 +311,7 @@ export default function AdminShopsPage() {
                 {/* Orders Stats */}
                 <div>
                   <h3 className="font-semibold mb-3">Orders & Revenue</h3>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                     <div className="bg-blue-50 p-3 rounded-lg text-center">
                       <p className="text-gray-600 text-[10px] uppercase font-bold tracking-wider mb-1">Total Orders</p>
                       <p className="text-xl font-bold text-blue-600 font-mono italic">{shopDetails.orders.length}</p>

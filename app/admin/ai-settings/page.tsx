@@ -284,7 +284,7 @@ export default function AISettingsPage() {
 
             {sameForAll ? (
               <div className="space-y-3 pl-1">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs text-gray-500">Provider</Label>
                     <select
@@ -320,7 +320,7 @@ export default function AISettingsPage() {
                 {(["storefront", "dashboard", "admin"] as AIChatContext[]).map(ctx => (
                   <div key={ctx} className="space-y-2">
                     <Label className="text-sm font-medium capitalize">{CONTEXT_LABELS[ctx]} Widget</Label>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label className="text-xs text-gray-500">Provider</Label>
                         <select

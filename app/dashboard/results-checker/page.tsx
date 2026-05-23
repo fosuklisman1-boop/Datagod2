@@ -278,7 +278,7 @@ export default function ResultsCheckerPage() {
               {/* Board selection */}
               <div>
                 <Label className="text-sm font-medium">Exam Board</Label>
-                <div className="grid grid-cols-3 gap-3 mt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
                   {EXAM_BOARDS.map(board => (
                     <button
                       key={board}

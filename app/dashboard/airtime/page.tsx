@@ -216,7 +216,7 @@ export default function AirtimePage() {
 
         {/* Network Selector */}
         <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
             {availableNetworks.map((n) => (
               <button
                 key={n}
