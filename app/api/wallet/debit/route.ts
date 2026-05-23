@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
           console.log("[WALLET-DEBIT] ✓ Shop order payment status updated to completed")
 
           // Push shop owner — wallet payment confirmed
-          supabase.from('user_shops').select('user_id').eq('id', shopOrder.shop_id).single().then(({ data: shop }) => {
+          Promise.resolve(supabase.from('user_shops').select('user_id').eq('id', shopOrder.shop_id).single()).then(({ data: shop }) => {
             if (shop?.user_id) {
               sendPushToUser(shop.user_id, {
                 title: '🛒 Order Paid',

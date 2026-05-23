@@ -635,7 +635,7 @@ export async function POST(request: NextRequest) {
               .eq("id", paymentData.order_id)
 
             // Push shop owner — payment confirmed
-            supabase.from('user_shops').select('user_id').eq('id', paymentData.shop_id).single().then(({ data: shop }) => {
+            Promise.resolve(supabase.from('user_shops').select('user_id').eq('id', paymentData.shop_id).single()).then(({ data: shop }) => {
               if (shop?.user_id) {
                 sendPushToUser(shop.user_id, {
                   title: '🛒 Order Paid',
