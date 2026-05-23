@@ -161,7 +161,7 @@ export const SMSTemplates = {
 
   // OTP required — sent after session ends so customer knows to redial
   ussdOtpRequired: () =>
-    `DTGOD: Your purchase needs an OTP to complete. Redial the code and enter the OTP when asked. Valid for 10 mins.`,
+    `DTGOD: Redial the code and enter the OTP to complete the purchase. Valid for 4 mins.`,
 
   // USSD AFA registration payment received
   ussdAfaPaymentReceived: () =>
