@@ -412,7 +412,7 @@ export async function PATCH(request: NextRequest) {
         notifyAdminsPush({
           title: '💰 Wallet Top-up',
           body: `GHS ${creditAmount.toFixed(2)} manually completed — new balance: GHS ${newBalance.toFixed(2)}`,
-          data: { url: '/admin/payments' },
+          data: { url: '/admin/payment-attempts' },
         }).catch(() => {})
 
       } else if (paymentType === "shop_order" && attempt.order_id && attempt.shop_id) {

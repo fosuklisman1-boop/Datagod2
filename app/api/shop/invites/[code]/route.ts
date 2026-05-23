@@ -333,7 +333,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       sendPushToUser(invite.inviter_shop.user_id, {
         title: '🤝 Sub-agent Joined',
         body: `${shop_name} just accepted your invite and joined your network!`,
-        data: { url: '/dashboard/shop/sub-agents' },
+        data: { url: '/dashboard/sub-agents' },
       }).catch(() => {})
     }
 

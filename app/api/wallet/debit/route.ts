@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
               sendPushToUser(shop.user_id, {
                 title: '🛒 Order Paid',
                 body: `${shopOrder.network} ${shopOrder.volume_gb}GB → ${shopOrder.customer_phone} (GHS ${shopOrder.total_price?.toFixed(2)})`,
-                data: { url: '/dashboard/shop/orders' },
+                data: { url: '/dashboard/shop-dashboard' },
               }).catch(() => {})
             }
           }).catch(() => {})

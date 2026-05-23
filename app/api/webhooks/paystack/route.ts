@@ -640,7 +640,7 @@ export async function POST(request: NextRequest) {
                 sendPushToUser(shop.user_id, {
                   title: '🛒 Order Paid',
                   body: `${shopOrderData.network} ${shopOrderData.volume_gb}GB → ${shopOrderData.customer_phone} (GHS ${shopOrderData.total_price?.toFixed(2)})`,
-                  data: { url: '/dashboard/shop/orders' },
+                  data: { url: '/dashboard/shop-dashboard' },
                 }).catch(() => {})
               }
             }).catch(() => {})
@@ -898,7 +898,7 @@ export async function POST(request: NextRequest) {
               notifyAdminsPush({
                 title: '💰 Wallet Top-up',
                 body: `GHS ${creditAmount.toFixed(2)} topped up by ${userData?.first_name || 'a user'} — new balance: GHS ${newBalance.toFixed(2)}`,
-                data: { url: '/admin/payments' },
+                data: { url: '/admin/payment-attempts' },
               }).catch(() => {})
             }).catch(() => {})
           }
