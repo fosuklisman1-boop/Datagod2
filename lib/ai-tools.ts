@@ -101,7 +101,7 @@ const getAllOrdersTool: Anthropic.Tool = {
     type: "object" as const,
     properties: {
       order_id: { type: "string", description: "Look up a single specific order by UUID across all order tables" },
-      status: { type: "string", description: "Filter by status: pending, processing, completed, failed" },
+      status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "Filter by order status" },
       network: { type: "string", description: "Filter by network" },
       phone: { type: "string", description: "Filter by customer phone number" },
       date_from: { type: "string", description: "ISO timestamp start e.g. 2026-05-21T00:00:00" },
@@ -119,7 +119,7 @@ const updateOrderStatusTool: Anthropic.Tool = {
     type: "object" as const,
     properties: {
       order_id: { type: "string", description: "The order ID (from get_all_orders)" },
-      status: { type: "string", description: "New status: pending, processing, completed, failed" },
+      status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "New status to set" },
     },
     required: ["order_id", "status"],
   },
@@ -127,17 +127,17 @@ const updateOrderStatusTool: Anthropic.Tool = {
 
 const bulkUpdateOrderStatusTool: Anthropic.Tool = {
   name: "bulk_update_order_status",
-  description: "Admin only: update the status of ALL orders matching the given filters in one operation. Use this instead of calling update_order_status one-by-one. Always confirm with the user before calling.",
+  description: "Admin only: update the status of ALL orders matching the given filters in one operation. Use this instead of calling update_order_status one-by-one. Always confirm scope with the user before calling.",
   input_schema: {
     type: "object" as const,
     properties: {
-      new_status: { type: "string", description: "Status to set: completed, failed, processing, pending" },
-      filter_status: { type: "string", description: "Only update orders currently in this status e.g. processing" },
+      status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "The new status to set on all matched orders" },
+      filter_status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "Only update orders currently in this status" },
       filter_network: { type: "string", description: "Only update orders for this network e.g. MTN" },
       date_from: { type: "string", description: "Only update orders created after this ISO timestamp e.g. 2026-05-21T00:00:00" },
       date_to: { type: "string", description: "Only update orders created before this ISO timestamp e.g. 2026-05-21T16:00:00" },
     },
-    required: ["new_status"],
+    required: ["status"],
   },
 }
 
@@ -174,7 +174,7 @@ const manageBlacklistTool: Anthropic.Tool = {
     type: "object" as const,
     properties: {
       phone_number: { type: "string", description: "The phone number to add or remove" },
-      action: { type: "string", description: "Either 'add' or 'remove'" },
+      action: { type: "string", enum: ["add", "remove"] },
       reason: { type: "string", description: "Reason for adding to blacklist" },
     },
     required: ["phone_number", "action"],
@@ -187,7 +187,7 @@ const getPlatformStatsTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      period: { type: "string", description: "Time period: today, week, or month (default: today)" },
+      period: { type: "string", enum: ["today", "week", "month"], description: "Time period (default: today)" },
     },
     required: [],
   },
@@ -224,7 +224,7 @@ const manualFulfillOrderTool: Anthropic.Tool = {
     type: "object" as const,
     properties: {
       order_id: { type: "string", description: "The order ID to fulfill (from get_all_orders)" },
-      order_type: { type: "string", description: "Order type derived from the 'table' field in get_all_orders: shop (shop_orders), bulk (orders), ussd (ussd_orders), ussd_shop (ussd_shop_orders)" },
+      order_type: { type: "string", enum: ["shop", "bulk", "ussd", "ussd_shop"], description: "Derived from the 'table' field in get_all_orders: shop_orders→shop, orders→bulk, ussd_orders→ussd, ussd_shop_orders→ussd_shop" },
     },
     required: ["order_id", "order_type"],
   },
@@ -243,7 +243,7 @@ const bulkManualFulfillTool: Anthropic.Tool = {
           type: "object",
           properties: {
             id: { type: "string" },
-            type: { type: "string", description: "shop, bulk, ussd, or ussd_shop" },
+            type: { type: "string", enum: ["shop", "bulk", "ussd", "ussd_shop"] },
           },
           required: ["id", "type"],
         },
@@ -274,7 +274,7 @@ const suspendUserTool: Anthropic.Tool = {
     type: "object" as const,
     properties: {
       user_id: { type: "string", description: "The user ID to suspend or unsuspend" },
-      action: { type: "string", description: "'suspend' or 'unsuspend'" },
+      action: { type: "string", enum: ["suspend", "unsuspend"] },
       reason: { type: "string", description: "Reason for suspension (required for suspend)" },
     },
     required: ["user_id", "action"],
@@ -288,7 +288,7 @@ const updateUserRoleTool: Anthropic.Tool = {
     type: "object" as const,
     properties: {
       user_id: { type: "string", description: "The user ID to update" },
-      role: { type: "string", description: "New role: user, admin, sub_agent, or dealer" },
+      role: { type: "string", enum: ["user", "dealer", "sub_agent", "admin"], description: "New role to assign" },
     },
     required: ["user_id", "role"],
   },
@@ -302,7 +302,7 @@ const adjustWalletBalanceTool: Anthropic.Tool = {
     properties: {
       user_id: { type: "string", description: "The user ID whose wallet to adjust" },
       amount: { type: "number", description: "Amount in GHS (positive number)" },
-      type: { type: "string", description: "'credit' to add funds or 'debit' to remove funds" },
+      type: { type: "string", enum: ["credit", "debit"], description: "credit to add funds, debit to remove funds" },
     },
     required: ["user_id", "amount", "type"],
   },
@@ -316,7 +316,7 @@ const listShopsTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      status: { type: "string", description: "Filter by status: pending, active, or all (default: all)" },
+      status: { type: "string", enum: ["pending", "active", "all"], description: "Filter by shop status (default: all)" },
       search: { type: "string", description: "Search by shop name (partial match)" },
       limit: { type: "number", description: "Max results to return (default 20)" },
     },
@@ -326,14 +326,14 @@ const listShopsTool: Anthropic.Tool = {
 
 const manageShopTool: Anthropic.Tool = {
   name: "manage_shop",
-  description: "Admin only: get details of, approve, or reject a dealer shop. Use 'get' to look up a specific shop by its ID or slug.",
+  description: "Admin only: get details of, approve, or reject a dealer shop. Action guide: 'get' requires shop_id OR slug (not both); 'approve' requires shop_id; 'reject' requires shop_id AND reason.",
   input_schema: {
     type: "object" as const,
     properties: {
-      shop_id: { type: "string", description: "The shop UUID. Required for approve/reject; used by get if no slug provided." },
-      action: { type: "string", description: "'get' to fetch a single shop's details, 'approve' to approve a pending shop, 'reject' to reject it" },
-      slug: { type: "string", description: "The shop slug (URL-friendly name). Used by get to look up by slug instead of ID." },
-      reason: { type: "string", description: "Reason for rejection (required for reject)" },
+      action: { type: "string", enum: ["get", "approve", "reject"], description: "get: fetch shop details (needs shop_id or slug). approve: approve pending shop (needs shop_id). reject: reject shop (needs shop_id + reason)." },
+      shop_id: { type: "string", description: "The shop UUID. Required for approve/reject; used by get when slug is not provided." },
+      slug: { type: "string", description: "The shop slug. Used by get to look up by slug instead of ID." },
+      reason: { type: "string", description: "Required for reject — explain why the shop is being rejected." },
     },
     required: ["action"],
   },
@@ -347,7 +347,7 @@ const listWithdrawalsTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      status: { type: "string", description: "Filter: pending, approved, rejected, completed, or all (default: pending)" },
+      status: { type: "string", enum: ["pending", "approved", "rejected", "completed", "all"], description: "Filter by withdrawal status (default: pending)" },
       limit: { type: "number", description: "Max results (default 20)" },
     },
     required: [],
@@ -356,13 +356,13 @@ const listWithdrawalsTool: Anthropic.Tool = {
 
 const manageWithdrawalTool: Anthropic.Tool = {
   name: "manage_withdrawal",
-  description: "Admin only: get details of, approve, reject, or complete a withdrawal. Use 'get' to look up a specific withdrawal by ID before acting on it.",
+  description: "Admin only: get details of, approve, reject, or complete a withdrawal. Always call get first to confirm details before approving or rejecting. Action guide: 'reject' requires reason; 'approve' triggers an automatic Moolre payout.",
   input_schema: {
     type: "object" as const,
     properties: {
-      withdrawal_id: { type: "string", description: "The withdrawal request ID. Required for get, approve, reject, and complete." },
-      action: { type: "string", description: "'get' to fetch a single withdrawal's full details, 'approve' to approve and trigger payout, 'reject' to decline, 'complete' to mark an approved withdrawal as paid" },
-      reason: { type: "string", description: "Reason (required for reject)" },
+      action: { type: "string", enum: ["get", "approve", "reject", "complete"], description: "get: fetch full details. approve: approve and trigger payout. reject: decline (requires reason). complete: mark approved withdrawal as paid." },
+      withdrawal_id: { type: "string", description: "The withdrawal request ID. Required for all actions." },
+      reason: { type: "string", description: "Required for reject — explain why the withdrawal is being declined." },
     },
     required: ["withdrawal_id", "action"],
   },
@@ -372,16 +372,16 @@ const manageWithdrawalTool: Anthropic.Tool = {
 
 const manageUssdShopTool: Anthropic.Tool = {
   name: "manage_ussd_shop",
-  description: "Admin only: list, get, create, activate, or add tokens to USSD shop codes. Use 'get' to look up a specific code by its UUID or 4-digit code number. Use 'list' to browse all codes.",
+  description: "Admin only: list, get, create, activate, or add tokens to USSD shop codes. Action guide: 'get' needs ussd_shop_code_id OR code (4-digit); 'create' needs shop_id (code is auto-generated if omitted); 'activate' needs ussd_shop_code_id; 'add_tokens' needs ussd_shop_code_id + tokens.",
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", description: "'list' to view all USSD shop codes, 'get' to fetch a single code by ID or 4-digit code, 'create' to create a new code for a shop, 'activate' to activate a pending code, 'add_tokens' to credit sessions to an active code" },
-      ussd_shop_code_id: { type: "string", description: "The USSD shop code UUID. Used by get (if no code provided), activate, and add_tokens." },
-      code: { type: "string", description: "The 4-digit USSD code number (e.g. '1234'). Used by get to look up by code number; optional for create (auto-generated if omitted)." },
-      shop_id: { type: "string", description: "The shop ID to associate the code with. Required for create." },
-      initial_tokens: { type: "number", description: "Initial session tokens to credit when activating. Optional for activate." },
-      tokens: { type: "number", description: "Number of session tokens to add. Required for add_tokens." },
+      action: { type: "string", enum: ["list", "get", "create", "activate", "add_tokens"], description: "list: view all codes. get: fetch one by UUID or 4-digit code. create: new code for a shop (needs shop_id). activate: activate a pending code (needs ussd_shop_code_id). add_tokens: credit sessions (needs ussd_shop_code_id + tokens)." },
+      ussd_shop_code_id: { type: "string", description: "UUID of the USSD shop code. Required for activate and add_tokens; used by get when not looking up by 4-digit code." },
+      code: { type: "string", description: "4-digit USSD code e.g. '1234'. Used by get to look up by code number; optional for create (auto-generated if omitted)." },
+      shop_id: { type: "string", description: "Required for create — the shop to associate this code with." },
+      initial_tokens: { type: "number", description: "Optional for activate — initial session tokens to credit on activation." },
+      tokens: { type: "number", description: "Required for add_tokens — number of session tokens to add." },
     },
     required: ["action"],
   },
@@ -391,18 +391,18 @@ const manageUssdShopTool: Anthropic.Tool = {
 
 const managePackagesTool: Anthropic.Tool = {
   name: "manage_packages",
-  description: "Admin only: list, create, update, or toggle data packages. WORKFLOW: (1) always call action='list' with network filter first to get the exact package_id UUID, (2) then call action='update' or 'toggle' with that UUID. Never guess a package_id.",
+  description: "Admin only: list, create, update, or toggle data packages. WORKFLOW: always call list with network filter first to get the exact package_id UUID, then call update/toggle with that UUID. Never guess a package_id. Action guide: 'update' and 'toggle' require package_id; 'create' requires network, name, size, price, dealer_price; 'toggle' requires is_available.",
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", description: "'list' to view packages (filter by network to keep results small), 'create' to add a new one, 'update' to edit an existing one, 'toggle' to enable/disable" },
-      package_id: { type: "string", description: "The package UUID from action='list'. Required for update and toggle." },
-      network: { type: "string", description: "Network name: MTN, AirtelTigo, or Telecel. Use this to filter list results — always pass it when you know the network." },
-      name: { type: "string", description: "Package display name" },
-      size: { type: "number", description: "Package size as a plain number (e.g. 1, 2, 5, 10) — no 'GB' suffix" },
-      price: { type: "number", description: "Customer price in GHS (e.g. 5.00)" },
-      dealer_price: { type: "number", description: "Dealer price in GHS — must be lower than price" },
-      is_available: { type: "boolean", description: "For toggle: true to enable, false to disable" },
+      action: { type: "string", enum: ["list", "create", "update", "toggle"], description: "list: view packages (filter by network). create: add new package (needs network, name, size, price, dealer_price). update: edit existing (needs package_id). toggle: enable/disable (needs package_id + is_available)." },
+      package_id: { type: "string", description: "The package UUID from list results. Required for update and toggle." },
+      network: { type: "string", description: "Network name: MTN, AirtelTigo, or Telecel. Always pass when filtering list or creating." },
+      name: { type: "string", description: "Package display name. Required for create." },
+      size: { type: "number", description: "Package size as a plain number (e.g. 1, 2, 5) — no 'GB'. Required for create." },
+      price: { type: "number", description: "Customer price in GHS. Required for create." },
+      dealer_price: { type: "number", description: "Dealer wholesale price in GHS — must be lower than price. Required for create." },
+      is_available: { type: "boolean", description: "Required for toggle — true to enable, false to disable." },
     },
     required: ["action"],
   },
@@ -464,7 +464,7 @@ const setMtnProviderTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      provider: { type: "string", description: "Provider to switch to: 'sykes' or 'datakazina'. Omit to just read current setting." },
+      provider: { type: "string", enum: ["sykes", "datakazina"], description: "Provider to switch to. Omit to just read current setting." },
     },
     required: [],
   },
@@ -488,9 +488,9 @@ const manageRateLimitsTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", description: "'list' to view current blocks, 'reset' to clear a specific block" },
-      endpoint: { type: "string", description: "Endpoint name to filter or reset e.g. 'ai_chat', 'purchase'" },
-      identifier: { type: "string", description: "User ID or IP to reset the limit for (required for reset)" },
+      action: { type: "string", enum: ["list", "reset"], description: "list: view current blocks. reset: clear a specific block (requires endpoint + identifier)." },
+      endpoint: { type: "string", description: "Endpoint name e.g. 'ai_chat', 'purchase'. Required for reset; optional filter for list." },
+      identifier: { type: "string", description: "User ID or IP address. Required for reset." },
       limit: { type: "number", description: "Max results for list (default 20)" },
     },
     required: ["action"],
@@ -511,16 +511,16 @@ const getAdminStatsTool: Anthropic.Tool = {
 
 const manageSubscriptionPlansTool: Anthropic.Tool = {
   name: "manage_subscription_plans",
-  description: "Admin only: list, create, update, or deactivate dealer subscription plans.",
+  description: "Admin only: list, create, update, or delete dealer subscription plans. Action guide: 'update' and 'delete' require plan_id; 'create' requires name, price, duration_days.",
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", description: "'list' to view all plans, 'create' to add one, 'update' to edit, 'delete' to remove" },
-      plan_id: { type: "string", description: "Plan ID (required for update and delete)" },
-      name: { type: "string", description: "Plan name" },
-      price: { type: "number", description: "Plan price in GHS" },
-      duration_days: { type: "number", description: "How many days the plan lasts" },
-      is_active: { type: "boolean", description: "Whether the plan is active" },
+      action: { type: "string", enum: ["list", "create", "update", "delete"], description: "list: view all plans. create: add new plan (needs name, price, duration_days). update: edit plan (needs plan_id). delete: remove plan (needs plan_id)." },
+      plan_id: { type: "string", description: "Plan UUID. Required for update and delete." },
+      name: { type: "string", description: "Plan display name. Required for create." },
+      price: { type: "number", description: "Plan price in GHS. Required for create." },
+      duration_days: { type: "number", description: "How many days the plan lasts. Required for create." },
+      is_active: { type: "boolean", description: "Whether the plan is active (optional for update)." },
     },
     required: ["action"],
   },
@@ -547,7 +547,7 @@ const getTransactionHistoryTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      date_range: { type: "string", description: "Time filter: today, week, month, or 3months (default: month)" },
+      date_range: { type: "string", enum: ["today", "week", "month", "3months"], description: "Time period to filter by (default: month)" },
       type: { type: "string", description: "Transaction type filter if applicable" },
       limit: { type: "number", description: "Max results (default 10)" },
     },
@@ -603,7 +603,7 @@ const getAirtimeAvailabilityTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      network: { type: "string", description: "Network to check: MTN, Telecel, or AT" },
+      network: { type: "string", enum: ["MTN", "Telecel", "AT"], description: "Network to check" },
     },
     required: ["network"],
   },
@@ -628,7 +628,7 @@ const syncFulfillmentStatusTool: Anthropic.Tool = {
       tracking_id: { type: "string", description: "Sykes tracking ID — get this from get_mtn_logs" },
       mtn_order_id: { type: "string", description: "MTN order ID — get this from get_mtn_logs" },
       sync_all_pending: { type: "boolean", description: "true to sync all pending MTN orders at once (no tracking_id needed)" },
-      provider: { type: "string", description: "Provider name: 'mtn' or 'datakazina'" },
+      provider: { type: "string", enum: ["sykes", "datakazina"], description: "Provider to sync from" },
     },
     required: [],
   },
@@ -641,7 +641,7 @@ const retryBlacklistedOrderTool: Anthropic.Tool = {
     type: "object" as const,
     properties: {
       order_id: { type: "string", description: "The ID of the blocked order to retry" },
-      order_type: { type: "string", description: "Order type: 'shop' (storefront/Paystack) or 'bulk' (wallet/dealer). Defaults to shop." },
+      order_type: { type: "string", enum: ["shop", "bulk"], description: "shop = storefront/Paystack order, bulk = wallet/dealer order. Defaults to shop if omitted." },
     },
     required: ["order_id"],
   },
@@ -708,7 +708,7 @@ const showActionButtonsTool: Anthropic.Tool = {
             label: { type: "string", description: "Text shown on the button" },
             value: { type: "string", description: "Text sent as the user's reply when this button is clicked. Not needed if url is set." },
             url: { type: "string", description: "If set, clicking this button navigates to this page path (e.g. '/auth/signup', '/auth/login', '/shop/my-shop-slug'). Use for page navigation instead of sending a message." },
-            style: { type: "string", description: "Visual style: primary (blue, for the main action), danger (red, for destructive actions), secondary (gray, for cancel/alternatives)" },
+            style: { type: "string", enum: ["primary", "danger", "secondary"], description: "primary = blue (main action), danger = red (destructive), secondary = gray (cancel/alternative)" },
           },
           required: ["label"],
         },
@@ -1173,7 +1173,7 @@ export async function executeToolCall(
           return { error: "At least one filter is required for bulk update to prevent accidental mass changes." }
         }
 
-        const newStatus = input.new_status as string
+        const newStatus = (input.status ?? input.new_status) as string
         const fs = input.filter_status as string | undefined
         const fn = input.filter_network as string | undefined
         const df = input.date_from as string | undefined
