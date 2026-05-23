@@ -143,9 +143,20 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      for (const client of list) {
-        if (client.url.includes(urlToOpen) && 'focus' in client) return client.focus()
+      // If a window is already on the target page, just focus it
+      const exactMatch = list.find((c) => c.url.includes(urlToOpen))
+      if (exactMatch && 'focus' in exactMatch) return exactMatch.focus()
+
+      // Any open window — focus it and navigate to the target URL instead of
+      // opening a duplicate tab
+      const anyWindow = list.find((c) => 'focus' in c)
+      if (anyWindow) {
+        anyWindow.focus()
+        if ('navigate' in anyWindow) return anyWindow.navigate(urlToOpen)
+        return
       }
+
+      // App not open at all — launch it
       if (clients.openWindow) return clients.openWindow(urlToOpen)
     })
   )
