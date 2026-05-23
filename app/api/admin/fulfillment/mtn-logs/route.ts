@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
         id,
         shop_order_id,
         order_id,
+        api_order_id,
         order_type,
         mtn_order_id,
         status,

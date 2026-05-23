@@ -30,9 +30,10 @@ import Link from "next/link"
 
 interface MTNLog {
   id: string
-  shop_order_id: string
+  shop_order_id: string | null
   order_id: string | null
-  order_type: "shop" | "bulk" | null
+  api_order_id: string | null
+  order_type: "shop" | "bulk" | "api" | "ussd" | "ussd_shop" | null
   mtn_order_id: number | null
   status: "pending" | "processing" | "completed" | "failed" | "retrying" | "error"
   recipient_phone: string
@@ -152,7 +153,18 @@ export default function MTNFulfillmentLogsPage() {
     }
   }
 
-  const handleRetry = async (logId: string, shopOrderId: string) => {
+  const handleRetry = async (logId: string, log: MTNLog) => {
+    const orderType = log.order_type || "shop"
+    const orderId =
+      orderType === "api" ? log.api_order_id :
+      orderType === "bulk" || orderType === "ussd" || orderType === "ussd_shop" ? log.order_id :
+      log.shop_order_id
+
+    if (!orderId) {
+      toast.error("Cannot retry: order ID is missing from this log entry")
+      return
+    }
+
     try {
       setRetrying(logId)
       const { data: { session } } = await supabase.auth.getSession()
@@ -168,7 +180,8 @@ export default function MTNFulfillmentLogsPage() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          shop_order_id: shopOrderId,
+          shop_order_id: orderId,
+          order_type: orderType,
         }),
       })
 
@@ -508,7 +521,7 @@ export default function MTNFulfillmentLogsPage() {
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => handleRetry(log.id, log.shop_order_id)}
+                                    onClick={() => handleRetry(log.id, log)}
                                     disabled={retrying === log.id}
                                   >
                                     {retrying === log.id ? (
