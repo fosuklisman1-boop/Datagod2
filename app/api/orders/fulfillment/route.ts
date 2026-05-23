@@ -201,8 +201,9 @@ async function handleRetryFulfillment(
   try {
     console.log(`[FULFILLMENT] Retrying fulfillment for order ${orderId}`)
 
+    type OrderType = "wallet" | "shop" | "api" | "ussd" | "ussd_shop"
     let order: any = null
-    let orderType: "wallet" | "shop" | "api" | "ussd" | "ussd_shop" = "wallet"
+    let orderType: OrderType = "wallet"
 
     // Read order_type from fulfillment_logs to target the right table directly
     const { data: logEntry } = await supabaseAdmin
@@ -213,10 +214,10 @@ async function handleRetryFulfillment(
       .limit(1)
       .single()
 
-    const knownType = logEntry?.order_type as typeof orderType | undefined
+    const knownType = logEntry?.order_type as OrderType | undefined
 
     // Table lookup map — ordered so we try the most-likely table first
-    const lookups: Array<{ type: typeof orderType; table: string; phoneField: string; sizeField: string; statusField: string }> = [
+    const lookups: Array<{ type: OrderType; table: string; phoneField: string; sizeField: string; statusField: string }> = [
       { type: "wallet",    table: "orders",           phoneField: "phone_number",   sizeField: "size",      statusField: "status" },
       { type: "shop",      table: "shop_orders",      phoneField: "customer_phone", sizeField: "volume_gb", statusField: "order_status" },
       { type: "ussd_shop", table: "ussd_shop_orders", phoneField: "recipient_phone",sizeField: "package_size", statusField: "order_status" },
