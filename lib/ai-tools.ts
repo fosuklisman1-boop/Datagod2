@@ -106,7 +106,7 @@ const getAllOrdersTool: Anthropic.Tool = {
       phone: { type: "string", description: "Filter by customer phone number" },
       date_from: { type: "string", description: "ISO timestamp start e.g. 2026-05-21T00:00:00" },
       date_to: { type: "string", description: "ISO timestamp end e.g. 2026-05-21T16:00:00" },
-      limit: { type: "number", description: "Max results (default 10, use 200 to get all)" },
+      limit: { type: "number", description: "Max results per table (default 10). If the response has truncated:true, the actual matching total is higher — pass the same filters to bulk_update_order_status to act on all of them." },
     },
     required: [],
   },
@@ -1142,17 +1142,25 @@ export async function executeToolCall(
         if (e4) return { error: e4.message }
         if (e5) return { error: e5.message }
 
-        const combined = [
+        const allRows = [
           ...(ordersData ?? []).map(o => ({ id: o.id, table: "orders", network: o.network, size: o.size, status: o.status, phone: o.phone_number, created_at: o.created_at })),
           ...(shopData ?? []).map(o => ({ id: o.id, table: "shop_orders", network: o.network, size: `${o.volume_gb}`, status: o.order_status, phone: o.customer_phone, created_at: o.created_at })),
           ...(ussdData ?? []).map(o => ({ id: o.id, table: "ussd_orders", network: o.network, size: o.package_size, status: o.order_status, phone: o.recipient_phone, created_at: o.created_at })),
           ...(ussdShopData ?? []).map(o => ({ id: o.id, table: "ussd_shop_orders", network: o.network, size: o.package_size, status: o.order_status, phone: o.recipient_phone, created_at: o.created_at })),
           ...(apiData ?? []).map(o => ({ id: o.id, table: "api_orders", network: o.network, size: `${o.volume_gb}`, status: o.status, phone: o.recipient_phone, created_at: o.created_at })),
-        ]
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-          .slice(0, limit)
+        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-        return sanitize({ count: combined.length, orders: combined })
+        // truncated=true means the per-table limit was hit on at least one table — the true total may be higher
+        const truncated = (ordersData?.length ?? 0) === limit || (shopData?.length ?? 0) === limit ||
+          (ussdData?.length ?? 0) === limit || (ussdShopData?.length ?? 0) === limit || (apiData?.length ?? 0) === limit
+        const combined = allRows.slice(0, limit)
+
+        return sanitize({
+          count: combined.length,
+          truncated,
+          note: truncated ? "Results are capped — the true total matching orders may be higher. Use bulk_update_order_status with the same filters to act on all of them, or narrow filters for an accurate count." : undefined,
+          orders: combined,
+        })
       }
 
       case "update_order_status": {
