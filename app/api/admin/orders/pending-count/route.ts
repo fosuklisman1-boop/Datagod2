@@ -43,8 +43,16 @@ export async function GET(request: NextRequest) {
 
     if (ussdOrdersError) throw ussdOrdersError
 
-    // Total pending orders = user orders + shop orders + api orders + ussd orders
-    const totalPendingCount = (userOrders?.length || 0) + (shopOrders?.length || 0) + (apiOrders?.length || 0) + (ussdOrders?.length || 0)
+    // 5. USSD shop orders (paid but not yet fulfilled)
+    const { data: ussdShopOrders, error: ussdShopOrdersError } = await supabase
+      .from("ussd_shop_orders")
+      .select("id")
+      .eq("order_status", "pending")
+      .eq("payment_status", "completed")
+
+    if (ussdShopOrdersError) throw ussdShopOrdersError
+
+    const totalPendingCount = (userOrders?.length || 0) + (shopOrders?.length || 0) + (apiOrders?.length || 0) + (ussdOrders?.length || 0) + (ussdShopOrders?.length || 0)
 
     return NextResponse.json({
       count: totalPendingCount

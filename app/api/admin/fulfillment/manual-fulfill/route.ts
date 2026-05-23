@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     const { processManualFulfillment } = await import("@/lib/fulfillment-service")
 
-    const result = await processManualFulfillment(shop_order_id, order_type as "shop" | "bulk", provider)
+    const result = await processManualFulfillment(shop_order_id, order_type as "shop" | "bulk" | "api", provider)
 
     if (!result.success) {
       return NextResponse.json({ error: result.message }, { status: 400 })
@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500)
     const offset = (page - 1) * limit
 
-    const statuses = ["pending", "pending_download"]
+    const statuses = ["pending"]
     const allowedNetworks = [
       "MTN", 
       "AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "AT - ISHARE", "AT-ISHARE",
@@ -165,6 +165,18 @@ export async function GET(request: NextRequest) {
       console.error("[MANUAL-FULFILL] ussd_shop_orders fetch error:", ussdShopError)
     }
 
+    // 5. Fetch API orders (dealer API orders awaiting fulfillment)
+    const { data: apiOrders, count: apiCount, error: apiError } = await supabase
+      .from("api_orders")
+      .select("id, network, volume_gb, recipient_phone, status, created_at, price", { count: "exact" })
+      .in("network", allowedNetworks)
+      .in("status", statuses)
+      .order("created_at", { ascending: false })
+
+    if (apiError) {
+      console.error("[MANUAL-FULFILL] api_orders fetch error:", apiError)
+    }
+
     // Map bulk orders to common structure
     const mappedBulk = (bulkOrders || []).map(o => ({
       id: o.id,
@@ -206,12 +218,24 @@ export async function GET(request: NextRequest) {
       type: "ussd_shop"
     }))
 
+    const mappedApi = (apiOrders || []).map(o => ({
+      id: o.id,
+      network: o.network,
+      volume_gb: o.volume_gb,
+      customer_phone: o.recipient_phone,
+      customer_name: "API Order",
+      order_status: o.status,
+      created_at: o.created_at,
+      price: o.price,
+      type: "api"
+    }))
+
     // Combine and sort by date
-    const allOrders = [...mappedShop, ...mappedBulk, ...mappedUssd, ...mappedUssdShop].sort(
+    const allOrders = [...mappedShop, ...mappedBulk, ...mappedUssd, ...mappedUssdShop, ...mappedApi].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
 
-    const totalCount = (shopCount || 0) + (bulkCount || 0) + (ussdCount || 0) + (ussdShopCount || 0)
+    const totalCount = (shopCount || 0) + (bulkCount || 0) + (ussdCount || 0) + (ussdShopCount || 0) + (apiCount || 0)
     const paginatedOrders = allOrders.slice(offset, offset + limit)
 
     return NextResponse.json({

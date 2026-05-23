@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { createClient } from "@supabase/supabase-js"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,11 +14,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { supabase } from "@/lib/supabase"
 
 const EXAM_BOARDS = ["WAEC", "BECE", "NOVDEC"]
 

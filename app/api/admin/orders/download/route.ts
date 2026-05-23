@@ -110,9 +110,10 @@ export async function POST(request: NextRequest) {
     shopOrderIds = orders.filter(o => o.type === "shop").map(o => o.id)
     let ussdOrderIds: string[] = orders.filter(o => o.type === "ussd").map(o => o.id)
     let ussdShopOrderIds: string[] = orders.filter(o => o.type === "ussd_shop").map(o => o.id)
+    let apiOrderIds: string[] = orders.filter(o => o.type === "api").map(o => o.id)
     orderIds = orders.map(o => o.id)
 
-    console.log("[DOWNLOAD] Fetched orders:", orders.length, "Bulk:", bulkOrderIds.length, "Shop:", shopOrderIds.length, "USSD:", ussdOrderIds.length, "USSD Shop:", ussdShopOrderIds.length)
+    console.log("[DOWNLOAD] Fetched orders:", orders.length, "Bulk:", bulkOrderIds.length, "Shop:", shopOrderIds.length, "USSD:", ussdOrderIds.length, "USSD Shop:", ussdShopOrderIds.length, "API:", apiOrderIds.length)
 
     if (!orders || orders.length === 0) {
       console.error("[DOWNLOAD] No orders found after querying")
@@ -137,7 +138,7 @@ export async function POST(request: NextRequest) {
           .from("orders")
           .update({ status: "processing", updated_at: new Date().toISOString() })
           .in("id", bulkOrderIds)
-          .in("status", ["pending", "pending_download"])
+          .eq("status", "pending")
           .select("id")
 
         if (updateError) {
@@ -160,7 +161,7 @@ export async function POST(request: NextRequest) {
           .from("shop_orders")
           .update({ order_status: "processing", updated_at: new Date().toISOString() })
           .in("id", shopOrderIds)
-          .in("order_status", ["pending", "pending_download"])
+          .eq("order_status", "pending")
           .select("id")
 
         if (updateError) {
@@ -210,13 +211,36 @@ export async function POST(request: NextRequest) {
         console.log(`[DOWNLOAD] USSD shop orders claimed: ${actualUssdShopOrderIds.length} of ${ussdShopOrderIds.length} requested`)
       }
 
+      let actualApiOrderIds: string[] = []
+      if (apiOrderIds.length > 0) {
+        const { data: updatedApi, error: apiUpdateError } = await supabase
+          .from("api_orders")
+          .update({ status: "processing", updated_at: new Date().toISOString() })
+          .in("id", apiOrderIds)
+          .eq("status", "pending")
+          .select("id")
+
+        if (apiUpdateError) {
+          throw new Error(`Failed to update API order status: ${apiUpdateError.message}`)
+        }
+
+        actualApiOrderIds = updatedApi?.map(o => o.id) || []
+        console.log(`[DOWNLOAD] API orders claimed: ${actualApiOrderIds.length} of ${apiOrderIds.length} requested`)
+
+        if (actualApiOrderIds.length < apiOrderIds.length) {
+          const skippedCount = apiOrderIds.length - actualApiOrderIds.length
+          console.warn(`[DOWNLOAD] ${skippedCount} API orders were already downloaded by another admin`)
+        }
+      }
+
       // Filter the orders list to only include successfully claimed orders
-      const claimedOrderIds = new Set([...actualBulkOrderIds, ...actualShopOrderIds, ...actualUssdOrderIds, ...actualUssdShopOrderIds])
+      const claimedOrderIds = new Set([...actualBulkOrderIds, ...actualShopOrderIds, ...actualUssdOrderIds, ...actualUssdShopOrderIds, ...actualApiOrderIds])
       orders = orders.filter((order: any) => claimedOrderIds.has(order.id))
       bulkOrderIds = actualBulkOrderIds
       shopOrderIds = actualShopOrderIds
       ussdOrderIds = actualUssdOrderIds
       ussdShopOrderIds = actualUssdShopOrderIds
+      apiOrderIds = actualApiOrderIds
 
       // Update status in the filtered orders
       orders.forEach((order: any) => {

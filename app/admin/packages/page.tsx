@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -11,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Trash2, Edit, Plus, Power } from "lucide-react"
 import { adminPackageService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
+import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 
 // Format large numbers with K/M suffix
@@ -43,10 +43,9 @@ const AVAILABLE_NETWORKS = [
 ]
 
 export default function AdminPackagesPage() {
-  const router = useRouter()
+  const { isAdmin } = useAdminProtected()
   const [packages, setPackages] = useState<Package[]>([])
   const [loading, setLoading] = useState(true)
-  const [isAdmin, setIsAdmin] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -60,34 +59,8 @@ export default function AdminPackagesPage() {
   })
 
   useEffect(() => {
-    checkAdminAccess()
-  }, [])
-
-  const checkAdminAccess = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push("/dashboard"); return }
-
-      let isAdminUser = user?.user_metadata?.role === "admin"
-      if (!isAdminUser) {
-        const { data: userData } = await supabase.from("users").select("role").eq("id", user.id).single()
-        isAdminUser = userData?.role === "admin"
-      }
-
-      if (!isAdminUser) {
-        toast.error("Unauthorized access")
-        router.push("/dashboard")
-        return
-      }
-
-      setIsAdmin(true)
-      await loadPackages()
-    } catch (error) {
-      console.error("Error checking admin access:", error)
-      router.push("/dashboard")
-    }
-  }
-
+    if (isAdmin) loadPackages()
+  }, [isAdmin])
 
   const loadPackages = async () => {
     try {

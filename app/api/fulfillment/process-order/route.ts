@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString()
             })
             .eq("id", shop_order_id)
-            .in("order_status", ["pending", "pending_download"])
+            .in("order_status", ["pending", "pending"])
             .select("id")
 
           if (!lockData || lockData.length === 0) {
@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
       const { error: updateError } = await supabase
         .from("shop_orders")
         .update({
-          order_status: "pending_download",
+          order_status: "pending",
           fulfillment_method: "manual",
           updated_at: new Date().toISOString(),
         })
@@ -243,7 +243,7 @@ async function handleMTNAutoFulfillment(
         updated_at: new Date().toISOString()
       })
       .eq("id", shopOrderId)
-      .in("order_status", ["pending", "pending_download"]) // Must still be in an available status
+      .in("order_status", ["pending", "pending"]) // Must still be in an available status
       .select("id")
 
     if (lockError || !lockData || lockData.length === 0) {
@@ -260,12 +260,12 @@ async function handleMTNAutoFulfillment(
     if (!mtnResponse.success || !mtnResponse.order_id) {
       console.error("[FULFILLMENT] MTN API failed:", mtnResponse.message)
 
-      // Update shop_orders with pending_download status instead of failed
+      // Update shop_orders with pending status instead of failed
       // This ensures the order remains in the automated retry loop
       await supabase
         .from("shop_orders")
         .update({
-          order_status: "pending_download",
+          order_status: "pending",
           fulfillment_method: "auto_mtn",
           updated_at: new Date().toISOString(),
         })
@@ -500,11 +500,11 @@ async function handleMTNManualFulfillment(
   volumeGb: number
 ): Promise<NextResponse<FulfillmentResponse>> {
   try {
-    // Update shop_orders to mark as pending_download
+    // Update shop_orders to mark as pending
     const { error: updateError } = await supabase
       .from("shop_orders")
       .update({
-        order_status: "pending_download",
+        order_status: "pending",
         fulfillment_method: "manual",
         updated_at: new Date().toISOString(),
       })
@@ -520,7 +520,7 @@ async function handleMTNManualFulfillment(
       await supabase.from("fulfillment_logs").insert({
         order_id: shopOrderId,
         order_type: "shop",
-        status: "pending_download",
+        status: "pending",
         external_api: "MTN",
         notes: "Queued for manual fulfillment - Admin action required",
       })

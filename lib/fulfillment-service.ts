@@ -28,8 +28,8 @@ export async function processManualFulfillment(
   console.log(`${logPrefix} Starting manual fulfillment for ${orderType}`)
 
   try {
-    const tableName = orderType === "bulk" ? "orders" : "shop_orders"
-    const statusField = orderType === "bulk" ? "status" : "order_status"
+    const tableName = orderType === "bulk" ? "orders" : orderType === "api" ? "api_orders" : "shop_orders"
+    const statusField = orderType === "bulk" || orderType === "api" ? "status" : "order_status"
 
     // Fetch order details
     let orderData: any
@@ -127,7 +127,7 @@ export async function processManualFulfillment(
       .from(tableName)
       .update({ [statusField]: "processing", updated_at: new Date().toISOString() })
       .eq("id", orderId)
-      .in(statusField, ["pending", "pending_download", "failed"])
+      .in(statusField, ["pending", "failed"])
       .select("id")
 
     if (orderLockError || !orderLock || orderLock.length === 0) {
@@ -156,12 +156,9 @@ export async function processManualFulfillment(
 
         if (!codecraftResponse.success) {
           console.error(`${logPrefix} Codecraft API failed: ${codecraftResponse.message}`)
-          
-          // Revert to pending_download on failure
-          await supabase.from(tableName).update({ [statusField]: "pending_download", updated_at: new Date().toISOString() }).eq("id", orderId)
 
-          // Notifications on failure
-          // Notify admins of failure (not customer)
+          await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
+
           import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
             notifyAdmins(
               SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || "Codecraft", volumeGb.toString(), codecraftResponse.message || "Failed"),
@@ -189,8 +186,7 @@ export async function processManualFulfillment(
         }
       } catch (err: any) {
         console.error(`${logPrefix} Codecraft Error:`, err)
-        // Revert Lock on crash
-        await supabase.from(tableName).update({ [statusField]: "pending_download", updated_at: new Date().toISOString() }).eq("id", orderId)
+        await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
         return { success: false, message: err.message || "Codecraft Internal error", orderId }
       }
     }
@@ -207,9 +203,8 @@ export async function processManualFulfillment(
 
     if (!mtnResponse.success || !mtnResponse.order_id) {
       console.error(`${logPrefix} MTN API failed: ${mtnResponse.message}`)
-      
-      // Revert to pending_download on failure
-      await supabase.from(tableName).update({ [statusField]: "pending_download", updated_at: new Date().toISOString() }).eq("id", orderId)
+
+      await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
 
       // Update or create tracking for retry count
       if (existingTracking && existingTracking.length > 0) {

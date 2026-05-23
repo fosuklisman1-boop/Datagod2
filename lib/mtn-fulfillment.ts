@@ -1122,7 +1122,7 @@ export async function retryMTNOrder(
       const isFinalFailure = nextRetryCount >= maxAttempts
 
       // If failed, we STAY in pending/retrying so the cron can try again later, 
-      // UNLESS it's the final failure, then we revert to pending_download for manual intervention
+      // UNLESS it's the final failure, then we revert to pending for manual intervention
       const finalStatus = isFinalFailure ? "failed" : "retrying"
 
       const { error } = await supabase
@@ -1138,14 +1138,14 @@ export async function retryMTNOrder(
 
       if (error) throw error
 
-      // If it's the final failure, also update the master order back to pending_download
+      // If it's the final failure, also update the master order back to pending
       if (isFinalFailure) {
         if (tracking.shop_order_id) {
-          await supabase.from("shop_orders").update({ order_status: "pending_download" }).eq("id", tracking.shop_order_id)
+          await supabase.from("shop_orders").update({ order_status: "pending" }).eq("id", tracking.shop_order_id)
         } else if (tracking.order_id) {
-          await supabase.from("orders").update({ status: "pending_download" }).eq("id", tracking.order_id)
+          await supabase.from("orders").update({ status: "pending" }).eq("id", tracking.order_id)
         } else if (tracking.api_order_id) {
-          await supabase.from("api_orders").update({ status: "pending_download" }).eq("id", tracking.api_order_id)
+          await supabase.from("api_orders").update({ status: "pending" }).eq("id", tracking.api_order_id)
         }
       }
 

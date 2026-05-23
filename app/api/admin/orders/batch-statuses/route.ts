@@ -48,36 +48,30 @@ export async function POST(request: NextRequest) {
       const chunk = orderIdChunks[i]
       console.log(`[BATCH-STATUSES] Processing chunk ${i + 1}/${orderIdChunks.length} (${chunk.length} orders)`)
 
-      // Fetch from both tables to get current status for this chunk
-      const [bulkResult, shopResult] = await Promise.all([
-        supabase
-          .from("orders")
-          .select("id, status")
-          .in("id", chunk),
-        supabase
-          .from("shop_orders")
-          .select("id, order_status")
-          .in("id", chunk)
+      // Fetch from all order tables to get current status for this chunk
+      const [bulkResult, shopResult, apiResult, ussdResult, ussdShopResult] = await Promise.all([
+        supabase.from("orders").select("id, status").in("id", chunk),
+        supabase.from("shop_orders").select("id, order_status").in("id", chunk),
+        supabase.from("api_orders").select("id, status").in("id", chunk),
+        supabase.from("ussd_orders").select("id, order_status").in("id", chunk),
+        supabase.from("ussd_shop_orders").select("id, order_status").in("id", chunk),
       ])
 
       if (bulkResult.error) {
         console.error(`[BATCH-STATUSES] Error fetching bulk order statuses (chunk ${i + 1}):`, bulkResult.error)
         throw new Error(`Failed to fetch bulk order statuses: ${bulkResult.error.message || 'Unknown error'}`)
       }
-
       if (shopResult.error) {
         console.error(`[BATCH-STATUSES] Error fetching shop order statuses (chunk ${i + 1}):`, shopResult.error)
         throw new Error(`Failed to fetch shop order statuses: ${shopResult.error.message || 'Unknown error'}`)
       }
 
       // Add results to status map
-      bulkResult.data?.forEach((order: any) => {
-        statusMap[order.id] = order.status
-      })
-
-      shopResult.data?.forEach((order: any) => {
-        statusMap[order.id] = order.order_status
-      })
+      bulkResult.data?.forEach((order: any) => { statusMap[order.id] = order.status })
+      shopResult.data?.forEach((order: any) => { statusMap[order.id] = order.order_status })
+      apiResult.data?.forEach((order: any) => { statusMap[order.id] = order.status })
+      ussdResult.data?.forEach((order: any) => { statusMap[order.id] = order.order_status })
+      ussdShopResult.data?.forEach((order: any) => { statusMap[order.id] = order.order_status })
     }
 
     console.log("[BATCH-STATUSES] Found statuses for", Object.keys(statusMap).length, "orders")

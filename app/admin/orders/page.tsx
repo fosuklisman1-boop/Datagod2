@@ -366,6 +366,7 @@ export default function AdminOrdersPage() {
         },
         body: JSON.stringify({
           shop_order_id: orderId,
+          order_type: (order as any).type || "shop",
           network: order.network,
           provider: selectedProviders[orderId] || "sykes"
         })
@@ -1434,7 +1435,7 @@ export default function AdminOrdersPage() {
                             <Badge
                               className={`text-xs border ${order.status === "completed"
                                 ? "bg-green-100 text-green-800 border-green-200"
-                                : order.status === "pending" || order.status === "pending_download"
+                                : order.status === "pending"
                                   ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                                   : order.status === "processing"
                                     ? "bg-blue-100 text-blue-800 border-blue-200"
@@ -1443,7 +1444,7 @@ export default function AdminOrdersPage() {
                                       : "bg-gray-100 text-gray-800 border-gray-200"
                                 }`}
                             >
-                              {order.status === "pending_download" ? "Pending (DL)" : (order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown")}
+                              {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
                             </Badge>
                             <span className="text-xs text-gray-500">
                               Created: {new Date(order.created_at).toLocaleString()}

@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
         reference_code,
         created_at
       `)
-      .in("order_status", ["pending", "pending_download"])
+      .eq("order_status", "pending")
       .eq("payment_status", "completed")
       .not("payment_status", "is", null)
     

@@ -32,8 +32,8 @@ export async function POST(request: NextRequest) {
   try {
     console.log("[SYNC-ORDERS] Starting sync of CodeCraft orders...")
 
-    // Find all orders with "processing" status from both tables
-    const [walletOrders, shopOrders] = await Promise.all([
+    // Find all orders with "processing" status from all order tables
+    const [walletOrders, shopOrders, apiOrders] = await Promise.all([
       supabase
         .from("orders")
         .select("id, phone_number, network, size, created_at")
@@ -43,7 +43,12 @@ export async function POST(request: NextRequest) {
         .from("shop_orders")
         .select("id, customer_phone, network, volume_gb, created_at")
         .eq("order_status", "processing")
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("api_orders")
+        .select("id, recipient_phone, network, volume_gb, created_at")
+        .eq("status", "processing")
+        .order("created_at", { ascending: true }),
     ])
 
     // Filter to only include CodeCraft networks (AT-iShare, Telecel, BigTime)
@@ -54,18 +59,28 @@ export async function POST(request: NextRequest) {
         .map(o => ({ ...o, orderType: "wallet" as const })),
       ...(shopOrders.data || [])
         .filter(o => isCodeCraftNetwork(o.network))
-        .map(o => ({ 
-          id: o.id, 
-          phone_number: o.customer_phone, 
+        .map(o => ({
+          id: o.id,
+          phone_number: o.customer_phone,
           network: o.network,
           size: o.volume_gb,
           created_at: o.created_at,
-          orderType: "shop" as const 
-        }))
+          orderType: "shop" as const
+        })),
+      ...(apiOrders.data || [])
+        .filter(o => isCodeCraftNetwork(o.network))
+        .map(o => ({
+          id: o.id,
+          phone_number: o.recipient_phone,
+          network: o.network,
+          size: o.volume_gb,
+          created_at: o.created_at,
+          orderType: "api" as const
+        })),
     ]
 
     // Count how many were skipped (non-CodeCraft networks like MTN)
-    const totalProcessing = (walletOrders.data?.length || 0) + (shopOrders.data?.length || 0)
+    const totalProcessing = (walletOrders.data?.length || 0) + (shopOrders.data?.length || 0) + (apiOrders.data?.length || 0)
     const skippedCount = totalProcessing - allOrders.length
 
     if (skippedCount > 0) {
@@ -177,6 +192,11 @@ export async function POST(request: NextRequest) {
           if (order.orderType === "wallet") {
             await supabase
               .from("orders")
+              .update({ status: newStatus, updated_at: new Date().toISOString() })
+              .eq("id", order.id)
+          } else if (order.orderType === "api") {
+            await supabase
+              .from("api_orders")
               .update({ status: newStatus, updated_at: new Date().toISOString() })
               .eq("id", order.id)
           } else {
