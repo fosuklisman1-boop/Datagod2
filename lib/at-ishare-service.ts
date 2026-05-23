@@ -13,7 +13,7 @@ interface FulfillmentRequest {
   sizeGb: number
   orderId: string
   network?: string
-  orderType?: "wallet" | "shop" | "api" | "ussd"  // wallet = orders table, shop = shop_orders table, api = api_orders table
+  orderType?: "wallet" | "shop" | "api" | "ussd" | "ussd_shop"  // wallet = orders table, shop = shop_orders table, api = api_orders table
   isBigTime?: boolean  // true for AT-BigTime orders (uses special.php endpoint)
 }
 
@@ -368,9 +368,9 @@ class ATiShareService {
    * Called after initial fulfillment to confirm actual delivery
    */
   async verifyAndUpdateStatus(
-    orderId: string, 
-    network: string, 
-    orderType: "wallet" | "shop" | "api" | "ussd",
+    orderId: string,
+    network: string,
+    orderType: "wallet" | "shop" | "api" | "ussd" | "ussd_shop",
     isBigTime: boolean = false,
     externalReference?: string  // Code Craft's order ID if different from ours
   ): Promise<{ actualStatus: string; message?: string }> {
@@ -481,6 +481,11 @@ class ATiShareService {
         } else if (orderType === "ussd") {
           await this.supabase
             .from("ussd_orders")
+            .update({ order_status: actualStatus, updated_at: new Date().toISOString() })
+            .eq("id", orderId)
+        } else if (orderType === "ussd_shop") {
+          await this.supabase
+            .from("ussd_shop_orders")
             .update({ order_status: actualStatus, updated_at: new Date().toISOString() })
             .eq("id", orderId)
         } else {

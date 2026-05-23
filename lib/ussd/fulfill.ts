@@ -115,11 +115,18 @@ export async function fulfillUssdOrder(
         sizeGb,
         orderId,
         network: apiNetwork,
-        orderType: "ussd",
+        orderType: trackingOrderType,
         isBigTime,
-      }).then(async () => {
-        await markUssdOrderStatus(orderId, 'processing', orderTable)
-        console.log("[USSD-FULFILL] ✓ Codecraft order placed, awaiting cron confirmation:", orderId)
+      }).then(async (result) => {
+        // Only mark processing if the API call was accepted; on failure set back to pending
+        // so the order reappears in the retry list
+        if (result.success) {
+          await markUssdOrderStatus(orderId, 'processing', orderTable)
+          console.log("[USSD-FULFILL] ✓ Codecraft order placed, awaiting cron confirmation:", orderId)
+        } else {
+          console.error("[USSD-FULFILL] Codecraft returned failure:", result.message)
+          await markUssdOrderStatus(orderId, 'pending', orderTable)
+        }
       }).catch(async (err: any) => {
         console.error("[USSD-FULFILL] Codecraft error:", err)
         await markUssdOrderStatus(orderId, 'pending', orderTable)
