@@ -869,10 +869,12 @@ class ATiShareService {
       const tableNameMap: Record<string, string> = {
         shop: "shop_orders",
         api: "api_orders",
-        wallet: "orders"
+        wallet: "orders",
+        ussd: "ussd_orders",
+        ussd_shop: "ussd_shop_orders",
       }
       const tableName = tableNameMap[orderType] || "orders"
-      const statusField = orderType === "shop" ? "order_status" : "status"
+      const statusField = ["shop", "ussd", "ussd_shop"].includes(orderType) ? "order_status" : "status"
 
       console.log(`[CODECRAFT-LOG] Updating ${tableName} order ${orderId} with ${statusField}: ${orderStatus}`)
 

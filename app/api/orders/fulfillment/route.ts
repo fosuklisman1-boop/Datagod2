@@ -201,51 +201,54 @@ async function handleRetryFulfillment(
   try {
     console.log(`[FULFILLMENT] Retrying fulfillment for order ${orderId}`)
 
-    // Check if order exists in orders table (wallet orders)
     let order: any = null
-    let orderType: "wallet" | "shop" = "wallet"
-    let customerEmail: string | undefined = undefined
-    
-    const { data: walletOrder, error: walletOrderError } = await supabaseAdmin
-      .from("orders")
-      .select("network, phone_number, size, user_id")
-      .eq("id", orderId)
+    let orderType: "wallet" | "shop" | "api" | "ussd" | "ussd_shop" = "wallet"
+
+    // Read order_type from fulfillment_logs to target the right table directly
+    const { data: logEntry } = await supabaseAdmin
+      .from("fulfillment_logs")
+      .select("order_type")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .single()
 
-    if (walletOrder) {
-      order = walletOrder
-      orderType = "wallet"
-      
-      // Fetch user email for wallet orders (needed for BigTime)
-      if (walletOrder.user_id) {
-        const { data: userData } = await supabaseAdmin
-          .from("users")
-          .select("email")
-          .eq("id", walletOrder.user_id)
-          .single()
-        customerEmail = userData?.email
-      }
-    } else {
-      // Check shop_orders table
-      const { data: shopOrder, error: shopOrderError } = await supabaseAdmin
-        .from("shop_orders")
-        .select("network, customer_phone, volume_gb, customer_email")
+    const knownType = logEntry?.order_type as typeof orderType | undefined
+
+    // Table lookup map — ordered so we try the most-likely table first
+    const lookups: Array<{ type: typeof orderType; table: string; phoneField: string; sizeField: string; statusField: string }> = [
+      { type: "wallet",    table: "orders",           phoneField: "phone_number",   sizeField: "size",      statusField: "status" },
+      { type: "shop",      table: "shop_orders",      phoneField: "customer_phone", sizeField: "volume_gb", statusField: "order_status" },
+      { type: "ussd_shop", table: "ussd_shop_orders", phoneField: "recipient_phone",sizeField: "package_size", statusField: "order_status" },
+      { type: "ussd",      table: "ussd_orders",      phoneField: "recipient_phone",sizeField: "package_size", statusField: "order_status" },
+      { type: "api",       table: "api_orders",       phoneField: "recipient_phone",sizeField: "volume_gb", statusField: "status" },
+    ]
+
+    // If we know the type from logs, try that table first; otherwise probe all tables
+    const ordered = knownType
+      ? [lookups.find(l => l.type === knownType)!, ...lookups.filter(l => l.type !== knownType)]
+      : lookups
+
+    for (const lookup of ordered) {
+      const { data: row } = await supabaseAdmin
+        .from(lookup.table)
+        .select(`network, ${lookup.phoneField}, ${lookup.sizeField}`)
         .eq("id", orderId)
         .single()
 
-      if (shopOrder) {
+      if (row) {
         order = {
-          network: shopOrder.network,
-          phone_number: shopOrder.customer_phone,
-          size: shopOrder.volume_gb,
+          network: row.network,
+          phone_number: row[lookup.phoneField],
+          size: row[lookup.sizeField],
         }
-        orderType = "shop"
-        customerEmail = shopOrder.customer_email
+        orderType = lookup.type
+        break
       }
     }
 
     if (!order) {
-      console.error(`[FULFILLMENT] Order ${orderId} not found in orders or shop_orders table`)
+      console.error(`[FULFILLMENT] Order ${orderId} not found in any table`)
       return NextResponse.json(
         { error: "Order not found in any table" },
         { status: 404 }
