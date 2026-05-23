@@ -804,7 +804,7 @@ class ATiShareService {
     reference?: string,
     phoneNumber?: string,
     network?: string,
-    orderType: "wallet" | "shop" | "api" | "ussd" = "wallet"
+    orderType: "wallet" | "shop" | "api" | "ussd" | "ussd_shop" = "wallet"
   ): Promise<void> {
     try {
       console.log(`[CODECRAFT-LOG] Logging fulfillment attempt for order ${orderId}`)
