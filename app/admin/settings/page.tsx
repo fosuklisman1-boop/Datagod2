@@ -37,7 +37,7 @@ export default function AdminSettingsPage() {
   const [signupsEnabled, setSignupsEnabled] = useState(true)
   const [walletTopupsEnabled, setWalletTopupsEnabled] = useState(true)
   const [upgradesEnabled, setUpgradesEnabled] = useState(true)
-  const [signupDefaultRole, setSignupDefaultRole] = useState<'user' | 'dealer' | 'sub_agent'>('user')
+  const [signupDefaultRole, setSignupDefaultRole] = useState<'user' | 'dealer'>('user')
 
   // USSD price tier
   const [ussdPriceTier, setUssdPriceTier] = useState<"regular" | "dealer">("regular")
@@ -562,7 +562,7 @@ export default function AdminSettingsPage() {
               </div>
               <Select
                 value={signupDefaultRole}
-                onValueChange={(v) => setSignupDefaultRole(v as 'user' | 'dealer' | 'sub_agent')}
+                onValueChange={(v) => setSignupDefaultRole(v as 'user' | 'dealer')}
                 disabled={!signupsEnabled}
               >
                 <SelectTrigger className="w-36 bg-white">
@@ -571,7 +571,6 @@ export default function AdminSettingsPage() {
                 <SelectContent>
                   <SelectItem value="user">User</SelectItem>
                   <SelectItem value="dealer">Dealer</SelectItem>
-                  <SelectItem value="sub_agent">Sub-Agent</SelectItem>
                 </SelectContent>
               </Select>
             </div>

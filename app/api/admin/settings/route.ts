@@ -196,7 +196,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Validate signup_default_role if present
-    const validSignupRoles = ['user', 'dealer', 'sub_agent']
+    const validSignupRoles = ['user', 'dealer']
     if (updates.signup_default_role !== undefined && !validSignupRoles.includes(updates.signup_default_role)) {
       return NextResponse.json(
         { error: `signup_default_role must be one of: ${validSignupRoles.join(', ')}` },

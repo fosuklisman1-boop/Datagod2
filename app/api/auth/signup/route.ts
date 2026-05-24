@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const validSignupRoles = ['user', 'dealer', 'sub_agent']
+    const validSignupRoles = ['user', 'dealer']
     const rawRole: string = settings?.signup_default_role || 'user'
     const defaultRole: string = validSignupRoles.includes(rawRole) ? rawRole : 'user'
 
