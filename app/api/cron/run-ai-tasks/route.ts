@@ -98,10 +98,8 @@ async function notifyTaskResult(
   const title = "DATAGOD AI"
   const statusLine = `${success ? "✓" : "✗"} ${task.name}`
   const body = `${statusLine}: ${resultText.slice(0, 180) || (success ? "Task completed." : "Task failed.")}`
-  // Always include SMS on failures so the user is notified even if push is missed
-  const channels = success
-    ? (task.notify_channels ?? ["push"])
-    : [...new Set([...(task.notify_channels ?? ["push"]), "sms"])]
+  // Push always sent; SMS always added on failures
+  const channels = [...new Set([...(task.notify_channels ?? ["push"]), "push", ...(success ? [] : ["sms"])])]
 
   if (channels.includes("push")) {
     try { await sendPushToUser(task.user_id, { title, body }) } catch {}
