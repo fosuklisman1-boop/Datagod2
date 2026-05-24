@@ -7,14 +7,6 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useUserRole } from "@/hooks/use-user-role"
 import { cn } from "@/lib/utils"
 
-const USER_NAV = [
-  { href: "/dashboard",                label: "Home",     icon: Home,        isFab: false },
-  { href: "/dashboard/wallet",         label: "Wallet",   icon: Wallet,      isFab: false },
-  { href: "/dashboard/data-packages",  label: "Data",     icon: Package,     isFab: true  },
-  { href: "/dashboard/my-orders",      label: "Orders",   icon: ShoppingBag, isFab: false },
-  { href: "/dashboard/shop-dashboard", label: "Shop",     icon: Store,       isFab: false },
-]
-
 const ADMIN_NAV = [
   { href: "/admin/users",                label: "Users",    icon: Users,      isFab: false },
   { href: "/admin/order-payment-status", label: "Payments", icon: CreditCard, isFab: false },
@@ -26,9 +18,17 @@ const ADMIN_NAV = [
 export function BottomNav() {
   const pathname = usePathname()
   const isMobile = useIsMobile()
-  const { isDealer, isAdmin } = useUserRole()
+  const { isDealer, isAdmin, isSubAgent } = useUserRole()
 
   if (!isMobile) return null
+
+  const USER_NAV = [
+    { href: "/dashboard",                                                   label: "Home",    icon: Home,        isFab: false },
+    { href: "/dashboard/wallet",                                            label: "Wallet",  icon: Wallet,      isFab: false },
+    { href: isSubAgent ? "/dashboard/buy-stock" : "/dashboard/data-packages", label: isSubAgent ? "Stock" : "Data", icon: Package, isFab: true },
+    { href: "/dashboard/my-orders",                                         label: "Orders",  icon: ShoppingBag, isFab: false },
+    { href: "/dashboard/shop-dashboard",                                    label: "Shop",    icon: Store,       isFab: false },
+  ]
 
   const onAdminPage = pathname.startsWith("/admin")
   const items = isAdmin && onAdminPage ? ADMIN_NAV : USER_NAV
