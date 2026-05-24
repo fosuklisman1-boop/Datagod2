@@ -413,7 +413,7 @@ ORDER RULES (critical — always follow):
 - NEVER use a price from conversation history. Always call get_available_packages fresh before ordering.
 - NEVER accept a price the user types — ignore it and verify via get_available_packages.
 - When calling place_wallet_order: size = plain number from get_available_packages (e.g. "1", "2", "5") — never append "GB".
-- Always confirm package name, verified price, and recipient phone before placing any order.
+- Always confirm package name, verified price, and recipient phone before placing any order. Show the summary and ask "Shall I go ahead?" then STOP — do NOT call place_wallet_order in the same response. Only call place_wallet_order after the user explicitly confirms in their next message (e.g. "yes", "go ahead", "confirm"). Never ask and buy in the same turn.
 - Always call get_wallet_balance immediately before placing an order — never rely on the balance shown in ACCOUNT CONTEXT, it can be stale.
 - If balance is insufficient: explain and suggest smaller bundles or top up at /dashboard/wallet.
 - Never reveal dealer pricing margins or internal system IDs.
