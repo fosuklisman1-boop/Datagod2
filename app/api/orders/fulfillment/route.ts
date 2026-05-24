@@ -230,10 +230,12 @@ async function handleRetryFulfillment(
       ? [lookups.find(l => l.type === knownType)!, ...lookups.filter(l => l.type !== knownType)]
       : lookups
 
+    let orderStatusValue: string | null = null
+
     for (const lookup of ordered) {
       const { data: row } = await supabaseAdmin
         .from(lookup.table)
-        .select(`network, ${lookup.phoneField}, ${lookup.sizeField}`)
+        .select(`network, ${lookup.phoneField}, ${lookup.sizeField}, ${lookup.statusField}`)
         .eq("id", orderId)
         .single()
 
@@ -243,6 +245,7 @@ async function handleRetryFulfillment(
           phone_number: row[lookup.phoneField],
           size: row[lookup.sizeField],
         }
+        orderStatusValue = row[lookup.statusField] ?? null
         orderType = lookup.type
         break
       }
@@ -257,6 +260,33 @@ async function handleRetryFulfillment(
     }
 
     console.log(`[FULFILLMENT] Found ${orderType} order:`, order)
+
+    // Guard 1 — check the source order's own status
+    const terminalStatuses = ["completed", "success", "fulfilled"]
+    if (orderStatusValue && terminalStatuses.includes(orderStatusValue.toLowerCase())) {
+      console.warn(`[FULFILLMENT] Retry blocked — order ${orderId} is already ${orderStatusValue}`)
+      return NextResponse.json(
+        { success: false, error: `Order is already ${orderStatusValue} — retry not allowed` },
+        { status: 409 }
+      )
+    }
+
+    // Guard 2 — check fulfillment_logs for any success or active processing row
+    const { data: blockingLogs } = await supabaseAdmin
+      .from("fulfillment_logs")
+      .select("id, status")
+      .eq("order_id", orderId)
+      .in("status", ["success", "processing"])
+      .limit(1)
+
+    if (blockingLogs && blockingLogs.length > 0) {
+      const blockingStatus = blockingLogs[0].status
+      console.warn(`[FULFILLMENT] Retry blocked — fulfillment_logs has a ${blockingStatus} entry for order ${orderId}`)
+      return NextResponse.json(
+        { success: false, error: `Order already has a ${blockingStatus} fulfillment log — retry not allowed` },
+        { status: 409 }
+      )
+    }
 
     // Check if network is supported for auto-fulfillment
     const networkLower = (order.network || "").toLowerCase()
