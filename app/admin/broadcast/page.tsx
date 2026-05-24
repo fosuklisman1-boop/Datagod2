@@ -163,8 +163,8 @@ export default function BroadcastPage() {
             return
         }
 
-        if (channels.includes("email") && !subject.trim()) {
-            toast.error("Email subject is required")
+        if ((channels.includes("email") || channels.includes("push")) && !subject.trim()) {
+            toast.error(channels.includes("email") ? "Email subject is required" : "Notification title is required for push")
             return
         }
 
@@ -450,11 +450,17 @@ export default function BroadcastPage() {
                                 <CardTitle className="text-lg">Message Content</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                {channels.includes("email") && (
+                                {(channels.includes("email") || channels.includes("push")) && (
                                     <div className="space-y-2">
-                                        <Label>Email Subject</Label>
+                                        <Label>
+                                            {channels.includes("email") && channels.includes("push")
+                                                ? "Subject / Notification Title"
+                                                : channels.includes("push")
+                                                ? "Notification Title"
+                                                : "Email Subject"}
+                                        </Label>
                                         <Input
-                                            placeholder="Enter subject line..."
+                                            placeholder={channels.includes("push") ? "Enter notification title..." : "Enter subject line..."}
                                             value={subject}
                                             onChange={(e) => setSubject(e.target.value)}
                                         />
