@@ -10,18 +10,19 @@ const supabase = createClient(
 
 async function resolveUser(request: NextRequest): Promise<{
   userId: string
+  userRole: string
   isAdmin: boolean
   error?: NextResponse
 }> {
   const authHeader = request.headers.get("authorization")
   if (!authHeader?.startsWith("Bearer ")) {
-    return { userId: "", isAdmin: false, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+    return { userId: "", userRole: "user", isAdmin: false, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   }
   const token = authHeader.slice(7)
 
   const { data: authData, error: authError } = await supabase.auth.getUser(token)
   if (authError || !authData?.user?.id) {
-    return { userId: "", isAdmin: false, error: NextResponse.json({ error: "Invalid token" }, { status: 401 }) }
+    return { userId: "", userRole: "user", isAdmin: false, error: NextResponse.json({ error: "Invalid token" }, { status: 401 }) }
   }
 
   const { data: userData } = await supabase
@@ -32,6 +33,7 @@ async function resolveUser(request: NextRequest): Promise<{
 
   return {
     userId: authData.user.id,
+    userRole: userData?.role ?? "user",
     isAdmin: userData?.role === "admin",
   }
 }
@@ -113,7 +115,7 @@ export async function GET(request: NextRequest) {
 // ─── POST: create task ────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const { userId, isAdmin, error } = await resolveUser(request)
+  const { userId, userRole, isAdmin, error } = await resolveUser(request)
   if (error) return error
 
   try {
@@ -144,7 +146,7 @@ export async function POST(request: NextRequest) {
       prompt,
       context: taskContext,
       user_id: userId,
-      user_role: isAdmin ? "admin" : "user",
+      user_role: userRole,
       schedule_type,
       run_at_time: run_at_time ?? null,
       run_on_days: run_on_days ?? null,
