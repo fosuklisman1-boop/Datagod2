@@ -14,33 +14,33 @@ export async function GET(request: NextRequest) {
     const [bulkResult, shopResult, apiResult, ussdResult, ussdShopResult] = await Promise.all([
       supabase
         .from("orders")
-        .select("id, created_at, phone_number, price, status, size, network")
+        .select("id, created_at, phone_number, price, status, size, network", { count: "exact" })
         .eq("status", "pending")
         .order("created_at", { ascending: false })
         .range(0, 9999),
       supabase
         .from("shop_orders")
-        .select("id, created_at, customer_phone, total_price, order_status, volume_gb, network")
+        .select("id, created_at, customer_phone, total_price, order_status, volume_gb, network", { count: "exact" })
         .eq("order_status", "pending")
         .eq("payment_status", "completed")
         .order("created_at", { ascending: false })
         .range(0, 9999),
       supabase
         .from("api_orders")
-        .select("id, created_at, recipient_phone, price, status, volume_gb, network")
+        .select("id, created_at, recipient_phone, price, status, volume_gb, network", { count: "exact" })
         .eq("status", "pending")
         .order("created_at", { ascending: false })
         .range(0, 9999),
       supabase
         .from("ussd_orders")
-        .select("id, created_at, recipient_phone, amount, order_status, package_size, network")
+        .select("id, created_at, recipient_phone, amount, order_status, package_size, network", { count: "exact" })
         .eq("order_status", "pending")
         .eq("payment_status", "completed")
         .order("created_at", { ascending: false })
         .range(0, 9999),
       supabase
         .from("ussd_shop_orders")
-        .select("id, created_at, recipient_phone, amount, order_status, package_size, network")
+        .select("id, created_at, recipient_phone, amount, order_status, package_size, network", { count: "exact" })
         .eq("order_status", "pending")
         .eq("payment_status", "completed")
         .order("created_at", { ascending: false })
@@ -55,7 +55,14 @@ export async function GET(request: NextRequest) {
       ...(ussdShopResult.data || []).map(o => ({ id: o.id, phone_number: o.recipient_phone, network: o.network, size: o.package_size, price: o.amount, status: o.order_status, created_at: o.created_at, type: "ussd_shop" })),
     ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-    return NextResponse.json({ success: true, data: allOrders, count: allOrders.length })
+    const trueCount =
+      (bulkResult.count ?? 0) +
+      (shopResult.count ?? 0) +
+      (apiResult.count ?? 0) +
+      (ussdResult.count ?? 0) +
+      (ussdShopResult.count ?? 0)
+
+    return NextResponse.json({ success: true, data: allOrders, count: allOrders.length, trueCount })
   } catch (error) {
     console.error("Error fetching all pending orders:", error)
     return NextResponse.json({ error: error instanceof Error ? error.message : "Internal server error", success: false }, { status: 500 })

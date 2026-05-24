@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     // Build bulk orders query
     let bulkQuery = supabase
       .from("orders")
-      .select("id, created_at, phone_number, price, status, size, network")
+      .select("id, created_at, phone_number, price, status, size, network", { count: "exact" })
       .eq("status", "pending")
     
     // If auto-fulfillment is enabled, exclude auto-fulfilled networks
@@ -105,9 +105,9 @@ export async function GET(request: NextRequest) {
       bulkQuery = bulkQuery.neq("network", "MTN")
     }
     
-    const { data: bulkOrders, error: bulkError } = await bulkQuery
+    const { data: bulkOrders, count: bulkTrueCount, error: bulkError } = await bulkQuery
       .order("created_at", { ascending: false })
-      .range(0, 9999) // Pagination instead of hardcoded limit
+      .range(0, 9999)
 
     if (bulkError) {
       console.error("Supabase error fetching bulk orders:", bulkError)
@@ -122,22 +122,7 @@ export async function GET(request: NextRequest) {
     // Build shop orders query (with confirmed payment only)
     let shopQuery = supabase
       .from("shop_orders")
-      .select(`
-        id,
-        shop_id,
-        customer_name,
-        customer_phone,
-        customer_email,
-        network,
-        volume_gb,
-        base_price,
-        profit_amount,
-        total_price,
-        order_status,
-        payment_status,
-        reference_code,
-        created_at
-      `)
+      .select(`id, shop_id, customer_name, customer_phone, customer_email, network, volume_gb, base_price, profit_amount, total_price, order_status, payment_status, reference_code, created_at`, { count: "exact" })
       .eq("order_status", "pending")
       .eq("payment_status", "completed")
       .not("payment_status", "is", null)
@@ -155,9 +140,9 @@ export async function GET(request: NextRequest) {
       shopQuery = shopQuery.neq("network", "MTN")
     }
     
-    const { data: shopOrders, error: shopError } = await shopQuery
+    const { data: shopOrders, count: shopTrueCount, error: shopError } = await shopQuery
       .order("created_at", { ascending: false })
-      .range(0, 9999) // Pagination instead of hardcoded limit
+      .range(0, 9999)
 
     if (shopError) {
       console.error("Supabase error fetching shop orders:", shopError)
@@ -203,9 +188,9 @@ export async function GET(request: NextRequest) {
     })) || []
 
     // Map api orders
-    const { data: apiOrders, error: apiError } = await supabase
+    const { data: apiOrders, count: apiTrueCount, error: apiError } = await supabase
       .from("api_orders")
-      .select("id, created_at, recipient_phone, price, status, volume_gb, network")
+      .select("id, created_at, recipient_phone, price, status, volume_gb, network", { count: "exact" })
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .range(0, 9999)
@@ -227,7 +212,7 @@ export async function GET(request: NextRequest) {
     // Build USSD orders query (paid but not yet fulfilled)
     let ussdQuery = supabase
       .from("ussd_orders")
-      .select("id, created_at, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status")
+      .select("id, created_at, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status", { count: "exact" })
       .eq("order_status", "pending")
       .eq("payment_status", "completed")
 
@@ -243,7 +228,7 @@ export async function GET(request: NextRequest) {
       ussdQuery = ussdQuery.neq("network", "MTN")
     }
 
-    const { data: ussdOrders, error: ussdError } = await ussdQuery
+    const { data: ussdOrders, count: ussdTrueCount, error: ussdError } = await ussdQuery
       .order("created_at", { ascending: false })
       .range(0, 9999)
 
@@ -271,7 +256,7 @@ export async function GET(request: NextRequest) {
     // Build USSD shop orders query
     let ussdShopQuery = supabase
       .from("ussd_shop_orders")
-      .select("id, created_at, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, shop_name")
+      .select("id, created_at, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, shop_name", { count: "exact" })
       .eq("order_status", "pending")
       .eq("payment_status", "completed")
 
@@ -288,7 +273,7 @@ export async function GET(request: NextRequest) {
       ussdShopQuery = ussdShopQuery.neq("network", "MTN")
     }
 
-    const { data: ussdShopOrders, error: ussdShopError } = await ussdShopQuery
+    const { data: ussdShopOrders, count: ussdShopTrueCount, error: ussdShopError } = await ussdShopQuery
       .order("created_at", { ascending: false })
       .range(0, 9999)
 
@@ -324,10 +309,18 @@ export async function GET(request: NextRequest) {
       return acc
     }, {}))
 
+    const trueCount =
+      (bulkTrueCount ?? 0) +
+      (shopTrueCount ?? 0) +
+      (apiTrueCount ?? 0) +
+      (ussdTrueCount ?? 0) +
+      (ussdShopTrueCount ?? 0)
+
     return NextResponse.json({
       success: true,
       data: allOrders,
       count: allOrders.length,
+      trueCount,
       bulkCount: mappedBulkOrders.length,
       shopCount: mappedShopOrders.length,
       ussdCount: mappedUssdOrders.length,

@@ -37,49 +37,68 @@ interface FulfillmentOrder {
   retry_after?: string
 }
 
+interface StatusCounts {
+  total: number
+  success: number
+  failed: number
+  processing: number
+  pending: number
+}
+
+interface Pagination {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
+
 export default function AdminFulfillmentPage() {
   const [fulfillments, setFulfillments] = useState<FulfillmentOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<"all" | "success" | "failed" | "pending" | "processing">("all")
   const [searchPhone, setSearchPhone] = useState("")
+  const [committedPhone, setCommittedPhone] = useState("")
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState<Pagination | null>(null)
+  const [statusCounts, setStatusCounts] = useState<StatusCounts | null>(null)
   const [retrying, setRetrying] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
-    loadFulfillments()
-    // Refresh every 30 seconds
-    const interval = setInterval(loadFulfillments, 30000)
+    loadFulfillments(1)
+    const interval = setInterval(() => loadFulfillments(page), 30000)
     return () => clearInterval(interval)
-  }, [filter])
+  }, [filter, committedPhone])
 
-  const loadFulfillments = async () => {
+  const loadFulfillments = async (targetPage: number) => {
     try {
       setLoading(true)
-      
-      // Get session to verify admin access
+
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
         toast.error("Authentication required")
         return
       }
 
-      // Use backend API to bypass RLS and get all fulfillment logs
-      const statusParam = filter !== "all" ? `?status=${filter}` : ""
-      const response = await fetch(`/api/admin/fulfillment/logs${statusParam}`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+      const params = new URLSearchParams({ page: String(targetPage), limit: "50" })
+      if (filter !== "all") params.set("status", filter)
+      if (committedPhone) params.set("phone", committedPhone)
+
+      const response = await fetch(`/api/admin/fulfillment/logs?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
 
       if (!response.ok) {
         const error = await response.json()
-        console.error("Error loading fulfillments:", error)
         toast.error(error.error || "Failed to load fulfillments")
         return
       }
 
       const data = await response.json()
       setFulfillments(data.logs || [])
+      setPagination(data.pagination ?? null)
+      setStatusCounts(data.statusCounts ?? null)
+      setPage(targetPage)
     } catch (error) {
       console.error("Error:", error)
       toast.error("An error occurred")
@@ -108,7 +127,7 @@ export default function AdminFulfillmentPage() {
 
       if (data.success) {
         toast.success("Retry triggered successfully")
-        loadFulfillments()
+        loadFulfillments(page)
       } else {
         toast.error(data.message || "Failed to retry fulfillment")
       }
@@ -138,7 +157,7 @@ export default function AdminFulfillmentPage() {
 
       if (data.success) {
         toast.success("Failed logs cleared successfully")
-        loadFulfillments()
+        loadFulfillments(1)
       } else {
         toast.error(data.error || "Failed to clear logs")
       }
@@ -149,10 +168,6 @@ export default function AdminFulfillmentPage() {
       setDeleting(null)
     }
   }
-
-  const filteredFulfillments = fulfillments.filter((f) =>
-    searchPhone ? f.phone_number.includes(searchPhone) : true
-  )
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -182,7 +197,19 @@ export default function AdminFulfillmentPage() {
 
   const downloadReport = async () => {
     try {
-      const csv = generateCSV(filteredFulfillments)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+
+      // Fetch all records for the current filter (max 500 per API limit)
+      const params = new URLSearchParams({ page: "1", limit: "500" })
+      if (filter !== "all") params.set("status", filter)
+      if (committedPhone) params.set("phone", committedPhone)
+
+      const response = await fetch(`/api/admin/fulfillment/logs?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const data = await response.json()
+      const csv = generateCSV(data.logs || [])
       const blob = new Blob([csv], { type: "text/csv" })
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -225,12 +252,8 @@ export default function AdminFulfillmentPage() {
     ].join("\n")
   }
 
-  const stats = {
-    total: fulfillments.length,
-    success: fulfillments.filter((f) => f.status === "success").length,
-    failed: fulfillments.filter((f) => f.status === "failed").length,
-    processing: fulfillments.filter((f) => f.status === "processing").length,
-    pending: fulfillments.filter((f) => f.status === "pending").length,
+  const stats = statusCounts ?? {
+    total: 0, success: 0, failed: 0, processing: 0, pending: 0,
   }
 
   return (
@@ -298,7 +321,7 @@ export default function AdminFulfillmentPage() {
                   key={status}
                   variant={filter === status ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setFilter(status)}
+                  onClick={() => { setFilter(status); setPage(1) }}
                   className="capitalize"
                 >
                   {status}
@@ -311,9 +334,13 @@ export default function AdminFulfillmentPage() {
                 placeholder="Search by phone number..."
                 value={searchPhone}
                 onChange={(e) => setSearchPhone(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { setCommittedPhone(searchPhone); setPage(1) } }}
                 className="flex-1"
               />
-              <Button onClick={loadFulfillments} size="sm">
+              <Button size="sm" onClick={() => { setCommittedPhone(searchPhone); setPage(1) }}>
+                Search
+              </Button>
+              <Button onClick={() => loadFulfillments(page)} size="sm" variant="outline">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refresh
               </Button>
@@ -338,14 +365,18 @@ export default function AdminFulfillmentPage() {
         <Card>
           <CardHeader>
             <CardTitle>Fulfillment Orders</CardTitle>
-            <CardDescription>Showing {filteredFulfillments.length} orders</CardDescription>
+            <CardDescription>
+              {pagination
+                ? `Showing ${(page - 1) * pagination.limit + 1}–${Math.min(page * pagination.limit, pagination.total)} of ${formatCount(pagination.total)} orders`
+                : "Loading..."}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (
               <div className="text-center py-8">
                 <p className="text-gray-600">Loading...</p>
               </div>
-            ) : filteredFulfillments.length === 0 ? (
+            ) : fulfillments.length === 0 ? (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>No fulfillments found</AlertDescription>
@@ -365,7 +396,7 @@ export default function AdminFulfillmentPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredFulfillments.map((fulfillment) => (
+                    {fulfillments.map((fulfillment) => (
                       <tr key={fulfillment.id} className="border-b hover:bg-gray-50">
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
@@ -414,6 +445,31 @@ export default function AdminFulfillmentPage() {
                     ))}
                   </tbody>
                 </table>
+                {pagination && pagination.totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t mt-2">
+                    <span className="text-xs text-gray-500">
+                      Page {page} of {pagination.totalPages} &mdash; {formatCount(pagination.total)} total
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page <= 1 || loading}
+                        onClick={() => loadFulfillments(page - 1)}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page >= pagination.totalPages || loading}
+                        onClick={() => loadFulfillments(page + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

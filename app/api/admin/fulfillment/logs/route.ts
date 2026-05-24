@@ -20,45 +20,55 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get("status")
+    const phone = searchParams.get("phone")
     const page = parseInt(searchParams.get("page") || "1")
-    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500) // Max 500 per page
+    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 500)
     const offset = (page - 1) * limit
 
-    // Get total count
-    let countQuery = supabase
-      .from("fulfillment_logs")
-      .select("*", { count: "exact", head: true })
+    // Per-status global counts for stat cards (always unfiltered by status)
+    const [totalRes, successRes, failedRes, processingRes, pendingRes] = await Promise.all([
+      supabase.from("fulfillment_logs").select("*", { count: "exact", head: true }),
+      supabase.from("fulfillment_logs").select("*", { count: "exact", head: true }).eq("status", "success"),
+      supabase.from("fulfillment_logs").select("*", { count: "exact", head: true }).eq("status", "failed"),
+      supabase.from("fulfillment_logs").select("*", { count: "exact", head: true }).eq("status", "processing"),
+      supabase.from("fulfillment_logs").select("*", { count: "exact", head: true }).eq("status", "pending"),
+    ])
 
-    if (status && status !== "all") {
-      countQuery = countQuery.eq("status", status)
+    const statusCounts = {
+      total: totalRes.count ?? 0,
+      success: successRes.count ?? 0,
+      failed: failedRes.count ?? 0,
+      processing: processingRes.count ?? 0,
+      pending: pendingRes.count ?? 0,
     }
 
+    // Filtered count for pagination
+    let countQuery = supabase.from("fulfillment_logs").select("*", { count: "exact", head: true })
+    if (status && status !== "all") countQuery = countQuery.eq("status", status)
+    if (phone) countQuery = countQuery.ilike("phone_number", `%${phone}%`)
     const { count } = await countQuery
 
-    // Fetch fulfillment logs with pagination
+    // Fetch page of logs
     let query = supabase
       .from("fulfillment_logs")
       .select("*")
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1)
 
-    if (status && status !== "all") {
-      query = query.eq("status", status)
-    }
+    if (status && status !== "all") query = query.eq("status", status)
+    if (phone) query = query.ilike("phone_number", `%${phone}%`)
 
     const { data: logs, error } = await query
 
     if (error) {
       console.error("[FULFILLMENT-LOGS] Error fetching logs:", error)
-      return NextResponse.json(
-        { error: "Failed to fetch fulfillment logs" },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: "Failed to fetch fulfillment logs" }, { status: 500 })
     }
 
     return NextResponse.json({
       success: true,
       logs: logs || [],
+      statusCounts,
       pagination: {
         page,
         limit,

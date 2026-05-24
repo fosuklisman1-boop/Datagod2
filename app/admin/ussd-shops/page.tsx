@@ -53,6 +53,9 @@ export default function AdminUssdShopsPage() {
   const router = useRouter()
   const [codes, setCodes] = useState<ShopCode[]>([])
   const [orders, setOrders] = useState<ShopOrder[]>([])
+  const [ordersPage, setOrdersPage] = useState(0)
+  const [ordersTotalCount, setOrdersTotalCount] = useState(0)
+  const ORDERS_PER_PAGE = 50
   const [userShops, setUserShops] = useState<UserShop[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -88,6 +91,19 @@ export default function AdminUssdShopsPage() {
   const [activateTarget, setActivateTarget] = useState<ShopCode | null>(null)
   const [activateTokens, setActivateTokens] = useState("0")
   const [activating, setActivating] = useState(false)
+
+  const loadOrders = async (page: number) => {
+    const from = page * ORDERS_PER_PAGE
+    const to = from + ORDERS_PER_PAGE - 1
+    const { data, count } = await supabase
+      .from("ussd_shop_orders")
+      .select("id, shop_code_id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, created_at", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(from, to)
+    setOrders(data ?? [])
+    setOrdersTotalCount(count ?? 0)
+    setOrdersPage(page)
+  }
 
   useEffect(() => {
     checkAdminAndLoad()
@@ -134,13 +150,7 @@ export default function AdminUssdShopsPage() {
         setMaxSessions(String(settingsJson.ussd_shop_max_sessions ?? "100"))
       }
 
-      // Load recent orders
-      const { data: ordersData } = await supabase
-        .from("ussd_shop_orders")
-        .select("id, shop_code_id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, created_at")
-        .order("created_at", { ascending: false })
-        .limit(100)
-      setOrders(ordersData ?? [])
+      await loadOrders(0)
     } catch (e) {
       toast.error("Failed to load data")
     } finally {
@@ -492,7 +502,7 @@ export default function AdminUssdShopsPage() {
           <TabsList className="mb-4">
             <TabsTrigger value="codes">Shop Codes ({codes.length})</TabsTrigger>
             <TabsTrigger value="active">Active Codes ({codes.filter(c => c.status === 'active').length})</TabsTrigger>
-            <TabsTrigger value="orders">Orders ({orders.length})</TabsTrigger>
+            <TabsTrigger value="orders">Orders ({ordersTotalCount})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="codes">
@@ -712,6 +722,31 @@ export default function AdminUssdShopsPage() {
                         ))}
                       </tbody>
                     </table>
+                    {ordersTotalCount > ORDERS_PER_PAGE && (
+                      <div className="flex items-center justify-between pt-4 border-t mt-2">
+                        <span className="text-xs text-gray-500">
+                          Showing {ordersPage * ORDERS_PER_PAGE + 1}–{Math.min((ordersPage + 1) * ORDERS_PER_PAGE, ordersTotalCount)} of {ordersTotalCount}
+                        </span>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={ordersPage === 0}
+                            onClick={() => loadOrders(ordersPage - 1)}
+                          >
+                            Previous
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={(ordersPage + 1) * ORDERS_PER_PAGE >= ordersTotalCount}
+                            onClick={() => loadOrders(ordersPage + 1)}
+                          >
+                            Next
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>

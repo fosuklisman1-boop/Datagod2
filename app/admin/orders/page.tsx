@@ -62,6 +62,7 @@ export default function AdminOrdersPage() {
   const [activeTab, setActiveTab] = useState<"pending" | "downloaded" | "fulfillment">("pending")
 
   const [pendingOrders, setPendingOrders] = useState<ShopOrder[]>([])
+  const [pendingTrueCount, setPendingTrueCount] = useState(0)
   const [downloadedOrders, setDownloadedOrders] = useState<DownloadedOrders>({})
 
   const [loadingPending, setLoadingPending] = useState(true)
@@ -218,12 +219,13 @@ export default function AdminOrdersPage() {
       }
 
       const result = await response.json()
-      console.log("Fetched pending orders:", result.count)
       const ordersData = result.data || []
+      const trueCount = result.trueCount ?? ordersData.length
       setPendingOrders(ordersData)
-      // Sync pending count to localStorage for sidebar badge
-      localStorage.setItem('adminPendingOrdersCount', ordersData.length.toString())
-      console.log('[ADMIN-ORDERS] Updated localStorage with admin pending count:', ordersData.length)
+      setPendingTrueCount(trueCount)
+      // Sync true pending count to localStorage for sidebar badge
+      localStorage.setItem('adminPendingOrdersCount', trueCount.toString())
+      console.log('[ADMIN-ORDERS] Updated localStorage with admin pending count:', trueCount)
     } catch (error) {
       console.error("Error loading pending orders:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load pending orders"
@@ -836,7 +838,7 @@ export default function AdminOrdersPage() {
               <Clock className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
               <span className="hidden sm:inline">Pending</span>
               <span className="sm:hidden">Pend</span>
-              <span>({formatCount(pendingOrders.length)})</span>
+              <span>({formatCount(pendingTrueCount)})</span>
             </TabsTrigger>
             <TabsTrigger value="downloaded" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
               <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
@@ -885,7 +887,7 @@ export default function AdminOrdersPage() {
                   <CardHeader>
                     <CardTitle>Pending Orders</CardTitle>
                     <CardDescription>
-                      {formatCount(pendingOrders.length)} order{pendingOrders.length !== 1 ? "s" : ""} waiting to be downloaded
+                      {formatCount(pendingTrueCount)} order{pendingTrueCount !== 1 ? "s" : ""} waiting to be downloaded
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1526,9 +1528,9 @@ export default function AdminOrdersPage() {
               <DialogTitle>Select Networks to Download</DialogTitle>
               <DialogDescription>
                 Choose which networks you want to download orders for.
-                {pendingOrders.length > 0 && (
+                {pendingTrueCount > 0 && (
                   <span className="block mt-2 text-sm">
-                    Available orders: {formatCount(pendingOrders.length)}
+                    Available orders: {formatCount(pendingTrueCount)}
                   </span>
                 )}
               </DialogDescription>
