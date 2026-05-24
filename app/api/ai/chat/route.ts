@@ -74,7 +74,9 @@ function getBaseUrl(): string {
   // Never derive from the Host header — that's attacker-controlled and enables SSRF with JWT forwarding.
   // NEXT_PUBLIC_APP_URL must be set in production (e.g. https://datagod.store).
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")
-  return process.env.NODE_ENV === "production" ? "" : "http://localhost:3000"
+  // VERCEL_URL is automatically set by Vercel on all deployments (including previews) — no https prefix
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return "http://localhost:3000"
 }
 
 export async function POST(req: NextRequest) {
