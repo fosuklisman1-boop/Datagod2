@@ -93,7 +93,10 @@ async function notifyTaskResult(
 
   const title = `${success ? "✓" : "✗"} ${task.name}`
   const body = resultText.slice(0, 200) || (success ? "Task completed." : "Task failed.")
-  const channels = task.notify_channels ?? ["push"]
+  // Always include SMS on failures so the user is notified even if push is missed
+  const channels = success
+    ? (task.notify_channels ?? ["push"])
+    : [...new Set([...(task.notify_channels ?? ["push"]), "sms"])]
 
   if (channels.includes("push")) {
     try { await sendPushToUser(task.user_id, { title, body }) } catch {}
