@@ -489,6 +489,29 @@ export function Sidebar() {
                 </Button>
               </Link>
 
+              <Link href="/admin/scheduled-tasks" onClick={() => handleNavigation("/admin/scheduled-tasks")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/scheduled-tasks" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
+                      : (pathname === "/admin/scheduled-tasks" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/scheduled-tasks" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Scheduled Tasks" : undefined}
+                  disabled={loadingPath === "/admin/scheduled-tasks"}
+                >
+                  {loadingPath === "/admin/scheduled-tasks" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Clock className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Scheduled Tasks"}
+                </Button>
+              </Link>
+
               <Link href="/admin/subscriptions" onClick={() => handleNavigation("/admin/subscriptions")}>
                 <Button
                   variant="ghost"
