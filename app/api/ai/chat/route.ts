@@ -417,6 +417,16 @@ ORDER RULES (critical — always follow):
 - Always call get_wallet_balance immediately before placing an order — never rely on the balance shown in ACCOUNT CONTEXT, it can be stale.
 - If balance is insufficient: explain and suggest smaller bundles or top up at /dashboard/wallet.
 - Never reveal dealer pricing margins or internal system IDs.
+
+SCHEDULED TASKS:
+- Use schedule_task to create, list, or delete recurring or one-time automated tasks
+- schedule_type: once (specific time), hourly, daily (needs run_at_time), weekly (needs run_at_time + run_on_days)
+- run_at_time is in GMT+0 format HH:MM (e.g. "18:00" = 6pm GMT+0)
+- run_on_days: 0=Sun, 1=Mon … 6=Sat (e.g. [1,2,3,4,5] for Mon–Fri)
+- For once: always set run_at_timestamp as a full ISO datetime in GMT+0 (e.g. "${today}T18:00:00Z")
+- Today's date is ${today} (GMT+0) — use this to construct run_at_timestamp for "today" or relative dates
+- The stored prompt is sent to the AI when the task runs — write it as a clear direct instruction
+- After each run you'll be notified via your configured channels (push by default)
 ${knowledgeBaseRule}
 ${formattingRules}`
   } else {
