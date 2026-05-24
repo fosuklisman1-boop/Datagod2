@@ -107,6 +107,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <>
     <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${isDealer ? "bg-amber-50/40" : "bg-gray-50"}`}>
       {/* Sidebar */}
       <Sidebar />
@@ -122,7 +123,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             {children}
           </div>
         </main>
-        <BottomNav />
       </div>
 
       {/* Announcement Modal */}
@@ -133,5 +133,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         message={announcementMessage}
       />
     </div>
+
+    {/* Outside all overflow-hidden/transition ancestors so position:fixed
+        stays viewport-relative and doesn't scroll with the page on mobile */}
+    <BottomNav />
+    </>
   )
 }
