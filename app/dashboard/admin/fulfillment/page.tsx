@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { RefreshCw, Download, AlertCircle, CheckCircle, Clock, XCircle, Trash2 } from "lucide-react"
+import { RefreshCw, Download, AlertCircle, CheckCircle, Clock, XCircle, Trash2, Zap } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -63,6 +63,7 @@ export default function AdminFulfillmentPage() {
   const [statusCounts, setStatusCounts] = useState<StatusCounts | null>(null)
   const [retrying, setRetrying] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [syncingCodecraft, setSyncingCodecraft] = useState(false)
 
   useEffect(() => {
     loadFulfillments(1)
@@ -166,6 +167,28 @@ export default function AdminFulfillmentPage() {
       toast.error("An error occurred")
     } finally {
       setDeleting(null)
+    }
+  }
+
+  const handleSyncCodecraft = async () => {
+    try {
+      setSyncingCodecraft(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/fulfillment/sync-codecraft", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast.success(data.message)
+        loadFulfillments(page)
+      } else {
+        toast.error(data.error || "Sync failed")
+      }
+    } catch (error) {
+      toast.error("An error occurred during sync")
+    } finally {
+      setSyncingCodecraft(false)
     }
   }
 
@@ -343,6 +366,19 @@ export default function AdminFulfillmentPage() {
               <Button onClick={() => loadFulfillments(page)} size="sm" variant="outline">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refresh
+              </Button>
+              <Button
+                onClick={handleSyncCodecraft}
+                size="sm"
+                variant="outline"
+                disabled={syncingCodecraft}
+                className="border-purple-200 text-purple-700 hover:bg-purple-50"
+              >
+                {syncingCodecraft
+                  ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  : <Zap className="w-4 h-4 mr-2" />
+                }
+                {syncingCodecraft ? "Syncing..." : "Sync Codecraft"}
               </Button>
               <Button onClick={downloadReport} size="sm" variant="outline">
                 <Download className="w-4 h-4 mr-2" />
