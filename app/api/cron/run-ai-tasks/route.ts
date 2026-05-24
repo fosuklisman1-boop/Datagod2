@@ -95,8 +95,9 @@ async function notifyTaskResult(
     .maybeSingle()
   const user = userRow.data
 
-  const title = `${success ? "✓" : "✗"} ${task.name}`
-  const body = resultText.slice(0, 200) || (success ? "Task completed." : "Task failed.")
+  const title = "DATAGOD AI"
+  const statusLine = `${success ? "✓" : "✗"} ${task.name}`
+  const body = `${statusLine}: ${resultText.slice(0, 180) || (success ? "Task completed." : "Task failed.")}`
   // Always include SMS on failures so the user is notified even if push is missed
   const channels = success
     ? (task.notify_channels ?? ["push"])
@@ -110,7 +111,7 @@ async function notifyTaskResult(
     try {
       await sendSMS({
         phone: user.phone,
-        message: `${title}: ${body}`.slice(0, 160),
+        message: `${title} — ${body}`.slice(0, 160),
         type: "scheduled_task_result",
         userId: task.user_id,
         skipLogging: true,
@@ -122,7 +123,7 @@ async function notifyTaskResult(
     try {
       await sendEmail({
         to: [{ email: user.email }],
-        subject: title,
+        subject: `DATAGOD AI — ${statusLine}`,
         htmlContent: `<p>${resultText.replace(/\n/g, "<br>")}</p>`,
         textContent: resultText,
         type: "scheduled_task_result",

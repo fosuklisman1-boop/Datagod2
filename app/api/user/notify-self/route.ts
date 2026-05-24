@@ -46,12 +46,15 @@ async function handleNotify(userId: string, body: Record<string, unknown>) {
     return NextResponse.json({ error: "title and message are required" }, { status: 400 })
   }
 
+  const notifTitle = "DATAGOD AI"
+  const notifBody = title !== "DATAGOD AI" ? `${title}: ${message}` : message
+
   let pushed = 0
   let smsed = 0
 
   if ((channels as string[]).includes("push")) {
     try {
-      const result = await sendPushToUser(userId, { title, body: message })
+      const result = await sendPushToUser(userId, { title: notifTitle, body: notifBody })
       pushed = result.sent
     } catch {}
   }
@@ -67,7 +70,7 @@ async function handleNotify(userId: string, body: Record<string, unknown>) {
       try {
         const result = await sendSMS({
           phone: user.phone,
-          message: `${title}: ${message}`.slice(0, 160),
+          message: `DATAGOD AI — ${notifBody}`.slice(0, 160),
           type: "reminder",
           userId,
           skipLogging: true,
