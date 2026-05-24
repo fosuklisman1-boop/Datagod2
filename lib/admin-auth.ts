@@ -22,8 +22,14 @@ export async function verifyAdminAccess(request: NextRequest): Promise<{
 }> {
   const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-  // Check authorization header
+  // CRON_SECRET bypass — allows the scheduled task engine to call admin endpoints
+  const cronSecret = process.env.CRON_SECRET
   const authHeader = request.headers.get("authorization")
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    return { isAdmin: true }
+  }
+
+  // Check authorization header
   if (!authHeader?.startsWith("Bearer ")) {
     return {
       isAdmin: false,

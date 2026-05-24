@@ -719,6 +719,70 @@ const showActionButtonsTool: Anthropic.Tool = {
   },
 }
 
+// ─── Admin: scheduled tasks ──────────────────────────────────────────────────
+
+const manageScheduledTaskTool: Anthropic.Tool = {
+  name: "manage_scheduled_task",
+  description: "Admin only: create, list, get, delete, or toggle scheduled AI tasks. A scheduled task stores a prompt that the AI cron engine runs automatically at the configured time — the stored prompt is sent to the AI exactly as written. Action guide: 'create' needs name, prompt, schedule_type (and run_at_time HH:MM UTC for daily/weekly, run_on_days [0-6] for weekly, run_at_timestamp ISO for once). 'toggle' needs task_id + is_active. 'delete' needs task_id.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", enum: ["create", "list", "get", "delete", "toggle"], description: "create: add new task. list: show all tasks. get: fetch details of one task (needs task_id). delete: remove a task (needs task_id). toggle: activate/deactivate (needs task_id + is_active)." },
+      task_id: { type: "string", description: "Task UUID. Required for get, delete, and toggle." },
+      name: { type: "string", description: "Short descriptive name for the task. Required for create." },
+      prompt: { type: "string", description: "The exact prompt that will be sent to the AI each time the task runs. Write it as a clear instruction. Required for create." },
+      schedule_type: { type: "string", enum: ["once", "hourly", "daily", "weekly"], description: "How often the task runs. Required for create." },
+      run_at_time: { type: "string", description: "HH:MM in GMT+0 — required for daily and weekly schedule types. Example: '18:00' = 6pm GMT+0." },
+      run_on_days: { type: "array", items: { type: "number" }, description: "Days of the week to run — 0=Sun, 1=Mon … 6=Sat. Required for weekly. Example: [1,2,3,4,5] for Mon–Fri." },
+      run_at_timestamp: { type: "string", description: "ISO datetime string — required for schedule_type=once. Example: '2026-06-01T18:00:00Z'." },
+      is_active: { type: "boolean", description: "Required for toggle — true to activate, false to deactivate." },
+      notify_channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email"] }, description: "Which channels to notify the task owner after each run. Defaults to ['push']." },
+    },
+    required: ["action"],
+  },
+}
+
+// ─── Dashboard: scheduled tasks ───────────────────────────────────────────────
+
+const scheduleTaskTool: Anthropic.Tool = {
+  name: "schedule_task",
+  description: "Dashboard: create, list, or delete your own scheduled AI tasks. A scheduled task runs a stored prompt through the AI automatically at the configured time — the result is delivered to you via your configured channels. Action guide: 'create' needs name, prompt, schedule_type. 'delete' needs task_id.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", enum: ["create", "list", "delete"], description: "create: schedule a new task. list: view your scheduled tasks. delete: remove a task (needs task_id)." },
+      task_id: { type: "string", description: "Task UUID. Required for delete." },
+      name: { type: "string", description: "Short name for the task. Required for create." },
+      prompt: { type: "string", description: "The instruction the AI will execute each time this task runs (e.g. 'Buy 5GB MTN for 0241234567'). Required for create." },
+      schedule_type: { type: "string", enum: ["once", "hourly", "daily", "weekly"], description: "How often the task runs. Required for create." },
+      run_at_time: { type: "string", description: "HH:MM in UTC — required for daily and weekly." },
+      run_on_days: { type: "array", items: { type: "number" }, description: "Days to run — 0=Sun … 6=Sat. Required for weekly." },
+      run_at_timestamp: { type: "string", description: "ISO datetime — required for schedule_type=once." },
+      notify_channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email"] }, description: "How to be notified after each run. Defaults to ['push']." },
+    },
+    required: ["action"],
+  },
+}
+
+// ─── Admin: send notifications ────────────────────────────────────────────────
+
+const sendNotificationTool: Anthropic.Tool = {
+  name: "send_notification",
+  description: "Admin only: send push, SMS, and/or email notifications to users or dealers. Use for announcements, alerts, or direct messages. Confirm the target and message with the admin before sending.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      target: { type: "string", enum: ["specific_user", "all_dealers", "all_users", "all_admins"], description: "Who to notify. specific_user requires user_id." },
+      user_id: { type: "string", description: "Target user UUID. Required when target=specific_user." },
+      channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email"] }, description: "Which channels to send on. Defaults to ['push']." },
+      title: { type: "string", description: "Notification title (used for push and email subject). Required." },
+      body: { type: "string", description: "Notification body text (push body, SMS text, email plain text). Required." },
+      email_html: { type: "string", description: "Optional HTML email body. Falls back to body as plain text if omitted." },
+    },
+    required: ["target", "title", "body"],
+  },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
@@ -753,6 +817,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getSubscriptionTool,
     getSubscriptionPlansTool,
     getMyShopTool,
+    scheduleTaskTool,
     getKnowledgeBaseTool,
     showActionButtonsTool,
   ]
@@ -802,6 +867,9 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     // Stats & plans
     getAdminStatsTool,
     manageSubscriptionPlansTool,
+    // Scheduled tasks & notifications
+    manageScheduledTaskTool,
+    sendNotificationTool,
     // Knowledge & UI
     getKnowledgeBaseTool,
     showActionButtonsTool,
@@ -1011,6 +1079,16 @@ export async function executeToolCall(
       }
 
       case "get_wallet_balance": {
+        // CRON_SECRET path: no valid user JWT — query DB directly
+        if (ctx.jwtToken === process.env.CRON_SECRET && ctx.userId) {
+          const { data, error } = await supabaseAdmin
+            .from("wallets")
+            .select("balance")
+            .eq("user_id", ctx.userId)
+            .maybeSingle()
+          if (error) return { error: error.message }
+          return { balance: data?.balance ?? 0 }
+        }
         const res = await fetch(`${ctx.baseUrl}/api/wallet/balance`, {
           headers: { Authorization: `Bearer ${ctx.jwtToken}` },
         })
@@ -1062,6 +1140,8 @@ export async function executeToolCall(
             packageId: pkg.id,
             phoneNumber: input.phone_number,
             network: input.network,
+            // Required when jwtToken is CRON_SECRET — purchase route reads userId from body
+            ...(ctx.userId ? { userId: ctx.userId } : {}),
           }),
         })
         const data = await res.json()
@@ -2045,6 +2125,142 @@ export async function executeToolCall(
       case "show_action_buttons": {
         const buttons = Array.isArray(input.buttons) ? input.buttons : []
         return { __action_buttons: true, buttons, displayed: true, button_count: buttons.length }
+      }
+
+      case "manage_scheduled_task": {
+        const action = input.action as string
+
+        if (action === "list") {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/scheduled-tasks`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          if (!res.ok) return { error: data.error ?? "Failed to fetch tasks" }
+          return data.tasks ?? data
+        }
+
+        if (action === "get") {
+          if (!input.task_id) return { error: "task_id is required for get" }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/scheduled-tasks/${input.task_id}`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          if (!res.ok) return { error: data.error ?? "Task not found" }
+          return data.task ?? data
+        }
+
+        if (action === "delete") {
+          if (!input.task_id) return { error: "task_id is required for delete" }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/scheduled-tasks/${input.task_id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return { success: res.ok, message: data.message ?? data.error }
+        }
+
+        if (action === "toggle") {
+          if (!input.task_id || input.is_active === undefined) {
+            return { error: "task_id and is_active are required for toggle" }
+          }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/scheduled-tasks/${input.task_id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ is_active: input.is_active }),
+          })
+          const data = await res.json()
+          return { success: res.ok, message: data.message ?? data.error }
+        }
+
+        if (action === "create") {
+          if (!input.name || !input.prompt || !input.schedule_type) {
+            return { error: "name, prompt, and schedule_type are required for create" }
+          }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/scheduled-tasks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({
+              name: input.name,
+              prompt: input.prompt,
+              context: "admin",
+              schedule_type: input.schedule_type,
+              run_at_time: input.run_at_time,
+              run_on_days: input.run_on_days,
+              run_at_timestamp: input.run_at_timestamp,
+              notify_channels: input.notify_channels ?? ["push"],
+            }),
+          })
+          const data = await res.json()
+          return { success: res.ok, task: data.task, message: data.error }
+        }
+
+        return { error: `Unknown action: ${action}. Use create, list, get, delete, or toggle.` }
+      }
+
+      case "schedule_task": {
+        const action = input.action as string
+
+        if (action === "list") {
+          const res = await fetch(`${ctx.baseUrl}/api/admin/scheduled-tasks?scope=own`, {
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          if (!res.ok) return { error: data.error ?? "Failed to fetch tasks" }
+          return data.tasks ?? data
+        }
+
+        if (action === "delete") {
+          if (!input.task_id) return { error: "task_id is required for delete" }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/scheduled-tasks/${input.task_id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+          })
+          const data = await res.json()
+          return { success: res.ok, message: data.message ?? data.error }
+        }
+
+        if (action === "create") {
+          if (!input.name || !input.prompt || !input.schedule_type) {
+            return { error: "name, prompt, and schedule_type are required" }
+          }
+          const res = await fetch(`${ctx.baseUrl}/api/admin/scheduled-tasks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({
+              name: input.name,
+              prompt: input.prompt,
+              context: "dashboard",
+              schedule_type: input.schedule_type,
+              run_at_time: input.run_at_time,
+              run_on_days: input.run_on_days,
+              run_at_timestamp: input.run_at_timestamp,
+              notify_channels: input.notify_channels ?? ["push"],
+            }),
+          })
+          const data = await res.json()
+          return { success: res.ok, task: data.task, message: data.error }
+        }
+
+        return { error: `Unknown action: ${action}. Use create, list, or delete.` }
+      }
+
+      case "send_notification": {
+        if (!input.title || !input.body) return { error: "title and body are required" }
+        const res = await fetch(`${ctx.baseUrl}/api/admin/notify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({
+            target: input.target,
+            user_id: input.user_id,
+            channels: input.channels ?? ["push"],
+            title: input.title,
+            body: input.body,
+            email_html: input.email_html,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Notification failed" }
+        return data
       }
 
       default:

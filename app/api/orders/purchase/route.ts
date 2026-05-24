@@ -62,7 +62,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { packageId, network, size, price, phoneNumber } = await request.json()
+    const body = await request.json()
+    const { packageId, network, size, price, phoneNumber } = body
 
     console.log("[PURCHASE] ========== NEW ORDER REQUEST ==========")
     console.log("[PURCHASE] Package ID:", packageId)
@@ -84,20 +85,35 @@ export async function POST(request: NextRequest) {
 
     const token = authHeader.substring(7)
 
-    // Verify user and get user ID
-    const {
-      data: { user },
-      error: authError,
-    } = await supabaseAdmin.auth.getUser(token)
+    // CRON_SECRET bypass — scheduled AI tasks place orders on behalf of a specific user.
+    // The cron engine provides the target userId in the request body instead of a JWT.
+    let userId: string
+    let userEmail: string | undefined
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 })
+    const cronSecret = process.env.CRON_SECRET
+    if (cronSecret && token === cronSecret) {
+      if (!body.userId || typeof body.userId !== "string") {
+        return NextResponse.json({ error: "userId required for cron-initiated orders" }, { status: 400 })
+      }
+      userId = body.userId
+      const { data: cronUser } = await supabaseAdmin.from("users").select("email").eq("id", userId).maybeSingle()
+      userEmail = cronUser?.email
+    } else {
+      // Verify user and get user ID
+      const {
+        data: { user },
+        error: authError,
+      } = await supabaseAdmin.auth.getUser(token)
+
+      if (authError || !user) {
+        return NextResponse.json({ error: "Invalid token" }, { status: 401 })
+      }
+
+      userId = user.id
+      userEmail = user.email
     }
 
-    const userId = user.id
-    let userEmail = user.email // Email from auth user object
-
-    // If email not in auth object, fetch from users table
+    // If email still missing, fetch from users table
     if (!userEmail) {
       const { data: userData } = await supabaseAdmin
         .from("users")
@@ -502,7 +518,7 @@ export async function POST(request: NextRequest) {
             validatedPrice.toFixed(2)
           );
           sendEmail({
-            to: [{ email: userEmail, name: user?.user_metadata?.first_name || "User" }],
+            to: [{ email: userEmail, name: "User" }],
             subject: payload.subject,
             htmlContent: payload.html,
             referenceId: order[0].id,

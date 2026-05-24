@@ -1,10 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest } from "next/server"
-import { aiTools, executeToolCall, AIChatContext } from "@/lib/ai-tools"
+import { AIChatContext } from "@/lib/ai-tools"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { AIProviderConfig, DEFAULT_CONFIG, resolveProviderForContext } from "@/lib/ai-providers"
+import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -503,6 +504,22 @@ The confirmation "yes" must be the user's LAST message in the current conversati
 Use bulk_update_order_status for multi-order updates — never loop update_order_status one by one.
 When filtering by date/time use ISO format. Today's date is ${today}. Use this as the base for "today", "this week", "this month" etc.
 Limit order list results to 10 unless the user asks for more — use limit: 200 to get all.
+
+SCHEDULED TASKS:
+- Create, list, delete, or toggle scheduled AI tasks with manage_scheduled_task
+- schedule_type options: once (specific datetime), hourly, daily (needs run_at_time), weekly (needs run_at_time + run_on_days)
+- run_at_time is in GMT+0 format HH:MM (e.g. "18:00" = 6pm GMT+0)
+- run_on_days: 0=Sun, 1=Mon … 6=Sat (e.g. [1,2,3,4,5] for Mon–Fri)
+- The prompt field is sent exactly to the AI when the task runs — write it as a clear direct instruction
+- After each run the task owner is notified via the configured notify_channels (push, sms, email)
+- Admin tasks use context=admin and run with full admin tool access
+- Admin page for viewing all tasks: /admin/scheduled-tasks
+
+NOTIFICATIONS:
+- Use send_notification to push, SMS, or email users/dealers on demand
+- target options: specific_user (needs user_id), all_dealers, all_users, all_admins
+- channels defaults to ['push'] — can combine ['push', 'sms', 'email']
+- Always confirm target and message with the admin before sending to multiple users
 ${formattingRules}`
   }
 
@@ -524,69 +541,15 @@ ${formattingRules}`
           baseUrl: getBaseUrl(),
         }
 
-        const currentMessages: Anthropic.MessageParam[] = [...messages]
-        const tools = aiTools(context)
-
-        // Agentic loop — runs until the provider stops calling tools or hits the iteration cap
-        let keepRunning = true
-        let loopIterations = 0
-        const MAX_LOOP_ITERATIONS = 10
-        while (keepRunning && loopIterations < MAX_LOOP_ITERATIONS) {
-          loopIterations++
-          const response = await aiProvider.createMessage({
-            model: aiModel,
-            maxTokens: 600,
-            system: systemPrompt,
-            tools,
-            messages: currentMessages,
-          })
-
-          // Stream any text
-          if (response.text) {
-            send({ type: "text", content: response.text })
-          }
-
-          // Append assistant turn to history (in Anthropic format regardless of provider)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          currentMessages.push({ role: "assistant", content: response.anthropicContent as any })
-
-          if (response.stopReason === "tool_use" && response.toolCalls.length > 0) {
-            // Execute all tool calls and collect results
-            const toolResults: Anthropic.ToolResultBlockParam[] = []
-
-            for (const tc of response.toolCalls) {
-              send({ type: "tool_call", tool: tc.name })
-              const result = await executeToolCall(tc.name, tc.input, toolCtx)
-
-              // prepare_checkout is handled client-side — opens Paystack modal
-              if (tc.name === "prepare_checkout") {
-                send({ type: "checkout_prefill", data: result })
-              }
-
-              // show_action_buttons renders clickable buttons in the widget
-              if (tc.name === "show_action_buttons") {
-                const r = result as Record<string, unknown>
-                send({ type: "action_buttons", buttons: r.buttons ?? [] })
-              }
-
-              const resultStr = JSON.stringify(result)
-              const truncated = resultStr.length > 3000 ? resultStr.slice(0, 3000) + "…[truncated]" : resultStr
-              toolResults.push({
-                type: "tool_result",
-                tool_use_id: tc.id,
-                // Wrap in <data> fence — marks content as untrusted DB data, not instructions (indirect prompt injection defence)
-                content: `<data>\n${truncated}\n</data>`,
-              })
-            }
-
-            // Feed results back and continue loop
-            currentMessages.push({ role: "user", content: toolResults })
-          } else {
-            keepRunning = false
-          }
-        }
-
-        send({ type: "done" })
+        await runAgenticLoop({
+          provider: aiProvider,
+          model: aiModel,
+          system: systemPrompt,
+          context,
+          messages,
+          toolCtx,
+          onEvent: send,
+        })
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         const status = (err as Record<string, unknown>)?.status as number | undefined
