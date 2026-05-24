@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
-import { isPhoneBlacklisted } from "@/lib/blacklist"
+import { getBatchBlacklisted } from "@/lib/blacklist"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
   createMTNOrder,
@@ -109,16 +109,9 @@ export async function POST(request: NextRequest) {
     // Helper to normalize size string (e.g. "1GB" -> 1)
     const normalizeSize = (s: string) => parseFloat(s.replace(/[^\d.]/g, ''))
 
-    // Check which orders have blacklisted phones
-    const blacklistChecks = await Promise.all(
-      orders.map(async (order: BulkOrderData) => ({
-        phone_number: order.phone_number,
-        isBlacklisted: await isPhoneBlacklisted(order.phone_number)
-      }))
-    )
-    const blacklistedPhones = new Set(
-      blacklistChecks.filter(check => check.isBlacklisted).map(check => check.phone_number)
-    )
+    // Check which orders have blacklisted phones — single IN query instead of N individual queries
+    const uniqueOrderPhones = [...new Set(orders.map((o: BulkOrderData) => o.phone_number))]
+    const blacklistedPhones = await getBatchBlacklisted(uniqueOrderPhones)
     console.log(`[BULK-ORDERS] Found ${blacklistedPhones.size} blacklisted phone(s)`)
 
     // Build verified order records
@@ -181,15 +174,14 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error("[BULK-ORDERS] Insert error, refunding wallet:", insertError)
-      // Refund: wallet was already deducted
-      await supabase
-        .from("wallets")
-        .update({
-          balance: currentBalance,
-          total_spent: deductResult[0].new_total_spent - totalCost,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId)
+      // Refund: add the amount back relatively — never overwrite with a stale snapshot
+      await supabase.rpc('credit_wallet_safely', {
+        p_user_id: userId,
+        p_amount: totalCost,
+        p_reference_id: `REFUND-BULK-${Date.now()}`,
+        p_description: `Refund for failed bulk order (${orders.length} orders)`,
+        p_source: 'bulk_order_refund',
+      })
       return NextResponse.json(
         { error: `Failed to create orders: ${insertError.message}` },
         { status: 500 }
@@ -263,26 +255,23 @@ export async function POST(request: NextRequest) {
       } else if (shop?.id) {
         console.log(`[BULK-ORDERS] Found shop ${shop.id}, tracking bulk order customers...`)
 
-        // Track each phone number as a customer
-        for (const order of orders) {
-          try {
-            const result = await customerTrackingService.trackBulkOrderCustomer({
-              shopId: shop.id,
-              phoneNumber: order.phone_number,
-              orderId: createdOrders?.find((o: any) => o.phone_number === order.phone_number)?.id || "",
-              amount: order.price,
-              network: network,
-              volumeGb: order.volume_gb,
-            })
-            console.log(`[BULK-ORDERS] ✓ Customer tracked: ${order.phone_number}`, result)
-          } catch (trackError) {
-            console.error(
-              `[BULK-ORDERS] ✗ Failed to track customer ${order.phone_number}:`,
-              trackError
-            )
-            // Don't fail the bulk order if tracking fails
-          }
-        }
+        // Track all customers in parallel instead of sequentially
+        await Promise.all(
+          orders.map(async (order: BulkOrderData) => {
+            try {
+              await customerTrackingService.trackBulkOrderCustomer({
+                shopId: shop.id,
+                phoneNumber: order.phone_number,
+                orderId: createdOrders?.find((o: any) => o.phone_number === order.phone_number)?.id || "",
+                amount: order.price,
+                network: network,
+                volumeGb: order.volume_gb,
+              })
+            } catch (trackError) {
+              console.error(`[BULK-ORDERS] ✗ Failed to track customer ${order.phone_number}:`, trackError)
+            }
+          })
+        )
 
         console.log("[BULK-ORDERS] ✓ Bulk order customers tracked")
       } else {
@@ -293,112 +282,94 @@ export async function POST(request: NextRequest) {
       // Don't fail the bulk order if customer tracking fails
     }
 
-    // Send SMS to each phone number in the bulk order
+    // Send SMS to all unique phone numbers in parallel
     try {
       const uniquePhones = [...new Set(orders.map((o: BulkOrderData) => o.phone_number))]
-
-      for (const phoneNumber of uniquePhones) {
-        // Find volume for this phone number
-        const volumeForPhone = orders.find((o: BulkOrderData) => o.phone_number === phoneNumber)?.volume_gb || 0
-        const smsMessage = `You have successfully placed an order of ${network} ${volumeForPhone}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
-
-        await sendSMS({
-          phone: phoneNumber,
-          message: smsMessage,
-          type: 'bulk_order_success',
-          reference: `BULK-${Date.now()}`,
-        }).catch(err => console.error("[SMS] SMS error for phone ${phoneNumber}:", err))
-      }
-
+      await Promise.all(
+        uniquePhones.map((phoneNumber) => {
+          const volumeForPhone = orders.find((o: BulkOrderData) => o.phone_number === phoneNumber)?.volume_gb || 0
+          return sendSMS({
+            phone: phoneNumber,
+            message: `You have successfully placed an order of ${network} ${volumeForPhone}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`,
+            type: 'bulk_order_success',
+            reference: `BULK-${Date.now()}`,
+          }).catch(err => console.error(`[SMS] SMS error for phone ${phoneNumber}:`, err))
+        })
+      )
       console.log(`[SMS] ✓ SMS sent to ${uniquePhones.length} unique phone number(s)`)
     } catch (smsError) {
       console.warn("[SMS] Failed to send bulk order SMS:", smsError)
-      // Don't fail the bulk order if SMS fails
     }
 
     // Trigger MTN Fulfillment (Automatic)
+    // after() runs after the response is sent — guaranteed by Next.js, never cut short by Vercel
     const normalizedNetwork = network?.trim() || ""
     const isMTNNetwork = normalizedNetwork.toLowerCase() === "mtn"
 
     if (isMTNNetwork && createdOrders && createdOrders.length > 0) {
       console.log(`[BULK-FULFILLMENT] MTN bulk order detected. Checking MTN auto-fulfillment setting...`)
+      after(async () => {
+        try {
+          const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
+          console.log(`[BULK-FULFILLMENT] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
 
-        // Use IIFE for non-blocking execution to allow response to return fast
-        // Note: On some serverless platforms this might be cut off, but following existing pattern from purchase route
-        ; (async () => {
-          try {
-            const mtnAutoEnabled = await isMTNAutoFulfillmentEnabled()
-            console.log(`[BULK-FULFILLMENT] MTN Auto-fulfillment enabled: ${mtnAutoEnabled}`)
-
-            if (!mtnAutoEnabled) {
-              console.log(`[BULK-FULFILLMENT] MTN auto-fulfillment disabled. Orders will go to admin queue.`)
-              return
-            }
-
-            console.log(`[BULK-FULFILLMENT] Starting async fulfillment for ${createdOrders.length} orders...`)
-
-            // Process each order
-            for (const order of createdOrders) {
-              try {
-                // Check if order is in blacklist queue
-                if (order.queue === "blacklisted") {
-                  console.log(`[BULK-FULFILLMENT] ⚠️ Order ${order.id} is in blacklist queue - skipping MTN fulfillment`)
-                  continue
-                }
-
-                const sizeGb = parseFloat(order.size) || 0
-                const normalizedPhone = normalizePhoneNumber(order.phone_number)
-                console.log(`[BULK-FULFILLMENT] Calling MTN API for order ${order.id}: ${normalizedPhone}, ${sizeGb}GB`)
-
-                const mtnRequest = {
-                  recipient_phone: normalizedPhone,
-                  network: "MTN" as const,
-                  size_gb: sizeGb,
-                }
-
-                // Call MTN API
-                const mtnResult = await createMTNOrder(mtnRequest)
-
-                console.log(`[BULK-FULFILLMENT] ✓ MTN API response for order ${order.id}:`, mtnResult)
-
-                // Save tracking record
-                if (mtnResult.order_id) {
-                  await saveMTNTracking(
-                    order.id,      // order_id from orders table
-                    mtnResult.order_id,
-                    mtnRequest,
-                    mtnResult,
-                    "bulk",         // this is a bulk order
-                    mtnResult.provider || "sykes"
-                  )
-                }
-
-                // Update order status if successful
-                if (mtnResult.success) {
-                  await supabase
-                    .from("orders")
-                    .update({
-                      status: "processing",
-                      updated_at: new Date().toISOString(),
-                    })
-                    .eq("id", order.id)
-
-                  console.log(`[BULK-FULFILLMENT] ✓ Order ${order.id} marked as processing via MTN auto-fulfillment`)
-                } else {
-                  console.log(`[BULK-FULFILLMENT] ✗ Order ${order.id} failed MTN fulfillment: ${mtnResult.message}`)
-                }
-
-                // Small delay to prevent rate limit spikes if many orders
-                await new Promise(resolve => setTimeout(resolve, 200))
-
-              } catch (orderError) {
-                console.error(`[BULK-FULFILLMENT] Error processing order ${order.id}:`, orderError)
-              }
-            }
-          } catch (err) {
-            console.error(`[BULK-FULFILLMENT] Global error in bulk processing block:`, err)
+          if (!mtnAutoEnabled) {
+            console.log(`[BULK-FULFILLMENT] MTN auto-fulfillment disabled. Orders will go to admin queue.`)
+            return
           }
-        })()
+
+          console.log(`[BULK-FULFILLMENT] Starting async fulfillment for ${createdOrders.length} orders...`)
+
+          for (const order of createdOrders) {
+            try {
+              if (order.queue === "blacklisted") {
+                console.log(`[BULK-FULFILLMENT] ⚠️ Order ${order.id} is in blacklist queue - skipping MTN fulfillment`)
+                continue
+              }
+
+              const sizeGb = parseFloat(order.size) || 0
+              const normalizedPhone = normalizePhoneNumber(order.phone_number)
+              console.log(`[BULK-FULFILLMENT] Calling MTN API for order ${order.id}: ${normalizedPhone}, ${sizeGb}GB`)
+
+              const mtnRequest = {
+                recipient_phone: normalizedPhone,
+                network: "MTN" as const,
+                size_gb: sizeGb,
+              }
+
+              const mtnResult = await createMTNOrder(mtnRequest)
+              console.log(`[BULK-FULFILLMENT] ✓ MTN API response for order ${order.id}:`, mtnResult)
+
+              if (mtnResult.order_id) {
+                await saveMTNTracking(
+                  order.id,
+                  mtnResult.order_id,
+                  mtnRequest,
+                  mtnResult,
+                  "bulk",
+                  mtnResult.provider || "sykes"
+                )
+              }
+
+              if (mtnResult.success) {
+                await supabase
+                  .from("orders")
+                  .update({ status: "processing", updated_at: new Date().toISOString() })
+                  .eq("id", order.id)
+                console.log(`[BULK-FULFILLMENT] ✓ Order ${order.id} marked as processing via MTN auto-fulfillment`)
+              } else {
+                console.log(`[BULK-FULFILLMENT] ✗ Order ${order.id} failed MTN fulfillment: ${mtnResult.message}`)
+              }
+
+              await new Promise(resolve => setTimeout(resolve, 200))
+            } catch (orderError) {
+              console.error(`[BULK-FULFILLMENT] Error processing order ${order.id}:`, orderError)
+            }
+          }
+        } catch (err) {
+          console.error(`[BULK-FULFILLMENT] Global error in bulk processing block:`, err)
+        }
+      })
     }
 
     // Trigger Fulfillment for Other Networks (AT, Telecel)
@@ -407,65 +378,60 @@ export async function POST(request: NextRequest) {
 
     if (isAutoFulfillable && createdOrders && createdOrders.length > 0) {
       console.log(`[BULK-FULFILLMENT] ${network} bulk order detected. Checking auto-fulfillment settings...`)
+      after(async () => {
+        try {
+          const { data: setting } = await supabase
+            .from("admin_settings")
+            .select("value")
+            .eq("key", "auto_fulfillment_enabled")
+            .single()
 
-        ; (async () => {
-          try {
-            // Check generic auto-fulfillment setting
-            const { data: setting } = await supabase
-              .from("admin_settings")
-              .select("value")
-              .eq("key", "auto_fulfillment_enabled")
-              .single()
+          const autoFulfillEnabled = setting?.value?.enabled ?? true
 
-            const autoFulfillEnabled = setting?.value?.enabled ?? true
-
-            if (!autoFulfillEnabled) {
-              console.log(`[BULK-FULFILLMENT] Auto-fulfillment disabled for ${network}. Orders will go to admin queue.`)
-              return
-            }
-
-            console.log(`[BULK-FULFILLMENT] Starting async fulfillment for ${createdOrders.length} ${network} orders...`)
-            const networkLower = normalizedNetwork.toLowerCase()
-            const isBigTime = networkLower.includes("bigtime")
-            const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-
-            for (const order of createdOrders) {
-              try {
-                // Check blacklist
-                if (order.queue === "blacklisted") {
-                  console.log(`[BULK-FULFILLMENT] ⚠️ Order ${order.id} is in blacklist queue - skipping fulfillment`)
-                  continue
-                }
-
-                const sizeGb = parseFloat(order.size) || 0
-                if (sizeGb === 0) continue
-
-                console.log(`[BULK-FULFILLMENT] Triggering ${apiNetwork} fulfillment for order ${order.id}: ${order.phone_number}, ${sizeGb}GB`)
-
-                atishareService.fulfillOrder({
-                  phoneNumber: order.phone_number,
-                  sizeGb,
-                  orderId: order.id,
-                  network: apiNetwork,
-                  orderType: "wallet", // Bulk creates orders in 'orders' table, same as wallet purchase
-                  isBigTime,
-                }).then(result => {
-                  console.log(`[BULK-FULFILLMENT] Fulfillment result for order ${order.id}:`, result)
-                }).catch(err => {
-                  console.error(`[BULK-FULFILLMENT] Failed fulfillment for order ${order.id}:`, err)
-                })
-
-                // Small delay to prevent rate limits
-                await new Promise(resolve => setTimeout(resolve, 300))
-
-              } catch (err) {
-                console.error(`[BULK-FULFILLMENT] Error in loop for order ${order.id}:`, err)
-              }
-            }
-          } catch (err) {
-            console.error(`[BULK-FULFILLMENT] Global error in non-MTN bulk processing:`, err)
+          if (!autoFulfillEnabled) {
+            console.log(`[BULK-FULFILLMENT] Auto-fulfillment disabled for ${network}. Orders will go to admin queue.`)
+            return
           }
-        })()
+
+          console.log(`[BULK-FULFILLMENT] Starting async fulfillment for ${createdOrders.length} ${network} orders...`)
+          const networkLower = normalizedNetwork.toLowerCase()
+          const isBigTime = networkLower.includes("bigtime")
+          const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
+
+          for (const order of createdOrders) {
+            try {
+              if (order.queue === "blacklisted") {
+                console.log(`[BULK-FULFILLMENT] ⚠️ Order ${order.id} is in blacklist queue - skipping fulfillment`)
+                continue
+              }
+
+              const sizeGb = parseFloat(order.size) || 0
+              if (sizeGb === 0) continue
+
+              console.log(`[BULK-FULFILLMENT] Triggering ${apiNetwork} fulfillment for order ${order.id}: ${order.phone_number}, ${sizeGb}GB`)
+
+              atishareService.fulfillOrder({
+                phoneNumber: order.phone_number,
+                sizeGb,
+                orderId: order.id,
+                network: apiNetwork,
+                orderType: "wallet",
+                isBigTime,
+              }).then(result => {
+                console.log(`[BULK-FULFILLMENT] Fulfillment result for order ${order.id}:`, result)
+              }).catch(err => {
+                console.error(`[BULK-FULFILLMENT] Failed fulfillment for order ${order.id}:`, err)
+              })
+
+              await new Promise(resolve => setTimeout(resolve, 300))
+            } catch (err) {
+              console.error(`[BULK-FULFILLMENT] Error in loop for order ${order.id}:`, err)
+            }
+          }
+        } catch (err) {
+          console.error(`[BULK-FULFILLMENT] Global error in non-MTN bulk processing:`, err)
+        }
+      })
     }
 
     return NextResponse.json({

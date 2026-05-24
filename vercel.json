@@ -3,7 +3,14 @@
   "outputDirectory": ".next",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "regions": ["iad1"],
+  "regions": ["fra1", "iad1"],
+  "functions": {
+    "app/api/cron/sync-mtn-status/route.ts": { "maxDuration": 300 },
+    "app/api/cron/sync-mtn-status/datakazina/route.ts": { "maxDuration": 300 },
+    "app/api/cron/run-ai-tasks/route.ts": { "maxDuration": 300 },
+    "app/api/cron/verify-pending-payments/route.ts": { "maxDuration": 120 },
+    "app/api/cron/withdrawals-status-check/route.ts": { "maxDuration": 120 }
+  },
   "crons": [
     {
       "path": "/api/cron/sync-mtn-status",

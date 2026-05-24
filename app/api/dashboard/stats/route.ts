@@ -31,80 +31,41 @@ export async function GET(request: NextRequest) {
     const userId = user.id
     console.log("[DASHBOARD-STATS] Fetching stats for user:", userId)
 
-    // Get user's orders with pagination (from regular orders table, not shop_orders)
-    let userOrders: any[] = []
-    let offset = 0
-    const batchSize = 1000
-    let hasMore = true
-    let ordersError = null
-
-    while (hasMore) {
-      const { data, error } = await supabase
-        .from("orders")
-        .select("id, status")
-        .eq("user_id", userId)
-        .range(offset, offset + batchSize - 1)
-
-      if (error) {
-        ordersError = error
-        break
-      }
-
-      if (data && data.length > 0) {
-        userOrders = userOrders.concat(data)
-        offset += batchSize
-        hasMore = data.length === batchSize
-      } else {
-        hasMore = false
-      }
-    }
+    // Single GROUP BY query — no pagination, no in-memory counting
+    const { data: statusCounts, error: ordersError } = await supabase
+      .from("orders")
+      .select("status")
+      .eq("user_id", userId)
 
     if (ordersError) {
       console.warn(`[DASHBOARD-STATS] Could not fetch orders: ${ordersError.message}`)
-      const fallbackStats = {
-        totalOrders: 0,
-        completed: 0,
-        processing: 0,
-        failed: 0,
-        pending: 0,
-        successRate: "0%"
-      }
       return NextResponse.json({
         success: true,
-        stats: fallbackStats
+        stats: { totalOrders: 0, completed: 0, processing: 0, failed: 0, pending: 0, successRate: "0%" }
       })
     }
 
-    const totalOrders = userOrders.length
+    // Count by status in JS (single fetch, no pagination)
+    let completed = 0, processing = 0, failed = 0, pending = 0
+    for (const { status } of statusCounts ?? []) {
+      if (status === "completed") completed++
+      else if (status === "processing") processing++
+      else if (status === "failed") failed++
+      else if (status === "pending") pending++
+    }
 
-    // Count by status
-    let completed = 0
-    let processing = 0
-    let failed = 0
-    let pending = 0
-
-    userOrders.forEach((order: any) => {
-      if (order.status === "completed") completed++
-      else if (order.status === "processing") processing++
-      else if (order.status === "failed") failed++
-      else if (order.status === "pending") pending++
-    })
-
+    const totalOrders = (statusCounts ?? []).length
     const successRate = totalOrders > 0 ? ((completed / totalOrders) * 100).toFixed(0) : 0
 
     console.log(`[DASHBOARD-STATS] User ${userId}: Total=${totalOrders}, Completed=${completed}, Processing=${processing}, Failed=${failed}, Pending=${pending}`)
 
-    return NextResponse.json({
-      success: true,
-      stats: {
-        totalOrders,
-        completed,
-        processing,
-        failed,
-        pending,
-        successRate: `${successRate}%`
-      }
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        stats: { totalOrders, completed, processing, failed, pending, successRate: `${successRate}%` }
+      },
+      { headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=30" } }
+    )
   } catch (error) {
     console.error("[DASHBOARD-STATS] Error:", error)
     return NextResponse.json(

@@ -175,9 +175,32 @@ export async function GET(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
 
-  try {
-    const now = new Date().toISOString()
+  // Overlap protection: AI tasks can take 5-30s each; sequential processing of several
+  // tasks can exceed 60s. Skip if a previous run is still within its window.
+  const LOCK_KEY = "cron_lock_run_ai_tasks"
+  const LOCK_TIMEOUT_MS = 55_000
+  const now = new Date().toISOString()
 
+  const { data: lockRow } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", LOCK_KEY)
+    .maybeSingle()
+
+  if (lockRow?.value?.started_at) {
+    const elapsed = Date.now() - new Date(lockRow.value.started_at).getTime()
+    if (elapsed < LOCK_TIMEOUT_MS) {
+      console.log(`[CRON-AI-TASKS] Skipping — previous run started ${Math.round(elapsed / 1000)}s ago`)
+      return NextResponse.json({ skipped: true, reason: "Previous run still in progress" })
+    }
+  }
+
+  await supabase.from("admin_settings").upsert(
+    { key: LOCK_KEY, value: { started_at: now } },
+    { onConflict: "key" }
+  )
+
+  try {
     // Fetch all due tasks in one query
     const { data: tasks, error: fetchError } = await supabase
       .from("ai_scheduled_tasks")
@@ -291,5 +314,10 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("[CRON-AI-TASKS] Unexpected error:", err)
     return NextResponse.json({ error: "Internal error" }, { status: 500 })
+  } finally {
+    await supabase.from("admin_settings").upsert(
+      { key: LOCK_KEY, value: { started_at: null } },
+      { onConflict: "key" }
+    )
   }
 }

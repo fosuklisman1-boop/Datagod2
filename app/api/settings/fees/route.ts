@@ -32,11 +32,14 @@ export async function GET() {
       })
     }
 
-    return NextResponse.json({
-      paystack_fee_percentage: settings.paystack_fee_percentage || 3.0,
-      wallet_topup_fee_percentage: settings.wallet_topup_fee_percentage || 0,
-      withdrawal_fee_percentage: settings.withdrawal_fee_percentage || 0,
-    })
+    return NextResponse.json(
+      {
+        paystack_fee_percentage: settings.paystack_fee_percentage || 3.0,
+        wallet_topup_fee_percentage: settings.wallet_topup_fee_percentage || 0,
+        withdrawal_fee_percentage: settings.withdrawal_fee_percentage || 0,
+      },
+      { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" } }
+    )
   } catch (error) {
     console.error("[FEES-API] Error:", error)
     return NextResponse.json(

@@ -33,7 +33,10 @@ export async function GET(request: NextRequest) {
         successRate: totalOrders
           ? (((completedOrders) / totalOrders) * 100).toFixed(2)
           : 0,
-      }, { status: 200 })
+      }, {
+        status: 200,
+        headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30" },
+      })
     }
 
     // --- Fallback: v2 not available, use v1 + separate airtime query ---
@@ -49,20 +52,24 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Fetch airtime stats separately (limited to avoid timeout)
-    const { data: airtimeData } = await supabase
-      .from("airtime_orders")
-      .select("status, total_paid")
-      .limit(10000)
+    // Fetch airtime stats with DB-side aggregation — no row transfer, no JS reduce
+    const [
+      { count: totalAirtimeOrders },
+      { count: completedAirtimeOrders },
+      { data: revenueRow },
+    ] = await Promise.all([
+      supabase.from("airtime_orders").select("*", { count: "exact", head: true }),
+      supabase.from("airtime_orders").select("*", { count: "exact", head: true }).eq("status", "completed"),
+      supabase.from("airtime_orders").select("total_paid").eq("status", "completed"),
+    ])
 
-    const airtimeStats = (airtimeData || []).reduce((acc: any, order: any) => {
-      acc.totalAirtimeOrders++
-      if (order.status === "completed") {
-        acc.completedAirtimeOrders++
-        acc.airtimeRevenue += (order.total_paid || 0)
-      }
-      return acc
-    }, { totalAirtimeOrders: 0, completedAirtimeOrders: 0, airtimeRevenue: 0 })
+    const airtimeRevenue = (revenueRow ?? []).reduce((sum: number, r: any) => sum + (r.total_paid || 0), 0)
+
+    const airtimeStats = {
+      totalAirtimeOrders: totalAirtimeOrders ?? 0,
+      completedAirtimeOrders: completedAirtimeOrders ?? 0,
+      airtimeRevenue,
+    }
 
     const totalOrders = (stats.totalOrders || 0) + airtimeStats.totalAirtimeOrders
     const completedOrders = (stats.completedOrders || 0) + airtimeStats.completedAirtimeOrders
@@ -78,7 +85,7 @@ export async function GET(request: NextRequest) {
           ? (((completedOrders) / totalOrders) * 100).toFixed(2)
           : 0,
       },
-      { status: 200 }
+      { status: 200, headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30" } }
     )
   } catch (error) {
     console.error("[ADMIN-STATS] Unexpected error:", error)

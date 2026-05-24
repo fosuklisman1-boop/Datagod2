@@ -7,10 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Users, Package, Store, TrendingUp, AlertCircle, Download, Wallet, Loader2, MessageSquare, Settings, Search, Banknote, Crown, Send } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { adminDashboardService } from "@/lib/admin-service"
 import { toast } from "sonner"
-import { supabase } from "@/lib/supabase"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -46,48 +46,8 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (isAdmin && !adminLoading) {
       loadStats()
-      // Trigger background check for scheduled order status updates
-      checkScheduledOrders()
-      // Cleanup old notifications (older than 72 hours)
-      cleanupOldNotifications()
-      // Cleanup old completed download batches (older than 14 days)
-      cleanupOldBatches()
     }
   }, [isAdmin, adminLoading])
-
-  const checkScheduledOrders = async () => {
-    try {
-      // Silently check for scheduled order updates in background
-      await fetch("/api/orders/check-status", { method: "GET" })
-    } catch (error) {
-      // Silently fail - this is a background task
-      console.error("Background order check failed:", error)
-    }
-  }
-
-  const cleanupOldNotifications = async () => {
-    try {
-      // Silently cleanup notifications older than 72 hours
-      await fetch("/api/notifications/cleanup", { method: "GET" })
-    } catch (error) {
-      // Silently fail - this is a background task
-      console.error("Background notification cleanup failed:", error)
-    }
-  }
-
-  const cleanupOldBatches = async () => {
-    try {
-      // Silently cleanup completed download batches older than 14 days
-      const { data: { session } } = await supabase.auth.getSession()
-      await fetch("/api/admin/batches/cleanup", {
-        method: "GET",
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      })
-    } catch (error) {
-      // Silently fail - this is a background task
-      console.error("Background batch cleanup failed:", error)
-    }
-  }
 
   const loadStats = async () => {
     try {
@@ -109,19 +69,9 @@ export default function AdminDashboardPage() {
     router.push(path)
   }
 
-  if (adminLoading) {
-    return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin" />
-        </div>
-      </DashboardLayout>
-    )
-  }
+  if (adminLoading) return null
 
-  if (!isAdmin) {
-    return null
-  }
+  if (!isAdmin) return null
 
   return (
     <DashboardLayout>
@@ -132,8 +82,23 @@ export default function AdminDashboardPage() {
           <p className="text-gray-500 mt-1 font-medium">Manage packages, users, and shop approvals</p>
         </div>
 
-        {/* Stats Cards */}
-        {stats && (
+        {/* Stats Cards — skeleton while loading, real data once ready */}
+        {loading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Card key={i} className="border-l-4 border-l-gray-200">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-4 rounded" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-8 w-20 mb-1" />
+                  <Skeleton className="h-3 w-28" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : stats ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
             {/* Total Users */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
@@ -224,7 +189,7 @@ export default function AdminDashboardPage() {
               </CardContent>
             </Card>
           </div>
-        )}
+        ) : null}
 
         {/* Pending Approvals Alert */}
         {stats && stats.pendingShops > 0 && (

@@ -163,11 +163,55 @@ export async function GET(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse
 
+  // Overlap protection: skip if a previous run started within the last 55 seconds.
+  // Prevents two concurrent invocations from double-updating orders and double-sending notifications.
+  const LOCK_KEY = "cron_lock_sync_mtn_status"
+  const LOCK_TIMEOUT_MS = 55_000
+  const now = new Date().toISOString()
+
+  const { data: lockRow } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", LOCK_KEY)
+    .maybeSingle()
+
+  if (lockRow?.value?.started_at) {
+    const elapsed = Date.now() - new Date(lockRow.value.started_at).getTime()
+    if (elapsed < LOCK_TIMEOUT_MS) {
+      console.log(`[CRON] Skipping — previous run started ${Math.round(elapsed / 1000)}s ago`)
+      return NextResponse.json({ skipped: true, reason: "Previous run still in progress" })
+    }
+  }
+
+  await supabase.from("admin_settings").upsert(
+    { key: LOCK_KEY, value: { started_at: now } },
+    { onConflict: "key" }
+  )
+
   try {
     console.log("[CRON] Starting MTN status sync...")
 
-    // Step 1: Fetch orders from Sykes provider API
-    // DataKazina sync is removed to reduce rate limits as requested
+    // Step 1: Query our DB first — skip the Sykes API entirely if there's nothing to sync
+    const { data: ordersToSync, error: fetchError } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, provider, retry_count")
+      .in("status", ["pending", "processing", "failed", "retrying", "error"])
+      .not("mtn_order_id", "is", null)
+      .not("mtn_order_id", "like", "FAILED_INIT_%")
+      .order("updated_at", { ascending: true })
+      .limit(500)
+
+    if (fetchError) {
+      console.error("[CRON] Error fetching pending orders:", fetchError)
+      return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 })
+    }
+
+    if (!ordersToSync?.length) {
+      console.log("[CRON] No pending orders — skipping Sykes API call")
+      return NextResponse.json({ success: true, synced: 0, message: "No orders to sync" })
+    }
+
+    // Step 2: Only now fetch from Sykes — we know there are orders to match
     const sykesResult = await fetchAllSykesOrders()
 
     if (!sykesResult.success) {
@@ -187,21 +231,6 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(`[CRON] Created lookup map: ${sykesOrderMap.size} Sykes orders`)
-
-    // Step 2: Get all pending, processing, and failed/retrying orders from our database
-    const { data: ordersToSync, error: fetchError } = await supabase
-      .from("mtn_fulfillment_tracking")
-      .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, provider, retry_count")
-      .in("status", ["pending", "processing", "failed", "retrying", "error"])
-      .not("mtn_order_id", "is", null)
-      .not("mtn_order_id", "like", "FAILED_INIT_%")
-      .order("updated_at", { ascending: true })
-      .limit(500)
-
-    if (fetchError) {
-      console.error("[CRON] Error fetching pending orders:", fetchError)
-      return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 })
-    }
 
     // Filter out orders from blacklisted numbers - don't process them
     let ordersToProcess = (ordersToSync as any[]) || []
@@ -534,6 +563,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { error: "Internal server error", details: error instanceof Error ? error.message : "" },
       { status: 500 }
+    )
+  } finally {
+    // Always release the lock so the next run isn't blocked by a crash
+    await supabase.from("admin_settings").upsert(
+      { key: LOCK_KEY, value: { started_at: null } },
+      { onConflict: "key" }
     )
   }
 }
