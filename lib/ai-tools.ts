@@ -356,15 +356,16 @@ const listWithdrawalsTool: Anthropic.Tool = {
 
 const manageWithdrawalTool: Anthropic.Tool = {
   name: "manage_withdrawal",
-  description: "Admin only: get details of, approve, reject, or complete a withdrawal. Always call get first to confirm details before approving or rejecting. Action guide: 'reject' requires reason; 'approve' triggers an automatic Moolre payout.",
+  description: "Admin only: get details of, approve, reject, or complete withdrawals. For a single withdrawal use withdrawal_id. For bulk approve/reject/complete pass withdrawal_ids (array of IDs) — the server processes all in one call without needing multiple tool invocations. Always list withdrawals first so the admin can confirm the scope before acting. Action guide: 'reject' requires reason; 'approve' triggers automatic Moolre payout per withdrawal.",
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", enum: ["get", "approve", "reject", "complete"], description: "get: fetch full details. approve: approve and trigger payout. reject: decline (requires reason). complete: mark approved withdrawal as paid." },
-      withdrawal_id: { type: "string", description: "The withdrawal request ID. Required for all actions." },
-      reason: { type: "string", description: "Required for reject — explain why the withdrawal is being declined." },
+      action: { type: "string", enum: ["get", "approve", "reject", "complete"], description: "get: fetch full details (single only). approve: approve and trigger payout. reject: decline (requires reason). complete: mark as paid." },
+      withdrawal_id: { type: "string", description: "Single withdrawal ID. Use for 'get' or when acting on one withdrawal." },
+      withdrawal_ids: { type: "array", items: { type: "string" }, description: "Array of withdrawal IDs for bulk approve/reject/complete. Use this instead of calling the tool once per ID — the server processes all of them." },
+      reason: { type: "string", description: "Required for reject action — explain why the withdrawal is being declined." },
     },
-    required: ["withdrawal_id", "action"],
+    required: ["action"],
   },
 }
 
@@ -1516,9 +1517,10 @@ export async function executeToolCall(
       }
 
       case "manage_withdrawal": {
-        if (!input.withdrawal_id) return { error: "withdrawal_id is required" }
+        const action = input.action as string
 
-        if (input.action === "get") {
+        if (action === "get") {
+          if (!input.withdrawal_id) return { error: "withdrawal_id is required for get" }
           const { data, error } = await supabaseAdmin
             .from("withdrawal_requests")
             .select("id, shop_id, amount, status, bank_name, account_number, account_name, created_at, updated_at, rejection_reason")
@@ -1533,15 +1535,43 @@ export async function executeToolCall(
           reject: `${ctx.baseUrl}/api/admin/withdrawals/reject`,
           complete: `${ctx.baseUrl}/api/admin/withdrawals/complete`,
         }
-        const url = endpoints[input.action as string]
-        if (!url) return { error: `Invalid action: ${input.action}. Use get, approve, reject, or complete.` }
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-          body: JSON.stringify({ withdrawalId: input.withdrawal_id, reason: input.reason }),
-        })
-        const data = await res.json()
-        return { success: res.ok, action: input.action, message: data.message ?? data.error }
+        const url = endpoints[action]
+        if (!url) return { error: `Invalid action: ${action}. Use get, approve, reject, or complete.` }
+
+        // Bulk mode — process all IDs sequentially, collect results
+        const bulkIds = Array.isArray(input.withdrawal_ids) && (input.withdrawal_ids as string[]).length > 0
+          ? (input.withdrawal_ids as string[])
+          : input.withdrawal_id ? [input.withdrawal_id as string] : null
+        if (!bulkIds) return { error: "withdrawal_id or withdrawal_ids is required" }
+
+        const results: Array<{ id: string; success: boolean; message: string }> = []
+        for (const id of bulkIds) {
+          try {
+            const res = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+              body: JSON.stringify({ withdrawalId: id, reason: input.reason }),
+            })
+            const data = await res.json()
+            results.push({ id, success: res.ok, message: data.message ?? data.error ?? (res.ok ? "OK" : "Failed") })
+          } catch {
+            results.push({ id, success: false, message: "Request error" })
+          }
+        }
+
+        if (results.length === 1) {
+          return { success: results[0].success, action, message: results[0].message }
+        }
+        const succeeded = results.filter(r => r.success).length
+        const failures = results.filter(r => !r.success)
+        return {
+          action,
+          total: results.length,
+          succeeded,
+          failed_count: failures.length,
+          ...(failures.length > 0 ? { failures } : {}),
+          message: `${succeeded} of ${results.length} ${action}d successfully${failures.length > 0 ? ` — ${failures.length} failed` : ""}`,
+        }
       }
 
       case "manage_packages": {

@@ -457,8 +457,9 @@ SHOPS:
 - Approve or reject pending shop applications
 
 WITHDRAWALS:
-- List withdrawal requests
-- Approve (triggers Moolre payout), reject, or mark as completed
+- List withdrawal requests with list_withdrawals
+- Approve (triggers Moolre payout), reject, or mark as completed with manage_withdrawal
+- For bulk actions: call list_withdrawals first, show the admin the list and total, confirm, then call manage_withdrawal ONCE with withdrawal_ids=[all IDs] — do NOT call it once per ID in a loop
 
 PACKAGES:
 - To list packages: call manage_packages action='list' — always pass network= to filter (e.g. network='MTN') so results stay small
