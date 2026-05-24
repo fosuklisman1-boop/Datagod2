@@ -73,6 +73,7 @@ export default function ScheduledTasksPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<"active" | "inactive">("active")
   const [expandedResult, setExpandedResult] = useState<string | null>(null)
   const [actionId, setActionId] = useState<string | null>(null)
 
@@ -106,6 +107,7 @@ export default function ScheduledTasksPage() {
       })
       if (res.ok) {
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, is_active: !t.is_active } : t))
+        setTab(task.is_active ? "inactive" : "active")
         toast.success(task.is_active ? "Task deactivated" : "Task activated")
       } else {
         const data = await res.json()
@@ -167,24 +169,46 @@ export default function ScheduledTasksPage() {
           </Button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex gap-1 border-b">
+          {(["active", "inactive"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
+                tab === t
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t}
+              <span className="ml-1.5 text-xs rounded-full bg-muted px-1.5 py-0.5">
+                {tasks.filter(tk => tk.is_active === (t === "active")).length}
+              </span>
+            </button>
+          ))}
+        </div>
+
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : tasks.length === 0 ? (
+        ) : tasks.filter(t => t.is_active === (tab === "active")).length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12 text-center">
               <Calendar className="h-10 w-10 text-muted-foreground mb-3" />
-              <p className="font-medium">No scheduled tasks</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Create tasks from the admin AI chat — e.g. &quot;Schedule a daily task at 6pm GMT+0 to mark all processing MTN orders as completed&quot;
-              </p>
+              <p className="font-medium">No {tab} tasks</p>
+              {tab === "active" && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Create tasks from the admin AI chat — e.g. &quot;Schedule a daily task at 6pm GMT+0 to mark all processing MTN orders as completed&quot;
+                </p>
+              )}
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-3">
-            {tasks.map(task => (
-              <Card key={task.id} className={task.is_active ? "" : "opacity-60"}>
+            {tasks.filter(t => t.is_active === (tab === "active")).map(task => (
+              <Card key={task.id}>
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
