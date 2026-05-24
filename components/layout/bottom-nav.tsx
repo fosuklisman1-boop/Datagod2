@@ -25,7 +25,7 @@ export function BottomNav() {
   const USER_NAV = [
     { href: "/dashboard",                                                   label: "Home",    icon: Home,        isFab: false },
     { href: "/dashboard/wallet",                                            label: "Wallet",  icon: Wallet,      isFab: false },
-    { href: isSubAgent ? "/dashboard/buy-stock" : "/dashboard/data-packages", label: isSubAgent ? "Stock" : "Data", icon: Package, isFab: true },
+    { href: isSubAgent ? "/dashboard/buy-stock" : "/dashboard/data-packages", label: isSubAgent ? "Buy Data" : "Data", icon: Package, isFab: true },
     { href: "/dashboard/my-orders",                                         label: "Orders",  icon: ShoppingBag, isFab: false },
     { href: "/dashboard/shop-dashboard",                                    label: "Shop",    icon: Store,       isFab: false },
   ]
