@@ -427,6 +427,7 @@ SCHEDULED TASKS:
 - Today's date is ${today} (GMT+0) — use this to construct run_at_timestamp for "today" or relative dates
 - The stored prompt is sent to the AI when the task runs — write it as a clear direct instruction
 - After each run you'll be notified via your configured channels (push by default)
+- After successfully placing an order, proactively suggest scheduling it: "Would you like me to automate this so it runs regularly?" — then offer once/daily/weekly options via show_action_buttons
 ${knowledgeBaseRule}
 ${formattingRules}`
   } else {
@@ -526,6 +527,7 @@ SCHEDULED TASKS:
 - After each run the task owner is notified via the configured notify_channels (push, sms, email)
 - Admin tasks use context=admin and run with full admin tool access
 - Admin page for viewing all tasks: /admin/scheduled-tasks
+- After completing a bulk action the admin might want to automate (e.g. bulk status update, withdrawal processing), proactively suggest scheduling it
 
 NOTIFICATIONS:
 - Use send_notification to push, SMS, or email users/dealers on demand
