@@ -158,7 +158,6 @@ export async function GET(request: NextRequest) {
     let processed = 0
 
     for (const task of tasks) {
-      const taskContext = (task.context ?? "admin") as AIChatContext
       const runAt = new Date().toISOString()
 
       // Optimistically stamp last_run_at to prevent double-execution on slow tasks
@@ -171,18 +170,37 @@ export async function GET(request: NextRequest) {
       let success = false
 
       try {
-        const systemPrompt = buildCronSystemPrompt(taskContext, today)
+        // Re-verify the user's actual role from the DB — never trust the stored user_role.
+        // A user who bypassed the API could have set user_role='admin' in the task row.
+        let effectiveRole = "user"
+        let effectiveContext: AIChatContext = "dashboard"
+
+        if (task.user_id) {
+          const { data: userRow } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", task.user_id)
+            .maybeSingle()
+          effectiveRole = userRow?.role ?? "user"
+        }
+
+        // Only allow admin context if the user actually has the admin role in the DB
+        if (effectiveRole === "admin" && task.context === "admin") {
+          effectiveContext = "admin"
+        }
+
+        const systemPrompt = buildCronSystemPrompt(effectiveContext, today)
 
         const result = await runAgenticLoop({
           provider,
           model,
           system: systemPrompt,
-          context: taskContext,
+          context: effectiveContext,
           messages: [{ role: "user", content: task.prompt }],
           toolCtx: {
             userId: task.user_id ?? undefined,
             jwtToken: cronSecret,
-            userRole: task.user_role ?? "user",
+            userRole: effectiveRole,
             baseUrl,
           },
           maxIterations: 8,

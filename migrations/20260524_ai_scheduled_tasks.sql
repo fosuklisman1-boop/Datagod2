@@ -38,6 +38,30 @@ create policy "Admins manage all scheduled tasks"
     exists (select 1 from public.users where id = auth.uid() and role = 'admin')
   );
 
-create policy "Users manage own scheduled tasks"
-  on public.ai_scheduled_tasks for all
+-- SELECT / UPDATE / DELETE: users can only touch their own rows
+create policy "Users read and delete own scheduled tasks"
+  on public.ai_scheduled_tasks for select
   using (user_id = auth.uid());
+
+create policy "Users delete own scheduled tasks"
+  on public.ai_scheduled_tasks for delete
+  using (user_id = auth.uid());
+
+create policy "Users update own scheduled tasks"
+  on public.ai_scheduled_tasks for update
+  using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and context = 'dashboard'
+    and user_role not in ('admin')
+  );
+
+-- INSERT: enforce context=dashboard and non-admin role at the DB layer
+-- This prevents a user calling Supabase directly from escalating to admin context
+create policy "Users insert own dashboard tasks only"
+  on public.ai_scheduled_tasks for insert
+  with check (
+    user_id = auth.uid()
+    and context = 'dashboard'
+    and user_role not in ('admin')
+  );
