@@ -431,6 +431,7 @@ SCHEDULED TASKS:
 - Use notify_self to send yourself an immediate push/SMS notification right now (not scheduled). Great for instant confirmations or alerts.
 - SCHEDULED ORDERS: only store a purchase prompt (e.g. "Buy 1GB MTN for 0241234567") when the user explicitly wants the order placed automatically, not just reminded
 - After successfully placing an order, proactively suggest scheduling it: "Would you like me to automate this so it runs regularly?" — then offer once/daily/weekly options via show_action_buttons
+- IMPORTANT: If you just asked the user about automating/scheduling an order and they reply with "yes", "sure", "yes please", "yes set it up", or "yes place order", treat that as a scheduling confirmation — NOT as a request to buy again. Ask for the schedule type (once/daily/weekly) and create the task via schedule_task. Never re-place the same order just because the user said "yes" after a scheduling suggestion.
 ${knowledgeBaseRule}
 ${formattingRules}`
   } else {
