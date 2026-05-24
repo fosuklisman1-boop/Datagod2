@@ -225,8 +225,15 @@ export async function POST(request: NextRequest) {
           .eq("id", withdrawalId)
       }
     } catch (stampError) {
-      console.warn(`[WITHDRAWAL-APPROVE] Warning in balance guard/stamp:`, stampError)
-      // Non-fatal: continue with transfer even if guard check fails
+      console.error(`[WITHDRAWAL-APPROVE] Balance guard failed — reverting to pending:`, stampError)
+      await supabase
+        .from("withdrawal_requests")
+        .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+        .eq("id", withdrawalId)
+      return NextResponse.json(
+        { error: "Balance check failed. The withdrawal was not approved. Please try again." },
+        { status: 503 }
+      )
     }
 
 
