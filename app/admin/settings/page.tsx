@@ -14,6 +14,7 @@ import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIc
 import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import PhoneBlacklistManager from "@/components/admin/phone-blacklist-manager"
 import AirtimeSettingsCard from "@/components/admin/airtime-settings-card"
 
@@ -36,6 +37,7 @@ export default function AdminSettingsPage() {
   const [signupsEnabled, setSignupsEnabled] = useState(true)
   const [walletTopupsEnabled, setWalletTopupsEnabled] = useState(true)
   const [upgradesEnabled, setUpgradesEnabled] = useState(true)
+  const [signupDefaultRole, setSignupDefaultRole] = useState<'user' | 'dealer' | 'sub_agent'>('user')
 
   // USSD price tier
   const [ussdPriceTier, setUssdPriceTier] = useState<"regular" | "dealer">("regular")
@@ -93,7 +95,10 @@ export default function AdminSettingsPage() {
 
     const fetchSettings = async () => {
       try {
-        const response = await fetch("/api/admin/settings")
+        const { data: { session } } = await supabase.auth.getSession()
+        const response = await fetch("/api/admin/settings", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
         const data = await response.json()
 
         if (data.join_community_link) {
@@ -129,6 +134,9 @@ export default function AdminSettingsPage() {
         // Load feature toggles
         if (data.signups_enabled !== undefined) {
           setSignupsEnabled(data.signups_enabled)
+        }
+        if (data.signup_default_role) {
+          setSignupDefaultRole(data.signup_default_role)
         }
         if (data.wallet_topups_enabled !== undefined) {
           setWalletTopupsEnabled(data.wallet_topups_enabled)
@@ -445,6 +453,7 @@ export default function AdminSettingsPage() {
           signups_enabled: signupsEnabled,
           wallet_topups_enabled: walletTopupsEnabled,
           upgrades_enabled: upgradesEnabled,
+          signup_default_role: signupDefaultRole,
         }),
       })
 
@@ -544,7 +553,30 @@ export default function AdminSettingsPage() {
                 className="data-[state=checked]:bg-green-600"
               />
             </div>
-            
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900">Default Sign-Up Role</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Role automatically assigned to every new user at registration.
+                </p>
+              </div>
+              <Select
+                value={signupDefaultRole}
+                onValueChange={(v) => setSignupDefaultRole(v as 'user' | 'dealer' | 'sub_agent')}
+                disabled={!signupsEnabled}
+              >
+                <SelectTrigger className="w-36 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="dealer">Dealer</SelectItem>
+                  <SelectItem value="sub_agent">Sub-Agent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium text-gray-900">Wallet Top Ups</p>

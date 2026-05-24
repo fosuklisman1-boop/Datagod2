@@ -13,6 +13,9 @@ const supabase = createClient(
 
 // GET settings
 export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse
+
   try {
     console.log("[ADMIN-SETTINGS-GET] Fetching app settings...")
     const { data: settings, error } = await supabase
@@ -49,6 +52,7 @@ export async function GET(request: NextRequest) {
           signups_enabled: true,
           wallet_topups_enabled: true,
           upgrades_enabled: true,
+          signup_default_role: 'user',
           terms_content: "",
           ussd_price_tier: "regular",
           ussd_shop_activation_fee: 0,
@@ -78,6 +82,7 @@ export async function GET(request: NextRequest) {
           signups_enabled: true,
           wallet_topups_enabled: true,
           upgrades_enabled: true,
+          signup_default_role: 'user',
           terms_content: "",
           terms_last_updated: null,
           created_at: null,
@@ -138,6 +143,7 @@ export async function PUT(request: NextRequest) {
       'signups_enabled',
       'wallet_topups_enabled',
       'upgrades_enabled',
+      'signup_default_role',
       'terms_content',
       'ussd_price_tier',
       'ussd_shop_dial_code',
@@ -185,6 +191,15 @@ export async function PUT(request: NextRequest) {
     if (withdrawal_fee_percentage !== undefined && (withdrawal_fee_percentage < 0 || withdrawal_fee_percentage > 100)) {
       return NextResponse.json(
         { error: "withdrawal_fee_percentage must be between 0 and 100" },
+        { status: 400 }
+      )
+    }
+
+    // Validate signup_default_role if present
+    const validSignupRoles = ['user', 'dealer', 'sub_agent']
+    if (updates.signup_default_role !== undefined && !validSignupRoles.includes(updates.signup_default_role)) {
+      return NextResponse.json(
+        { error: `signup_default_role must be one of: ${validSignupRoles.join(', ')}` },
         { status: 400 }
       )
     }
@@ -248,6 +263,7 @@ export async function PUT(request: NextRequest) {
         signups_enabled: true,
         wallet_topups_enabled: true,
         upgrades_enabled: true,
+        signup_default_role: 'user',
         terms_content: "",
         terms_last_updated: null,
         ussd_price_tier: "regular",

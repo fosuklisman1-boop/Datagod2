@@ -20,7 +20,7 @@ export const useAppSettings = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const response = await fetch("/api/admin/settings")
+        const response = await fetch("/api/settings/public")
         if (!response.ok) {
           throw new Error("Failed to fetch settings")
         }

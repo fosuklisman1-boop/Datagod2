@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { email, userId, firstName, lastName, phoneNumber } = await request.json()
+    const { email, firstName, lastName, phoneNumber } = await request.json()
 
     // Create a service role client on the server
     const supabaseServiceRole = createClient(
@@ -41,10 +41,22 @@ export async function POST(request: NextRequest) {
       }
     )
 
-    // Check if signups are enabled globally
+    // Verify the caller's identity via their Supabase session token
+    const authHeader = request.headers.get("authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const token = authHeader.slice(7)
+    const { data: tokenUser, error: tokenError } = await supabaseServiceRole.auth.getUser(token)
+    if (tokenError || !tokenUser?.user?.id) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 })
+    }
+    const userId = tokenUser.user.id
+
+    // Check if signups are enabled globally and fetch default role
     const { data: settings } = await supabaseServiceRole
       .from("app_settings")
-      .select("signups_enabled")
+      .select("signups_enabled, signup_default_role")
       .single()
 
     if (settings && settings.signups_enabled === false) {
@@ -53,6 +65,10 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       )
     }
+
+    const validSignupRoles = ['user', 'dealer', 'sub_agent']
+    const rawRole: string = settings?.signup_default_role || 'user'
+    const defaultRole: string = validSignupRoles.includes(rawRole) ? rawRole : 'user'
 
     // Phone number is required
     if (!phoneNumber || phoneNumber.trim() === '') {
@@ -95,6 +111,7 @@ export async function POST(request: NextRequest) {
           first_name: firstName || "",
           last_name: lastName || "",
           phone_number: phoneNumber || "",
+          role: defaultRole,
           created_at: new Date().toISOString(),
         },
       ])
@@ -106,6 +123,15 @@ export async function POST(request: NextRequest) {
         { error: error.message },
         { status: 400 }
       )
+    }
+
+    // Sync role into auth user_metadata so session reflects it immediately
+    if (defaultRole !== 'user') {
+      supabaseServiceRole.auth.admin.updateUserById(userId, {
+        user_metadata: { role: defaultRole }
+      }).catch((err) => {
+        console.error("Auth metadata sync error:", err)
+      })
     }
 
     // Create wallet for the user

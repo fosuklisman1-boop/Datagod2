@@ -26,14 +26,19 @@ export const authService = {
       if (!authData.user) throw new Error("User creation failed")
 
       // Create user profile via API route (server-side)
+      // Send the session token so the server can verify the identity server-side
+      if (!authData.session?.access_token) {
+        throw new Error("No session token after signup — email confirmation may be required")
+      }
+
       const response = await fetch("/api/auth/signup", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${authData.session.access_token}`,
         },
         body: JSON.stringify({
           email,
-          userId: authData.user.id,
           firstName: userData.first_name,
           lastName: userData.last_name,
           phoneNumber: userData.phone_number,
