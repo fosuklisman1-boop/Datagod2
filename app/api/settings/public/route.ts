@@ -6,12 +6,7 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from("app_settings")
-      .select(
-        "signups_enabled, wallet_topups_enabled, upgrades_enabled, ordering_enabled, " +
-        "join_community_link, " +
-        "announcement_enabled, announcement_title, announcement_message, " +
-        "storefront_announcement_enabled, storefront_announcement_title, storefront_announcement_message"
-      )
+      .select("signups_enabled, wallet_topups_enabled, upgrades_enabled, ordering_enabled, join_community_link, announcement_enabled, announcement_title, announcement_message, storefront_announcement_enabled, storefront_announcement_title, storefront_announcement_message")
       .single()
 
     const fallback = {
