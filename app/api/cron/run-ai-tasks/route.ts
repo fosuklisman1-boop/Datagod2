@@ -64,7 +64,7 @@ function computeNextRun(task: {
 // ─── System prompts for cron execution ───────────────────────────────────────
 
 function buildCronSystemPrompt(context: AIChatContext, today: string): string {
-  const reminderRule = `IMPORTANT: If the prompt starts with "REMINDER ONLY" or says "do not place any order", send a notification with the reminder message and stop — do NOT call place_wallet_order or any purchase tool under any circumstances.`
+  const reminderRule = `IMPORTANT: If the prompt starts with "REMINDER ONLY", call the notify_self tool with the reminder text as the message — do NOT call place_wallet_order or any purchase tool. Call notify_self first, then stop.`
 
   if (context === "admin") {
     return `You are the Datagod admin AI running a scheduled automated task. Today is ${today} (GMT+0).

@@ -783,6 +783,20 @@ const sendNotificationTool: Anthropic.Tool = {
   },
 }
 
+const notifySelfTool: Anthropic.Tool = {
+  name: "notify_self",
+  description: "Send a push notification and/or SMS to yourself (the current user). Use this to deliver reminders, confirmations, or any message the user should receive on their device. For REMINDER ONLY scheduled tasks, always call this tool to deliver the reminder — do not just return text.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      title: { type: "string", description: "Notification title. Keep it short (< 60 chars)." },
+      message: { type: "string", description: "Notification body / SMS text. Keep under 160 chars for SMS." },
+      channels: { type: "array", items: { type: "string", enum: ["push", "sms"] }, description: "Which channels to use. Defaults to ['push']." },
+    },
+    required: ["title", "message"],
+  },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
@@ -818,6 +832,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getSubscriptionPlansTool,
     getMyShopTool,
     scheduleTaskTool,
+    notifySelfTool,
     getKnowledgeBaseTool,
     showActionButtonsTool,
   ]
@@ -2256,6 +2271,23 @@ export async function executeToolCall(
             title: input.title,
             body: input.body,
             email_html: input.email_html,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) return { error: data.error ?? "Notification failed" }
+        return data
+      }
+
+      case "notify_self": {
+        if (!input.title || !input.message) return { error: "title and message are required" }
+        const res = await fetch(`${ctx.baseUrl}/api/user/notify-self`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+          body: JSON.stringify({
+            title: input.title,
+            message: input.message,
+            channels: input.channels ?? ["push"],
+            ...(ctx.userId ? { userId: ctx.userId } : {}),
           }),
         })
         const data = await res.json()
