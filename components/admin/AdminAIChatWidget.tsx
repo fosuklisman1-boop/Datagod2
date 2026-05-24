@@ -19,7 +19,8 @@ interface Message {
 
 interface ActionButton {
   label: string
-  value: string
+  value?: string
+  url?: string
   style?: "primary" | "danger" | "secondary"
 }
 
@@ -290,7 +291,17 @@ export function AdminAIChatWidget() {
               {!isStreaming && actionButtons && actionButtons.length > 0 && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   {actionButtons.map((btn, i) => (
-                    <button key={i} onClick={() => sendMessage(btn.value)} className={buttonClass(btn.style)}>
+                    <button
+                      key={i}
+                      onClick={() => {
+                        if (btn.url) {
+                          window.location.href = btn.url
+                        } else if (btn.value) {
+                          sendMessage(btn.value)
+                        }
+                      }}
+                      className={buttonClass(btn.style)}
+                    >
                       {btn.label}
                     </button>
                   ))}
