@@ -20,6 +20,12 @@ async function resolveUser(request: NextRequest): Promise<{
   }
   const token = authHeader.slice(7)
 
+  // CRON_SECRET bypass — cron engine running admin tasks gets full admin access
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret && token === cronSecret) {
+    return { userId: "", userRole: "admin", isAdmin: true }
+  }
+
   const { data: authData, error: authError } = await supabase.auth.getUser(token)
   if (authError || !authData?.user?.id) {
     return { userId: "", userRole: "user", isAdmin: false, error: NextResponse.json({ error: "Invalid token" }, { status: 401 }) }

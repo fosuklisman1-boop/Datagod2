@@ -12,6 +12,12 @@ async function resolveUser(request: NextRequest) {
     return { userId: "", isAdmin: false, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   }
   const token = authHeader.slice(7)
+
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret && token === cronSecret) {
+    return { userId: "", isAdmin: true, error: undefined }
+  }
+
   const { data: authData, error: authError } = await supabase.auth.getUser(token)
   if (authError || !authData?.user?.id) {
     return { userId: "", isAdmin: false, error: NextResponse.json({ error: "Invalid token" }, { status: 401 }) }
