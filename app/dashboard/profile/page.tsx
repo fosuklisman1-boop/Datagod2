@@ -269,9 +269,9 @@ export default function ProfilePage() {
           body: JSON.stringify({ phoneNumber: editForm.phone, excludeUserId: user.id }),
         })
 
-        if (!checkResponse.ok) {
-          const error = await checkResponse.json()
-          toast.error(error.error || "Phone number validation failed")
+        const checkData = await checkResponse.json()
+        if (!checkData.available) {
+          toast.error(checkData.error || "Phone number validation failed")
           setIsSavingProfile(false)
           return
         }

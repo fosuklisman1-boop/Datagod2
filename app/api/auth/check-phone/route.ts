@@ -47,16 +47,18 @@ export async function POST(request: NextRequest) {
     
     const { data: existingUser, error: checkError } = await query.maybeSingle()
 
+    // Always return HTTP 200 regardless of availability.
+    // A 400 vs 200 difference was leaking registration status to unauthenticated
+    // callers, enabling bulk phone-number enumeration of the user base.
     if (existingUser) {
       return NextResponse.json(
-        { error: "This phone number is already registered" },
-        { status: 400 }
+        { available: false, error: "This phone number is already registered" },
+        { status: 200 }
       )
     }
 
-    // Phone is valid and available
     return NextResponse.json(
-      { valid: true, message: "Phone number is available" },
+      { available: true, message: "Phone number is available" },
       { status: 200 }
     )
   } catch (error: any) {

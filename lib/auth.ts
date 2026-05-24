@@ -10,9 +10,10 @@ export const authService = {
         body: JSON.stringify({ phoneNumber: userData.phone_number }),
       })
 
-      if (!phoneCheckResponse.ok) {
-        const error = await phoneCheckResponse.json()
-        throw new Error(error.error || "Phone number validation failed")
+      // check-phone always returns HTTP 200; availability is in the response body.
+      const phoneCheckData = await phoneCheckResponse.json()
+      if (!phoneCheckData.available) {
+        throw new Error(phoneCheckData.error || "Phone number validation failed")
       }
 
       // Now safe to create auth user
@@ -117,7 +118,11 @@ export const authService = {
         error,
       } = await supabase.auth.getUser()
 
-      if (error) throw error
+      if (error) {
+        // AuthSessionMissingError fires for every unauthenticated page load — not a bug.
+        if (error.message?.includes("Auth session missing")) return null
+        throw error
+      }
       return user
     } catch (error) {
       console.error("Get current user error:", error)

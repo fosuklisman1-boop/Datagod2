@@ -106,20 +106,15 @@ const nextConfig: NextConfig = {
             key: "X-XSS-Protection",
             value: "1; mode=block",
           },
+          // HSTS: tell browsers to only connect over HTTPS for 2 years,
+          // covering all subdomains. 'preload' qualifies the domain for
+          // browser preload lists (submit at https://hstspreload.org).
           {
-            key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.paystack.co https://checkout.paystack.com https://storage.googleapis.com",
-              "style-src 'self' 'unsafe-inline' https://paystack.com https://checkout.paystack.com https://fonts.googleapis.com",
-              "font-src 'self' data: https://fonts.gstatic.com",
-              "img-src 'self' data: https: blob:",
-              "frame-src https://checkout.paystack.com",
-              "frame-ancestors 'self' https://js.paystack.co",
-              "worker-src 'self' blob:",
-              "connect-src 'self' https://js.paystack.co https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com",
-            ].join("; "),
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
           },
+          // CSP is injected per-request by middleware (needs a fresh nonce each time).
+          // Static headers here cannot carry a nonce, so CSP lives in middleware.ts.
         ],
       },
     ];

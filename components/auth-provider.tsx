@@ -13,9 +13,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // Get the session to ensure auth context is initialized
+        // getSession() returns the cached local session including the user object.
+        // Calling getUser() separately when no session exists triggers AuthSessionMissingError,
+        // so we derive the user directly from the session.
         const session = await authService.getSession()
-        const user = session?.user || await authService.getCurrentUser()
+        const user = session?.user ?? null
         const isAuthPage = pathname?.startsWith("/auth")
         
         if (user && isAuthPage) {

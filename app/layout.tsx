@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -99,16 +100,22 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Read the per-request nonce injected by middleware so inline scripts
+  // satisfy the nonce-based Content-Security-Policy.
+  const headersList = await headers();
+  const nonce = headersList.get("x-nonce") ?? "";
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         {/* Organization Schema */}
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
@@ -155,6 +162,7 @@ export default function RootLayout({
 
         {/* Capture beforeinstallprompt before React hydrates */}
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
               window.addEventListener('beforeinstallprompt', function(e) {
@@ -166,9 +174,10 @@ export default function RootLayout({
           }}
         />
         {/* Paystack Script */}
-        <script src="https://js.paystack.co/v1/inline.js" async></script>
+        <script nonce={nonce} src="https://js.paystack.co/v1/inline.js" async></script>
         {/* Service Worker Registration - inline for PWA detection */}
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
               if ('serviceWorker' in navigator) {

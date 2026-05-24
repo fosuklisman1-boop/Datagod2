@@ -1,9 +1,98 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { createServerClient } from "@supabase/ssr"
 
-export function middleware(request: NextRequest) {
-  // For now, allow all requests through
-  // The client-side will handle redirects based on auth state
-  return NextResponse.next()
+export async function middleware(request: NextRequest) {
+  const nonce = btoa(crypto.randomUUID())
+  const path = request.nextUrl.pathname
+
+  // Builds request headers that include the nonce for the layout server component.
+  const buildRequestHeaders = () => {
+    const h = new Headers(request.headers)
+    h.set("x-nonce", nonce)
+    return h
+  }
+
+  // Start with a base response. If Supabase needs to refresh the session cookie,
+  // the setAll callback below will replace this with a new response that carries
+  // the refreshed cookie — so always use the `response` variable, not this initial value.
+  let response = NextResponse.next({ request: { headers: buildRequestHeaders() } })
+
+  // SSR Supabase client — reads from and writes to request/response cookies.
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          // Propagate refreshed session cookies to both the forwarded request
+          // and the outgoing response so downstream components see the new token.
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          response = NextResponse.next({ request: { headers: buildRequestHeaders() } })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          )
+        },
+      },
+    },
+  )
+
+  // getSession() is a local JWT decode — no network round-trip.
+  // Individual API routes perform the authoritative getUser() check before serving data.
+  const { data: { session } } = await supabase.auth.getSession()
+  const isAuthenticated = !!session
+
+  // ── Server-side route guards ────────────────────────────────────────────────
+  // Unauthenticated users trying to reach protected pages are redirected to login
+  // before any HTML is sent — closing the client-side-only-protection gap.
+  if (!isAuthenticated && (path.startsWith("/admin") || path.startsWith("/dashboard"))) {
+    const loginUrl = request.nextUrl.clone()
+    loginUrl.pathname = "/auth/login"
+    loginUrl.searchParams.set("redirect", path)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  // Authenticated users navigating to auth pages are bounced to the dashboard,
+  // EXCEPT /auth/reset-password: Supabase's magic-link flow signs the user in
+  // via the OTP token before they land on that page, so it must stay accessible.
+  if (isAuthenticated && path.startsWith("/auth") && !path.startsWith("/auth/reset-password")) {
+    const dashboardUrl = request.nextUrl.clone()
+    dashboardUrl.pathname = "/dashboard"
+    dashboardUrl.searchParams.delete("redirect")
+    return NextResponse.redirect(dashboardUrl)
+  }
+
+  // ── Security headers ────────────────────────────────────────────────────────
+  const csp = [
+    "default-src 'self'",
+    // 'unsafe-inline' kept for legacy browsers; ignored by CSP2+ when nonce present.
+    // 'strict-dynamic' propagates trust to scripts loaded dynamically by a nonce-d script
+    // (covers GTM injected by PostHog, Paystack's Pusher loader, etc.).
+    // 'unsafe-eval' intentionally removed — Next.js production builds don't need it.
+    `script-src 'self' 'unsafe-inline' 'nonce-${nonce}' 'strict-dynamic' https://js.paystack.co https://checkout.paystack.com https://www.googletagmanager.com https://storage.googleapis.com`,
+    "style-src 'self' 'unsafe-inline' https://paystack.com https://checkout.paystack.com https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: https: blob:",
+    "frame-src https://checkout.paystack.com",
+    // frame-ancestors replaces X-Frame-Options; keep both for broad compatibility.
+    "frame-ancestors 'self' https://js.paystack.co",
+    "worker-src 'self' blob:",
+    "connect-src 'self' https://js.paystack.co https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com https://eu.i.posthog.com https://eu-assets.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com",
+    // Harden against injection via object/data URIs and base-tag hijacking.
+    "object-src 'none'",
+    "base-uri 'self'",
+  ].join("; ")
+
+  response.headers.set("Content-Security-Policy", csp)
+  // Isolates the top-level window from cross-origin pop-ups (e.g. XS-Leaks).
+  // 'same-origin-allow-popups' keeps Paystack's checkout pop-up working.
+  response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+  // Deny access to sensitive browser APIs from this origin.
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+  return response
 }
 
 export const config = {
