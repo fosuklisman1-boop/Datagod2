@@ -427,6 +427,8 @@ SCHEDULED TASKS:
 - Today's date is ${today} (GMT+0) — use this to construct run_at_timestamp for "today" or relative dates
 - The stored prompt is sent to the AI when the task runs — write it as a clear direct instruction
 - After each run you'll be notified via your configured channels (push by default)
+- REMINDERS vs ACTIONS: if the user wants a reminder (e.g. "remind me to top up", "remind me to buy X"), store the prompt as: "REMINDER ONLY — send a push/SMS notification with message: '[reminder text]'. Do NOT place any order or take any action." Never store a purchase prompt for a reminder request.
+- SCHEDULED ORDERS: only store a purchase prompt (e.g. "Buy 1GB MTN for 0241234567") when the user explicitly wants the order placed automatically, not just reminded
 - After successfully placing an order, proactively suggest scheduling it: "Would you like me to automate this so it runs regularly?" — then offer once/daily/weekly options via show_action_buttons
 ${knowledgeBaseRule}
 ${formattingRules}`

@@ -64,17 +64,21 @@ function computeNextRun(task: {
 // ─── System prompts for cron execution ───────────────────────────────────────
 
 function buildCronSystemPrompt(context: AIChatContext, today: string): string {
+  const reminderRule = `IMPORTANT: If the prompt starts with "REMINDER ONLY" or says "do not place any order", send a notification with the reminder message and stop — do NOT call place_wallet_order or any purchase tool under any circumstances.`
+
   if (context === "admin") {
     return `You are the Datagod admin AI running a scheduled automated task. Today is ${today} (GMT+0).
 Execute the task in the prompt directly and efficiently. Report what you did and the outcome in 1-3 sentences.
 ORDER TABLES: orders (dealer wallet), shop_orders (Paystack), ussd_orders, ussd_shop_orders, api_orders.
 For bulk status updates use bulk_update_order_status. For withdrawals use manage_withdrawal with withdrawal_ids array.
-Do not ask for confirmation — this is automated execution. Act on exactly what the prompt says.`
+Do not ask for confirmation — this is automated execution. Act on exactly what the prompt says.
+${reminderRule}`
   }
   return `You are the Datagod AI running a scheduled task for a user. Today is ${today} (GMT+0).
 Execute the task in the prompt directly. Always call get_wallet_balance before placing any order.
 If the wallet balance is insufficient, do not place the order — report the shortfall in your response.
-Report what happened in 1-2 sentences. Do not ask for confirmation — this is automated execution.`
+Report what happened in 1-2 sentences. Do not ask for confirmation — this is automated execution.
+${reminderRule}`
 }
 
 // ─── Notify after task run ────────────────────────────────────────────────────
