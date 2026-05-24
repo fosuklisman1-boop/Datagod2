@@ -586,6 +586,19 @@ const getMyShopTool: Anthropic.Tool = {
   },
 }
 
+const manageMyUssdShopTool: Anthropic.Tool = {
+  name: "manage_my_ussd_shop",
+  description: "Manage the logged-in dealer's own USSD shop code. Use 'activate' to activate it (may deduct an activation fee from wallet). Use 'buy_sessions' to purchase session tokens.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", enum: ["activate", "buy_sessions"], description: "activate: activate the USSD shop code (show activation fee and confirm first). buy_sessions: purchase session tokens." },
+      sessions: { type: "number", description: "Number of sessions to buy. Required for buy_sessions." },
+    },
+    required: ["action"],
+  },
+}
+
 const getSubscriptionPlansTool: Anthropic.Tool = {
   name: "get_subscription_plans",
   description: "Get all available dealer upgrade plans with names, prices, and durations. Use this when a user asks about upgrading to dealer, becoming a dealer, subscription costs, or plan options.",
@@ -831,6 +844,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getSubscriptionTool,
     getSubscriptionPlansTool,
     getMyShopTool,
+    manageMyUssdShopTool,
     scheduleTaskTool,
     notifySelfTool,
     getKnowledgeBaseTool,
@@ -2013,6 +2027,35 @@ export async function executeToolCall(
             : null,
           invite_codes: (invitesRes.data ?? []).map(i => i.code),
         }
+      }
+
+      case "manage_my_ussd_shop": {
+        const action = input.action as string
+
+        if (action === "activate") {
+          const res = await fetch(`${ctx.baseUrl}/api/dashboard/ussd-shop/activate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({}),
+          })
+          const data = await res.json()
+          if (!res.ok) return { error: data.error ?? "Activation failed" }
+          return { success: true, message: "Your USSD shop code is now active! Customers can use it right away." }
+        }
+
+        if (action === "buy_sessions") {
+          if (!input.sessions || Number(input.sessions) < 1) return { error: "sessions must be a positive number" }
+          const res = await fetch(`${ctx.baseUrl}/api/dashboard/ussd-shop/buy-sessions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
+            body: JSON.stringify({ sessions: Number(input.sessions) }),
+          })
+          const data = await res.json()
+          if (!res.ok) return { error: data.error ?? "Failed to purchase sessions" }
+          return { success: true, new_token_balance: data.new_token_balance }
+        }
+
+        return { error: `Unknown action: ${action}. Use activate or buy_sessions.` }
       }
 
       case "get_subscription_plans": {
