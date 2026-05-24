@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
-import { DEFAULT_CONFIG, resolveProviderForContext } from "@/lib/ai-providers"
+import { AIProviderConfig, DEFAULT_CONFIG, resolveProviderForContext } from "@/lib/ai-providers"
 import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail } from "@/lib/email-service"
@@ -126,6 +126,43 @@ async function notifyTaskResult(
   }
 }
 
+// ─── Load AI config from DB (same as chat route) ─────────────────────────────
+
+async function loadAIConfig(): Promise<AIProviderConfig> {
+  try {
+    const { data } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "ai_provider_config")
+      .maybeSingle()
+    return (data?.value as AIProviderConfig) ?? DEFAULT_CONFIG
+  } catch {
+    return DEFAULT_CONFIG
+  }
+}
+
+// ─── Sanitize error message for user-facing notifications ─────────────────────
+
+function friendlyError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  if (raw.includes("authentication_error") || raw.includes("x-api-key") || raw.includes("API key")) {
+    return "AI service authentication failed — check the API key in admin settings."
+  }
+  if (raw.includes("insufficient_quota") || raw.includes("RESOURCE_EXHAUSTED") || raw.includes("quota")) {
+    return "AI service quota exceeded. The task will retry next time."
+  }
+  if (raw.includes("rate_limit") || raw.includes("429")) {
+    return "AI service rate limit hit. The task will retry next time."
+  }
+  if (raw.includes("<!DOCTYPE") || raw.includes("not valid JSON")) {
+    return "Internal routing error. Contact support if this persists."
+  }
+  // Strip raw JSON blobs from provider error responses
+  // Strip raw JSON blobs — remove everything from first { to end
+  const stripped = raw.indexOf("{") !== -1 ? raw.slice(0, raw.indexOf("{")).trim() : raw.trim()
+  return stripped.slice(0, 200) || "Unexpected error. Check logs for details."
+}
+
 // ─── GET: process due tasks ───────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
@@ -151,7 +188,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ processed: 0 })
     }
 
-    const { provider, model } = resolveProviderForContext("admin", DEFAULT_CONFIG)
+    // Load AI config from DB — same as the chat route, so custom keys/providers are respected
+    const aiConfig = await loadAIConfig()
     const today = new Date().toISOString().split("T")[0]
     const cronSecret = process.env.CRON_SECRET!
     const baseUrl = getBaseUrl()
@@ -191,6 +229,7 @@ export async function GET(request: NextRequest) {
         }
 
         const systemPrompt = buildCronSystemPrompt(effectiveContext, today)
+        const { provider, model } = resolveProviderForContext(effectiveContext, aiConfig)
 
         const result = await runAgenticLoop({
           provider,
@@ -211,7 +250,7 @@ export async function GET(request: NextRequest) {
         resultText = result.text || "Task completed (no text output)."
         success = true
       } catch (err) {
-        resultText = `Task failed: ${err instanceof Error ? err.message : String(err)}`
+        resultText = `Task failed: ${friendlyError(err)}`
         success = false
         console.error(`[CRON-AI-TASKS] Task ${task.id} (${task.name}) failed:`, err)
       }
