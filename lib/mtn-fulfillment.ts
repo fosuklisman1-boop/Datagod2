@@ -264,11 +264,11 @@ export async function checkMTNBalance(): Promise<number | null> {
 
 /**
  * Get the next provider in the sequence based on retry count
- * Sequence: DK (Initial) -> DK (Retry 0) -> Sykes (Retry 1) -> DK (Retry 2)
+ * Sequence: datakazina (0) -> sykes (1) -> xpress (2) -> datakazina (3) -> ...
  */
-export function getNextMTNProvider(retryCount: number): "datakazina" | "sykes" {
-  if (retryCount === 1) return "sykes"
-  return "datakazina"
+export function getNextMTNProvider(retryCount: number): "datakazina" | "sykes" | "xpress" {
+  const providers = ["datakazina", "sykes", "xpress"] as const
+  return providers[retryCount % providers.length]
 }
 
 /**
@@ -1066,8 +1066,10 @@ export async function retryMTNOrder(
     // if the previous provider was the one with the error.
     if (tracking.status === "failed" && tracking.external_message && isInsufficientFundsError(tracking.external_message)) {
       console.log(`[MTN] Detected previous balance error with ${tracking.provider}. Skipping ahead in sequence.`)
-      // If DK had balance error, force Sykes. If Sykes had balance error, force DK.
-      providerName = tracking.provider === "datakazina" ? "sykes" : "datakazina"
+      // Cycle to the next provider in the 3-way rotation, skipping the one that ran out of funds
+      const rotation = ["datakazina", "sykes", "xpress"] as const
+      const currentIdx = rotation.indexOf(tracking.provider as any)
+      providerName = rotation[(currentIdx + 1) % rotation.length]
     }
 
     console.log(`[MTN] Automatic retry ${tracking.retry_count + 1}/${maxAttempts} for tracking ${trackingId} using ${providerName}`)
