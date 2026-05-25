@@ -9,6 +9,45 @@ export interface PhoneValidationResult {
   error?: string
 }
 
+export function normalizeGhanaPhoneNumber(phone: string): string {
+  const cleaned = String(phone ?? "").replace(/\D/g, "")
+
+  if (cleaned.startsWith("233") && cleaned.length === 12) {
+    return `0${cleaned.slice(3)}`
+  }
+
+  if (cleaned.length === 9) {
+    return `0${cleaned}`
+  }
+
+  return cleaned
+}
+
+export function normalizePhoneToE164(phone: string): string {
+  const local = normalizeGhanaPhoneNumber(phone)
+  if (!local) return ""
+  if (local.startsWith("0") && local.length === 10) {
+    return `+233${local.slice(1)}`
+  }
+
+  const cleaned = String(phone ?? "").replace(/\D/g, "")
+  if (cleaned.startsWith("233")) return `+${cleaned}`
+  return local.startsWith("+") ? local : `+${local}`
+}
+
+export function getGhanaPhoneLookupVariants(phone: string): string[] {
+  const local = normalizeGhanaPhoneNumber(phone)
+  const e164 = normalizePhoneToE164(local)
+  const intl = e164.replace("+", "")
+
+  return Array.from(new Set([
+    phone,
+    local,
+    e164,
+    intl,
+  ].filter(Boolean)))
+}
+
 /**
  * Validate and normalize a phone number
  * Accepts 9 or 10 digits, automatically pads 9-digit numbers with leading 0
