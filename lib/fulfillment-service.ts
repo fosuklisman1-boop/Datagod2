@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
-import { createMTNOrder, saveMTNTracking, MTNOrderRequest, getNextMTNProvider } from "@/lib/mtn-fulfillment"
+import { createMTNOrder, saveMTNTracking, MTNOrderRequest } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 
@@ -116,10 +116,11 @@ export async function processManualFulfillment(
       }
     }
 
-    // Provider selection
+    // Provider selection — always honour an explicit override, otherwise use the admin-selected provider
     let finalProvider = provider
-    if (!provider && existingTracking && existingTracking.length > 0) {
-      finalProvider = getNextMTNProvider(existingTracking[0].retry_count || 0)
+    if (!finalProvider) {
+      const { getMTNProvider } = await import("@/lib/mtn-providers/factory")
+      finalProvider = (await getMTNProvider()).name
     }
 
     // ATOMIC LOCK - Order

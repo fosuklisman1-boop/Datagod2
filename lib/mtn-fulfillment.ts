@@ -262,14 +262,6 @@ export async function checkMTNBalance(): Promise<number | null> {
   }
 }
 
-/**
- * Get the next provider in the sequence based on retry count
- * Sequence: datakazina (0) -> sykes (1) -> xpress (2) -> datakazina (3) -> ...
- */
-export function getNextMTNProvider(retryCount: number): "datakazina" | "sykes" | "xpress" {
-  const providers = ["datakazina", "sykes", "xpress"] as const
-  return providers[retryCount % providers.length]
-}
 
 /**
  * Check if the error message indicates insufficient funds
@@ -1058,19 +1050,10 @@ export async function retryMTNOrder(
       return false
     }
 
-    // Determine the next provider based on current retry count
-    // Logic: DK (0) -> DK (1) -> Sykes (2) -> DK (3)
-    let providerName = getNextMTNProvider(tracking.retry_count)
-
-    // Safety check: if we're retrying after a balance error, we should jump to the alternative provider
-    // if the previous provider was the one with the error.
-    if (tracking.status === "failed" && tracking.external_message && isInsufficientFundsError(tracking.external_message)) {
-      console.log(`[MTN] Detected previous balance error with ${tracking.provider}. Skipping ahead in sequence.`)
-      // Cycle to the next provider in the 3-way rotation, skipping the one that ran out of funds
-      const rotation = ["datakazina", "sykes", "xpress"] as const
-      const currentIdx = rotation.indexOf(tracking.provider as any)
-      providerName = rotation[(currentIdx + 1) % rotation.length]
-    }
+    // Always use the currently selected provider from admin settings
+    const { getMTNProvider } = await import("@/lib/mtn-providers/factory")
+    const selectedProvider = await getMTNProvider()
+    const providerName = selectedProvider.name
 
     console.log(`[MTN] Automatic retry ${tracking.retry_count + 1}/${maxAttempts} for tracking ${trackingId} using ${providerName}`)
 
