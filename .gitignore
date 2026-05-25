@@ -1,43 +1,82 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Datagod2 ignore rules
+# Next.js / TypeScript app with Supabase migrations and local admin/debug scripts.
 
 # dependencies
-/node_modules
-/.pnp
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+!.yarn/patches/
+!.yarn/plugins/
+!.yarn/releases/
+!.yarn/versions/
 
-# testing
-/coverage
+# package-manager stores and caches
+.npm/
+.pnpm-store/
+.yarn/cache/
+.bun/
+bunfig.toml.local
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
-# production
-/build
+# production builds
+build/
+dist/
 
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-*.log
-
-# env files (can opt-in for committing if needed)
-.env*
-.env.local
-
-# vercel
-.vercel
+# testing and reports
+coverage/
+playwright-report/
+test-results/
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.crt
+
+# vercel and deployment state
+.vercel/
+
+# local logs and diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+bun-debug.log*
+debug.log*
+
+# temporary output
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+
+# editor and OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# local tool state
+.eslintcache
+.turbo/
+.parcel-cache/
+.cache/
+
+# local-only assistant/editor settings
+.claude/settings.local.json
+.vscode/*.local.json

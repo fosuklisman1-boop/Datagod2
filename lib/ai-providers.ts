@@ -317,19 +317,20 @@ export function getProvider(name: ProviderName, apiKey: string): AIProvider {
 }
 
 export function resolveProviderForContext(
-  context: "storefront" | "dashboard" | "admin" | "home",
+  context: "storefront" | "dashboard" | "admin" | "home" | "whatsapp",
   config: AIProviderConfig
 ): { provider: AIProvider; model: string; providerName: ProviderName } {
   const fallbackKey = process.env.ANTHROPIC_API_KEY ?? ""
+  const resolvedContext = context === "whatsapp" ? "dashboard" : context
 
   const providerName: ProviderName =
-    context === "storefront" || context === "home" ? (config.storefront_provider ?? "anthropic")
-    : context === "dashboard" ? (config.dashboard_provider ?? "anthropic")
+    resolvedContext === "storefront" || resolvedContext === "home" ? (config.storefront_provider ?? "anthropic")
+    : resolvedContext === "dashboard" ? (config.dashboard_provider ?? "anthropic")
     : (config.admin_provider ?? "anthropic")
 
   const model: string =
-    context === "storefront" || context === "home" ? (config.storefront_model ?? DEFAULT_CONFIG.storefront_model!)
-    : context === "dashboard" ? (config.dashboard_model ?? DEFAULT_CONFIG.dashboard_model!)
+    resolvedContext === "storefront" || resolvedContext === "home" ? (config.storefront_model ?? DEFAULT_CONFIG.storefront_model!)
+    : resolvedContext === "dashboard" ? (config.dashboard_model ?? DEFAULT_CONFIG.dashboard_model!)
     : (config.admin_model ?? DEFAULT_CONFIG.admin_model!)
 
   const apiKey: string =
@@ -343,7 +344,7 @@ export function resolveProviderForContext(
   if (!apiKey) {
     return {
       provider: new AnthropicAdapter(fallbackKey),
-      model: (DEFAULT_CONFIG as Record<string, string>)[`${context}_model`] ?? "claude-haiku-4-5-20251001",
+      model: (DEFAULT_CONFIG as Record<string, string>)[`${resolvedContext}_model`] ?? "claude-haiku-4-5-20251001",
       providerName: "anthropic",
     }
   }

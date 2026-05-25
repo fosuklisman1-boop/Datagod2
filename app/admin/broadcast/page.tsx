@@ -14,6 +14,7 @@ import {
     Send,
     Users,
     Mail,
+    MessageCircle,
     MessageSquare,
     Loader2,
     CheckCircle2,
@@ -208,6 +209,8 @@ export default function BroadcastPage() {
             // 3. SEND BATCHES
             const batchSize = 2 // Process 2 users at a time (same as retries)
             let sentCount = 0
+            let whatsappSent = 0
+            let whatsappFailed = 0
 
             for (let i = 0; i < targetList.length; i += batchSize) {
                 const batch = targetList.slice(i, i + batchSize)
@@ -220,7 +223,7 @@ export default function BroadcastPage() {
                     name: u.first_name
                 }))
 
-                await fetch("/api/admin/broadcast", {
+                const batchRes = await fetch("/api/admin/broadcast", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                     body: JSON.stringify({
@@ -232,6 +235,9 @@ export default function BroadcastPage() {
                         message
                     })
                 })
+                const batchData = await batchRes.json().catch(() => null)
+                whatsappSent += batchData?.results?.whatsapp?.sent ?? 0
+                whatsappFailed += batchData?.results?.whatsapp?.failed ?? 0
 
                 sentCount += batch.length
                 setProgress({
@@ -252,7 +258,10 @@ export default function BroadcastPage() {
             })
 
             const finalData = await finalizeRes.json()
-            setResults(finalData.results)
+            setResults({
+                ...finalData.results,
+                whatsapp: { sent: whatsappSent, failed: whatsappFailed }
+            })
             toast.success("Broadcast sent successfully!")
 
             // Clear form
@@ -439,6 +448,14 @@ export default function BroadcastPage() {
                                     </div>
                                     <Bell className="ml-auto w-5 h-5 text-violet-400" />
                                 </label>
+                                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("whatsapp") ? "bg-green-50 border-green-500" : "hover:bg-gray-50"}`}>
+                                    <Checkbox checked={channels.includes("whatsapp")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "whatsapp"] : prev.filter(c => c !== "whatsapp"))} />
+                                    <div className="flex flex-col">
+                                        <span className="font-semibold text-green-700">WhatsApp</span>
+                                        <span className="text-xs text-gray-500">Cloud API utility message</span>
+                                    </div>
+                                    <MessageCircle className="ml-auto w-5 h-5 text-green-500" />
+                                </label>
                             </CardContent>
                         </Card>
                     </div>
@@ -518,13 +535,19 @@ export default function BroadcastPage() {
                                         <div className="p-3 bg-white rounded-lg border">
                                             <p className="text-gray-500 text-xs">Email Delivery</p>
                                             <p className="text-xl font-bold text-emerald-600">
-                                                {results.email.sent} <span className="text-xs text-gray-400">/ {results.total}</span>
+                                                {results.email?.sent ?? 0} <span className="text-xs text-gray-400">/ {results.total}</span>
                                             </p>
                                         </div>
                                         <div className="p-3 bg-white rounded-lg border">
                                             <p className="text-gray-500 text-xs">SMS Delivery</p>
                                             <p className="text-xl font-bold text-emerald-600">
-                                                {results.sms.sent} <span className="text-xs text-gray-400">/ {results.total}</span>
+                                                {results.sms?.sent ?? 0} <span className="text-xs text-gray-400">/ {results.total}</span>
+                                            </p>
+                                        </div>
+                                        <div className="p-3 bg-white rounded-lg border">
+                                            <p className="text-gray-500 text-xs">WhatsApp Delivery</p>
+                                            <p className="text-xl font-bold text-emerald-600">
+                                                {results.whatsapp?.sent ?? 0} <span className="text-xs text-gray-400">/ {results.total}</span>
                                             </p>
                                         </div>
                                     </div>

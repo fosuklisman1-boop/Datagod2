@@ -6,7 +6,7 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export type AIChatContext = "storefront" | "dashboard" | "admin" | "home"
+export type AIChatContext = "storefront" | "dashboard" | "admin" | "home" | "whatsapp"
 
 // ─── Tool schemas ────────────────────────────────────────────────────────────
 
@@ -749,7 +749,7 @@ const manageScheduledTaskTool: Anthropic.Tool = {
       run_on_days: { type: "array", items: { type: "number" }, description: "Days of the week to run — 0=Sun, 1=Mon … 6=Sat. Required for weekly. Example: [1,2,3,4,5] for Mon–Fri." },
       run_at_timestamp: { type: "string", description: "ISO datetime string — required for schedule_type=once. Example: '2026-06-01T18:00:00Z'." },
       is_active: { type: "boolean", description: "Required for toggle — true to activate, false to deactivate." },
-      notify_channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email"] }, description: "Which channels to notify the task owner after each run. Defaults to ['push']." },
+      notify_channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email", "whatsapp"] }, description: "Which channels to notify the task owner after each run. Defaults to ['push']." },
     },
     required: ["action"],
   },
@@ -771,7 +771,7 @@ const scheduleTaskTool: Anthropic.Tool = {
       run_at_time: { type: "string", description: "HH:MM in UTC — required for daily and weekly." },
       run_on_days: { type: "array", items: { type: "number" }, description: "Days to run — 0=Sun … 6=Sat. Required for weekly." },
       run_at_timestamp: { type: "string", description: "ISO datetime — required for schedule_type=once." },
-      notify_channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email"] }, description: "How to be notified after each run. Defaults to ['push']." },
+      notify_channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email", "whatsapp"] }, description: "How to be notified after each run. Defaults to ['push']." },
     },
     required: ["action"],
   },
@@ -781,13 +781,13 @@ const scheduleTaskTool: Anthropic.Tool = {
 
 const sendNotificationTool: Anthropic.Tool = {
   name: "send_notification",
-  description: "Admin only: send push, SMS, and/or email notifications to users or dealers. Use for announcements, alerts, or direct messages. Confirm the target and message with the admin before sending.",
+  description: "Admin only: send push, SMS, WhatsApp, and/or email notifications to users or dealers. Use for announcements, alerts, or direct messages. Confirm the target and message with the admin before sending.",
   input_schema: {
     type: "object" as const,
     properties: {
       target: { type: "string", enum: ["specific_user", "all_dealers", "all_users", "all_admins"], description: "Who to notify. specific_user requires user_id." },
       user_id: { type: "string", description: "Target user UUID. Required when target=specific_user." },
-      channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email"] }, description: "Which channels to send on. Defaults to ['push']." },
+      channels: { type: "array", items: { type: "string", enum: ["push", "sms", "email", "whatsapp"] }, description: "Which channels to send on. Defaults to ['push']." },
       title: { type: "string", description: "Notification title (used for push and email subject). Required." },
       body: { type: "string", description: "Notification body text (push body, SMS text, email plain text). Required." },
       email_html: { type: "string", description: "Optional HTML email body. Falls back to body as plain text if omitted." },
@@ -804,7 +804,7 @@ const notifySelfTool: Anthropic.Tool = {
     properties: {
       title: { type: "string", description: "Notification title. Keep it short (< 60 chars)." },
       message: { type: "string", description: "Notification body / SMS text. Keep under 160 chars for SMS." },
-      channels: { type: "array", items: { type: "string", enum: ["push", "sms"] }, description: "Which channels to use. Defaults to ['push']." },
+      channels: { type: "array", items: { type: "string", enum: ["push", "sms", "whatsapp"] }, description: "Which channels to use. Defaults to ['push']." },
     },
     required: ["title", "message"],
   },
@@ -849,6 +849,19 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     notifySelfTool,
     getKnowledgeBaseTool,
     showActionButtonsTool,
+  ]
+
+  // WhatsApp: platform support with account actions when the sender phone is matched.
+  if (context === "whatsapp") return [
+    getAvailablePackagesTool,
+    searchOrderStatusTool,
+    getWalletBalanceTool,
+    getWalletTransactionsTool,
+    getOrderHistoryTool,
+    placeWalletOrderTool,
+    getSubscriptionPlansTool,
+    notifySelfTool,
+    getKnowledgeBaseTool,
   ]
 
   // Admin: platform management — full suite
@@ -1109,7 +1122,7 @@ export async function executeToolCall(
 
       case "get_wallet_balance": {
         // CRON_SECRET path: no valid user JWT — query DB directly
-        if (ctx.jwtToken === process.env.CRON_SECRET && ctx.userId) {
+        if (process.env.CRON_SECRET && ctx.jwtToken === process.env.CRON_SECRET && ctx.userId) {
           const { data, error } = await supabaseAdmin
             .from("wallets")
             .select("balance")
@@ -1136,6 +1149,16 @@ export async function executeToolCall(
           return sanitize(data)
         }
         const limit = Math.min(Number(input.limit ?? 5), 10)
+        if (process.env.CRON_SECRET && ctx.jwtToken === process.env.CRON_SECRET && ctx.userId) {
+          const { data, error } = await supabaseAdmin
+            .from("combined_orders_view")
+            .select("id, network, volume_gb, status, phone_number, created_at, type, price, order_code")
+            .eq("user_id", ctx.userId)
+            .order("created_at", { ascending: false })
+            .limit(limit)
+          if (error) return { error: error.message }
+          return sanitize({ orders: data ?? [], total: data?.length ?? 0 })
+        }
         const res = await fetch(
           `${ctx.baseUrl}/api/orders/list?limit=${limit}&page=1`,
           { headers: { Authorization: `Bearer ${ctx.jwtToken}` } }
@@ -1146,6 +1169,10 @@ export async function executeToolCall(
       }
 
       case "place_wallet_order": {
+        if (!ctx.userId) {
+          return { error: "A matched Datagod account is required before placing wallet orders from WhatsApp." }
+        }
+
         // Look up the real package ID by network + size — never trust Claude to carry a UUID
         const { data: pkg, error: pkgErr } = await supabaseAdmin
           .from("packages")
@@ -1948,6 +1975,17 @@ export async function executeToolCall(
         const params = new URLSearchParams()
         params.set("page", String(input.page ?? 1))
         params.set("limit", String(input.limit ?? 10))
+        if (process.env.CRON_SECRET && ctx.jwtToken === process.env.CRON_SECRET && ctx.userId) {
+          const limit = Math.min(Number(input.limit ?? 10), 20)
+          const { data, error } = await supabaseAdmin
+            .from("transactions")
+            .select("id, type, amount, description, reference_id, source, created_at")
+            .eq("user_id", ctx.userId)
+            .order("created_at", { ascending: false })
+            .limit(limit)
+          if (error) return { error: error.message }
+          return sanitize({ transactions: data ?? [], total: data?.length ?? 0 })
+        }
         const res = await fetch(`${ctx.baseUrl}/api/wallet/transactions?${params}`, {
           headers: { Authorization: `Bearer ${ctx.jwtToken}` },
         })

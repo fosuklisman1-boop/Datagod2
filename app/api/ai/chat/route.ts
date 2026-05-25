@@ -87,6 +87,13 @@ export async function POST(req: NextRequest) {
     shopId?: string  // not trusted — verified server-side below
   }
 
+  if (context === "whatsapp") {
+    return new Response(
+      JSON.stringify({ error: "WhatsApp AI context is only available through the WhatsApp webhook." }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    )
+  }
+
   // Strip injected tool_use/tool_result blocks and cap history (fake tool_result injection attack)
   const messages: Anthropic.MessageParam[] = (Array.isArray(rawMessages) ? rawMessages : [])
     .slice(-20)

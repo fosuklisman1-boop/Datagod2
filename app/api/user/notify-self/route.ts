@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
+import { sendWhatsAppNotification } from "@/lib/whatsapp-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,6 +52,7 @@ async function handleNotify(userId: string, body: Record<string, unknown>) {
 
   let pushed = 0
   let smsed = 0
+  let whatsapped = 0
 
   if ((channels as string[]).includes("push")) {
     try {
@@ -62,14 +64,14 @@ async function handleNotify(userId: string, body: Record<string, unknown>) {
   if ((channels as string[]).includes("sms")) {
     const { data: user } = await supabase
       .from("users")
-      .select("phone")
+      .select("phone_number")
       .eq("id", userId)
       .maybeSingle()
 
-    if (user?.phone) {
+    if (user?.phone_number) {
       try {
         const result = await sendSMS({
-          phone: user.phone,
+          phone: user.phone_number,
           message: `DATAGOD AI — ${notifBody}`.slice(0, 160),
           type: "reminder",
           userId,
@@ -80,5 +82,26 @@ async function handleNotify(userId: string, body: Record<string, unknown>) {
     }
   }
 
-  return NextResponse.json({ pushed, smsed })
+  if ((channels as string[]).includes("whatsapp")) {
+    const { data: user } = await supabase
+      .from("users")
+      .select("phone_number")
+      .eq("id", userId)
+      .maybeSingle()
+
+    if (user?.phone_number) {
+      try {
+        const result = await sendWhatsAppNotification({
+          phone: user.phone_number,
+          title: notifTitle,
+          body: notifBody,
+          reference: "reminder",
+          userId,
+        })
+        if (result.success) whatsapped = 1
+      } catch {}
+    }
+  }
+
+  return NextResponse.json({ pushed, smsed, whatsapped })
 }
