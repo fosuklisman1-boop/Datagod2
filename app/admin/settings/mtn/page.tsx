@@ -19,22 +19,19 @@ interface MTNSettings {
   updated_at: string
 }
 
+interface ProviderBalance {
+  balance: number | null
+  currency: string
+  is_low: boolean
+  is_active: boolean
+  alert: string | null
+}
+
 interface MTNBalance {
   balances: {
-    sykes: {
-      balance: number | null
-      currency: string
-      is_low: boolean
-      is_active: boolean
-      alert: string | null
-    }
-    datakazina: {
-      balance: number | null
-      currency: string
-      is_low: boolean
-      is_active: boolean
-      alert: string | null
-    }
+    sykes: ProviderBalance
+    datakazina: ProviderBalance
+    xpress: ProviderBalance
   }
   threshold: number
   active_provider: string
@@ -50,7 +47,7 @@ export default function MTNSettingsPage() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [toggling, setToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress">("sykes")
   const [savingProvider, setSavingProvider] = useState(false)
 
   useEffect(() => {
@@ -181,7 +178,7 @@ export default function MTNSettingsPage() {
     }
   }
 
-  const handleMTNProviderChange = async (provider: "sykes" | "datakazina") => {
+  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress") => {
     setSavingProvider(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -338,8 +335,8 @@ export default function MTNSettingsPage() {
               </div>
             ) : balance ? (
               <div className="space-y-4">
-                {/* Dual Balance Display */}
-                <div className="grid md:grid-cols-2 gap-4">
+                {/* Triple Balance Display */}
+                <div className="grid md:grid-cols-3 gap-4">
                   {/* Sykes Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.sykes.is_active
                     ? 'bg-blue-50 border-blue-300 shadow-md'
@@ -397,15 +394,45 @@ export default function MTNSettingsPage() {
                       <p className="text-sm text-gray-500">Unable to fetch</p>
                     )}
                   </div>
+
+                  {/* Xpress Balance */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.xpress?.is_active
+                    ? 'bg-purple-50 border-purple-300 shadow-md'
+                    : 'bg-gray-50 border-gray-200'
+                    }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">Xpress API</span>
+                      {balance.balances.xpress?.is_active && (
+                        <Badge className="bg-purple-600">Active</Badge>
+                      )}
+                    </div>
+                    {balance.balances.xpress?.balance !== null && balance.balances.xpress?.balance !== undefined ? (
+                      <>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-3xl font-bold ${balance.balances.xpress.is_low ? 'text-orange-600' : 'text-emerald-900'
+                            }`}>
+                            ₵{balance.balances.xpress.balance.toFixed(2)}
+                          </span>
+                          <span className="text-sm text-gray-600">GHS</span>
+                        </div>
+                        {balance.balances.xpress.is_low && (
+                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-500">Unable to fetch</p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Low Balance Alerts */}
-                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low) && (
+                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low) && (
                   <Alert className="border-orange-200 bg-orange-50">
                     <AlertCircle className="h-4 w-4 text-orange-600" />
                     <AlertDescription className="text-orange-700">
                       {balance.balances.sykes.alert && <p>• {balance.balances.sykes.alert}</p>}
                       {balance.balances.datakazina.alert && <p>• {balance.balances.datakazina.alert}</p>}
+                      {balance.balances.xpress?.alert && <p>• {balance.balances.xpress.alert}</p>}
                       <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
                     </AlertDescription>
                   </Alert>
@@ -452,7 +479,7 @@ export default function MTNSettingsPage() {
                 Choose your preferred MTN data provider. Switching only affects new orders.
               </p>
 
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="grid md:grid-cols-3 gap-4">
                 {/* Sykes Option */}
                 <button
                   onClick={() => handleMTNProviderChange("sykes")}
@@ -487,6 +514,24 @@ export default function MTNSettingsPage() {
                     )}
                   </div>
                   <p className="text-sm text-gray-600">Alternative MTN provider</p>
+                </button>
+
+                {/* Xpress Option */}
+                <button
+                  onClick={() => handleMTNProviderChange("xpress")}
+                  disabled={savingProvider || mtnProvider === "xpress"}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "xpress"
+                      ? "bg-purple-50 border-purple-500 shadow-md"
+                      : "bg-white border-gray-200 hover:border-purple-300"
+                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-gray-900">Xpress API</span>
+                    {mtnProvider === "xpress" && (
+                      <Badge className="bg-purple-600">Active</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-600">Batch-enabled provider</p>
                 </button>
               </div>
 

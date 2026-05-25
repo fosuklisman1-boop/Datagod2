@@ -4,6 +4,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { getMTNProvider } from "@/lib/mtn-providers/factory"
 import { SykesProvider } from "@/lib/mtn-providers/sykes-provider"
 import { DataKazinaProvider } from "@/lib/mtn-providers/datakazina-provider"
+import { XpressProvider } from "@/lib/mtn-providers/xpress-provider"
 import { notifyAdmins } from "@/lib/email-service"
 
 /**
@@ -18,13 +19,15 @@ export async function GET(request: NextRequest) {
       return errorResponse
     }
 
-    // Fetch balances from BOTH providers in parallel
+    // Fetch balances from all providers in parallel
     const sykesProvider = new SykesProvider()
     const datakazinaProvider = new DataKazinaProvider()
+    const xpressProvider = new XpressProvider()
 
-    const [sykesBalance, datakazinaBalance] = await Promise.all([
+    const [sykesBalance, datakazinaBalance, xpressBalance] = await Promise.all([
       sykesProvider.checkBalance().catch(() => null),
-      datakazinaProvider.checkBalance().catch(() => null)
+      datakazinaProvider.checkBalance().catch(() => null),
+      xpressProvider.checkBalance().catch(() => null),
     ])
 
     // Get the currently selected provider
@@ -39,13 +42,14 @@ export async function GET(request: NextRequest) {
 
     const threshold = parseInt(settingData?.value || "500", 10)
 
-    // Check if either balance is low
+    // Check if any balance is low
     const sykesLow = sykesBalance !== null && sykesBalance < threshold
     const datakazinaLow = datakazinaBalance !== null && datakazinaBalance < threshold
+    const xpressLow = xpressBalance !== null && xpressBalance < threshold
 
-    // Send SMS alert if balance is low
-    if (sykesLow || datakazinaLow) {
-      await sendLowBalanceAlert(sykesBalance, datakazinaBalance, threshold, sykesLow, datakazinaLow)
+    // Send SMS alert if any balance is low
+    if (sykesLow || datakazinaLow || xpressLow) {
+      await sendLowBalanceAlert(sykesBalance, datakazinaBalance, xpressBalance, threshold, sykesLow, datakazinaLow, xpressLow)
     }
 
     return NextResponse.json({
@@ -64,7 +68,14 @@ export async function GET(request: NextRequest) {
           is_low: datakazinaLow,
           is_active: activeProvider.name === "datakazina",
           alert: datakazinaLow && datakazinaBalance !== null ? `DataKazina balance is below threshold of ₵${threshold}` : null,
-        }
+        },
+        xpress: {
+          balance: xpressBalance,
+          currency: "GHS",
+          is_low: xpressLow,
+          is_active: activeProvider.name === "xpress",
+          alert: xpressLow && xpressBalance !== null ? `Xpress balance is below threshold of ₵${threshold}` : null,
+        },
       },
       threshold,
       active_provider: activeProvider.name,
@@ -85,9 +96,11 @@ export async function GET(request: NextRequest) {
 async function sendLowBalanceAlert(
   sykesBalance: number | null,
   datakazinaBalance: number | null,
+  xpressBalance: number | null,
   threshold: number,
   sykesLow: boolean,
-  datakazinaLow: boolean
+  datakazinaLow: boolean,
+  xpressLow: boolean
 ) {
   try {
     // Get admin phone number from settings
@@ -126,6 +139,9 @@ async function sendLowBalanceAlert(
     }
     if (datakazinaLow && datakazinaBalance !== null) {
       message += `DataKazina: ₵${datakazinaBalance.toFixed(2)} (LOW)\n`
+    }
+    if (xpressLow && xpressBalance !== null) {
+      message += `Xpress: ₵${xpressBalance.toFixed(2)} (LOW)\n`
     }
 
     message += `\nThreshold: ₵${threshold}\nPlease top up your MTN account(s).`
@@ -169,6 +185,9 @@ async function sendLowBalanceAlert(
       }
       if (datakazinaLow && datakazinaBalance !== null) {
         emailMessage += `<p style="margin: 10px 0;"><strong>DataKazina Provider:</strong> ₵${datakazinaBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
+      }
+      if (xpressLow && xpressBalance !== null) {
+        emailMessage += `<p style="margin: 10px 0;"><strong>Xpress Provider:</strong> ₵${xpressBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
       }
 
       emailMessage += `<p style="margin: 15px 0 0 0; padding-top: 15px; border-top: 1px solid #fca5a5;">

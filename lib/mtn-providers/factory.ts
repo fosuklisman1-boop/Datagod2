@@ -8,6 +8,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabase"
 import type { MTNProvider, MTNProviderName } from "./types"
 import { SykesProvider } from "./sykes-provider"
 import { DataKazinaProvider } from "./datakazina-provider"
+import { XpressProvider } from "./xpress-provider"
 
 /**
  * Get the currently selected provider from database settings
@@ -28,7 +29,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
         const provider = data?.value?.provider as MTNProviderName | undefined
 
         // Validate provider name
-        if (provider === "sykes" || provider === "datakazina") {
+        if (provider === "sykes" || provider === "datakazina" || provider === "xpress") {
             return provider
         }
 
@@ -54,6 +55,8 @@ export async function getMTNProvider(): Promise<MTNProvider> {
     switch (providerName) {
         case "datakazina":
             return new DataKazinaProvider()
+        case "xpress":
+            return new XpressProvider()
         case "sykes":
         default:
             return new SykesProvider()
@@ -67,6 +70,8 @@ export function getProviderByName(name: MTNProviderName): MTNProvider {
     switch (name) {
         case "datakazina":
             return new DataKazinaProvider()
+        case "xpress":
+            return new XpressProvider()
         case "sykes":
             return new SykesProvider()
     }
