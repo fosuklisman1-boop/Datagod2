@@ -15,10 +15,7 @@ export async function GET(request: NextRequest) {
 
         if (error) throw error
 
-        return NextResponse.json(
-          { plans: data },
-          { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" } }
-        )
+        return NextResponse.json({ plans: data })
     } catch (error) {
         console.error("Error fetching plans:", error)
         return NextResponse.json({ error: "Failed to fetch plans" }, { status: 500 })

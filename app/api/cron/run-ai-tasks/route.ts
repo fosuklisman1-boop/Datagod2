@@ -6,6 +6,7 @@ import { AIProviderConfig, DEFAULT_CONFIG, resolveProviderForContext } from "@/l
 import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail } from "@/lib/email-service"
+import { sendWhatsAppNotification } from "@/lib/whatsapp-service"
 import type { AIChatContext } from "@/lib/ai-tools"
 
 const supabase = createClient(
@@ -90,7 +91,7 @@ async function notifyTaskResult(
 ) {
   const userRow = await supabase
     .from("users")
-    .select("email, phone")
+    .select("email, phone_number")
     .eq("id", task.user_id)
     .maybeSingle()
   const user = userRow.data
@@ -105,14 +106,26 @@ async function notifyTaskResult(
     try { await sendPushToUser(task.user_id, { title, body }) } catch {}
   }
 
-  if (channels.includes("sms") && user?.phone) {
+  if (channels.includes("sms") && user?.phone_number) {
     try {
       await sendSMS({
-        phone: user.phone,
+        phone: user.phone_number,
         message: `${title} — ${body}`.slice(0, 160),
         type: "scheduled_task_result",
         userId: task.user_id,
         skipLogging: true,
+      })
+    } catch {}
+  }
+
+  if (channels.includes("whatsapp") && user?.phone_number) {
+    try {
+      await sendWhatsAppNotification({
+        phone: user.phone_number,
+        title,
+        body,
+        reference: "scheduled_task_result",
+        userId: task.user_id,
       })
     } catch {}
   }
@@ -175,32 +188,9 @@ export async function GET(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
 
-  // Overlap protection: AI tasks can take 5-30s each; sequential processing of several
-  // tasks can exceed 60s. Skip if a previous run is still within its window.
-  const LOCK_KEY = "cron_lock_run_ai_tasks"
-  const LOCK_TIMEOUT_MS = 55_000
-  const now = new Date().toISOString()
-
-  const { data: lockRow } = await supabase
-    .from("admin_settings")
-    .select("value")
-    .eq("key", LOCK_KEY)
-    .maybeSingle()
-
-  if (lockRow?.value?.started_at) {
-    const elapsed = Date.now() - new Date(lockRow.value.started_at).getTime()
-    if (elapsed < LOCK_TIMEOUT_MS) {
-      console.log(`[CRON-AI-TASKS] Skipping — previous run started ${Math.round(elapsed / 1000)}s ago`)
-      return NextResponse.json({ skipped: true, reason: "Previous run still in progress" })
-    }
-  }
-
-  await supabase.from("admin_settings").upsert(
-    { key: LOCK_KEY, value: { started_at: now } },
-    { onConflict: "key" }
-  )
-
   try {
+    const now = new Date().toISOString()
+
     // Fetch all due tasks in one query
     const { data: tasks, error: fetchError } = await supabase
       .from("ai_scheduled_tasks")
@@ -314,10 +304,5 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("[CRON-AI-TASKS] Unexpected error:", err)
     return NextResponse.json({ error: "Internal error" }, { status: 500 })
-  } finally {
-    await supabase.from("admin_settings").upsert(
-      { key: LOCK_KEY, value: { started_at: null } },
-      { onConflict: "key" }
-    )
   }
 }

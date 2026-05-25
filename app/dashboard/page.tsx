@@ -11,7 +11,6 @@ import { PhoneRequiredModal } from "@/components/phone-required-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2, Wallet } from "lucide-react"
-import { Skeleton } from "@/components/ui/skeleton"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
 
@@ -66,7 +65,6 @@ export default function DashboardPage() {
   })
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
   const [showPhoneRequired, setShowPhoneRequired] = useState(false)
-  const [statsLoading, setStatsLoading] = useState(true)
 
   // Check if user is a sub-agent and redirect immediately.
   // Timeout after 5s so a slow/hanging Supabase query never permanently
@@ -115,6 +113,8 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return
     loadDashboardData()
+    // Fire-and-forget background order status check
+    fetch("/api/orders/check-status", { method: "GET" }).catch(() => {})
   }, [user])
 
   const loadDashboardData = async () => {
@@ -165,8 +165,7 @@ export default function DashboardPage() {
           ? fetch("/api/dashboard/stats", { headers: { Authorization: `Bearer ${token}` } })
               .then(r => r.ok ? r.json() : null)
               .then(d => { if (d?.success) setStats(d.stats) })
-              .finally(() => setStatsLoading(false))
-          : Promise.resolve().then(() => setStatsLoading(false)),
+          : Promise.resolve(),
 
         // Recent transactions
         token
@@ -293,22 +292,6 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Cards */}
-        {statsLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Card key={i} className="border-l-4 border-l-gray-200">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <Skeleton className="h-4 w-20" />
-                  <Skeleton className="h-8 w-8 rounded-lg" />
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-8 w-16 mb-1" />
-                  <Skeleton className="h-3 w-24" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
           {/* Total Orders */}
           <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
@@ -399,7 +382,6 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
-        )}
 
         {/* Quick Actions */}
         <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl hover:shadow-2xl transition-all duration-300 border border-violet-200/40 hover:border-violet-300/60">

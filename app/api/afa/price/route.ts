@@ -37,7 +37,10 @@ export async function GET() {
         name: data.name,
         description: data.description,
       },
-      { status: 200 }
+      {
+        status: 200,
+        headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" },
+      }
     )
   } catch (error) {
     console.error("[AFA-PRICE] Unexpected error:", error)

@@ -58,26 +58,29 @@ export async function GET(
       : []
 
     // Return combined data
-    return NextResponse.json({
-      id: shop.id,
-      name: shop.shop_name,
-      slug: shop.shop_slug,
-      networks: networks.map((network: string) => ({
-        id: network,
-        name: network,
-        slug: network,
-      })),
-      packages: (shopPackages || []).map((sp: any) => ({
-        id: sp.packages?.id,
-        network_id: sp.packages?.network,
-        description: sp.packages?.description,
-        price: sp.packages?.price,
-        size: sp.packages?.size,
-        shop_package_id: sp.id,
-        package_id: sp.package_id,
-        profit_margin: sp.profit_margin,
-      })),
-    })
+    return NextResponse.json(
+      {
+        id: shop.id,
+        name: shop.shop_name,
+        slug: shop.shop_slug,
+        networks: networks.map((network: string) => ({
+          id: network,
+          name: network,
+          slug: network,
+        })),
+        packages: (shopPackages || []).map((sp: any) => ({
+          id: sp.packages?.id,
+          network_id: sp.packages?.network,
+          description: sp.packages?.description,
+          price: sp.packages?.price,
+          size: sp.packages?.size,
+          shop_package_id: sp.id,
+          package_id: sp.package_id,
+          profit_margin: sp.profit_margin,
+        })),
+      },
+      { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30" } }
+    )
   } catch (error) {
     console.error('Error in GET /api/shops/[slug]:', error)
     return NextResponse.json(

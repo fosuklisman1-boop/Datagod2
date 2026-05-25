@@ -43,36 +43,6 @@ export async function isPhoneBlacklisted(phoneNumber: string): Promise<boolean> 
 }
 
 /**
- * Check multiple phone numbers against the blacklist in a single query.
- * Returns a Set of the original phone numbers (as passed in) that are blacklisted.
- */
-export async function getBatchBlacklisted(phoneNumbers: string[]): Promise<Set<string>> {
-  if (phoneNumbers.length === 0) return new Set()
-  try {
-    const allFormats = phoneNumbers.flatMap(getBlacklistFormats)
-    const { data, error } = await supabase
-      .from("blacklisted_phone_numbers")
-      .select("phone_number")
-      .in("phone_number", allFormats)
-
-    if (error) {
-      console.error("[BLACKLIST] Error batch checking blacklist:", error)
-      return new Set()
-    }
-
-    const blacklistedFormats = new Set(data?.map((r) => r.phone_number) ?? [])
-    return new Set(
-      phoneNumbers.filter((phone) =>
-        getBlacklistFormats(phone).some((fmt) => blacklistedFormats.has(fmt))
-      )
-    )
-  } catch (error) {
-    console.error("[BLACKLIST] Error batch checking phones:", error)
-    return new Set()
-  }
-}
-
-/**
  * Get blacklist entry for a phone number
  * Checks both formats (with and without leading 0) to match regardless of storage format
  */

@@ -53,17 +53,14 @@ export async function GET() {
       whatsappUrl = `https://wa.me/${whatsappUrl}`
     }
 
-    return NextResponse.json(
-      {
-        email: settings.support_email || "support@datagod.com",
-        phone: settings.support_phone || "+233 XXX XXX XXXX",
-        whatsapp: whatsappUrl,
-        website: "https://datagod.com",
-        guestPurchaseUrl: settings.guest_purchase_url || null,
-        guestPurchaseButtonText: settings.guest_purchase_button_text || 'Buy as Guest',
-      },
-      { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" } }
-    )
+    return NextResponse.json({
+      email: settings.support_email || "support@datagod.com",
+      phone: settings.support_phone || "+233 XXX XXX XXXX",
+      whatsapp: whatsappUrl,
+      website: "https://datagod.com",
+      guestPurchaseUrl: settings.guest_purchase_url || null,
+      guestPurchaseButtonText: settings.guest_purchase_button_text || 'Buy as Guest',
+    })
   } catch (error: any) {
     console.error("API error:", error)
     return NextResponse.json(

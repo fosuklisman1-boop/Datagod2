@@ -72,14 +72,17 @@ export async function GET(request: NextRequest) {
       AT: atAvail?.enabled !== false
     }
 
-    return NextResponse.json({
-      success: true,
-      baseFeePercent,
-      markupPercent,
-      totalFeePercent: baseFeePercent + markupPercent,
-      isAvailable: allAvailability[network as keyof typeof allAvailability],
-      allAvailability
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        baseFeePercent,
+        markupPercent,
+        totalFeePercent: baseFeePercent + markupPercent,
+        isAvailable: allAvailability[network as keyof typeof allAvailability],
+        allAvailability,
+      },
+      { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30" } }
+    )
 
   } catch (error) {
     console.error("[PUBLIC-AIRTIME-CONSTRAINTS] Error:", error)

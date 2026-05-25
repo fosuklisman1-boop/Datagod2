@@ -1,12 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextRequest, NextResponse } from 'next/server';
-import { verifyCronAuth } from '@/lib/cron-auth';
+import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
-export async function GET(request: NextRequest) {
-  const { authorized, errorResponse } = verifyCronAuth(request)
-  if (!authorized) return errorResponse
+export async function GET() {
   try {
     // Initialize Supabase client with service role key for background tasks
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
