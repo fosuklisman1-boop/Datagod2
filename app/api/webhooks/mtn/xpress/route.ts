@@ -3,12 +3,55 @@ import { createClient } from "@supabase/supabase-js"
 import { log, generateTraceId, recordMetrics } from "@/lib/mtn-production-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
+import crypto from "crypto"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+const XPRESS_WEBHOOK_SECRET = process.env.XPRESS_WEBHOOK_SECRET
 const KNOWN_EVENTS = new Set(["order.updated", "item.completed", "item.failed", "item.refunded"])
+
+/**
+ * Verify HMAC-SHA256 signature from Xpress.
+ * Checks candidate headers in priority order since the docs don't specify the header name.
+ * Returns true when no secret is configured (insecure — set XPRESS_WEBHOOK_SECRET in env).
+ */
+function verifyXpressSignature(request: NextRequest, body: string): boolean {
+    if (!XPRESS_WEBHOOK_SECRET) {
+        log("warn", "Webhook.Xpress", "XPRESS_WEBHOOK_SECRET not set — skipping signature verification (INSECURE)")
+        return true
+    }
+
+    // Xpress may use any of these; check all and accept if any matches
+    const candidateHeaders = [
+        "x-xpress-signature",
+        "x-signature",
+        "x-webhook-signature",
+        "x-webhook-secret",
+    ]
+
+    const received = candidateHeaders
+        .map(h => request.headers.get(h))
+        .find(v => v !== null)
+
+    if (!received) {
+        log("warn", "Webhook.Xpress", "No signature header found in request")
+        return false
+    }
+
+    const expected = crypto
+        .createHmac("sha256", XPRESS_WEBHOOK_SECRET)
+        .update(body)
+        .digest("hex")
+
+    // Accept both raw hex and "sha256=<hex>" formats
+    const isValid =
+        crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected)) ||
+        crypto.timingSafeEqual(Buffer.from(received), Buffer.from(`sha256=${expected}`))
+
+    return isValid
+}
 
 interface XpressWebhookPayload {
     event: string
@@ -47,6 +90,12 @@ export async function POST(request: NextRequest) {
     try {
         const eventType = request.headers.get("X-Xpress-Event") || ""
         const bodyText = await request.text()
+
+        // Verify HMAC-SHA256 signature
+        if (!verifyXpressSignature(request, bodyText)) {
+            log("warn", "Webhook.Xpress", "Invalid webhook signature — rejecting request", { traceId })
+            return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+        }
 
         // Validate it's a known event type before doing any work
         if (!KNOWN_EVENTS.has(eventType) && eventType !== "") {
