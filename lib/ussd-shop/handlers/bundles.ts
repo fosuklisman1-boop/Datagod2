@@ -228,7 +228,7 @@ export async function handleSelectBundle(
     await setSession(sessionId, { ...session, bundlePageShown: menu.shown })
     return cont(menu.text)
   }
-  const selected = allBundles[bundleIndex]
+  const selected = pageSlice[bundleIndex]
   if (!selected) {
     const menu = bundleMenu(session.shopName!, pageSlice, page, total)
     await setSession(sessionId, { ...session, bundlePageShown: menu.shown })
