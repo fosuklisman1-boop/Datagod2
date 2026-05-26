@@ -163,16 +163,19 @@ export async function handleSelectBundle(
   }
 
   const page = session.bundlePage ?? 0
-  const bundles = session.bundleCache ?? []
-  const total = session.bundleTotal ?? bundles.length
   const offset = page * PAGE_SIZE
 
-  // "More" option is the item right after the last bundle on this page
+  // Re-fetch the current page before any routing — both the moreIndex check and
+  // the bundle selection must agree on the same bundle count. Trusting session.bundleCache
+  // causes a mismatch when the cache is stale (page advances but cache holds old data).
+  const { bundles, total } = await fetchBundles(
+    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId
+  )
+
   const moreIndex = offset + bundles.length + 1
   const chosen = parseInt(input.trim(), 10)
 
   if (chosen === moreIndex && offset + bundles.length < total) {
-    // Load next page
     const nextPage = page + 1
     const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId)
     await setSession(sessionId, {
@@ -184,22 +187,15 @@ export async function handleSelectBundle(
     return cont(bundleMenu(nextBundles, nextPage, newTotal))
   }
 
-  // Re-fetch the current page from DB to guard against stale bundleCache.
-  // If bundlePage advanced to 1 but bundleCache still holds page 0's data,
-  // offset=5 + stale cache produces the wrong bundle (e.g. page0[2]=3GB instead of page1[2]=10GB).
-  const { bundles: freshBundles, total: freshTotal } = await fetchBundles(
-    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId
-  )
-
   const bundleIndex = chosen - offset - 1
-  const selected = freshBundles[bundleIndex]
-  if (!selected) return cont(bundleMenu(freshBundles, page, freshTotal))
+  const selected = bundles[bundleIndex]
+  if (!selected) return cont(bundleMenu(bundles, page, total))
 
   await setSession(sessionId, {
     ...session,
     step: 'ENTER_RECIPIENT',
-    bundleCache: freshBundles,
-    bundleTotal: freshTotal,
+    bundleCache: bundles,
+    bundleTotal: total,
     bundleId: selected.id,
     bundleSize: selected.size,
     bundlePrice: selected.price,
