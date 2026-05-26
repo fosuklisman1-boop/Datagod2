@@ -4,7 +4,6 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail } from "@/lib/email-service"
-import { sendWhatsAppNotification } from "@/lib/whatsapp-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,7 +54,6 @@ export async function POST(request: NextRequest) {
 
     let pushed = 0
     let smsed = 0
-    let whatsapped = 0
     let emailed = 0
     const errors: string[] = []
 
@@ -84,22 +82,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (channels.includes("whatsapp") && user.phone_number) {
-        try {
-          const result = await sendWhatsAppNotification({
-            phone: user.phone_number,
-            title,
-            body: msgBody,
-            reference: "admin_notification",
-            userId: user.id,
-          })
-          if (result.success) whatsapped++
-          else errors.push(`whatsapp:${user.id}: ${result.error}`)
-        } catch (e) {
-          errors.push(`whatsapp:${user.id}: ${e}`)
-        }
-      }
-
       if (channels.includes("email") && user.email) {
         try {
           const result = await sendEmail({
@@ -121,7 +103,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       pushed,
       smsed,
-      whatsapped,
       emailed,
       total_users: targetUsers.length,
       errors: errors.length > 0 ? errors.slice(0, 10) : undefined,

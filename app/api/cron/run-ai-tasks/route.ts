@@ -6,7 +6,6 @@ import { AIProviderConfig, DEFAULT_CONFIG, resolveProviderForContext } from "@/l
 import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail } from "@/lib/email-service"
-import { sendWhatsAppNotification } from "@/lib/whatsapp-service"
 import type { AIChatContext } from "@/lib/ai-tools"
 
 const supabase = createClient(
@@ -114,18 +113,6 @@ async function notifyTaskResult(
         type: "scheduled_task_result",
         userId: task.user_id,
         skipLogging: true,
-      })
-    } catch {}
-  }
-
-  if (channels.includes("whatsapp") && user?.phone_number) {
-    try {
-      await sendWhatsAppNotification({
-        phone: user.phone_number,
-        title,
-        body,
-        reference: "scheduled_task_result",
-        userId: task.user_id,
       })
     } catch {}
   }

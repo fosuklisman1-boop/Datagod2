@@ -4,7 +4,6 @@ import { sendSMS } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
 import { sendPushToUser } from "@/lib/push-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { sendWhatsAppNotification } from "@/lib/whatsapp-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -52,7 +51,6 @@ export async function POST(req: NextRequest) {
                         total: body.estimatedCount || 0,
                         sms: { sent: 0, failed: 0, pending: 0 },
                         email: { sent: 0, failed: 0, pending: 0 },
-                        whatsapp: { sent: 0, failed: 0, pending: 0 }
                     }
                 })
                 .select()
@@ -82,7 +80,6 @@ export async function POST(req: NextRequest) {
                 sms: { sent: 0, failed: 0 },
                 email: { sent: 0, failed: 0 },
                 push: { sent: 0, failed: 0, skipped: 0 },
-                whatsapp: { sent: 0, failed: 0 },
             }
 
             await Promise.all(recipients.map(async (user: any) => {
@@ -138,21 +135,6 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
-                if (channels.includes("whatsapp") && (user.phone || user.phone_number)) {
-                    try {
-                        const res = await sendWhatsAppNotification({
-                            phone: user.phone || user.phone_number,
-                            title: subject || "Notification",
-                            body: message,
-                            reference: broadcastId,
-                            userId: user.id,
-                        })
-                        if (res.success) batchResults.whatsapp.sent++
-                        else batchResults.whatsapp.failed++
-                    } catch (e) {
-                        batchResults.whatsapp.failed++
-                    }
-                }
             }))
 
             return NextResponse.json({ success: true, results: batchResults })
