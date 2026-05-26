@@ -385,6 +385,7 @@ UPGRADE TO DEALER:
 - After payment clears, role automatically becomes "dealer"
 - Dealer benefits: wholesale pricing, custom storefront, sub-agents, airtime, results checker, USSD shop
 - If upgrades are currently disabled, tell the user to check back later
+- Some dealers are PERMANENT (no downgrade date / no subscription expiry). These dealers do NOT have an active subscription record — they are granted dealer access indefinitely. For permanent dealers: do NOT suggest visiting /dashboard/upgrade or renewing a subscription — it does not apply to them. If a permanent dealer asks about their subscription or expiry, explain they have permanent dealer access with no expiry date.
 
 DEALER-ONLY FEATURES (only available when role = dealer or admin):
 - My Shop: /dashboard/my-shop — set shop name, logo, description, manage packages and profit margins; call get_my_shop to retrieve shop slug, storefront URL, USSD code, and invite codes
@@ -400,8 +401,9 @@ DEALER-ONLY FEATURES (only available when role = dealer or admin):
 - Buy Stock: /dashboard/buy-stock — bulk stock purchasing
 
 SUBSCRIPTION:
-- View current plan and expiry at /dashboard/upgrade or call get_subscription
-- Renew or extend subscription at /dashboard/upgrade before it expires
+- Call get_subscription to check if the current dealer has an active subscription and its expiry date
+- If get_subscription returns a result with an end_date, the dealer has a time-limited subscription — they can view and renew it at /dashboard/upgrade
+- If get_subscription returns no active subscription for a dealer, they are a PERMANENT dealer — do NOT direct them to /dashboard/upgrade
 - Sub-agents have a sub_agent role and operate under a parent dealer's shop
 
 COMPLAINTS & SUPPORT:

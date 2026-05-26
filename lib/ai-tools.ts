@@ -2049,7 +2049,7 @@ export async function executeToolCall(
             d.setUTCHours(0, 0, 0, 0)
           } else if (range === "yesterday") {
             d.setUTCDate(d.getUTCDate() - 1); d.setUTCHours(0, 0, 0, 0)
-            toDate = new Date(now.getTime()); const end = new Date(d); end.setUTCHours(23, 59, 59, 999); toDate = end.toISOString()
+            const end = new Date(d); end.setUTCHours(23, 59, 59, 999); toDate = end.toISOString()
           } else if (range === "this_week") {
             const day = d.getUTCDay(); d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1)); d.setUTCHours(0, 0, 0, 0)
           } else if (range === "last_7_days") {

@@ -94,6 +94,7 @@ export function Sidebar() {
     }
     return null
   })
+  const [dealerHasSubscription, setDealerHasSubscription] = useState(false)
   const [roleLoading, setRoleLoading] = useState(true)
 
   const handleLogout = async () => {
@@ -120,6 +121,16 @@ export function Sidebar() {
           setUserRole(userData.role)
           localStorage.setItem('userRole', userData.role)
           console.log("[SIDEBAR] User role from users table:", userData.role)
+
+          if (userData.role === 'dealer') {
+            const { data: sub } = await supabase
+              .from("user_subscriptions")
+              .select("id")
+              .eq("user_id", user.id)
+              .eq("status", "active")
+              .maybeSingle()
+            setDealerHasSubscription(!!sub)
+          }
         } else {
           // Fallback: check user_metadata
           const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -299,7 +310,12 @@ export function Sidebar() {
               ))}
             </div>
           ) : (
-            menuItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
+            menuItems.filter(item => {
+            if (!userRole || !item.roles.includes(userRole)) return false
+            // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
+            if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
+            return true
+          }).map((item) => {
               const Icon = item.icon
               const isActive = pathname === item.href
               const isLoading = loadingPath === item.href

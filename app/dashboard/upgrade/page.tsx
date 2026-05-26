@@ -100,7 +100,23 @@ export default function UpgradePage() {
                     .select("role")
                     .eq("id", user.id)
                     .single()
-                setCurrentRole(profile?.role || "user")
+                const role = profile?.role || "user"
+                setCurrentRole(role)
+
+                // Dealers with no active subscription (permanent dealers) have no downgrade
+                // date — redirect them away since renewal doesn't apply to them.
+                if (role === 'dealer') {
+                    const { data: sub } = await supabase
+                        .from("user_subscriptions")
+                        .select("id")
+                        .eq("user_id", user.id)
+                        .eq("status", "active")
+                        .maybeSingle()
+                    if (!sub) {
+                        router.replace('/dashboard')
+                        return
+                    }
+                }
             }
         } catch (error) {
             console.error("Error fetching user data:", error)
