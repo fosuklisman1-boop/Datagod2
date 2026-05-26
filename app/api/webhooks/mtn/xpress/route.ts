@@ -45,12 +45,16 @@ function verifyXpressSignature(request: NextRequest, body: string): boolean {
         .update(body)
         .digest("hex")
 
-    // Accept both raw hex and "sha256=<hex>" formats
-    const isValid =
-        crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected)) ||
-        crypto.timingSafeEqual(Buffer.from(received), Buffer.from(`sha256=${expected}`))
+    // timingSafeEqual throws (not returns false) when buffer lengths differ,
+    // so we must guard the length before each comparison.
+    const safeEqual = (a: string, b: string) => {
+        const ba = Buffer.from(a)
+        const bb = Buffer.from(b)
+        return ba.length === bb.length && crypto.timingSafeEqual(ba, bb)
+    }
 
-    return isValid
+    // Accept both raw hex and "sha256=<hex>" formats
+    return safeEqual(received, expected) || safeEqual(received, `sha256=${expected}`)
 }
 
 interface XpressWebhookPayload {
