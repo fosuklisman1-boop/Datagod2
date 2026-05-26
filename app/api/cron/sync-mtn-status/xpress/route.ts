@@ -74,7 +74,15 @@ export async function GET(request: NextRequest) {
                     const oldStatus = order.status
                     const newStatus = result.status
 
-                    if (newStatus !== oldStatus) {
+                    // Prevent status regression: Xpress may report "pending" while the order
+                    // is queued on their side — never move an order backwards.
+                    const statusPriority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3 }
+                    const currentPriority = statusPriority[oldStatus] ?? 0
+                    const newPriority = statusPriority[newStatus] ?? 0
+
+                    if (newPriority < currentPriority) {
+                        console.log(`[CRON-XPRESS] ⛔ Skipping regression ${oldStatus} -> ${newStatus} for order ${order.mtn_order_id}`)
+                    } else if (newStatus !== oldStatus) {
                         await supabase
                             .from("mtn_fulfillment_tracking")
                             .update({
