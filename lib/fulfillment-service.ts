@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
-import { createMTNOrder, saveMTNTracking, MTNOrderRequest } from "@/lib/mtn-fulfillment"
+import { createMTNOrder, saveMTNTracking, checkMTNOrderStatus, MTNOrderRequest } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 
@@ -101,8 +101,8 @@ export async function processManualFulfillment(
     let existingTracking: any = null
     if (isMTN) {
       const trackingQuery = orderType === "bulk"
-        ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count").eq("order_id", orderId.trim())
-        : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count").eq("shop_order_id", orderId.trim())
+        ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count, provider").eq("order_id", orderId.trim())
+        : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count, provider").eq("shop_order_id", orderId.trim())
 
       const { data } = await trackingQuery.order("created_at", { ascending: false }).limit(1)
       existingTracking = data
@@ -110,8 +110,59 @@ export async function processManualFulfillment(
       if (existingTracking && existingTracking.length > 0) {
         const lastTracking = existingTracking[0]
         const isFailedId = lastTracking.mtn_order_id?.toString().startsWith("FAILED")
+
         if (!isFailedId && ["pending", "processing", "completed"].includes(lastTracking.status)) {
+          // Inconsistency: tracking has a real MTN ID but order is still "pending".
+          // This happens when auto-fulfillment hit the API successfully but the subsequent
+          // order-status DB update failed. Repair the drift instead of hard-blocking.
+          if (currentStatus === "pending") {
+            const reconcileStatus = lastTracking.status === "completed" ? "completed" : "processing"
+            await supabase
+              .from(tableName)
+              .update({ [statusField]: reconcileStatus, updated_at: new Date().toISOString() })
+              .eq("id", orderId)
+            console.log(`${logPrefix} Reconciled order status to "${reconcileStatus}" — MTN tracking already exists (tracking status: ${lastTracking.status})`)
+            return {
+              success: true,
+              message: `Order status reconciled to ${reconcileStatus} — already submitted to MTN`,
+              orderId,
+              trackingId: lastTracking.id,
+            }
+          }
           return { success: false, message: `Already tracked with MTN (${lastTracking.status})`, orderId }
+        }
+
+        // For a real (non-FAILED_INIT) MTN order ID whose tracking status is "failed":
+        // verify with MTN before allowing a retry. If MTN still has the original order
+        // active, reconcile locally and block — retrying would cause double-fulfillment.
+        if (!isFailedId && lastTracking.status === "failed") {
+          console.log(`${logPrefix} Tracking status is "failed" with real MTN ID ${lastTracking.mtn_order_id} — verifying with MTN before retry`)
+          try {
+            const statusCheck = await checkMTNOrderStatus(lastTracking.mtn_order_id, lastTracking.provider)
+            if (statusCheck.success && statusCheck.status && ["pending", "processing", "completed"].includes(statusCheck.status)) {
+              const reconcileStatus = statusCheck.status === "completed" ? "completed" : "processing"
+              await supabase
+                .from(tableName)
+                .update({ [statusField]: reconcileStatus, updated_at: new Date().toISOString() })
+                .eq("id", orderId)
+              await supabase
+                .from("mtn_fulfillment_tracking")
+                .update({ status: reconcileStatus, updated_at: new Date().toISOString() })
+                .eq("id", lastTracking.id)
+              console.log(`${logPrefix} MTN confirmed order ${lastTracking.mtn_order_id} is "${statusCheck.status}" — reconciled to "${reconcileStatus}", blocking retry to prevent double-fulfillment`)
+              return {
+                success: true,
+                message: `Order reconciled to ${reconcileStatus} — MTN confirmed the original submission was active (preventing double-fulfillment)`,
+                orderId,
+                trackingId: lastTracking.id,
+              }
+            }
+            // MTN confirmed failure or was unreachable — safe to retry
+            console.log(`${logPrefix} MTN confirmed order ${lastTracking.mtn_order_id} is truly failed (${statusCheck.status ?? "unreachable"}) — proceeding with retry`)
+          } catch (checkErr) {
+            // If status check itself fails, log but proceed conservatively with retry
+            console.warn(`${logPrefix} Could not verify MTN status for ${lastTracking.mtn_order_id}, proceeding with retry:`, checkErr)
+          }
         }
       }
     }

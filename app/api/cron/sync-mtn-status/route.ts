@@ -330,6 +330,17 @@ export async function GET(request: NextRequest) {
         const normalizedStatus = normalizeStatus(providerOrder.status)
         console.log(`[CRON] Order ${order.mtn_order_id} (${orderProvider}): "${providerOrder.status}" -> normalized "${normalizedStatus}"`)
 
+        // Prevent status regression: MTN reports "pending" while it's queued on their side,
+        // which is normal. We must never move an order backwards (processing→pending, etc.).
+        const statusPriority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3 }
+        const currentPriority = statusPriority[order.status] ?? 0
+        const newPriority = statusPriority[normalizedStatus] ?? 0
+        if (newPriority < currentPriority) {
+          console.log(`[CRON] ⛔ Skipping regression ${order.status} -> ${normalizedStatus} for order ${order.mtn_order_id}`)
+          results.push({ id: order.id, mtn_order_id: order.mtn_order_id, oldStatus: order.status, newStatus: order.status })
+          continue
+        }
+
         // If status changed, update the database
         if (normalizedStatus !== order.status) {
           // Update tracking table

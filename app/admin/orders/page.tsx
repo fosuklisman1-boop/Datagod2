@@ -404,6 +404,10 @@ export default function AdminOrdersPage() {
       }))
 
       toast.error(error instanceof Error ? error.message : "Failed to fulfill order")
+
+      // Refresh list — the order may no longer be truly pending (auto-fulfilled, already
+      // completed via webhook, or status was just reconciled). This clears stale entries.
+      loadPendingMTNOrders()
     } finally {
       setFulfillingMTNOrder(null)
     }
