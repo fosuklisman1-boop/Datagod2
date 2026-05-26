@@ -64,34 +64,41 @@ export function AdminAIChatWidget() {
 
   useEffect(() => {
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      tokenRef.current = session.access_token
-      setUserId(session.user.id)
-
-      const { data: profile } = await supabase
-        .from("users")
-        .select("first_name")
-        .eq("id", session.user.id)
-        .single()
-      const name = profile?.first_name ?? ""
-      setFirstName(name)
-
       try {
-        const stored = localStorage.getItem(STORAGE_KEY(session.user.id))
-        if (stored) {
-          const parsed = JSON.parse(stored) as Message[]
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setMessages(parsed)
-            return
-          }
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          setMessages([{ role: "assistant", content: "Hi! I have access to all admin tools. Ask me about orders, users, stats, or anything else.", timestamp: Date.now() }])
+          return
         }
-      } catch {}
-      setMessages([{
-        role: "assistant",
-        content: `Hi${name ? " " + name : ""}! I have access to all admin tools. Ask me about orders, users, stats, or anything else.`,
-        timestamp: Date.now(),
-      }])
+        tokenRef.current = session.access_token
+        setUserId(session.user.id)
+
+        const { data: profile } = await supabase
+          .from("users")
+          .select("first_name")
+          .eq("id", session.user.id)
+          .single()
+        const name = profile?.first_name ?? ""
+        setFirstName(name)
+
+        try {
+          const stored = localStorage.getItem(STORAGE_KEY(session.user.id))
+          if (stored) {
+            const parsed = JSON.parse(stored) as Message[]
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setMessages(parsed)
+              return
+            }
+          }
+        } catch {}
+        setMessages([{
+          role: "assistant",
+          content: `Hi${name ? " " + name : ""}! I have access to all admin tools. Ask me about orders, users, stats, or anything else.`,
+          timestamp: Date.now(),
+        }])
+      } catch {
+        setMessages([{ role: "assistant", content: "Hi! I have access to all admin tools. Ask me about orders, users, stats, or anything else.", timestamp: Date.now() }])
+      }
     }
     init()
   }, [])

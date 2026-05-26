@@ -65,35 +65,43 @@ export function DashboardAIChatWidget() {
 
   useEffect(() => {
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      tokenRef.current = session.access_token
-      setUserId(session.user.id)
-
-      const [profileRes, balanceRes] = await Promise.all([
-        supabase.from("users").select("first_name").eq("id", session.user.id).single(),
-        fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${session.access_token}` } })
-          .then(r => r.json()),
-      ])
-      const name = profileRes.data?.first_name ?? ""
-      const bal = balanceRes.balance !== undefined ? `GHS ${Number(balanceRes.balance).toFixed(2)}` : null
-      setFirstName(name)
-      setBalance(bal)
-
       try {
-        const stored = localStorage.getItem(STORAGE_KEY(session.user.id))
-        if (stored) {
-          const parsed = JSON.parse(stored) as Message[]
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setMessages(parsed)
-            return
-          }
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          setMessages([{ role: "assistant", content: "Hi! I can help you buy data, check your orders, or answer any questions.", timestamp: Date.now() }])
+          return
         }
-      } catch {}
-      const greeting = bal
-        ? `Hi${name ? " " + name : ""}! Your wallet balance is ${bal}. I can help you buy data, check your orders, or answer any questions.`
-        : `Hi${name ? " " + name : ""}! I can help you buy data, check your orders, or answer any questions.`
-      setMessages([{ role: "assistant", content: greeting, timestamp: Date.now() }])
+        tokenRef.current = session.access_token
+        setUserId(session.user.id)
+
+        const [profileRes, balanceData] = await Promise.all([
+          supabase.from("users").select("first_name").eq("id", session.user.id).single(),
+          fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${session.access_token}` } })
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null),
+        ])
+        const name = profileRes.data?.first_name ?? ""
+        const bal = balanceData?.balance !== undefined ? `GHS ${Number(balanceData.balance).toFixed(2)}` : null
+        setFirstName(name)
+        setBalance(bal)
+
+        try {
+          const stored = localStorage.getItem(STORAGE_KEY(session.user.id))
+          if (stored) {
+            const parsed = JSON.parse(stored) as Message[]
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setMessages(parsed)
+              return
+            }
+          }
+        } catch {}
+        const greeting = bal
+          ? `Hi${name ? " " + name : ""}! Your wallet balance is ${bal}. I can help you buy data, check your orders, or answer any questions.`
+          : `Hi${name ? " " + name : ""}! I can help you buy data, check your orders, or answer any questions.`
+        setMessages([{ role: "assistant", content: greeting, timestamp: Date.now() }])
+      } catch {
+        setMessages([{ role: "assistant", content: "Hi! I can help you buy data, check your orders, or answer any questions.", timestamp: Date.now() }])
+      }
     }
     init()
   }, [])
