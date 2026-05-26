@@ -13,6 +13,7 @@ import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import StorefrontRedirector from "@/components/StorefrontRedirector"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
 import { useCommunityLink } from "@/hooks/use-community-link"
+import { Skeleton } from "@/components/ui/skeleton"
 
 function Step({
   number,
@@ -305,7 +306,7 @@ function MockProfitMargin() {
 }
 
 export default function HomePage() {
-  const { communityLink } = useCommunityLink()
+  const { communityLink, loading: communityLoading } = useCommunityLink()
 
   const scrollToGuide = () => {
     document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })
@@ -379,14 +380,18 @@ export default function HomePage() {
                 <ChevronDown className="w-4 h-4" />
               </Button>
             </div>
-            {communityLink && (
+            {communityLoading ? (
+              <div className="flex justify-center">
+                <Skeleton className="h-11 w-full sm:w-64 rounded-md" />
+              </div>
+            ) : communityLink ? (
               <a href={communityLink} target="_blank" rel="noopener noreferrer" className="flex justify-center">
                 <Button size="lg" className="w-full sm:w-auto sm:px-24 gap-2 bg-green-600 hover:bg-green-700 text-white">
                   <MessageCircle className="w-4 h-4" />
                   Join Community
                 </Button>
               </a>
-            )}
+            ) : null}
           </div>
         </div>
 

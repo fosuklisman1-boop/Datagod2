@@ -1,40 +1,48 @@
 "use client"
 
 import { useEffect, useState } from 'react'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface GuestPurchaseButtonProps {
     variant?: 'primary' | 'secondary' | 'outline'
     className?: string
 }
 
+const CACHE_KEY = "dg_guest_config"
+
+function getCached(): { url: string | null, text: string } | null {
+    if (typeof window === "undefined") return null
+    const raw = sessionStorage.getItem(CACHE_KEY)
+    return raw ? JSON.parse(raw) : null
+}
+
 export default function GuestPurchaseButton({ variant = 'outline', className = '' }: GuestPurchaseButtonProps) {
-    const [config, setConfig] = useState<{ url: string | null, text: string }>({ url: null, text: 'Buy as Guest' })
-    const [loading, setLoading] = useState(true)
+    const [config, setConfig] = useState<{ url: string | null, text: string }>(
+        () => getCached() ?? { url: null, text: 'Buy as Guest' }
+    )
+    const [loading, setLoading] = useState<boolean>(() => getCached() === null)
 
     useEffect(() => {
-        fetchConfig()
+        if (!loading) return
+        fetch('/api/support-config')
+            .then(r => r.json())
+            .then(data => {
+                const next = {
+                    url: data.guestPurchaseUrl ?? null,
+                    text: data.guestPurchaseButtonText || 'Buy as Guest'
+                }
+                setConfig(next)
+                sessionStorage.setItem(CACHE_KEY, JSON.stringify(next))
+            })
+            .catch(() => {})
+            .finally(() => setLoading(false))
     }, [])
 
-    const fetchConfig = async () => {
-        try {
-            const response = await fetch('/api/support-config')
-            const data = await response.json()
-
-            setConfig({
-                url: data.guestPurchaseUrl,
-                text: data.guestPurchaseButtonText || 'Buy as Guest'
-            })
-        } catch (error) {
-            console.error('Failed to fetch guest purchase config:', error)
-        } finally {
-            setLoading(false)
-        }
+    if (loading) {
+        return <Skeleton className={`h-11 rounded-md ${className}`} />
     }
 
-    // Don't render if no URL is configured or still loading
-    if (loading || !config.url) {
-        return null
-    }
+    if (!config.url) return null
 
     const buttonStyles = {
         primary: 'bg-blue-600 hover:bg-blue-700 text-white',

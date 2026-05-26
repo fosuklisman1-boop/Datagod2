@@ -14,11 +14,12 @@ import { supabase } from "@/lib/supabase"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import { useCommunityLink } from "@/hooks/use-community-link"
 import { MessageCircle } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export default function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { communityLink } = useCommunityLink()
+  const { communityLink, loading: communityLoading } = useCommunityLink()
   const [isLoading, setIsLoading] = useState(false)
   const [redirectTo, setRedirectTo] = useState("/dashboard")
   const [formData, setFormData] = useState({
@@ -156,14 +157,16 @@ export default function LoginForm() {
             </div>
 
             {/* Join Community */}
-            {communityLink && (
+            {communityLoading ? (
+              <Skeleton className="h-10 w-full rounded-md" />
+            ) : communityLink ? (
               <a href={communityLink} target="_blank" rel="noopener noreferrer">
                 <Button type="button" className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white">
                   <MessageCircle className="w-4 h-4" />
                   Join Community
                 </Button>
               </a>
-            )}
+            ) : null}
 
             {/* Back to Home Link */}
             <div className="text-center">
