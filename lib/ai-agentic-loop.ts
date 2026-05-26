@@ -20,6 +20,7 @@ export interface RunAgenticLoopParams {
   messages: Anthropic.MessageParam[]
   toolCtx: AgenticToolCtx
   maxIterations?: number
+  maxTokens?: number
   /** Called for each SSE-style event (text, tool_call, action_buttons, etc.) — omit for silent/cron runs */
   onEvent?: (event: Record<string, unknown>) => void
 }
@@ -41,6 +42,7 @@ export async function runAgenticLoop({
   messages,
   toolCtx,
   maxIterations = 10,
+  maxTokens = 1500,
   onEvent,
 }: RunAgenticLoopParams): Promise<AgenticLoopResult> {
   const emit = onEvent ?? (() => {})
@@ -57,7 +59,7 @@ export async function runAgenticLoop({
 
     const response = await provider.createMessage({
       model,
-      maxTokens: 600,
+      maxTokens,
       system,
       tools,
       messages: currentMessages,

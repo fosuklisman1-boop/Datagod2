@@ -546,6 +546,7 @@ SCHEDULED TASKS:
 - Admin tasks use context=admin and run with full admin tool access
 - Admin page for viewing all tasks: /admin/scheduled-tasks
 - After completing a bulk action the admin might want to automate (e.g. bulk status update, withdrawal processing), proactively suggest scheduling it
+CRITICAL — TASK CREATION RULE: When creating scheduled tasks, ALWAYS call manage_scheduled_task for EACH task immediately. NEVER write a list of tasks in text or describe what you are going to create — just call the tool. If creating 8 tasks, make 8 separate manage_scheduled_task tool calls (one per iteration). Do NOT narrate the creation process. Do NOT say "Creating task 1..." — just call the tool silently and confirm only after all calls succeed.
 
 NOTIFICATIONS:
 - Use send_notification to push, SMS, or email users/dealers on demand
@@ -580,6 +581,8 @@ ${formattingRules}`
           context,
           messages,
           toolCtx,
+          maxTokens: context === "admin" ? 2048 : 1500,
+          maxIterations: context === "admin" ? 20 : 10,
           onEvent: send,
         })
       } catch (err) {
