@@ -556,6 +556,23 @@ const getTransactionHistoryTool: Anthropic.Tool = {
   },
 }
 
+const getMySalesTool: Anthropic.Tool = {
+  name: "get_my_sales",
+  description: "Get the dealer's sales summary and order list for a specific time period. Covers wallet orders (placed directly) and storefront shop orders (customers buying from their shop). Use when the user asks about their sales, revenue, or orders for a specific time — today, yesterday, this week, this month, or a custom date range.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      date_range: { type: "string", enum: ["today", "yesterday", "this_week", "last_7_days", "this_month", "last_30_days"], description: "Preset time range. Leave blank if using date_from/date_to." },
+      date_from: { type: "string", description: "Custom start ISO datetime e.g. '2026-05-01T00:00:00Z'. Use with date_to." },
+      date_to: { type: "string", description: "Custom end ISO datetime e.g. '2026-05-15T23:59:59Z'. Defaults to now if omitted." },
+      source: { type: "string", enum: ["all", "wallet_orders", "shop_orders"], description: "all = both (default). wallet_orders = own wallet purchases. shop_orders = storefront customer purchases." },
+      network: { type: "string", description: "Filter by network e.g. MTN, Telecel, AT" },
+      limit: { type: "number", description: "Max orders to show per source (default 10, max 50)" },
+    },
+    required: [],
+  },
+}
+
 const getOrderStatsTool: Anthropic.Tool = {
   name: "get_order_stats",
   description: "Get the logged-in user's personal order statistics: total, completed, failed, processing counts and success rate.",
@@ -840,6 +857,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getWalletBalanceTool,
     getWalletTransactionsTool,
     getOrderHistoryTool,
+    getMySalesTool,
     placeWalletOrderTool,
     getSubscriptionTool,
     getSubscriptionPlansTool,
@@ -2011,6 +2029,106 @@ export async function executeToolCall(
           headers: { Authorization: `Bearer ${ctx.jwtToken}` },
         })
         return await res.json()
+      }
+
+      case "get_my_sales": {
+        if (!ctx.userId) return { error: "Not authenticated" }
+
+        // Resolve date range to ISO timestamps
+        const now = new Date()
+        let fromDate: string
+        let toDate: string = now.toISOString()
+
+        if (input.date_from) {
+          fromDate = input.date_from as string
+          toDate = (input.date_to as string) || toDate
+        } else {
+          const range = (input.date_range as string) || "today"
+          const d = new Date(now)
+          if (range === "today") {
+            d.setUTCHours(0, 0, 0, 0)
+          } else if (range === "yesterday") {
+            d.setUTCDate(d.getUTCDate() - 1); d.setUTCHours(0, 0, 0, 0)
+            toDate = new Date(now.getTime()); const end = new Date(d); end.setUTCHours(23, 59, 59, 999); toDate = end.toISOString()
+          } else if (range === "this_week") {
+            const day = d.getUTCDay(); d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1)); d.setUTCHours(0, 0, 0, 0)
+          } else if (range === "last_7_days") {
+            d.setUTCDate(d.getUTCDate() - 7)
+          } else if (range === "this_month") {
+            d.setUTCDate(1); d.setUTCHours(0, 0, 0, 0)
+          } else if (range === "last_30_days") {
+            d.setUTCDate(d.getUTCDate() - 30)
+          }
+          fromDate = d.toISOString()
+        }
+
+        const limit = Math.min(Number(input.limit ?? 10), 50)
+        const source = (input.source as string) || "all"
+        const networkFilter = input.network as string | undefined
+
+        const results: Record<string, unknown> = { period: { from: fromDate, to: toDate } }
+
+        // Wallet orders (dealer's own purchases)
+        if (source === "all" || source === "wallet_orders") {
+          let q = supabaseAdmin
+            .from("combined_orders_view")
+            .select("id, network, volume_gb, status, phone_number, created_at, price, order_code")
+            .eq("user_id", ctx.userId)
+            .gte("created_at", fromDate)
+            .lte("created_at", toDate)
+            .order("created_at", { ascending: false })
+            .limit(limit)
+          if (networkFilter) q = q.ilike("network", networkFilter)
+          const { data: walletOrders } = await q
+          const orders = walletOrders ?? []
+          results.wallet_orders = {
+            total: orders.length,
+            completed: orders.filter(o => o.status === "completed").length,
+            failed: orders.filter(o => o.status === "failed").length,
+            orders: orders.map(o => ({
+              id: o.id, network: o.network, size: `${o.volume_gb}GB`,
+              status: o.status, phone: o.phone_number,
+              price: o.price, order_code: o.order_code, date: o.created_at,
+            })),
+          }
+        }
+
+        // Storefront shop orders (customers buying from dealer's shop)
+        if (source === "all" || source === "shop_orders") {
+          const { data: shop } = await supabaseAdmin
+            .from("user_shops").select("id").eq("user_id", ctx.userId).maybeSingle()
+
+          if (shop) {
+            let q = supabaseAdmin
+              .from("shop_orders")
+              .select("id, network, volume_gb, order_status, customer_phone, created_at, total_price, reference_code, payment_status")
+              .eq("shop_id", shop.id)
+              .eq("payment_status", "completed")
+              .gte("created_at", fromDate)
+              .lte("created_at", toDate)
+              .order("created_at", { ascending: false })
+              .limit(limit)
+            if (networkFilter) q = q.ilike("network", networkFilter)
+            const { data: shopOrders } = await q
+            const orders = shopOrders ?? []
+            const revenue = orders.filter(o => o.order_status === "completed").reduce((s, o) => s + Number(o.total_price ?? 0), 0)
+            results.shop_orders = {
+              total: orders.length,
+              completed: orders.filter(o => o.order_status === "completed").length,
+              failed: orders.filter(o => o.order_status === "failed").length,
+              total_revenue: `GHS ${revenue.toFixed(2)}`,
+              orders: orders.map(o => ({
+                id: o.id, network: o.network, size: `${o.volume_gb}GB`,
+                status: o.order_status, customer_phone: o.customer_phone,
+                total_price: o.total_price, reference_code: o.reference_code, date: o.created_at,
+              })),
+            }
+          } else {
+            results.shop_orders = { note: "No shop found for this account." }
+          }
+        }
+
+        return results
       }
 
       case "get_subscription": {
