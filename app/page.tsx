@@ -381,7 +381,7 @@ export default function HomePage() {
             </div>
             {communityLink && (
               <a href={communityLink} target="_blank" rel="noopener noreferrer" className="flex justify-center">
-                <Button size="lg" variant="outline" className="w-full sm:w-auto sm:px-24 gap-2 border-green-500 text-green-700 hover:bg-green-50">
+                <Button size="lg" className="w-full sm:w-auto sm:px-24 gap-2 bg-green-600 hover:bg-green-700 text-white">
                   <MessageCircle className="w-4 h-4" />
                   Join Community
                 </Button>
