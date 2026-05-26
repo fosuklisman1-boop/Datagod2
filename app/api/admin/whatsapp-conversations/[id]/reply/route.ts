@@ -10,8 +10,9 @@ const supabase = createClient(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const { isAdmin, userId: adminId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
@@ -28,7 +29,7 @@ export async function POST(
   const { data: conversation, error: convError } = await supabase
     .from("whatsapp_conversations")
     .select("phone_number")
-    .eq("id", params.id)
+    .eq("id", id)
     .maybeSingle()
 
   if (convError || !conversation) {
@@ -38,7 +39,7 @@ export async function POST(
   const result = await sendWhatsAppText({
     phone: conversation.phone_number,
     message: message.trim(),
-    conversationId: params.id,
+    conversationId: id,
     reference: `admin_reply:${adminId ?? "unknown"}`,
   })
 
@@ -53,7 +54,7 @@ export async function POST(
       last_message_preview: message.trim().slice(0, 240),
       updated_at: new Date().toISOString(),
     })
-    .eq("id", params.id)
+    .eq("id", id)
 
   return NextResponse.json({ success: true, messageId: result.messageId })
 }
