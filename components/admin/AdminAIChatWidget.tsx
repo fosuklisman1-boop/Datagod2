@@ -3,13 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
-import { createClient } from "@supabase/supabase-js"
+import { supabase } from "@/lib/supabase"
 import { ChatMessage } from "@/components/ui/chat-message"
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface Message {
   role: "user" | "assistant"
