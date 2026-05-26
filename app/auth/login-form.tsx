@@ -12,10 +12,13 @@ import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
 import { supabase } from "@/lib/supabase"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
+import { useCommunityLink } from "@/hooks/use-community-link"
+import { MessageCircle } from "lucide-react"
 
 export default function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { communityLink } = useCommunityLink()
   const [isLoading, setIsLoading] = useState(false)
   const [redirectTo, setRedirectTo] = useState("/dashboard")
   const [formData, setFormData] = useState({
@@ -151,6 +154,16 @@ export default function LoginForm() {
             <div className="text-center">
               <GuestPurchaseButton variant="secondary" className="w-full mb-3" />
             </div>
+
+            {/* Join Community */}
+            {communityLink && (
+              <a href={communityLink} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" className="w-full gap-2 border-green-500 text-green-700 hover:bg-green-50">
+                  <MessageCircle className="w-4 h-4" />
+                  Join Community
+                </Button>
+              </a>
+            )}
 
             {/* Back to Home Link */}
             <div className="text-center">

@@ -7,11 +7,12 @@ import {
   Package, Zap, Users, ArrowRight, Lock,
   ShoppingCart, Wallet, GraduationCap, Store,
   CheckCircle2, CreditCard, Phone, UserPlus,
-  TrendingUp, Share2, Settings, Search, ChevronDown, Link2, Copy, Mail, Banknote
+  TrendingUp, Share2, Settings, Search, ChevronDown, Link2, Copy, Mail, Banknote, MessageCircle
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import StorefrontRedirector from "@/components/StorefrontRedirector"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
+import { useCommunityLink } from "@/hooks/use-community-link"
 
 function Step({
   number,
@@ -304,6 +305,8 @@ function MockProfitMargin() {
 }
 
 export default function HomePage() {
+  const { communityLink } = useCommunityLink()
+
   const scrollToGuide = () => {
     document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })
   }
@@ -362,18 +365,28 @@ export default function HomePage() {
           <p className="text-base sm:text-xl text-gray-600 max-w-2xl mx-auto">
             Buy data packages from multiple networks, manage your wallet, and track your orders all in one place.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
-            <GuestPurchaseButton variant="secondary" className="w-full sm:w-auto" />
-            <Link href="/auth/login">
-              <Button size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 gap-2 w-full sm:w-auto">
-                Login to Dashboard
-                <ArrowRight className="w-4 h-4" />
+          <div className="flex flex-col gap-3 sm:gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+              <GuestPurchaseButton variant="secondary" className="w-full sm:w-auto" />
+              <Link href="/auth/login">
+                <Button size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 gap-2 w-full sm:w-auto">
+                  Login to Dashboard
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+              <Button size="lg" variant="outline" className="w-full sm:w-auto gap-2" onClick={scrollToGuide}>
+                Learn More
+                <ChevronDown className="w-4 h-4" />
               </Button>
-            </Link>
-            <Button size="lg" variant="outline" className="w-full sm:w-auto gap-2" onClick={scrollToGuide}>
-              Learn More
-              <ChevronDown className="w-4 h-4" />
-            </Button>
+            </div>
+            {communityLink && (
+              <a href={communityLink} target="_blank" rel="noopener noreferrer" className="flex justify-center">
+                <Button size="lg" variant="outline" className="w-full sm:w-auto sm:px-24 gap-2 border-green-500 text-green-700 hover:bg-green-50">
+                  <MessageCircle className="w-4 h-4" />
+                  Join Community
+                </Button>
+              </a>
+            )}
           </div>
         </div>
 
