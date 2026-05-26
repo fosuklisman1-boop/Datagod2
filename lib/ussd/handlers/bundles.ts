@@ -38,6 +38,7 @@ async function fetchBundles(
       .eq("packages.network", network)
       .eq("packages.active", true)
       .order("parent_price", { ascending: true })
+      .order("package_id", { ascending: true })
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
     const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
@@ -56,6 +57,7 @@ async function fetchBundles(
     .eq("network", network)
     .eq("active", true)
     .order("price", { ascending: true })
+    .order("id", { ascending: true })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
   const bundles: BundleOption[] = (data ?? []).map((row: any) => {
@@ -182,14 +184,22 @@ export async function handleSelectBundle(
     return cont(bundleMenu(nextBundles, nextPage, newTotal))
   }
 
-  // Map selection to bundle
+  // Re-fetch the current page from DB to guard against stale bundleCache.
+  // If bundlePage advanced to 1 but bundleCache still holds page 0's data,
+  // offset=5 + stale cache produces the wrong bundle (e.g. page0[2]=3GB instead of page1[2]=10GB).
+  const { bundles: freshBundles, total: freshTotal } = await fetchBundles(
+    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId
+  )
+
   const bundleIndex = chosen - offset - 1
-  const selected = bundles[bundleIndex]
-  if (!selected) return cont(bundleMenu(bundles, page, total))
+  const selected = freshBundles[bundleIndex]
+  if (!selected) return cont(bundleMenu(freshBundles, page, freshTotal))
 
   await setSession(sessionId, {
     ...session,
     step: 'ENTER_RECIPIENT',
+    bundleCache: freshBundles,
+    bundleTotal: freshTotal,
     bundleId: selected.id,
     bundleSize: selected.size,
     bundlePrice: selected.price,
