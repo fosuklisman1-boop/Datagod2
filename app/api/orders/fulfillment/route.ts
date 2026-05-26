@@ -169,9 +169,6 @@ async function handleTriggerFulfillment(
         },
       })
     } else {
-      // Create initial fulfillment log for failed attempt
-      await createInitialFulfillmentLog(orderId, order, supabaseAdmin, result)
-
       return NextResponse.json(
         {
           success: false,

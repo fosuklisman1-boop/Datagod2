@@ -855,20 +855,20 @@ export async function updateMTNOrderFromWebhook(
       }
     }
 
-    // Add fulfillment log
-    const { error: logError } = await supabase
-      .from("fulfillment_logs")
-      .insert({
-        order_id: tracking.shop_order_id || tracking.order_id || tracking.api_order_id,
-        order_type: tracking.order_type || "shop",
-        status: newStatus,
-        external_api: "MTN",
-        external_order_id: mtnOrderId?.toString(),
-        external_response: webhook.order,
-        notes: webhook.order.message,
-      })
-
-    if (logError) console.error("[MTN] Error creating fulfillment log:", logError)
+    if (newStatus !== "failed") {
+      const { error: logError } = await supabase
+        .from("fulfillment_logs")
+        .insert({
+          order_id: tracking.shop_order_id || tracking.order_id || tracking.api_order_id,
+          order_type: tracking.order_type || "shop",
+          status: newStatus,
+          external_api: "MTN",
+          external_order_id: mtnOrderId?.toString(),
+          external_response: webhook.order,
+          notes: webhook.order.message,
+        })
+      if (logError) console.error("[MTN] Error creating fulfillment log:", logError)
+    }
 
     return true
   } catch (error) {
@@ -1000,20 +1000,20 @@ export async function updateDataKazinaOrderFromPayload(
       if (shopError) console.error("[MTN] Error updating shop order:", shopError)
     }
 
-    // Add fulfillment log
-    const { error: logError } = await supabase
-      .from("fulfillment_logs")
-      .insert({
-        order_id: tracking.shop_order_id || tracking.order_id || tracking.api_order_id,
-        order_type: tracking.order_type || "shop",
-        status: newStatus,
-        external_api: "DataKazina",
-        external_order_id: String(mtnOrderId),
-        external_response: payload,
-        notes: payload.message || `Webhook status: ${payload.status}`,
-      })
-
-    if (logError) console.error("[MTN] Error creating fulfillment log:", logError)
+    if (newStatus !== "failed") {
+      const { error: logError } = await supabase
+        .from("fulfillment_logs")
+        .insert({
+          order_id: tracking.shop_order_id || tracking.order_id || tracking.api_order_id,
+          order_type: tracking.order_type || "shop",
+          status: newStatus,
+          external_api: "DataKazina",
+          external_order_id: String(mtnOrderId),
+          external_response: payload,
+          notes: payload.message || `Webhook status: ${payload.status}`,
+        })
+      if (logError) console.error("[MTN] Error creating fulfillment log:", logError)
+    }
 
     return true
   } catch (error) {
