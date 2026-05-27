@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (safeData.size !== undefined) {
-      if (typeof safeData.size !== "number" || !isFinite(safeData.size) || safeData.size <= 0) {
-        return NextResponse.json({ error: "size must be a positive number" }, { status: 400 })
+      if (typeof safeData.size !== "string" || (safeData.size as string).trim().length === 0) {
+        return NextResponse.json({ error: "size must be a non-empty string" }, { status: 400 })
       }
     }
 
