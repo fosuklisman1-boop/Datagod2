@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { initializePayment } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
+import { applyRateLimit } from "@/lib/rate-limiter"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -30,6 +31,15 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit: 10 requests/min per IP — prevents Paystack link spam
+    const rateLimit = await applyRateLimit(request, "payments_initialize", 10, 60_000)
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many payment requests. Please wait a moment." },
+        { status: 429, headers: { "X-RateLimit-Reset": new Date(rateLimit.resetAt).toISOString() } }
+      )
+    }
+
     const body = await request.json()
     const { amount, email, shopId, orderId, shopSlug, type, planId, orderType } = body
 
@@ -108,9 +118,10 @@ export async function POST(request: NextRequest) {
       console.log(`[PAYMENT-INIT] ${orderType} order detected (${orderId}). Verifying price from database...`)
 
       const amountColumn = (orderType === "airtime" || orderType === "results_checker") ? "total_paid" : "total_price"
+      const selectColumns = orderType === "airtime" ? `${amountColumn}, status, payment_status` : amountColumn
       const { data: orderData, error: orderError } = await supabase
         .from(table)
-        .select(amountColumn)
+        .select(selectColumns)
         .eq("id", orderId)
         .single()
 
@@ -120,6 +131,20 @@ export async function POST(request: NextRequest) {
           { error: "Invalid order ID" },
           { status: 400 }
         )
+      }
+
+      // Reject airtime orders that are no longer awaiting payment — blocks reuse of
+      // expired/failed/already-paid order IDs to generate fresh Paystack links.
+      if (orderType === "airtime") {
+        const orderStatus = (orderData as any).status
+        const orderPaymentStatus = (orderData as any).payment_status
+        if (orderStatus !== "pending_payment" || orderPaymentStatus !== "pending_payment") {
+          console.warn(`[PAYMENT-INIT] ❌ Airtime order ${orderId} not payable — status: ${orderStatus}, payment_status: ${orderPaymentStatus}`)
+          return NextResponse.json(
+            { error: "This order is no longer available for payment." },
+            { status: 400 }
+          )
+        }
       }
 
       // Override client amount with server-verified amount
