@@ -28,7 +28,7 @@ async function fileToPhoneLines(file: File): Promise<string[]> {
     .filter(Boolean)
 }
 
-export function detectNetwork(phone: string): string {
+function detectNetwork(phone: string): string {
   const n = normalizeGhanaPhoneNumber(phone)
   if (!n || n.length !== 10) return "UNKNOWN"
   const p = n.substring(0, 3)
