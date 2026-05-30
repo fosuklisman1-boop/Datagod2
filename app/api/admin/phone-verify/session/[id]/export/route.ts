@@ -71,7 +71,7 @@ export async function GET(
 
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" })
     const date = new Date().toISOString().split("T")[0]
-    const filename = `verification-${params.id.slice(0, 8)}-${date}.xlsx`
+    const filename = `verification-${id.slice(0, 8)}-${date}.xlsx`
 
     return new NextResponse(buffer, {
       headers: {
