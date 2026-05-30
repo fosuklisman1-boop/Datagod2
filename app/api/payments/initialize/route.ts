@@ -3,7 +3,6 @@ import { initializePayment } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
-import { rejectBot } from "@/lib/bot-protection"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -32,8 +31,6 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const blocked = await rejectBot(); if (blocked) return blocked
-
     // Rate limit: 10 requests/min per IP — prevents Paystack link spam
     const rateLimit = await applyRateLimit(request, "payments_initialize", 10, 60_000)
     if (!rateLimit.allowed) {
