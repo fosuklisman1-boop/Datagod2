@@ -10,8 +10,10 @@ const supabase = createClient(
 
 export const maxDuration = 60
 
-const CHUNK_SIZE = 10
-const CALL_TIMEOUT_MS = 12000
+const CHUNK_SIZE = 20
+const CONCURRENCY = 10
+// TELECEL calls via Moolre take ~12-13 s; 25 s gives a comfortable buffer
+const CALL_TIMEOUT_MS = 25000
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -79,9 +81,7 @@ export async function POST(request: NextRequest) {
     let invalidThisChunk = 0
     let rateLimitedThisChunk = 0
 
-    // Process sequentially and write each result to DB immediately.
-    // This way a serverless timeout can't lose results for calls that already completed.
-    for (const row of pending) {
+    async function processRow(row: { id: number; phone_number: string; network: string }) {
       const network = row.network === "UNKNOWN" ? "MTN" : row.network
       let accountName: string | null = null
       let isTransient = false
@@ -103,6 +103,8 @@ export async function POST(request: NextRequest) {
             `[PHONE-VERIFY] phone=${row.phone_number} network=${network} ` +
             `transient=${isTransient} error="${result.error}"`
           )
+        } else if (accountName) {
+          console.log(`[PHONE-VERIFY] phone=${row.phone_number} network=${network} verified="${accountName}"`)
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -113,23 +115,38 @@ export async function POST(request: NextRequest) {
 
       if (isTransient) {
         rateLimitedThisChunk++
-        // Leave row as pending — it will be retried on next call
-      } else {
-        const isVerified = typeof accountName === "string" && accountName.trim() !== ""
-        if (isVerified) verifiedThisChunk++
-        else invalidThisChunk++
-
-        // Write immediately so a later timeout doesn't discard this result
-        await supabase
-          .from("phone_verification_results")
-          .update({
-            status: isVerified ? "verified" : "invalid",
-            account_name: isVerified ? accountName : null,
-            verified_at: now,
-          })
-          .eq("id", row.id)
+        return // leave as pending — retried on next call
       }
+
+      const isVerified = typeof accountName === "string" && accountName.trim() !== ""
+      if (isVerified) verifiedThisChunk++
+      else invalidThisChunk++
+
+      // Write immediately so a later timeout can't discard this result
+      await supabase
+        .from("phone_verification_results")
+        .update({
+          status: isVerified ? "verified" : "invalid",
+          account_name: isVerified ? accountName : null,
+          verified_at: now,
+        })
+        .eq("id", row.id)
     }
+
+    // pLimit-style concurrency: CONCURRENCY workers drain the task queue
+    async function pLimit(tasks: (() => Promise<void>)[], concurrency: number) {
+      let index = 0
+      async function worker() {
+        while (true) {
+          const i = index++
+          if (i >= tasks.length) break
+          await tasks[i]()
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker))
+    }
+
+    await pLimit(pending.map(row => () => processRow(row)), CONCURRENCY)
 
     const newVerified = session.verified_count + verifiedThisChunk
     const newInvalid = session.invalid_count + invalidThisChunk
