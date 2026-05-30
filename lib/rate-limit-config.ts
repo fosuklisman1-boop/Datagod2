@@ -76,6 +76,13 @@ export const RATE_LIMITS = {
         windowMs: 60 * 1000, // 1 minute
         message: 'Too many chat messages. Please wait a moment.',
     },
+
+    // Shop airtime order initialization (unauthenticated — primary abuse surface)
+    SHOP_AIRTIME_INITIALIZE: {
+        maxRequests: 5,
+        windowMs: 60 * 1000, // 1 minute per IP
+        message: 'Too many airtime requests. Please wait a moment before trying again.',
+    },
 } as const
 
 /**

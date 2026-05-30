@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { applyRateLimit } from "@/lib/rate-limiter"
+import { RATE_LIMITS } from "@/lib/rate-limit-config"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,6 +37,27 @@ async function getAdminSetting(key: string): Promise<any> {
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit: 5 requests/min per IP (unauthenticated endpoint — primary abuse surface)
+    const rateLimit = await applyRateLimit(
+      request,
+      "shop_airtime_initialize",
+      RATE_LIMITS.SHOP_AIRTIME_INITIALIZE.maxRequests,
+      RATE_LIMITS.SHOP_AIRTIME_INITIALIZE.windowMs
+    )
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: RATE_LIMITS.SHOP_AIRTIME_INITIALIZE.message },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": RATE_LIMITS.SHOP_AIRTIME_INITIALIZE.maxRequests.toString(),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": new Date(rateLimit.resetAt).toISOString(),
+          },
+        }
+      )
+    }
+
     const { shopId, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately } = await request.json()
 
     if (!shopId || !beneficiaryPhone || (!airtimeAmount && !bodyAmount) || !customerEmail) {
@@ -107,6 +130,23 @@ export async function POST(request: NextRequest) {
     }
 
     const merchantCommission = parseFloat((airtimeToDeliver * customMarkupRate / 100).toFixed(2))
+
+    // Pending order cap: block if same email already has 3+ unfinished orders in the last hour.
+    // This is a DB-level defence that works even when Redis/Upstash is unavailable.
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const { count: pendingCount } = await supabase
+      .from("airtime_orders")
+      .select("id", { count: "exact", head: true })
+      .eq("customer_email", customerEmail)
+      .eq("status", "pending_payment")
+      .gte("created_at", oneHourAgo)
+
+    if ((pendingCount ?? 0) >= 3) {
+      return NextResponse.json(
+        { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
+        { status: 429 }
+      )
+    }
 
     // Create Airtime Order (Pending Payment)
     const referenceCode = generateReference()
