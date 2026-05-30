@@ -6,6 +6,7 @@ import {
   getMaxQuantity,
   calculateRCPrice,
 } from "@/lib/results-checker-service"
+import { rejectBot } from "@/lib/bot-protection"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,6 +22,8 @@ function generateRCReference(): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const blocked = await rejectBot(); if (blocked) return blocked
+
     const { shopId, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone } =
       await request.json()
 

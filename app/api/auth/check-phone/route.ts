@@ -1,8 +1,10 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { rejectBot } from "@/lib/bot-protection"
 
 export async function POST(request: NextRequest) {
   try {
+    const blocked = await rejectBot(); if (blocked) return blocked
     const { phoneNumber, excludeUserId } = await request.json()
 
     // Create a service role client on the server

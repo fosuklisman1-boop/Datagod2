@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { checkBotId } from "botid/server"
+import { rejectBot } from "@/lib/bot-protection"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,11 +38,7 @@ async function getAdminSetting(key: string): Promise<any> {
 
 export async function POST(request: NextRequest) {
   try {
-    // BotID: invisible JS challenge — scripts without a real browser fail here
-    const bot = await checkBotId()
-    if (bot.isBot) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
-    }
+    const blocked = await rejectBot(); if (blocked) return blocked
 
     // Rate limit: 5 requests/min per IP (unauthenticated endpoint — primary abuse surface)
     const rateLimit = await applyRateLimit(

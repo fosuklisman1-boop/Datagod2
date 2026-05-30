@@ -3,8 +3,11 @@ import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { rejectBot } from "@/lib/bot-protection"
 
 export async function POST(request: NextRequest) {
+  const blocked = await rejectBot(); if (blocked) return blocked
+
   // Apply rate limiting
   const rateLimit = await applyRateLimit(
     request,

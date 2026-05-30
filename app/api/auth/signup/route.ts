@@ -2,8 +2,11 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { rejectBot } from "@/lib/bot-protection"
 
 export async function POST(request: NextRequest) {
+  const blocked = await rejectBot(); if (blocked) return blocked
+
   // Apply rate limiting: 5 signups per hour per IP
   const rateLimit = await applyRateLimit(
     request,
