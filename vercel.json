@@ -44,6 +44,10 @@
     {
       "path": "/api/cron/phone-verify",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/expire-stale-airtime",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
