@@ -10,9 +10,10 @@ const supabase = createClient(
 
 export const maxDuration = 60
 
-const CHUNK_SIZE = 20
-const CONCURRENCY = 5
+const CHUNK_SIZE = 5       // small enough to finish well within serverless timeout
+const CONCURRENCY = 1      // sequential — no simultaneous Moolre calls
 const CALL_TIMEOUT_MS = 8000
+const CALL_DELAY_MS = 600  // pause between each Moolre call to stay under rate limits
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -89,16 +90,18 @@ export async function POST(request: NextRequest) {
       try {
         const network = row.network === "UNKNOWN" ? "MTN" : row.network
         const result = await withTimeout(validateAccountName(row.phone_number, network), CALL_TIMEOUT_MS)
+        // Throttle: always wait between calls so we don't burst the Moolre API
+        await new Promise(r => setTimeout(r, CALL_DELAY_MS))
         // Distinguish transient errors (rate limit / unreachable / timeout) from genuine invalid numbers.
         // Transient rows stay pending so the next chunk call retries them.
         const isTransient = result.accountName === null && !!result.error && (
-          /rate.?limit|429|too many|limit exceeded/i.test(result.error) ||
+          /rate.?limit|429|too many|limit exceeded|maximum.*request|request.*limit/i.test(result.error) ||
           result.error === "Could not reach payment provider" ||
           result.error.startsWith("Unexpected response from payment provider")
         )
         return { rowId: row.id, accountName: result.accountName, rateLimited: isTransient }
       } catch {
-        // Timeout or unexpected throw — leave as pending for retry
+        await new Promise(r => setTimeout(r, CALL_DELAY_MS))
         return { rowId: row.id, accountName: null, rateLimited: true }
       }
     })
@@ -170,14 +173,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error("[PHONE-VERIFY-PROCESS]", msg)
-    // Only mark as failed for non-transient errors (not network/timeout issues)
-    const isTransientCrash = /timeout|network|ECONNRESET|fetch/i.test(msg)
-    if (sessionId && !isTransientCrash) {
-      await supabase
-        .from("phone_verification_sessions")
-        .update({ status: "failed" })
-        .eq("id", sessionId)
-    }
+    // Don't mark session as failed — leave as processing so the client can retry
     return NextResponse.json({ error: msg || "Processing failed" }, { status: 500 })
   }
 }

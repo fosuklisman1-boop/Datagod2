@@ -14,8 +14,8 @@ type Tab = "upload" | "history"
 type VerifyState = "idle" | "uploading" | "processing" | "completed" | "error"
 type InputMode = "file" | "text"
 
-const RATE_LIMIT_BACKOFF_MS = 8000
-const NORMAL_DELAY_MS = 300
+const NORMAL_DELAY_MS = 200
+const MAX_BACKOFF_MS = 120_000
 
 interface Progress {
   sessionId: string
@@ -135,31 +135,52 @@ export default function PhoneVerificationPage() {
       setVerifyState("processing")
 
       let remaining = total
+      let backoffMs = 10_000  // start at 10s, doubles on consecutive rate-limit hits
+      let consecutiveRateLimits = 0
+
       while (remaining > 0) {
-        const processRes = await fetch("/api/admin/phone-verify/process", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId }),
-        })
-        const processData = await processRes.json()
-        if (!processRes.ok) throw new Error(processData.error ?? "Processing failed")
+        let processData: any = null
+        try {
+          const processRes = await fetch("/api/admin/phone-verify/process", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId }),
+          })
+          processData = await processRes.json()
+
+          // On server error: wait and retry rather than hard-stop
+          if (!processRes.ok) {
+            consecutiveRateLimits++
+            const wait = Math.min(backoffMs * consecutiveRateLimits, MAX_BACKOFF_MS)
+            setRateLimitWarning(true)
+            await new Promise(r => setTimeout(r, wait))
+            continue
+          }
+        } catch {
+          // Network error — wait and retry
+          consecutiveRateLimits++
+          await new Promise(r => setTimeout(r, Math.min(10_000 * consecutiveRateLimits, MAX_BACKOFF_MS)))
+          continue
+        }
 
         remaining = processData.remaining
         setProgress(prev => prev ? {
           ...prev,
           verified: processData.verified,
           invalid: processData.invalid,
-          // Use total - remaining so conclusive progress shows even when some are retrying
           processed: prev.total - processData.remaining,
         } : prev)
 
         if (processData.status === "completed") break
 
         if (processData.rateLimited > 0) {
+          consecutiveRateLimits++
+          backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS)
           setRateLimitWarning(true)
-          // Back off to let the rate limit window reset
-          await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS))
+          await new Promise(r => setTimeout(r, backoffMs))
         } else {
+          consecutiveRateLimits = 0
+          backoffMs = 10_000  // reset on clean chunk
           setRateLimitWarning(false)
           await new Promise(r => setTimeout(r, NORMAL_DELAY_MS))
         }
@@ -410,7 +431,7 @@ export default function PhoneVerificationPage() {
                   {rateLimitWarning && verifyState === "processing" && (
                     <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
                       <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
-                      Rate limit detected — pausing 8s before retrying...
+                      Rate limit hit — backing off and retrying automatically...
                     </div>
                   )}
 
