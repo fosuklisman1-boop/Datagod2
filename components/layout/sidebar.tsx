@@ -38,6 +38,7 @@ import {
   Activity,
   Shield,
   GraduationCap,
+  Phone,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -670,6 +671,29 @@ export function Sidebar() {
                     <History className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Withdrawal History"}
+                </Button>
+              </Link>
+
+              <Link href="/admin/phone-verification" onClick={() => handleNavigation("/admin/phone-verification")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/phone-verification" ? "bg-black text-amber-500 shadow-lg dark:bg-amber-500/20 dark:text-amber-400" : "text-black hover:bg-black/10 dark:text-amber-200 dark:hover:bg-amber-500/10")
+                      : (pathname === "/admin/phone-verification" ? "bg-blue-500 text-white dark:bg-teal-500/15 dark:text-teal-400" : "text-white hover:bg-blue-500 dark:text-slate-400 dark:hover:bg-white/5"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/phone-verification" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Phone Verification" : undefined}
+                  disabled={loadingPath === "/admin/phone-verification"}
+                >
+                  {loadingPath === "/admin/phone-verification" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Phone className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Phone Verification"}
                 </Button>
               </Link>
 
