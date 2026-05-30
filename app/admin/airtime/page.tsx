@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { createClient } from "@supabase/supabase-js"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -11,11 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { supabase } from "@/lib/supabase"
 
 interface AirtimeOrder {
   id: string
@@ -115,10 +110,10 @@ export default function AdminAirtimePage() {
     const res = await fetch(`/api/admin/airtime/list?${params}`, {
       headers: { Authorization: `Bearer ${t}` },
     })
-    if (res.status === 403) { router.push("/dashboard"); return }
     const data = await res.json()
     if (!res.ok) {
-      console.error("[ADMIN-AIRTIME] Fetch error:", data.error)
+      console.error("[ADMIN-AIRTIME] Fetch error:", res.status, data.error)
+      toast.error(data.error || "Failed to load airtime orders")
       setOrders([])
       setStats(null)
     } else {

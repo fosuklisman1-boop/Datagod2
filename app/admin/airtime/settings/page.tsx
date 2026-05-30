@@ -1,15 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { createClient } from "@supabase/supabase-js"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Save, AlertCircle, CheckCircle } from "lucide-react"
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { supabase } from "@/lib/supabase"
 
 const NETWORKS = [
   { id: "mtn", name: "MTN" },
@@ -39,13 +34,15 @@ export default function AirtimeSettingsPage() {
     const res = await fetch("/api/admin/airtime/settings", {
       headers: { Authorization: `Bearer ${t}` },
     })
-    if (res.status === 403) { router.push("/dashboard"); return }
     const data = await res.json()
     if (res.ok) {
-        setSettings(data.settings || {})
+      setSettings(data.settings || {})
+    } else {
+      console.error("[AIRTIME-SETTINGS] Fetch error:", res.status, data.error)
+      setMsg({ text: data.error || "Failed to load settings", type: "error" })
     }
     setLoading(false)
-  }, [token, router])
+  }, [token])
 
   useEffect(() => {
     getToken().then(t => { if (t) loadSettings(t) })
