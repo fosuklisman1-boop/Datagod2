@@ -10,54 +10,46 @@ const supabase = createClient(
 
 export const maxDuration = 60
 
-const CHUNK_SIZE = 5       // small enough to finish well within serverless timeout
-const CONCURRENCY = 1      // sequential — no simultaneous Moolre calls
-const CALL_TIMEOUT_MS = 8000
-const CALL_DELAY_MS = 600  // pause between each Moolre call to stay under rate limits
+const CHUNK_SIZE = 10
+const CALL_TIMEOUT_MS = 12000
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), ms)
+    ),
   ])
 }
 
-async function pLimit<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
-  const results: T[] = new Array(tasks.length)
-  let index = 0
-  async function worker() {
-    while (index < tasks.length) {
-      const i = index++
-      results[i] = await tasks[i]()
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker))
-  return results
+function isRateLimitError(msg: string): boolean {
+  return /rate.?limit|429|too many|limit exceeded|maximum.*request|request.*limit|quota|throttl/i.test(msg)
 }
 
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
-  let sessionId: string | undefined
-  try {
-    const body = await request.json()
-    sessionId = body.sessionId
-    if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 })
+  const body = await request.json().catch(() => ({}))
+  const sessionId: string | undefined = body.sessionId
+  if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 })
 
-    const { data: session } = await supabase
+  try {
+    const { data: session, error: sessionErr } = await supabase
       .from("phone_verification_sessions")
       .select("id, status, total_count, verified_count, invalid_count")
       .eq("id", sessionId)
       .single()
 
-    if (!session) return NextResponse.json({ error: "Session not found" }, { status: 404 })
+    if (sessionErr || !session) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 })
+    }
 
-    if (session.status === "completed" || session.status === "failed") {
+    if (session.status === "completed") {
       return NextResponse.json({
         processed: 0, remaining: 0,
         verified: session.verified_count, invalid: session.invalid_count,
-        status: session.status,
+        rateLimited: 0, status: "completed",
       })
     }
 
@@ -78,69 +70,65 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         processed: 0, remaining: 0,
         verified: session.verified_count, invalid: session.invalid_count,
-        status: "completed",
+        rateLimited: 0, status: "completed",
       })
     }
-
-    const tasks = pending.map(row => async (): Promise<{
-      rowId: number
-      accountName: string | null
-      rateLimited: boolean
-    }> => {
-      try {
-        const network = row.network === "UNKNOWN" ? "MTN" : row.network
-        const result = await withTimeout(validateAccountName(row.phone_number, network), CALL_TIMEOUT_MS)
-        // Throttle: always wait between calls so we don't burst the Moolre API
-        await new Promise(r => setTimeout(r, CALL_DELAY_MS))
-        // Distinguish transient errors (rate limit / unreachable / timeout) from genuine invalid numbers.
-        // Transient rows stay pending so the next chunk call retries them.
-        const isTransient = result.accountName === null && !!result.error && (
-          /rate.?limit|429|too many|limit exceeded|maximum.*request|request.*limit/i.test(result.error) ||
-          result.error === "Could not reach payment provider" ||
-          result.error.startsWith("Unexpected response from payment provider")
-        )
-        return { rowId: row.id, accountName: result.accountName, rateLimited: isTransient }
-      } catch {
-        await new Promise(r => setTimeout(r, CALL_DELAY_MS))
-        return { rowId: row.id, accountName: null, rateLimited: true }
-      }
-    })
-
-    const outcomes = await pLimit(tasks, CONCURRENCY)
 
     const now = new Date().toISOString()
     let verifiedThisChunk = 0
     let invalidThisChunk = 0
     let rateLimitedThisChunk = 0
 
-    // Only upsert rows that were conclusively verified or invalid.
-    // Rate-limited rows are excluded so they remain pending and get picked up next call.
-    const upsertRows = outcomes
-      .filter(o => !o.rateLimited)
-      .map(o => {
-        const isVerified = typeof o.accountName === "string" && o.accountName.trim() !== ""
+    // Process sequentially and write each result to DB immediately.
+    // This way a serverless timeout can't lose results for calls that already completed.
+    for (const row of pending) {
+      const network = row.network === "UNKNOWN" ? "MTN" : row.network
+      let accountName: string | null = null
+      let isTransient = false
+
+      try {
+        const result = await withTimeout(
+          validateAccountName(row.phone_number, network),
+          CALL_TIMEOUT_MS
+        )
+        accountName = result.accountName
+
+        if (accountName === null && result.error) {
+          isTransient =
+            isRateLimitError(result.error) ||
+            result.error === "Could not reach payment provider" ||
+            result.error.startsWith("Unexpected response from payment provider")
+
+          console.log(
+            `[PHONE-VERIFY] phone=${row.phone_number} network=${network} ` +
+            `transient=${isTransient} error="${result.error}"`
+          )
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Only our own timeout is retriable; other throws mark as invalid
+        isTransient = msg === "timeout"
+        console.log(`[PHONE-VERIFY] phone=${row.phone_number} caught="${msg}" transient=${isTransient}`)
+      }
+
+      if (isTransient) {
+        rateLimitedThisChunk++
+        // Leave row as pending — it will be retried on next call
+      } else {
+        const isVerified = typeof accountName === "string" && accountName.trim() !== ""
         if (isVerified) verifiedThisChunk++
         else invalidThisChunk++
-        return {
-          id: o.rowId,
-          status: isVerified ? "verified" : "invalid",
-          account_name: isVerified ? o.accountName : null,
-          verified_at: now,
-        }
-      })
 
-    rateLimitedThisChunk = outcomes.filter(o => o.rateLimited).length
-
-    if (upsertRows.length > 0) {
-      const updateErrors = (await Promise.all(
-        upsertRows.map(row =>
-          supabase
-            .from("phone_verification_results")
-            .update({ status: row.status, account_name: row.account_name, verified_at: row.verified_at })
-            .eq("id", row.id)
-        )
-      )).map(r => r.error).filter(Boolean)
-      if (updateErrors.length > 0) throw new Error(`DB update failed: ${updateErrors[0]?.message}`)
+        // Write immediately so a later timeout doesn't discard this result
+        await supabase
+          .from("phone_verification_results")
+          .update({
+            status: isVerified ? "verified" : "invalid",
+            account_name: isVerified ? accountName : null,
+            verified_at: now,
+          })
+          .eq("id", row.id)
+      }
     }
 
     const newVerified = session.verified_count + verifiedThisChunk
@@ -153,6 +141,7 @@ export async function POST(request: NextRequest) {
       .eq("status", "pending")
 
     const isDone = (remaining ?? 0) === 0
+
     await supabase
       .from("phone_verification_sessions")
       .update({
@@ -173,7 +162,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error("[PHONE-VERIFY-PROCESS]", msg)
-    // Don't mark session as failed — leave as processing so the client can retry
     return NextResponse.json({ error: msg || "Processing failed" }, { status: 500 })
   }
 }
