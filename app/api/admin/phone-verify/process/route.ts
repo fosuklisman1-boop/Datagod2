@@ -8,8 +8,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const CHUNK_SIZE = 200
-const CONCURRENCY = 20
+export const maxDuration = 60
+
+const CHUNK_SIZE = 50
+const CONCURRENCY = 10
 
 async function pLimit<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
   const results: T[] = new Array(tasks.length)
@@ -87,21 +89,23 @@ export async function POST(request: NextRequest) {
     let verifiedThisChunk = 0
     let invalidThisChunk = 0
 
-    await Promise.all(
-      outcomes.map(o => {
-        const isVerified = typeof o.accountName === "string" && o.accountName.trim() !== ""
-        if (isVerified) verifiedThisChunk++
-        else invalidThisChunk++
-        return supabase
-          .from("phone_verification_results")
-          .update({
-            status: isVerified ? "verified" : "invalid",
-            account_name: isVerified ? o.accountName : null,
-            verified_at: now,
-          })
-          .eq("id", o.rowId)
-      })
-    )
+    const upsertRows = outcomes.map(o => {
+      const isVerified = typeof o.accountName === "string" && o.accountName.trim() !== ""
+      if (isVerified) verifiedThisChunk++
+      else invalidThisChunk++
+      return {
+        id: o.rowId,
+        status: isVerified ? "verified" : "invalid",
+        account_name: isVerified ? o.accountName : null,
+        verified_at: now,
+      }
+    })
+
+    const { error: upsertError } = await supabase
+      .from("phone_verification_results")
+      .upsert(upsertRows, { onConflict: "id" })
+
+    if (upsertError) throw upsertError
 
     const newVerified = session.verified_count + verifiedThisChunk
     const newInvalid = session.invalid_count + invalidThisChunk
