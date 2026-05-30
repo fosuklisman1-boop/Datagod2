@@ -190,7 +190,7 @@ export default async function RootLayout({
         />
       </head>
       <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <AuthProvider>
             <ServiceWorkerRegister />
             <PeriodicSyncRegister />
