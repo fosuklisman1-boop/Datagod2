@@ -14,6 +14,9 @@ type Tab = "upload" | "history"
 type VerifyState = "idle" | "uploading" | "processing" | "completed" | "error"
 type InputMode = "file" | "text"
 
+const RATE_LIMIT_BACKOFF_MS = 8000
+const NORMAL_DELAY_MS = 300
+
 interface Progress {
   sessionId: string
   fileName: string
@@ -67,6 +70,7 @@ export default function PhoneVerificationPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [inputMode, setInputMode] = useState<InputMode>("file")
   const [pastedNumbers, setPastedNumbers] = useState("")
+  const [rateLimitWarning, setRateLimitWarning] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -127,6 +131,7 @@ export default function PhoneVerificationPage() {
 
       const { sessionId, total } = uploadData
       setProgress({ sessionId, fileName: file.name, total, verified: 0, invalid: 0, processed: 0 })
+      setRateLimitWarning(false)
       setVerifyState("processing")
 
       let remaining = total
@@ -148,7 +153,15 @@ export default function PhoneVerificationPage() {
         } : prev)
 
         if (processData.status === "completed") break
-        await new Promise(r => setTimeout(r, 300))
+
+        if (processData.rateLimited > 0) {
+          setRateLimitWarning(true)
+          // Back off to let the rate limit window reset
+          await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS))
+        } else {
+          setRateLimitWarning(false)
+          await new Promise(r => setTimeout(r, NORMAL_DELAY_MS))
+        }
       }
 
       setVerifyState("completed")
@@ -393,6 +406,13 @@ export default function PhoneVerificationPage() {
                     </div>
                   </div>
 
+                  {rateLimitWarning && verifyState === "processing" && (
+                    <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
+                      <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+                      Rate limit detected — pausing 8s before retrying...
+                    </div>
+                  )}
+
                   {verifyState === "completed" && (
                     <div className="flex gap-2 flex-wrap">
                       <Button onClick={() => downloadExport(progress.sessionId)} className="gap-2">
@@ -400,7 +420,7 @@ export default function PhoneVerificationPage() {
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => { setVerifyState("idle"); setProgress(null); setResultsPage(null); setPastedNumbers("") }}
+                        onClick={() => { setVerifyState("idle"); setProgress(null); setResultsPage(null); setPastedNumbers(""); setRateLimitWarning(false) }}
                       >
                         Verify More Numbers
                       </Button>

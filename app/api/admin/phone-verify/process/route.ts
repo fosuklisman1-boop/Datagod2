@@ -73,13 +73,24 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const tasks = pending.map(row => async (): Promise<{ rowId: number; accountName: string | null }> => {
+    const tasks = pending.map(row => async (): Promise<{
+      rowId: number
+      accountName: string | null
+      rateLimited: boolean
+    }> => {
       try {
         const network = row.network === "UNKNOWN" ? "MTN" : row.network
         const result = await validateAccountName(row.phone_number, network)
-        return { rowId: row.id, accountName: result.accountName }
+        // Distinguish transient API errors (rate limit / unreachable) from genuine invalid numbers.
+        // Rate-limited rows stay pending so the next chunk call retries them.
+        const isTransient = result.accountName === null && !!result.error && (
+          /rate.?limit|429|too many|limit exceeded/i.test(result.error) ||
+          result.error === "Could not reach payment provider" ||
+          result.error.startsWith("Unexpected response from payment provider")
+        )
+        return { rowId: row.id, accountName: result.accountName, rateLimited: isTransient }
       } catch {
-        return { rowId: row.id, accountName: null }
+        return { rowId: row.id, accountName: null, rateLimited: false }
       }
     })
 
@@ -88,24 +99,32 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString()
     let verifiedThisChunk = 0
     let invalidThisChunk = 0
+    let rateLimitedThisChunk = 0
 
-    const upsertRows = outcomes.map(o => {
-      const isVerified = typeof o.accountName === "string" && o.accountName.trim() !== ""
-      if (isVerified) verifiedThisChunk++
-      else invalidThisChunk++
-      return {
-        id: o.rowId,
-        status: isVerified ? "verified" : "invalid",
-        account_name: isVerified ? o.accountName : null,
-        verified_at: now,
-      }
-    })
+    // Only upsert rows that were conclusively verified or invalid.
+    // Rate-limited rows are excluded so they remain pending and get picked up next call.
+    const upsertRows = outcomes
+      .filter(o => !o.rateLimited)
+      .map(o => {
+        const isVerified = typeof o.accountName === "string" && o.accountName.trim() !== ""
+        if (isVerified) verifiedThisChunk++
+        else invalidThisChunk++
+        return {
+          id: o.rowId,
+          status: isVerified ? "verified" : "invalid",
+          account_name: isVerified ? o.accountName : null,
+          verified_at: now,
+        }
+      })
 
-    const { error: upsertError } = await supabase
-      .from("phone_verification_results")
-      .upsert(upsertRows, { onConflict: "id" })
+    rateLimitedThisChunk = outcomes.filter(o => o.rateLimited).length
 
-    if (upsertError) throw upsertError
+    if (upsertRows.length > 0) {
+      const { error: upsertError } = await supabase
+        .from("phone_verification_results")
+        .upsert(upsertRows, { onConflict: "id" })
+      if (upsertError) throw upsertError
+    }
 
     const newVerified = session.verified_count + verifiedThisChunk
     const newInvalid = session.invalid_count + invalidThisChunk
@@ -131,6 +150,7 @@ export async function POST(request: NextRequest) {
       remaining: remaining ?? 0,
       verified: newVerified,
       invalid: newInvalid,
+      rateLimited: rateLimitedThisChunk,
       status: isDone ? "completed" : "in_progress",
     })
   } catch (error) {
