@@ -10,8 +10,16 @@ const supabase = createClient(
 
 export const maxDuration = 60
 
-const CHUNK_SIZE = 50
-const CONCURRENCY = 10
+const CHUNK_SIZE = 20
+const CONCURRENCY = 5
+const CALL_TIMEOUT_MS = 8000
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ])
+}
 
 async function pLimit<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
   const results: T[] = new Array(tasks.length)
@@ -80,9 +88,9 @@ export async function POST(request: NextRequest) {
     }> => {
       try {
         const network = row.network === "UNKNOWN" ? "MTN" : row.network
-        const result = await validateAccountName(row.phone_number, network)
-        // Distinguish transient API errors (rate limit / unreachable) from genuine invalid numbers.
-        // Rate-limited rows stay pending so the next chunk call retries them.
+        const result = await withTimeout(validateAccountName(row.phone_number, network), CALL_TIMEOUT_MS)
+        // Distinguish transient errors (rate limit / unreachable / timeout) from genuine invalid numbers.
+        // Transient rows stay pending so the next chunk call retries them.
         const isTransient = result.accountName === null && !!result.error && (
           /rate.?limit|429|too many|limit exceeded/i.test(result.error) ||
           result.error === "Could not reach payment provider" ||
@@ -90,7 +98,8 @@ export async function POST(request: NextRequest) {
         )
         return { rowId: row.id, accountName: result.accountName, rateLimited: isTransient }
       } catch {
-        return { rowId: row.id, accountName: null, rateLimited: false }
+        // Timeout or unexpected throw — leave as pending for retry
+        return { rowId: row.id, accountName: null, rateLimited: true }
       }
     })
 

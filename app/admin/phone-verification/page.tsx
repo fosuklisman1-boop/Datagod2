@@ -149,7 +149,8 @@ export default function PhoneVerificationPage() {
           ...prev,
           verified: processData.verified,
           invalid: processData.invalid,
-          processed: processData.verified + processData.invalid,
+          // Use total - remaining so conclusive progress shows even when some are retrying
+          processed: prev.total - processData.remaining,
         } : prev)
 
         if (processData.status === "completed") break
@@ -378,7 +379,7 @@ export default function PhoneVerificationPage() {
                     <div className="flex justify-between text-xs text-muted-foreground mb-1">
                       <span>
                         {verifyState === "processing"
-                          ? `Verifying... ${progress.processed.toLocaleString()} / ${progress.total.toLocaleString()}`
+                          ? `Checking... ${progress.processed.toLocaleString()} done / ${progress.total.toLocaleString()} total`
                           : "Verification complete"}
                       </span>
                       <span>{progressPct}%</span>
