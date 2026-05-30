@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { validateAccountName } from "@/lib/moolre-transfer"
 
 const CHUNK_SIZE = 20
-const CONCURRENCY = 10
+// CONCURRENCY matches CHUNK_SIZE so all calls in a chunk start simultaneously
+// (equivalent to Promise.all for 20 tasks) — reduces per-chunk time from ~25 s to ~13 s
+const CONCURRENCY = 20
 // TELECEL calls via Moolre take ~12-13 s; 25 s gives a comfortable buffer
 const CALL_TIMEOUT_MS = 25000
 

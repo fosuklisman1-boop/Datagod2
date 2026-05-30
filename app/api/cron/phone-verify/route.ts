@@ -7,7 +7,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export const maxDuration = 60
+// Pro plan: up to 300 s — allows ~20 chunks × 20 numbers ≈ 400 numbers/minute
+export const maxDuration = 300
+
+// Leave 30 s buffer before Vercel's wall so final writes always complete
+const BUDGET_MS = 270_000
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
@@ -32,36 +36,56 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: "No active sessions" })
     }
 
-    // Process as many sessions as we can fit inside the time budget.
-    // Each chunk takes ~13 s for TELECEL; 50 s leaves a 10 s safety buffer.
-    const BUDGET_MS = 50_000
     const startTime = Date.now()
-    const results: object[] = []
+    const summary: object[] = []
 
     for (const session of sessions) {
-      if (Date.now() - startTime > BUDGET_MS) {
-        console.log("[CRON-PHONE-VERIFY] Time budget reached, deferring remaining sessions to next tick")
-        break
+      let chunksThisSession = 0
+      let totalProcessed = 0
+
+      // Drain this session until it completes or the time budget runs out
+      while (Date.now() - startTime < BUDGET_MS) {
+        let result
+        try {
+          result = await processVerificationChunk(supabase, session.id)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          console.error(`[CRON-PHONE-VERIFY] sessionId=${session.id} error="${msg}"`)
+          summary.push({ sessionId: session.id, fileName: session.file_name, error: msg })
+          break
+        }
+
+        chunksThisSession++
+        totalProcessed += result.processed
+
+        console.log(
+          `[CRON-PHONE-VERIFY] sessionId=${session.id} chunk=${chunksThisSession} ` +
+          `processed=${result.processed} remaining=${result.remaining} status=${result.status}`
+        )
+
+        if (result.status === "completed") {
+          summary.push({ sessionId: session.id, fileName: session.file_name, status: "completed", totalProcessed })
+          break
+        }
+
+        // All numbers in this chunk were rate-limited — back off before hammering again
+        if (result.rateLimited > 0 && result.rateLimited === result.processed) {
+          console.log(`[CRON-PHONE-VERIFY] sessionId=${session.id} full chunk rate-limited, yielding to next tick`)
+          summary.push({ sessionId: session.id, fileName: session.file_name, status: "rate_limited", totalProcessed })
+          break
+        }
       }
 
-      try {
-        const result = await processVerificationChunk(supabase, session.id)
-        results.push({ sessionId: session.id, fileName: session.file_name, ...result })
-        console.log(
-          `[CRON-PHONE-VERIFY] sessionId=${session.id} processed=${result.processed} ` +
-          `remaining=${result.remaining} status=${result.status}`
-        )
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        console.error(`[CRON-PHONE-VERIFY] sessionId=${session.id} error="${msg}"`)
-        results.push({ sessionId: session.id, fileName: session.file_name, error: msg })
+      // Time budget exhausted mid-session — next cron tick picks up where we left off
+      if (Date.now() - startTime >= BUDGET_MS && chunksThisSession > 0) {
+        summary.push({ sessionId: session.id, fileName: session.file_name, status: "in_progress", totalProcessed })
       }
     }
 
     return NextResponse.json({
       activeSessions: sessions.length,
-      processedThisTick: results.length,
-      results,
+      elapsedMs: Date.now() - startTime,
+      results: summary,
     })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
