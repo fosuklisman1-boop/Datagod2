@@ -9,10 +9,12 @@ const supabase = createClient(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
+
+  const { id } = await params
 
   try {
     const { searchParams } = new URL(request.url)
@@ -25,7 +27,7 @@ export async function GET(
     const { data: session, error: sessionError } = await supabase
       .from("phone_verification_sessions")
       .select("id, file_name, total_count, verified_count, invalid_count, status, created_at, completed_at")
-      .eq("id", params.id)
+      .eq("id", id)
       .single()
 
     if (sessionError || !session) {
@@ -35,7 +37,7 @@ export async function GET(
     let query = supabase
       .from("phone_verification_results")
       .select("id, phone_number, account_name, network, status, verified_at", { count: "exact" })
-      .eq("session_id", params.id)
+      .eq("session_id", id)
       .order("status", { ascending: false })
       .range(from, to)
 

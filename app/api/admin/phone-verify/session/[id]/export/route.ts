@@ -28,23 +28,25 @@ async function fetchAllResults(sessionId: string) {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
+
+  const { id } = await params
 
   try {
     const { data: session, error: sessionError } = await supabase
       .from("phone_verification_sessions")
       .select("id, file_name")
-      .eq("id", params.id)
+      .eq("id", id)
       .single()
 
     if (sessionError || !session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 })
     }
 
-    const allResults = await fetchAllResults(params.id)
+    const allResults = await fetchAllResults(id)
 
     const XLSX = await import("xlsx")
 
