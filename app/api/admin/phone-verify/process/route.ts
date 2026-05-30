@@ -129,10 +129,15 @@ export async function POST(request: NextRequest) {
     rateLimitedThisChunk = outcomes.filter(o => o.rateLimited).length
 
     if (upsertRows.length > 0) {
-      const { error: upsertError } = await supabase
-        .from("phone_verification_results")
-        .upsert(upsertRows, { onConflict: "id" })
-      if (upsertError) throw upsertError
+      const updateErrors = (await Promise.all(
+        upsertRows.map(row =>
+          supabase
+            .from("phone_verification_results")
+            .update({ status: row.status, account_name: row.account_name, verified_at: row.verified_at })
+            .eq("id", row.id)
+        )
+      )).map(r => r.error).filter(Boolean)
+      if (updateErrors.length > 0) throw new Error(`DB update failed: ${updateErrors[0]?.message}`)
     }
 
     const newVerified = session.verified_count + verifiedThisChunk
@@ -163,13 +168,16 @@ export async function POST(request: NextRequest) {
       status: isDone ? "completed" : "in_progress",
     })
   } catch (error) {
-    console.error("[PHONE-VERIFY-PROCESS]", error)
-    if (sessionId) {
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error("[PHONE-VERIFY-PROCESS]", msg)
+    // Only mark as failed for non-transient errors (not network/timeout issues)
+    const isTransientCrash = /timeout|network|ECONNRESET|fetch/i.test(msg)
+    if (sessionId && !isTransientCrash) {
       await supabase
         .from("phone_verification_sessions")
         .update({ status: "failed" })
         .eq("id", sessionId)
     }
-    return NextResponse.json({ error: "Processing failed" }, { status: 500 })
+    return NextResponse.json({ error: msg || "Processing failed" }, { status: 500 })
   }
 }
