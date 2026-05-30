@@ -125,7 +125,8 @@ export async function POST(request: NextRequest) {
       console.log(`[PAYMENT-INIT] ${orderType} order detected (${orderId}). Verifying price from database...`)
 
       const amountColumn = (orderType === "airtime" || orderType === "results_checker") ? "total_paid" : "total_price"
-      const selectColumns = orderType === "airtime" ? `${amountColumn}, status, payment_status` : amountColumn
+      const statusColumn = orderType === "results_checker" ? "status" : orderType === "airtime" ? "status" : "payment_status"
+      const selectColumns = `${amountColumn}, status, payment_status`
       const { data: orderData, error: orderError } = await supabase
         .from(table)
         .select(selectColumns)
@@ -140,18 +141,19 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Reject airtime orders that are no longer awaiting payment — blocks reuse of
-      // expired/failed/already-paid order IDs to generate fresh Paystack links.
-      if (orderType === "airtime") {
-        const orderStatus = (orderData as any).status
-        const orderPaymentStatus = (orderData as any).payment_status
-        if (orderStatus !== "pending_payment" || orderPaymentStatus !== "pending_payment") {
-          console.warn(`[PAYMENT-INIT] ❌ Airtime order ${orderId} not payable — status: ${orderStatus}, payment_status: ${orderPaymentStatus}`)
-          return NextResponse.json(
-            { error: "This order is no longer available for payment." },
-            { status: 400 }
-          )
-        }
+      // Reject any order that is no longer awaiting payment — blocks reuse of
+      // expired/failed/already-paid order IDs across all order types.
+      const orderStatus = (orderData as any).status
+      const orderPaymentStatus = (orderData as any).payment_status
+      const alreadyPaid = orderPaymentStatus === "completed"
+      const notPayable = ["failed", "expired", "cancelled", "completed"].includes(orderStatus)
+
+      if (alreadyPaid || notPayable) {
+        console.warn(`[PAYMENT-INIT] ❌ Order ${orderId} (${orderType}) not payable — status: ${orderStatus}, payment_status: ${orderPaymentStatus}`)
+        return NextResponse.json(
+          { error: "This order is no longer available for payment." },
+          { status: 400 }
+        )
       }
 
       // Override client amount with server-verified amount
