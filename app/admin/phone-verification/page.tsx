@@ -8,10 +8,11 @@ import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Loader2, Upload, Download, CheckCircle, XCircle, Eye, Phone } from "lucide-react"
+import { Loader2, Upload, Download, CheckCircle, XCircle, Eye, Phone, ClipboardList } from "lucide-react"
 
 type Tab = "upload" | "history"
 type VerifyState = "idle" | "uploading" | "processing" | "completed" | "error"
+type InputMode = "file" | "text"
 
 interface Progress {
   sessionId: string
@@ -64,6 +65,8 @@ export default function PhoneVerificationPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [inputMode, setInputMode] = useState<InputMode>("file")
+  const [pastedNumbers, setPastedNumbers] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -156,6 +159,14 @@ export default function PhoneVerificationPage() {
       toast.error(error.message ?? "Verification failed")
     }
   }, [loadResults])
+
+  const handleTextSubmit = useCallback(async () => {
+    const trimmed = pastedNumbers.trim()
+    if (!trimmed) { toast.error("Paste at least one phone number"); return }
+    const blob = new Blob([trimmed], { type: "text/csv" })
+    const file = new File([blob], "pasted-numbers.csv", { type: "text/csv" })
+    await handleFileSelect(file)
+  }, [pastedNumbers, handleFileSelect])
 
   const handleFilterChange = (filter: "all" | "verified" | "invalid") => {
     setResultFilter(filter)
@@ -253,32 +264,79 @@ export default function PhoneVerificationPage() {
           <div className="space-y-4">
             {(verifyState === "idle" || verifyState === "error") && (
               <Card>
-                <CardContent className="pt-6">
-                  <div
-                    onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
-                    onDragOver={e => e.preventDefault()}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-border rounded-lg p-10 text-center cursor-pointer hover:border-primary transition-colors"
-                  >
-                    <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-                    <p className="text-sm font-medium mb-1">
-                      Drag & drop your file here, or <span className="text-primary underline">browse</span>
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Accepts .csv or .xlsx · Max 50 MB · One phone number per row (first column)
-                    </p>
-                    <Button
-                      variant="outline" size="sm" className="mt-4"
-                      onClick={e => { e.stopPropagation(); downloadTemplate() }}
+                <CardContent className="pt-6 space-y-4">
+                  {/* Input mode toggle */}
+                  <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+                    <button
+                      onClick={() => setInputMode("file")}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                        inputMode === "file"
+                          ? "bg-background shadow text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
                     >
-                      <Download className="w-4 h-4 mr-2" /> Download Template
-                    </Button>
+                      <Upload className="w-4 h-4" /> File Upload
+                    </button>
+                    <button
+                      onClick={() => setInputMode("text")}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                        inputMode === "text"
+                          ? "bg-background shadow text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <ClipboardList className="w-4 h-4" /> Paste Numbers
+                    </button>
                   </div>
-                  <input
-                    ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls"
-                    className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); e.target.value = "" }}
-                  />
+
+                  {inputMode === "file" ? (
+                    <>
+                      <div
+                        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
+                        onDragOver={e => e.preventDefault()}
+                        onClick={() => fileInputRef.current?.click()}
+                        className="border-2 border-dashed border-border rounded-lg p-10 text-center cursor-pointer hover:border-primary transition-colors"
+                      >
+                        <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+                        <p className="text-sm font-medium mb-1">
+                          Drag & drop your file here, or <span className="text-primary underline">browse</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Accepts .csv or .xlsx · Max 50 MB · One phone number per row (first column)
+                        </p>
+                        <Button
+                          variant="outline" size="sm" className="mt-4"
+                          onClick={e => { e.stopPropagation(); downloadTemplate() }}
+                        >
+                          <Download className="w-4 h-4 mr-2" /> Download Template
+                        </Button>
+                      </div>
+                      <input
+                        ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls"
+                        className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); e.target.value = "" }}
+                      />
+                    </>
+                  ) : (
+                    <div className="space-y-3">
+                      <textarea
+                        value={pastedNumbers}
+                        onChange={e => setPastedNumbers(e.target.value)}
+                        placeholder={"Paste phone numbers here, one per line:\n0551234567\n0241234567\n0207654321"}
+                        className="w-full h-48 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
+                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          {pastedNumbers.trim()
+                            ? `${pastedNumbers.trim().split(/[\r\n]+/).filter(l => l.trim()).length.toLocaleString()} numbers detected`
+                            : "One number per line · duplicates removed automatically"}
+                        </span>
+                        <Button onClick={handleTextSubmit} disabled={!pastedNumbers.trim()} className="gap-2">
+                          <Phone className="w-4 h-4" /> Verify Numbers
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -342,9 +400,9 @@ export default function PhoneVerificationPage() {
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => { setVerifyState("idle"); setProgress(null); setResultsPage(null) }}
+                        onClick={() => { setVerifyState("idle"); setProgress(null); setResultsPage(null); setPastedNumbers("") }}
                       >
-                        Upload Another File
+                        Verify More Numbers
                       </Button>
                     </div>
                   )}
