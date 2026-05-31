@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const {
+    let {
       shop_id,
       customer_email,
       customer_phone,
@@ -77,6 +77,25 @@ export async function POST(request: NextRequest) {
       turnstileToken,
       website: honeypot,
     } = body
+
+    // SECURITY: never trust the client's shop_id. The slug is the public identifier
+    // (visible in the URL); we resolve it to the internal UUID server-side. The body's
+    // shop_id is overwritten — even if an attacker sends a forged one, it's discarded.
+    // Sub-agent dashboard stock purchases still pass shop_id (authenticated branch
+    // below); we only require shop_slug when it's a public/unauthenticated request.
+    if (shop_slug) {
+      const { data: shopRow, error: shopErr } = await supabase
+        .from("user_shops")
+        .select("id")
+        .eq("shop_slug", shop_slug)
+        .single()
+      if (shopErr || !shopRow) {
+        console.warn(`[SHOP-ORDER] ❌ Shop not found for slug=${shop_slug}`)
+        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+      }
+      // Override any client-provided shop_id with the server-resolved one.
+      shop_id = shopRow.id
+    }
 
     // Honeypot: hidden form field that real users never fill. Any non-empty
     // value = bot. Return a generic 400 so attackers can't easily distinguish

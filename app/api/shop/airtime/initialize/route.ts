@@ -60,7 +60,23 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { shopId, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot } = body
+    let { shopId, shopSlug, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot } = body
+
+    // SECURITY: prefer slug over client-provided shopId. The slug is public; the
+    // UUID is internal. If slug is provided, resolve it server-side and overwrite
+    // any client shopId so a forged value can't reach the rest of the route.
+    if (shopSlug) {
+      const { data: shopRow, error: shopErr } = await supabase
+        .from("user_shops")
+        .select("id")
+        .eq("shop_slug", shopSlug)
+        .single()
+      if (shopErr || !shopRow) {
+        console.warn(`[SHOP-AIRTIME] ❌ Shop not found for slug=${shopSlug}`)
+        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+      }
+      shopId = shopRow.id
+    }
 
     // Honeypot: hidden form field that real users never fill. Any non-empty value = bot.
     if (typeof honeypot === "string" && honeypot.trim() !== "") {

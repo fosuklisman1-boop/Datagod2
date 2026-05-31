@@ -148,7 +148,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shopId: shop.id,
+          shopSlug: shopSlug,
           customerName: formData.customerName,
           customerEmail: formData.customerEmail,
           beneficiaryPhone: phoneVal.normalized,
@@ -156,7 +156,6 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           amount: formData.amount,
           paySeparately: paySeparately,
           totalPrice: totalPrice,
-          shopSlug: shopSlug,
           turnstileToken,
           website: honeypot,
         })
@@ -172,10 +171,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
         body: JSON.stringify({
           amount: totalPrice,
           email: formData.customerEmail,
-          shopId: shop.id,
           orderId: data.orderId,
           orderType: "airtime",
-          shopSlug
+          shopSlug,
         })
       })
 

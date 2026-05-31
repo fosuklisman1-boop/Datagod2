@@ -64,10 +64,11 @@ export async function GET(
       ? [...new Set(shopPackages.map((sp: any) => sp.packages?.network))].filter(Boolean)
       : []
 
-    // Return combined data
+    // Return combined data. Intentionally OMIT shop.id — the slug is the public
+    // identifier; the internal UUID stays server-side so attackers can't pull it
+    // from a public endpoint and replay against order/payment APIs.
     return NextResponse.json(
       {
-        id: shop.id,
         name: shop.shop_name,
         slug: shop.shop_slug,
         networks: networks.map((network: string) => ({

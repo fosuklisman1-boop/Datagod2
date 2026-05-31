@@ -45,7 +45,21 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { shopId, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, turnstileToken, website: honeypot } = body
+    let { shopId, shopSlug, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, turnstileToken, website: honeypot } = body
+
+    // SECURITY: prefer slug over client-provided shopId. Resolve server-side.
+    if (shopSlug) {
+      const { data: shopRow, error: shopErr } = await supabase
+        .from("user_shops")
+        .select("id")
+        .eq("shop_slug", shopSlug)
+        .single()
+      if (shopErr || !shopRow) {
+        console.warn(`[RC-SHOP-INIT] ❌ Shop not found for slug=${shopSlug}`)
+        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+      }
+      shopId = shopRow.id
+    }
 
     // Honeypot: hidden form field that real users never fill. Any non-empty value = bot.
     if (typeof honeypot === "string" && honeypot.trim() !== "") {

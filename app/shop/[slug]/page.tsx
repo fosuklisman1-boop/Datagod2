@@ -246,14 +246,14 @@ export default function ShopStorefront() {
         totalPrice,
       })
 
-      // Create order via API (uses service role for RLS bypass)
+      // Create order via API. We send only shop_slug — the server resolves it to the
+      // internal shop_id. Client never needs to know or transmit the UUID.
       const createOrderResponse = await fetch("/api/shop/orders/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          shop_id: shop.id,
           customer_name: orderData.customer_name,
           customer_email: orderData.customer_email,
           customer_phone: normalizedPhone,
@@ -320,7 +320,6 @@ export default function ShopStorefront() {
             amount: totalPrice,
             email: orderData.customer_email,
             userId: session?.user?.id || null,
-            shopId: shop.id,
             orderId: order.id,
             shopSlug: shopSlug,
           }),

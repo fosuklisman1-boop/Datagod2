@@ -42,7 +42,23 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { amount, email, shopId, orderId, shopSlug, type, planId, orderType } = body
+    let { amount, email, shopId, orderId, shopSlug, type, planId, orderType } = body
+
+    // SECURITY: never trust client's shopId — resolve from slug. The slug is the
+    // public identifier; the UUID is internal. Wallet topups and dealer upgrades
+    // skip this (they don't pass shopSlug).
+    if (shopSlug) {
+      const { data: shopRow, error: shopErr } = await supabase
+        .from("user_shops")
+        .select("id")
+        .eq("shop_slug", shopSlug)
+        .single()
+      if (shopErr || !shopRow) {
+        console.warn(`[PAYMENT-INIT] ❌ Shop not found for slug=${shopSlug}`)
+        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+      }
+      shopId = shopRow.id
+    }
 
     // Extract userId from JWT (not from request body — prevents spoofing)
     let userId: string | undefined

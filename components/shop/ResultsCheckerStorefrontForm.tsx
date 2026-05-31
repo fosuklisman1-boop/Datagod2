@@ -128,7 +128,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shopId: shop.id,
+          shopSlug,
           examBoard: selectedBoard,
           quantity,
           customerName: formData.customerName,
@@ -153,7 +153,6 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           amount: initData.totalPrice,
           orderId: initData.orderId,
           orderType: "results_checker",
-          shopId: shop.id,
           shopSlug,
         }),
       })
