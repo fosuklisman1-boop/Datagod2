@@ -74,18 +74,37 @@ export async function POST(request: NextRequest) {
       shop_slug,
     } = body
 
-    // Validate httpOnly session cookie — set server-side by the shop layout on page load.
-    // A bare API script won't have this cookie; only a real browser that visited the shop page will.
-    const shopCookie = request.cookies.get("__shop_sess")?.value
-    if (shopCookie) {
-      const cookieCheck = verifyShopCookie(shopCookie, shop_id)
-      if (!cookieCheck.valid) {
-        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id}`)
+    // Authenticated dashboard callers (e.g., sub-agent stock purchases) bypass the cookie check.
+    // The Supabase Bearer token must validate against a real user.
+    let isAuthenticatedDashboardCall = false
+    const authHeader = request.headers.get("authorization")
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice(7)
+      try {
+        const { data: { user } } = await supabase.auth.getUser(token)
+        if (user) {
+          isAuthenticatedDashboardCall = true
+          console.log(`[SHOP-ORDER] ✓ Authenticated dashboard caller: ${user.id}`)
+        }
+      } catch {
+        // Invalid token — fall through to cookie check
+      }
+    }
+
+    // For unauthenticated public shop traffic, the httpOnly cookie set by the shop layout
+    // is required. Scripts that bypass the browser won't have it.
+    if (!isAuthenticatedDashboardCall) {
+      const shopCookie = request.cookies.get("__shop_sess")?.value
+      if (shopCookie) {
+        const cookieCheck = verifyShopCookie(shopCookie, shop_id)
+        if (!cookieCheck.valid) {
+          console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id}`)
+          return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+        }
+      } else {
+        console.warn(`[SHOP-ORDER] ❌ Blocked: missing __shop_sess cookie for shop ${shop_id}`)
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
-    } else {
-      console.warn(`[SHOP-ORDER] ❌ Blocked: missing __shop_sess cookie for shop ${shop_id}`)
-      return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
 
     console.log("[SHOP-ORDER] Creating order for:", {
