@@ -1,9 +1,9 @@
 import crypto from "crypto"
 
 const SECRET = process.env.SHOP_TOKEN_SECRET || "fallback-dev-secret-change-in-prod"
-const TTL_MS = 15 * 60 * 1000 // 15 minutes
+const TTL_MS = 30 * 60 * 1000 // 30 minutes
 
-export function generateShopToken(shopId: string): string {
+export function generateShopCookie(shopId: string): string {
   const payload = {
     shopId,
     exp: Date.now() + TTL_MS,
@@ -14,13 +14,18 @@ export function generateShopToken(shopId: string): string {
   return `${data}.${sig}`
 }
 
-export function verifyShopToken(token: string, shopId: string): { valid: boolean; reason?: string } {
+export function verifyShopCookie(cookie: string, shopId: string): { valid: boolean; reason?: string } {
   try {
-    const [data, sig] = token.split(".")
-    if (!data || !sig) return { valid: false, reason: "malformed" }
+    const dot = cookie.lastIndexOf(".")
+    if (dot === -1) return { valid: false, reason: "malformed" }
+
+    const data = cookie.slice(0, dot)
+    const sig = cookie.slice(dot + 1)
 
     const expected = crypto.createHmac("sha256", SECRET).update(data).digest("base64url")
-    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    const sigBuf = Buffer.from(sig, "base64url")
+    const expBuf = Buffer.from(expected, "base64url")
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
       return { valid: false, reason: "invalid_signature" }
     }
 

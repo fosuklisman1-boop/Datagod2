@@ -4,7 +4,7 @@ import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { verifyShopToken } from "@/lib/shop-token"
+import { verifyShopCookie } from "@/lib/shop-token"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -72,21 +72,21 @@ export async function POST(request: NextRequest) {
       profit_amount,
       total_price,
       shop_slug,
-      _shopToken,
     } = body
 
-    // Validate HMAC session token — must have been obtained from /api/shop/order-token
-    // This ensures orders originate from a real page load, not a bare API script.
-    if (_shopToken && shop_id) {
-      const tokenCheck = verifyShopToken(_shopToken, shop_id)
-      if (!tokenCheck.valid) {
-        console.warn(`[SHOP-ORDER] ❌ Invalid shop token (${tokenCheck.reason}) for shop ${shop_id}`)
-        return NextResponse.json({ error: "Invalid session. Please refresh and try again." }, { status: 403 })
+    // Validate httpOnly session cookie — set server-side by the shop layout on page load.
+    // A bare API script won't have this cookie; only a real browser that visited the shop page will.
+    const shopCookie = request.cookies.get("__shop_sess")?.value
+    if (shopCookie) {
+      const cookieCheck = verifyShopCookie(shopCookie, shop_id)
+      if (!cookieCheck.valid) {
+        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id}`)
+        return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
-    } else if (!_shopToken) {
-      // Token missing — log for monitoring. Once frontend is fully rolled out,
-      // change this to a hard reject by removing the else-if branch.
-      console.warn(`[SHOP-ORDER] ⚠️ Missing shop token for shop ${shop_id} — token enforcement not yet hard`)
+    } else {
+      // Cookie missing — log for monitoring until all clients are on the new layout.
+      // Flip to a hard reject once confirmed working in production.
+      console.warn(`[SHOP-ORDER] ⚠️ Missing __shop_sess cookie for shop ${shop_id}`)
     }
 
     console.log("[SHOP-ORDER] Creating order for:", {
