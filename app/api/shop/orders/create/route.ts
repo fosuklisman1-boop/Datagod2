@@ -104,9 +104,12 @@ export async function POST(request: NextRequest) {
     if (!isAuthenticatedDashboardCall) {
       const turnstileResult = await verifyTurnstileToken(turnstileToken, getRequestIp(request.headers))
       if (!turnstileResult.valid) {
-        console.warn(`[SHOP-ORDER] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shop_id}`)
+        console.warn(`[SHOP-ORDER] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shop_id} turnstile_configured=${!!process.env.TURNSTILE_SECRET_KEY} token_present=${!!turnstileToken}`)
         return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 403 })
       }
+      console.log(`[SHOP-ORDER] ✓ Turnstile passed for shop ${shop_id}`)
+    } else {
+      console.log(`[SHOP-ORDER] ⊘ Turnstile skipped (authenticated stock purchase) for shop ${shop_id}`)
     }
 
     // Require __shop_sess cookie set by middleware on /shop/* page load.

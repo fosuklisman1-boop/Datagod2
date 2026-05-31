@@ -69,9 +69,10 @@ export async function POST(request: NextRequest) {
     // Turnstile CAPTCHA verification — fresh token required per form submission.
     const turnstileResult = await verifyTurnstileToken(turnstileToken, getRequestIp(request.headers))
     if (!turnstileResult.valid) {
-      console.warn(`[SHOP-AIRTIME] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shopId}`)
+      console.warn(`[SHOP-AIRTIME] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shopId} turnstile_configured=${!!process.env.TURNSTILE_SECRET_KEY} token_present=${!!turnstileToken}`)
       return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 403 })
     }
+    console.log(`[SHOP-AIRTIME] ✓ Turnstile passed for shop ${shopId}`)
 
     // Require __shop_sess cookie set by middleware on /shop/* page load.
     const shopCookie = request.cookies.get("__shop_sess")?.value
