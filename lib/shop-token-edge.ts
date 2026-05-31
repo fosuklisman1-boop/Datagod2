@@ -3,7 +3,7 @@
 // Verification stays in lib/shop-token.ts which runs in Node route handlers.
 
 const SECRET = process.env.SHOP_TOKEN_SECRET || "fallback-dev-secret-change-in-prod"
-const TTL_MS = 30 * 60 * 1000
+const TTL_MS = 10 * 60 * 1000
 
 const encoder = new TextEncoder()
 
