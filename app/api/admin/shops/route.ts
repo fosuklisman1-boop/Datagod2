@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("user_shops")
-      .select("id, shop_name, shop_slug, description, is_active, created_at, user_id")
+      .select("id, shop_name, shop_slug, description, is_active, is_blocked, block_reason, created_at, user_id")
 
     if (status === "pending") {
       query = query.eq("is_active", false)

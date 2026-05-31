@@ -470,6 +470,53 @@ export const adminShopService = {
     }
   },
 
+  // Block or unblock a shop temporarily
+  async blockShop(shopId: string, reason: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("No authentication token available")
+
+      const response = await fetch("/api/admin/shops/block", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ shopId, action: "block", reason }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to block shop")
+      return data
+    } catch (error: any) {
+      console.error("Error blocking shop:", error)
+      throw error
+    }
+  },
+
+  async unblockShop(shopId: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("No authentication token available")
+
+      const response = await fetch("/api/admin/shops/block", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ shopId, action: "unblock" }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to unblock shop")
+      return data
+    } catch (error: any) {
+      console.error("Error unblocking shop:", error)
+      throw error
+    }
+  },
+
   // Manual Balance Adjustment (Credit/Debit)
   async manualBalanceAdjustment(shopId: string, amount: number, type: "credit" | "debit", notes: string) {
     try {

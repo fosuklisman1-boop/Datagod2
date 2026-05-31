@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CheckCircle, XCircle, Eye, TrendingDown } from "lucide-react"
+import { CheckCircle, XCircle, Eye, TrendingDown, ShieldOff, ShieldCheck } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import { adminShopService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -20,6 +21,8 @@ interface Shop {
   shop_slug: string
   description?: string
   is_active: boolean
+  is_blocked?: boolean
+  block_reason?: string
   created_at: string
   user_id: string
 }
@@ -34,6 +37,8 @@ export default function AdminShopsPage() {
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [shopDetails, setShopDetails] = useState<any>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [blockReason, setBlockReason] = useState("")
+  const [blockLoading, setBlockLoading] = useState(false)
 
   useEffect(() => {
     checkAdminAccess()
@@ -120,6 +125,43 @@ export default function AdminShopsPage() {
     } catch (error: any) {
       console.error("Error rejecting shop:", error)
       toast.error(error.message || "Failed to reject shop")
+    }
+  }
+
+  const handleBlock = async (shopId: string) => {
+    if (!blockReason.trim()) {
+      toast.error("Please provide a reason for blocking")
+      return
+    }
+    if (!confirm(`Temporarily block this shop? Reason: "${blockReason.trim()}"`)) return
+
+    setBlockLoading(true)
+    try {
+      await adminShopService.blockShop(shopId, blockReason.trim())
+      toast.success("Shop blocked successfully")
+      setBlockReason("")
+      await loadShops()
+      await handleViewDetails(selectedShop!)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to block shop")
+    } finally {
+      setBlockLoading(false)
+    }
+  }
+
+  const handleUnblock = async (shopId: string) => {
+    if (!confirm("Unblock this shop? It will become active again.")) return
+
+    setBlockLoading(true)
+    try {
+      await adminShopService.unblockShop(shopId)
+      toast.success("Shop unblocked successfully")
+      await loadShops()
+      await handleViewDetails(selectedShop!)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to unblock shop")
+    } finally {
+      setBlockLoading(false)
     }
   }
 
@@ -250,9 +292,13 @@ export default function AdminShopsPage() {
                           <td className="px-6 py-4 font-medium text-gray-900">{shop.shop_name}</td>
                           <td className="px-6 py-4 text-sm text-gray-600"><code className="font-mono">{shop.shop_slug}</code></td>
                           <td className="px-6 py-4">
-                            <Badge className={shop.is_active ? "bg-green-600" : "bg-orange-600"}>
-                              {shop.is_active ? "Active" : "Pending"}
-                            </Badge>
+                            {shop.is_blocked ? (
+                              <Badge className="bg-red-600">Blocked</Badge>
+                            ) : shop.is_active ? (
+                              <Badge className="bg-green-600">Active</Badge>
+                            ) : (
+                              <Badge className="bg-orange-600">Pending</Badge>
+                            )}
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-600">{new Date(shop.created_at).toLocaleDateString()}</td>
                           <td className="px-6 py-4">
@@ -297,9 +343,13 @@ export default function AdminShopsPage() {
                     </div>
                     <div>
                       <p className="text-gray-600">Status</p>
-                      <Badge className={shopDetails.shop.is_active ? "bg-green-600" : "bg-orange-600"}>
-                        {shopDetails.shop.is_active ? "Active" : "Pending"}
-                      </Badge>
+                      {shopDetails.shop.is_blocked ? (
+                        <Badge className="bg-red-600">Blocked</Badge>
+                      ) : shopDetails.shop.is_active ? (
+                        <Badge className="bg-green-600">Active</Badge>
+                      ) : (
+                        <Badge className="bg-orange-600">Pending</Badge>
+                      )}
                     </div>
                     <div>
                       <p className="text-gray-600">Created</p>
@@ -404,6 +454,50 @@ export default function AdminShopsPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Block / Unblock — only for active shops */}
+                {selectedShop?.is_active && (
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-red-50/80 via-white to-rose-50/80 border border-red-100/50 shadow-sm space-y-3">
+                    <h3 className="text-sm font-bold text-red-900 flex items-center gap-2">
+                      <ShieldOff className="w-3.5 h-3.5 text-red-600" />
+                      Temporary Block
+                    </h3>
+                    {shopDetails?.shop.is_blocked ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-red-700">
+                          <span className="font-semibold">Current reason:</span> {shopDetails.shop.block_reason || "—"}
+                        </p>
+                        <Button
+                          size="sm"
+                          disabled={blockLoading}
+                          onClick={() => handleUnblock(selectedShop.id)}
+                          className="bg-green-600 hover:bg-green-700 text-white w-full"
+                        >
+                          <ShieldCheck className="w-4 h-4 mr-2" />
+                          Unblock Shop
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Textarea
+                          placeholder="Reason for blocking (required)..."
+                          value={blockReason}
+                          onChange={(e) => setBlockReason(e.target.value)}
+                          className="text-sm border-red-100 focus:border-red-300 resize-none h-20"
+                        />
+                        <Button
+                          size="sm"
+                          disabled={blockLoading || !blockReason.trim()}
+                          onClick={() => handleBlock(selectedShop.id)}
+                          className="bg-red-600 hover:bg-red-700 text-white w-full"
+                        >
+                          <ShieldOff className="w-4 h-4 mr-2" />
+                          Block Shop
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Actions */}
                 {!selectedShop?.is_active && (

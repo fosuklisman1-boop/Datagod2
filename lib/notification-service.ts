@@ -310,5 +310,19 @@ export const notificationTemplates = {
     type: "admin_action" as NotificationType,
     reference_id: shopId,
   }),
+
+  shopBlocked: (shopName: string, shopId: string, reason: string) => ({
+    title: "Shop Temporarily Blocked",
+    message: `Your shop "${shopName}" has been temporarily blocked. Reason: ${reason}. Contact support if you believe this is an error.`,
+    type: "admin_action" as NotificationType,
+    reference_id: shopId,
+  }),
+
+  shopUnblocked: (shopName: string, shopId: string) => ({
+    title: "Shop Unblocked",
+    message: `Your shop "${shopName}" has been unblocked and is now active again.`,
+    type: "admin_action" as NotificationType,
+    reference_id: shopId,
+  }),
 }
 

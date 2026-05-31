@@ -17,7 +17,7 @@ export async function GET(
     // Get shop data from user_shops table
     const { data: shop, error: shopError } = await supabase
       .from('user_shops')
-      .select("id, shop_name, shop_slug, description, is_active, created_at")
+      .select("id, shop_name, shop_slug, description, is_active, is_blocked, created_at")
       .eq('shop_slug', slug)
       .eq('is_active', true)
       .single()
@@ -26,6 +26,13 @@ export async function GET(
       return NextResponse.json(
         { error: 'Shop not found' },
         { status: 404 }
+      )
+    }
+
+    if (shop.is_blocked) {
+      return NextResponse.json(
+        { error: 'This shop is temporarily unavailable' },
+        { status: 503 }
       )
     }
 

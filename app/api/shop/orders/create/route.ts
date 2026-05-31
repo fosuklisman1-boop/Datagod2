@@ -101,13 +101,21 @@ export async function POST(request: NextRequest) {
     // Check if this is a sub-agent shop
     const { data: shopData, error: shopError } = await supabase
       .from("user_shops")
-      .select("parent_shop_id, user_id")
+      .select("parent_shop_id, user_id, is_blocked")
       .eq("id", shop_id)
       .single()
 
     if (shopError) {
       console.error("[SHOP-ORDER] Error fetching shop:", shopError)
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+
+    if (shopData?.is_blocked) {
+      console.warn("[SHOP-ORDER] ⛔ Order blocked: shop is temporarily blocked", shop_id)
+      return NextResponse.json(
+        { error: "This shop is temporarily unavailable. Please try again later." },
+        { status: 503 }
+      )
     }
 
     if (shopData?.parent_shop_id) {

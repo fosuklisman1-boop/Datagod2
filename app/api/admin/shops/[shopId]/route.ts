@@ -54,7 +54,7 @@ export async function GET(
     // Fetch shop details
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id, shop_name, shop_slug, description, is_active, created_at, user_id")
+      .select("id, shop_name, shop_slug, description, is_active, is_blocked, block_reason, blocked_at, created_at, user_id")
       .eq("id", shopId)
       .single()
 
