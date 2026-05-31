@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
+import { applyRateLimit } from "@/lib/rate-limiter"
+import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { rejectBot } from "@/lib/bot-protection"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -9,6 +12,28 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
+    const blocked = await rejectBot(); if (blocked) return blocked
+
+    const rateLimit = await applyRateLimit(
+      request,
+      "shop_order_create",
+      RATE_LIMITS.SHOP_ORDER_CREATE.maxRequests,
+      RATE_LIMITS.SHOP_ORDER_CREATE.windowMs
+    )
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: RATE_LIMITS.SHOP_ORDER_CREATE.message },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": RATE_LIMITS.SHOP_ORDER_CREATE.maxRequests.toString(),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": new Date(rateLimit.resetAt).toISOString(),
+          },
+        }
+      )
+    }
+
     // Check Global Ordering Status
     // Use select("*") to match the working debug endpoint and avoid any column selection issues
     const { data: settingsResult, error: settingsError } = await supabase
@@ -357,6 +382,47 @@ export async function POST(request: NextRequest) {
     } catch (parentError) {
       console.warn("[SHOP-ORDER] Error checking for parent shop:", parentError)
       // Continue without parent - profit will only go to sub-agent
+    }
+
+    // DB-level flood guards — active even without Upstash/Redis.
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+
+    const [{ count: pendingByEmail }, { count: pendingByPhone }, { count: pendingByShop }] = await Promise.all([
+      // Same email: max 3 pending in last hour
+      supabase
+        .from("shop_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_email", customer_email)
+        .eq("payment_status", "pending")
+        .gte("created_at", oneHourAgo),
+      // Same phone: max 3 pending in last hour
+      supabase
+        .from("shop_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_phone", customer_phone)
+        .eq("payment_status", "pending")
+        .gte("created_at", oneHourAgo),
+      // Same shop: max 10 pending in last 5 minutes
+      supabase
+        .from("shop_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shop_id)
+        .eq("payment_status", "pending")
+        .gte("created_at", fiveMinutesAgo),
+    ])
+
+    if ((pendingByEmail ?? 0) >= 3 || (pendingByPhone ?? 0) >= 3) {
+      return NextResponse.json(
+        { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
+        { status: 429 }
+      )
+    }
+    if ((pendingByShop ?? 0) >= 10) {
+      return NextResponse.json(
+        { error: "Too many pending orders for this shop. Please try again shortly." },
+        { status: 429 }
+      )
     }
 
     const { data, error } = await supabase

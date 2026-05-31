@@ -83,6 +83,13 @@ export const RATE_LIMITS = {
         windowMs: 60 * 1000, // 1 minute per IP
         message: 'Too many airtime requests. Please wait a moment before trying again.',
     },
+
+    // Shop data order creation (unauthenticated — same abuse surface as airtime)
+    SHOP_ORDER_CREATE: {
+        maxRequests: 5,
+        windowMs: 60 * 1000, // 1 minute per IP
+        message: 'Too many order requests. Please wait a moment before trying again.',
+    },
 } as const
 
 /**
