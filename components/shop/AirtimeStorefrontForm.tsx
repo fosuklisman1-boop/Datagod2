@@ -9,6 +9,7 @@ import { CreditCard, Loader2, Zap, CheckCircle2, ShieldCheck, Copy } from "lucid
 import { networkLogoService } from "@/lib/shop-service"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { toast } from "sonner"
+import TurnstileWidget from "@/components/shop/TurnstileWidget"
 
 interface AirtimeStorefrontFormProps {
   shop: any
@@ -17,6 +18,7 @@ interface AirtimeStorefrontFormProps {
 
 export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormProps) {
   const [submitting, setSubmitting] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [constraints, setConstraints] = useState<any>(null)
@@ -152,7 +154,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           amount: formData.amount,
           paySeparately: paySeparately,
           totalPrice: totalPrice,
-          shopSlug: shopSlug
+          shopSlug: shopSlug,
+          turnstileToken,
         })
       })
 
@@ -373,9 +376,13 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
             </div>
           </div>
 
-          <Button 
-            type="submit" 
-            disabled={submitting || !selectedNetwork}
+          <div className="flex justify-center">
+            <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+          </div>
+
+          <Button
+            type="submit"
+            disabled={submitting || !selectedNetwork || !turnstileToken}
             className="w-full h-16 bg-gradient-to-r from-violet-600 via-indigo-700 to-purple-600 hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-violet-200 transition-all duration-300 disabled:opacity-50 disabled:grayscale"
           >
             {submitting ? (

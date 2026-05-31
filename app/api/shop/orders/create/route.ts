@@ -5,6 +5,7 @@ import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
+import { verifyTurnstileToken, getRequestIp } from "@/lib/turnstile"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
       profit_amount,
       total_price,
       shop_slug,
+      turnstileToken,
     } = body
 
     // Authenticated dashboard callers (e.g., sub-agent stock purchases) bypass the cookie check.
@@ -88,6 +90,16 @@ export async function POST(request: NextRequest) {
         }
       } catch {
         // Invalid token — fall through to cookie check
+      }
+    }
+
+    // Turnstile CAPTCHA verification for unauthenticated public traffic.
+    // Dashboard sub-agent stock purchases bypass via the Bearer token above.
+    if (!isAuthenticatedDashboardCall) {
+      const turnstileResult = await verifyTurnstileToken(turnstileToken, getRequestIp(request.headers))
+      if (!turnstileResult.valid) {
+        console.warn(`[SHOP-ORDER] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shop_id}`)
+        return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 403 })
       }
     }
 

@@ -35,6 +35,7 @@ import {
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
+import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
@@ -59,6 +60,7 @@ export default function ShopStorefront() {
     customer_phone: "",
   })
   const [submitting, setSubmitting] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
@@ -261,6 +263,7 @@ export default function ShopStorefront() {
           profit_amount: profitAmount,
           total_price: totalPrice,
           shop_slug: shopSlug,
+          turnstileToken,
         }),
       })
 
@@ -915,10 +918,14 @@ export default function ShopStorefront() {
                   </AlertDescription>
                 </Alert>
 
+                <div className="pt-2">
+                  <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+                </div>
+
                 <div className="flex gap-2 pt-4">
                   <Button
                     onClick={handleSubmitOrder}
-                    disabled={submitting}
+                    disabled={submitting || !turnstileToken}
                     className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
                   >
                     {submitting ? (

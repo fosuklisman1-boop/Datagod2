@@ -9,6 +9,7 @@ import {
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
+import { verifyTurnstileToken, getRequestIp } from "@/lib/turnstile"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,11 +46,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { shopId, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone } =
+    const { shopId, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, turnstileToken } =
       await request.json()
 
     if (!shopId || !examBoard || !rawQuantity || !customerEmail) {
       return NextResponse.json({ error: "shopId, examBoard, quantity, and customerEmail are required" }, { status: 400 })
+    }
+
+    // Turnstile CAPTCHA verification — fresh token required per form submission.
+    const turnstileResult = await verifyTurnstileToken(turnstileToken, getRequestIp(request.headers))
+    if (!turnstileResult.valid) {
+      console.warn(`[RC-SHOP-INIT] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shopId}`)
+      return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 403 })
     }
 
     // Require __shop_sess cookie set by middleware on /shop/* page load.

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle, Download } from "lucide-react"
 import { toast } from "sonner"
+import TurnstileWidget from "@/components/shop/TurnstileWidget"
 
 interface ResultsCheckerStorefrontFormProps {
   shop: any
@@ -37,6 +38,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string>("")
 
   // Success state
   const [vouchers, setVouchers] = useState<Array<{ pin: string; serial_number: string | null }> | null>(null)
@@ -130,6 +132,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           customerName: formData.customerName,
           customerEmail: formData.customerEmail,
           customerPhone: formData.customerPhone.replace(/\s/g, ""),
+          turnstileToken,
         }),
       })
       const initData = await initRes.json()
@@ -360,9 +363,13 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
             </div>
           </div>
 
+          <div className="flex justify-center">
+            <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+          </div>
+
           <Button
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || !turnstileToken}
             className="w-full h-14 bg-slate-900 hover:bg-violet-700 text-white font-black rounded-xl shadow-xl transition-all duration-300 text-base"
           >
             {submitting
