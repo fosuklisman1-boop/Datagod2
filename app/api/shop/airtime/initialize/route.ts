@@ -139,28 +139,35 @@ export async function POST(request: NextRequest) {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
-    const [{ count: pendingByEmail }, { count: pendingByPhone }, { count: pendingByShop }] = await Promise.all([
-      // Same email: max 3 pending in last hour (catches naive repeat)
+    const [{ count: pendingByEmail }, { count: pendingByPhone }, { count: pendingByShop5m }, { count: pendingByShop1h }] = await Promise.all([
+      // Same email: max 3 pending in last hour
       supabase
         .from("airtime_orders")
         .select("id", { count: "exact", head: true })
         .eq("customer_email", customerEmail)
         .eq("status", "pending_payment")
         .gte("created_at", oneHourAgo),
-      // Same beneficiary phone: max 3 pending in last hour (hard to rotate — target number)
+      // Same beneficiary phone: max 3 pending in last hour
       supabase
         .from("airtime_orders")
         .select("id", { count: "exact", head: true })
         .eq("beneficiary_phone", cleanPhone)
         .eq("status", "pending_payment")
         .gte("created_at", oneHourAgo),
-      // Same shop: max 10 pending in 5 minutes (detects burst scripting regardless of email rotation)
+      // Same shop: max 10 pending in 5 minutes (burst cap)
       supabase
         .from("airtime_orders")
         .select("id", { count: "exact", head: true })
         .eq("shop_id", shopId)
         .eq("status", "pending_payment")
         .gte("created_at", fiveMinutesAgo),
+      // Same shop: max 30 pending in last hour (sustained cap)
+      supabase
+        .from("airtime_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shopId)
+        .eq("status", "pending_payment")
+        .gte("created_at", oneHourAgo),
     ])
 
     if ((pendingByEmail ?? 0) >= 3 || (pendingByPhone ?? 0) >= 3) {
@@ -170,7 +177,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if ((pendingByShop ?? 0) >= 10) {
+    if ((pendingByShop5m ?? 0) >= 10 || (pendingByShop1h ?? 0) >= 30) {
       return NextResponse.json(
         { error: "Too many pending orders for this shop. Please try again shortly." },
         { status: 429 }

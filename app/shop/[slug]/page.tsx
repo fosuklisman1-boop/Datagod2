@@ -242,6 +242,18 @@ export default function ShopStorefront() {
         totalPrice,
       })
 
+      // Fetch a short-lived HMAC session token — proves this request came from a real page load
+      let _shopToken: string | undefined
+      try {
+        const tokenRes = await fetch(`/api/shop/order-token?shopId=${shop.id}`)
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json()
+          _shopToken = tokenData.token
+        }
+      } catch {
+        // Non-fatal — token is validated server-side but absence is only logged, not hard-blocked yet
+      }
+
       // Create order via API (uses service role for RLS bypass)
       const createOrderResponse = await fetch("/api/shop/orders/create", {
         method: "POST",
@@ -260,6 +272,7 @@ export default function ShopStorefront() {
           base_price: basePrice,
           profit_amount: profitAmount,
           total_price: totalPrice,
+          _shopToken,
           shop_slug: shopSlug,
         }),
       })

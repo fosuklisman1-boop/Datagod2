@@ -90,6 +90,13 @@ export const RATE_LIMITS = {
         windowMs: 60 * 1000, // 1 minute per IP
         message: 'Too many order requests. Please wait a moment before trying again.',
     },
+
+    // Shop session token generation — prevents stockpiling tokens
+    SHOP_ORDER_TOKEN: {
+        maxRequests: 20,
+        windowMs: 60 * 1000, // 20 per minute per IP (allows normal browsing)
+        message: 'Too many requests',
+    },
 } as const
 
 /**

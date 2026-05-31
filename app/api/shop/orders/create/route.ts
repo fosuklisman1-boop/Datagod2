@@ -4,6 +4,7 @@ import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { verifyShopToken } from "@/lib/shop-token"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -71,7 +72,22 @@ export async function POST(request: NextRequest) {
       profit_amount,
       total_price,
       shop_slug,
+      _shopToken,
     } = body
+
+    // Validate HMAC session token — must have been obtained from /api/shop/order-token
+    // This ensures orders originate from a real page load, not a bare API script.
+    if (_shopToken && shop_id) {
+      const tokenCheck = verifyShopToken(_shopToken, shop_id)
+      if (!tokenCheck.valid) {
+        console.warn(`[SHOP-ORDER] ❌ Invalid shop token (${tokenCheck.reason}) for shop ${shop_id}`)
+        return NextResponse.json({ error: "Invalid session. Please refresh and try again." }, { status: 403 })
+      }
+    } else if (!_shopToken) {
+      // Token missing — log for monitoring. Once frontend is fully rolled out,
+      // change this to a hard reject by removing the else-if branch.
+      console.warn(`[SHOP-ORDER] ⚠️ Missing shop token for shop ${shop_id} — token enforcement not yet hard`)
+    }
 
     console.log("[SHOP-ORDER] Creating order for:", {
       shop_id,
@@ -393,7 +409,7 @@ export async function POST(request: NextRequest) {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
-    const [{ count: pendingByEmail }, { count: pendingByPhone }, { count: pendingByShop }] = await Promise.all([
+    const [{ count: pendingByEmail }, { count: pendingByPhone }, { count: pendingByShop5m }, { count: pendingByShop1h }] = await Promise.all([
       // Same email: max 3 pending in last hour
       supabase
         .from("shop_orders")
@@ -408,13 +424,20 @@ export async function POST(request: NextRequest) {
         .eq("customer_phone", customer_phone)
         .eq("payment_status", "pending")
         .gte("created_at", oneHourAgo),
-      // Same shop: max 10 pending in last 5 minutes
+      // Same shop: max 10 pending in last 5 minutes (burst cap)
       supabase
         .from("shop_orders")
         .select("id", { count: "exact", head: true })
         .eq("shop_id", shop_id)
         .eq("payment_status", "pending")
         .gte("created_at", fiveMinutesAgo),
+      // Same shop: max 30 pending in last hour (sustained cap)
+      supabase
+        .from("shop_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shop_id)
+        .eq("payment_status", "pending")
+        .gte("created_at", oneHourAgo),
     ])
 
     if ((pendingByEmail ?? 0) >= 3 || (pendingByPhone ?? 0) >= 3) {
@@ -423,7 +446,7 @@ export async function POST(request: NextRequest) {
         { status: 429 }
       )
     }
-    if ((pendingByShop ?? 0) >= 10) {
+    if ((pendingByShop5m ?? 0) >= 10 || (pendingByShop1h ?? 0) >= 30) {
       return NextResponse.json(
         { error: "Too many pending orders for this shop. Please try again shortly." },
         { status: 429 }
@@ -470,6 +493,30 @@ export async function POST(request: NextRequest) {
       parent_shop_id: data[0].parent_shop_id,
       parent_profit_amount: data[0].parent_profit_amount
     })
+
+    // Auto-block shop if it crosses the anomaly threshold (non-blocking)
+    // Threshold: 20+ pending orders in the last hour = likely scripted attack
+    ;(async () => {
+      try {
+        const oneHourAgoCheck = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+        const { count: hourlyPending } = await supabase
+          .from("shop_orders")
+          .select("id", { count: "exact", head: true })
+          .eq("shop_id", shop_id)
+          .eq("payment_status", "pending")
+          .gte("created_at", oneHourAgoCheck)
+
+        if ((hourlyPending ?? 0) >= 20) {
+          await supabase
+            .from("user_shops")
+            .update({ is_blocked: true, block_reason: "Auto-blocked: suspected scripted order flooding" })
+            .eq("id", shop_id)
+          console.warn(`[SHOP-ORDER] ⛔ Auto-blocked shop ${shop_id} — ${hourlyPending} pending orders in last hour`)
+        }
+      } catch (e) {
+        console.warn("[SHOP-ORDER] Auto-block check failed (non-critical):", e)
+      }
+    })()
 
     // NOTE: Blacklist notification SMS and admin alerts are sent AFTER payment verification
     // See: webhook and payment verify endpoints for SMS delivery
