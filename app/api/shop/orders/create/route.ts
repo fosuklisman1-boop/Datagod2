@@ -4,7 +4,6 @@ import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { rejectBot } from "@/lib/bot-protection"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -12,8 +11,6 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 export async function POST(request: NextRequest) {
   try {
-    const blocked = await rejectBot(); if (blocked) return blocked
-
     const rateLimit = await applyRateLimit(
       request,
       "shop_order_create",
