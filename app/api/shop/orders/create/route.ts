@@ -84,9 +84,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
     } else {
-      // Cookie missing — log for monitoring until all clients are on the new layout.
-      // Flip to a hard reject once confirmed working in production.
-      console.warn(`[SHOP-ORDER] ⚠️ Missing __shop_sess cookie for shop ${shop_id}`)
+      console.warn(`[SHOP-ORDER] ❌ Blocked: missing __shop_sess cookie for shop ${shop_id}`)
+      return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
 
     console.log("[SHOP-ORDER] Creating order for:", {
