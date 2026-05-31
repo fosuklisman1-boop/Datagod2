@@ -10,22 +10,28 @@ const supabase = createClient(
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024
 
+function extractPhoneColumn(rows: string[][]): string[] {
+  if (rows.length === 0) return []
+  const header = rows[0].map(h => h.toLowerCase().trim())
+  // Find "Phone Number" column; fall back to column 0
+  const phoneCol = header.findIndex(h => h.includes("phone"))
+  const col = phoneCol >= 0 ? phoneCol : 0
+  const dataRows = phoneCol >= 0 ? rows.slice(1) : rows
+  return dataRows.map(r => String(r[col] ?? "").trim()).filter(Boolean)
+}
+
 async function fileToPhoneLines(file: File): Promise<string[]> {
-  let text: string
   if (file.name.match(/\.xlsx?$/i)) {
     const { read, utils } = await import("xlsx")
     const buf = await file.arrayBuffer()
     const wb = read(buf, { type: "array" })
     const ws = wb.Sheets[wb.SheetNames[0]]
     const rows = utils.sheet_to_json<string[]>(ws, { header: 1, defval: "" })
-    text = rows.map(r => String(r[0] ?? "")).join("\n")
-  } else {
-    text = await file.text()
+    return extractPhoneColumn(rows as string[][])
   }
-  return text
-    .split(/[\r\n]+/)
-    .map(line => line.split(",")[0].trim())
-    .filter(Boolean)
+  const text = await file.text()
+  const rows = text.split(/[\r\n]+/).map(line => line.split(",").map(c => c.trim()))
+  return extractPhoneColumn(rows)
 }
 
 function detectNetwork(phone: string): string {

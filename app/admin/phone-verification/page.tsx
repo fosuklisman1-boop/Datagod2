@@ -250,7 +250,16 @@ export default function PhoneVerificationPage() {
   }
 
   const downloadTemplate = () => {
-    const blob = new Blob(["phone_number\n0551234567\n0241234567\n0207654321"], { type: "text/csv" })
+    const content = [
+      "Title,First Name,Last Name,Phone Number,Email Address,Country",
+      "Mr.,Kwame,Doe,0551234567,kwame.doe@example.com,Ghana",
+      "Miss,Akosua,Smith,0241234567,akosua.smith@example.com,Ghana",
+      "",
+      "Note:",
+      "Phone Number is the only required field.",
+      "Delete this note i.e. row 5 6 7 before uploading",
+    ].join("\n")
+    const blob = new Blob([content], { type: "text/csv" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
@@ -337,7 +346,7 @@ export default function PhoneVerificationPage() {
                           Drag & drop your file here, or <span className="text-primary underline">browse</span>
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Accepts .csv or .xlsx · Max 50 MB · One phone number per row (first column)
+                          Accepts .csv or .xlsx · Max 50 MB · Multi-column format supported (Phone Number column auto-detected)
                         </p>
                         <Button
                           variant="outline" size="sm" className="mt-4"
