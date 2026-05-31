@@ -60,7 +60,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { shopId, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken } = await request.json()
+    const body = await request.json()
+    const { shopId, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot } = body
+
+    // Honeypot: hidden form field that real users never fill. Any non-empty value = bot.
+    if (typeof honeypot === "string" && honeypot.trim() !== "") {
+      console.warn(`[SHOP-AIRTIME] ❌ Honeypot tripped: bot detected for shop ${shopId} value_len=${honeypot.length}`)
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 })
+    }
 
     if (!shopId || !beneficiaryPhone || (!airtimeAmount && !bodyAmount) || !customerEmail) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })

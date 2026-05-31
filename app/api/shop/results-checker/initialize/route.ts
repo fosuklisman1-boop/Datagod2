@@ -46,8 +46,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { shopId, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, turnstileToken } =
-      await request.json()
+    const body = await request.json()
+    const { shopId, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, turnstileToken, website: honeypot } = body
+
+    // Honeypot: hidden form field that real users never fill. Any non-empty value = bot.
+    if (typeof honeypot === "string" && honeypot.trim() !== "") {
+      console.warn(`[RC-SHOP-INIT] ❌ Honeypot tripped: bot detected for shop ${shopId} value_len=${honeypot.length}`)
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 })
+    }
 
     if (!shopId || !examBoard || !rawQuantity || !customerEmail) {
       return NextResponse.json({ error: "shopId, examBoard, quantity, and customerEmail are required" }, { status: 400 })

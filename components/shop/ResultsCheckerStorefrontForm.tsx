@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle, Download } from "lucide-react"
 import { toast } from "sonner"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
+import HoneypotField from "@/components/shop/HoneypotField"
 
 interface ResultsCheckerStorefrontFormProps {
   shop: any
@@ -39,6 +40,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
+  const [honeypot, setHoneypot] = useState<string>("")
 
   // Success state
   const [vouchers, setVouchers] = useState<Array<{ pin: string; serial_number: string | null }> | null>(null)
@@ -133,6 +135,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           customerEmail: formData.customerEmail,
           customerPhone: formData.customerPhone.replace(/\s/g, ""),
           turnstileToken,
+          website: honeypot,
         }),
       })
       const initData = await initRes.json()
@@ -362,6 +365,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
               <span>GHS {totalPrice.toFixed(2)}</span>
             </div>
           </div>
+
+          <HoneypotField value={honeypot} onChange={setHoneypot} />
 
           <div className="flex justify-center">
             <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />

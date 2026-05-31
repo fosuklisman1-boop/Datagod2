@@ -74,7 +74,16 @@ export async function POST(request: NextRequest) {
       total_price,
       shop_slug,
       turnstileToken,
+      website: honeypot,
     } = body
+
+    // Honeypot: hidden form field that real users never fill. Any non-empty
+    // value = bot. Return a generic 400 so attackers can't easily distinguish
+    // honeypot rejection from other validation failures.
+    if (typeof honeypot === "string" && honeypot.trim() !== "") {
+      console.warn(`[SHOP-ORDER] ❌ Honeypot tripped: bot detected for shop ${shop_id} value_len=${honeypot.length}`)
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 })
+    }
 
     // Bypass cookie + Turnstile checks ONLY for sub-agent stock purchases:
     // - Must have a valid Supabase Bearer token AND

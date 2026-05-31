@@ -36,6 +36,7 @@ import {
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
+import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
@@ -61,6 +62,7 @@ export default function ShopStorefront() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
+  const [honeypot, setHoneypot] = useState<string>("")
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
@@ -264,6 +266,7 @@ export default function ShopStorefront() {
           total_price: totalPrice,
           shop_slug: shopSlug,
           turnstileToken,
+          website: honeypot,
         }),
       })
 
@@ -917,6 +920,8 @@ export default function ShopStorefront() {
                     You will be redirected to Paystack to complete your payment.
                   </AlertDescription>
                 </Alert>
+
+                <HoneypotField value={honeypot} onChange={setHoneypot} />
 
                 <div className="pt-2">
                   <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />

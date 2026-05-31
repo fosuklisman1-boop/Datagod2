@@ -10,6 +10,7 @@ import { networkLogoService } from "@/lib/shop-service"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { toast } from "sonner"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
+import HoneypotField from "@/components/shop/HoneypotField"
 
 interface AirtimeStorefrontFormProps {
   shop: any
@@ -19,6 +20,7 @@ interface AirtimeStorefrontFormProps {
 export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormProps) {
   const [submitting, setSubmitting] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
+  const [honeypot, setHoneypot] = useState<string>("")
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [constraints, setConstraints] = useState<any>(null)
@@ -156,6 +158,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           totalPrice: totalPrice,
           shopSlug: shopSlug,
           turnstileToken,
+          website: honeypot,
         })
       })
 
@@ -375,6 +378,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               </div>
             </div>
           </div>
+
+          <HoneypotField value={honeypot} onChange={setHoneypot} />
 
           <div className="flex justify-center">
             <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
