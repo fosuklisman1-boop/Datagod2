@@ -3,6 +3,7 @@ import { initializePayment } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { verifyShopSession } from "@/lib/shop-token"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -52,6 +53,22 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[PAYMENT-INIT] Request received:", { userId, amount, orderType })
+
+    // Unauthenticated shop-order payments require the __shop_sess cookie set by
+    // the /shop/* middleware. Authenticated dashboard flows (topup, upgrade)
+    // bypass this check via the Bearer token above.
+    if (!userId && orderId) {
+      const shopCookie = request.cookies.get("__shop_sess")?.value
+      if (!shopCookie) {
+        console.warn(`[PAYMENT-INIT] ❌ Blocked: missing __shop_sess cookie for orderId=${orderId}`)
+        return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+      }
+      const cookieCheck = verifyShopSession(shopCookie)
+      if (!cookieCheck.valid) {
+        console.warn(`[PAYMENT-INIT] ❌ Invalid shop session cookie (${cookieCheck.reason}) for orderId=${orderId}`)
+        return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+      }
+    }
 
     // Validate input
     if (!email) {
