@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { rejectBot } from "@/lib/bot-protection"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,8 +37,6 @@ async function getAdminSetting(key: string): Promise<any> {
 
 export async function POST(request: NextRequest) {
   try {
-    const blocked = await rejectBot(); if (blocked) return blocked
-
     // Rate limit: 5 requests/min per IP (unauthenticated endpoint — primary abuse surface)
     const rateLimit = await applyRateLimit(
       request,
@@ -140,28 +137,28 @@ export async function POST(request: NextRequest) {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
     const [{ count: pendingByEmail }, { count: pendingByPhone }, { count: pendingByShop5m }, { count: pendingByShop1h }] = await Promise.all([
-      // Same email: max 3 pending in last hour
+      // Same email: max 5 pending in last hour (covers buying for ~5 family members)
       supabase
         .from("airtime_orders")
         .select("id", { count: "exact", head: true })
         .eq("customer_email", customerEmail)
         .eq("status", "pending_payment")
         .gte("created_at", oneHourAgo),
-      // Same beneficiary phone: max 3 pending in last hour
+      // Same beneficiary phone: max 5 pending in last hour (covers payment retries)
       supabase
         .from("airtime_orders")
         .select("id", { count: "exact", head: true })
         .eq("beneficiary_phone", cleanPhone)
         .eq("status", "pending_payment")
         .gte("created_at", oneHourAgo),
-      // Same shop: max 10 pending in 5 minutes (burst cap)
+      // Same shop: max 15 pending in 5 minutes (burst cap)
       supabase
         .from("airtime_orders")
         .select("id", { count: "exact", head: true })
         .eq("shop_id", shopId)
         .eq("status", "pending_payment")
         .gte("created_at", fiveMinutesAgo),
-      // Same shop: max 30 pending in last hour (sustained cap)
+      // Same shop: max 60 pending in last hour (sustained cap)
       supabase
         .from("airtime_orders")
         .select("id", { count: "exact", head: true })
@@ -170,14 +167,14 @@ export async function POST(request: NextRequest) {
         .gte("created_at", oneHourAgo),
     ])
 
-    if ((pendingByEmail ?? 0) >= 3 || (pendingByPhone ?? 0) >= 3) {
+    if ((pendingByEmail ?? 0) >= 5 || (pendingByPhone ?? 0) >= 5) {
       return NextResponse.json(
         { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
         { status: 429 }
       )
     }
 
-    if ((pendingByShop5m ?? 0) >= 10 || (pendingByShop1h ?? 0) >= 30) {
+    if ((pendingByShop5m ?? 0) >= 15 || (pendingByShop1h ?? 0) >= 60) {
       return NextResponse.json(
         { error: "Too many pending orders for this shop. Please try again shortly." },
         { status: 429 }

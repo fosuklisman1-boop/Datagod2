@@ -410,28 +410,28 @@ export async function POST(request: NextRequest) {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
     const [{ count: pendingByEmail }, { count: pendingByPhone }, { count: pendingByShop5m }, { count: pendingByShop1h }] = await Promise.all([
-      // Same email: max 3 pending in last hour
+      // Same email: max 5 pending in last hour (covers buying for ~5 family members + payment retries)
       supabase
         .from("shop_orders")
         .select("id", { count: "exact", head: true })
         .eq("customer_email", customer_email)
         .eq("payment_status", "pending")
         .gte("created_at", oneHourAgo),
-      // Same phone: max 3 pending in last hour
+      // Same phone: max 5 pending in last hour (covers payment failures + retries)
       supabase
         .from("shop_orders")
         .select("id", { count: "exact", head: true })
         .eq("customer_phone", customer_phone)
         .eq("payment_status", "pending")
         .gte("created_at", oneHourAgo),
-      // Same shop: max 10 pending in last 5 minutes (burst cap)
+      // Same shop: max 15 pending in last 5 minutes (burst cap)
       supabase
         .from("shop_orders")
         .select("id", { count: "exact", head: true })
         .eq("shop_id", shop_id)
         .eq("payment_status", "pending")
         .gte("created_at", fiveMinutesAgo),
-      // Same shop: max 30 pending in last hour (sustained cap)
+      // Same shop: max 60 pending in last hour (sustained cap)
       supabase
         .from("shop_orders")
         .select("id", { count: "exact", head: true })
@@ -440,13 +440,13 @@ export async function POST(request: NextRequest) {
         .gte("created_at", oneHourAgo),
     ])
 
-    if ((pendingByEmail ?? 0) >= 3 || (pendingByPhone ?? 0) >= 3) {
+    if ((pendingByEmail ?? 0) >= 5 || (pendingByPhone ?? 0) >= 5) {
       return NextResponse.json(
         { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
         { status: 429 }
       )
     }
-    if ((pendingByShop5m ?? 0) >= 10 || (pendingByShop1h ?? 0) >= 30) {
+    if ((pendingByShop5m ?? 0) >= 15 || (pendingByShop1h ?? 0) >= 60) {
       return NextResponse.json(
         { error: "Too many pending orders for this shop. Please try again shortly." },
         { status: 429 }
@@ -494,8 +494,8 @@ export async function POST(request: NextRequest) {
       parent_profit_amount: data[0].parent_profit_amount
     })
 
-    // Auto-block shop if it crosses the anomaly threshold (non-blocking)
-    // Threshold: 20+ pending orders in the last hour = likely scripted attack
+    // Anomaly alert: notify admins if pending orders spike (non-blocking, no hard block)
+    // Threshold 80/hr chosen so a busy legitimate shop (60/hr cap) never trips this.
     ;(async () => {
       try {
         const oneHourAgoCheck = new Date(Date.now() - 60 * 60 * 1000).toISOString()
@@ -506,15 +506,17 @@ export async function POST(request: NextRequest) {
           .eq("payment_status", "pending")
           .gte("created_at", oneHourAgoCheck)
 
-        if ((hourlyPending ?? 0) >= 30) {
-          await supabase
-            .from("user_shops")
-            .update({ is_blocked: true, block_reason: "Auto-blocked: suspected scripted order flooding" })
-            .eq("id", shop_id)
-          console.warn(`[SHOP-ORDER] ⛔ Auto-blocked shop ${shop_id} — ${hourlyPending} pending orders in last hour`)
+        if ((hourlyPending ?? 0) >= 80) {
+          console.warn(`[SHOP-ORDER] 🚨 Anomaly alert: shop ${shop_id} has ${hourlyPending} pending orders in last hour — possible scripted flooding`)
+          import("@/lib/email-service").then(({ notifyAdmins }) => {
+            notifyAdmins(
+              `🚨 Shop flood alert — ${shop_id}`,
+              `<p>Shop <strong>${shop_id}</strong> has <strong>${hourlyPending}</strong> pending orders in the last hour.</p><p>This may indicate a scripted attack. Review and block manually if confirmed.</p>`
+            ).catch(() => {})
+          })
         }
       } catch (e) {
-        console.warn("[SHOP-ORDER] Auto-block check failed (non-critical):", e)
+        console.warn("[SHOP-ORDER] Anomaly check failed (non-critical):", e)
       }
     })()
 
