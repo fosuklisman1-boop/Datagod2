@@ -305,13 +305,21 @@ export async function POST(request: NextRequest) {
       orderType === "results_checker" ? "results-checker/confirmation" :
       `order-confirmation/${orderId}`
     const appendOrderId = orderType === "airtime" || orderType === "results_checker"
+    // SECURITY: Never use request.headers.get("origin") — it's attacker-controlled
+    // and would let a crafted request steer Paystack's post-payment redirect to a
+    // phishing site. Use server env exclusively.
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+      ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")
+      : process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000"
     let redirectUrl: string
     if (shopId && orderId && shopSlug) {
-      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${appendOrderId ? `&orderId=${orderId}` : ""}`
+      redirectUrl = `${baseUrl}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${appendOrderId ? `&orderId=${orderId}` : ""}`
     } else if (isDealerUpgradePayment) {
-      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/upgrade?reference=${reference}`
+      redirectUrl = `${baseUrl}/dashboard/upgrade?reference=${reference}`
     } else {
-      redirectUrl = `${request.headers.get("origin") || "http://localhost:3000"}/dashboard/wallet?reference=${reference}`
+      redirectUrl = `${baseUrl}/dashboard/wallet?reference=${reference}`
     }
     console.log("[PAYMENT-INIT] Redirect URL:", redirectUrl)
 

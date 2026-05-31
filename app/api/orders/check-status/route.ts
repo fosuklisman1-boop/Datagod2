@@ -1,16 +1,47 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 import { atishareService } from "@/lib/at-ishare-service"
 
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
 /**
- * API endpoint to check scheduled orders for status updates
- * Can be called manually or triggered by dashboard load
+ * Authorized status-refresh endpoint.
+ *
+ * Trigger sources (any one of):
+ *   - Vercel Cron with Bearer ${CRON_SECRET}
+ *   - Authenticated dashboard user (admin or regular) — fire-and-forget refresh
+ *
+ * Anonymous callers are rejected to prevent abuse of the upstream AT-Ishare API
+ * (each call iterates pending orders and hits external services).
  */
-export async function GET(request: NextRequest) {
+async function isAuthorized(request: NextRequest): Promise<boolean> {
+  const authHeader = request.headers.get("authorization")
+  if (!authHeader?.startsWith("Bearer ")) return false
+
+  const token = authHeader.slice(7)
+
+  // 1) Cron secret bypass — for scheduled runs
+  if (process.env.CRON_SECRET && token === process.env.CRON_SECRET) return true
+
+  // 2) Authenticated dashboard user — JWT validates against Supabase
   try {
-    console.log("[CHECK-ORDERS] Checking scheduled orders for status updates...")
+    const { data: { user } } = await supabase.auth.getUser(token)
+    return !!user
+  } catch {
+    return false
+  }
+}
 
+export async function GET(request: NextRequest) {
+  if (!(await isAuthorized(request))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  try {
     const result = await atishareService.checkScheduledOrders()
-
     return NextResponse.json({
       success: true,
       message: `Checked ${result.checked} orders, updated ${result.updated}`,
@@ -26,6 +57,5 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  // Same as GET, for flexibility
   return GET(request)
 }

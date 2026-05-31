@@ -113,8 +113,17 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return
     loadDashboardData()
-    // Fire-and-forget background order status check
-    fetch("/api/orders/check-status", { method: "GET" }).catch(() => {})
+    // Fire-and-forget background order status check (now authenticated)
+    ;(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        await fetch("/api/orders/check-status", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+      } catch { /* silent — background task */ }
+    })()
   }, [user])
 
   const loadDashboardData = async () => {

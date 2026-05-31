@@ -57,20 +57,26 @@ export default function AdminDashboardPage() {
 
   const checkScheduledOrders = async () => {
     try {
-      // Silently check for scheduled order updates in background
-      await fetch("/api/orders/check-status", { method: "GET" })
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      await fetch("/api/orders/check-status", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
     } catch (error) {
-      // Silently fail - this is a background task
       console.error("Background order check failed:", error)
     }
   }
 
   const cleanupOldNotifications = async () => {
     try {
-      // Silently cleanup notifications older than 72 hours
-      await fetch("/api/notifications/cleanup", { method: "GET" })
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      await fetch("/api/notifications/cleanup", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
     } catch (error) {
-      // Silently fail - this is a background task
       console.error("Background notification cleanup failed:", error)
     }
   }
