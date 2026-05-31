@@ -18,11 +18,15 @@ export default async function ShopLayout({
   const { slug } = await params
 
   try {
-    const { data: shop } = await supabase
+    const { data: shop, error: shopErr } = await supabase
       .from('user_shops')
       .select('id')
       .eq('shop_slug', slug)
       .single()
+
+    if (shopErr) {
+      console.warn(`[SHOP-LAYOUT] slug=${slug} supabase_error=${shopErr.message}`)
+    }
 
     if (shop?.id) {
       const token = generateShopCookie(shop.id)
@@ -34,9 +38,12 @@ export default async function ShopLayout({
         maxAge: 30 * 60,
         path: '/',
       })
+      console.log(`[SHOP-LAYOUT] ✓ Cookie set slug=${slug} shop_id=${shop.id} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
+    } else {
+      console.warn(`[SHOP-LAYOUT] ⚠️ No shop found for slug=${slug}`)
     }
-  } catch {
-    // Non-fatal — orders/create will log missing cookie and enforce once rolled out
+  } catch (e) {
+    console.error(`[SHOP-LAYOUT] ❌ Exception for slug=${slug}:`, e instanceof Error ? e.message : e)
   }
 
   return <ShopClientWrapper>{children}</ShopClientWrapper>
