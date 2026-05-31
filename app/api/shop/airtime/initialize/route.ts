@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { verifyShopCookie } from "@/lib/shop-token"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -62,6 +63,20 @@ export async function POST(request: NextRequest) {
 
     if (!shopId || !beneficiaryPhone || (!airtimeAmount && !bodyAmount) || !customerEmail) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
+
+    // Validate httpOnly session cookie — set server-side by the shop layout on page load.
+    // Scripts that hit the API directly won't have this cookie.
+    const shopCookie = request.cookies.get("__shop_sess")?.value
+    if (shopCookie) {
+      const cookieCheck = verifyShopCookie(shopCookie, shopId)
+      if (!cookieCheck.valid) {
+        console.warn(`[SHOP-AIRTIME] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId}`)
+        return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+      }
+    } else {
+      console.warn(`[SHOP-AIRTIME] ❌ Blocked: missing __shop_sess cookie for shop ${shopId}`)
+      return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
 
     const amount = parseFloat(airtimeAmount || bodyAmount)
