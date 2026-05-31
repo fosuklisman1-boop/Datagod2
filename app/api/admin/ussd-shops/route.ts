@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendPushToUser } from "@/lib/push-service"
+import { secureNumericCode } from "@/lib/secure-random"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -97,8 +98,8 @@ export async function POST(request: NextRequest) {
   if (!finalCode) {
     for (let attempt = 0; attempt < 30; attempt++) {
       const candidate = attempt < 10
-        ? String(Math.floor(1000 + Math.random() * 9000))
-        : String(Math.floor(100000 + Math.random() * 900000))
+        ? secureNumericCode(4)
+        : secureNumericCode(6)
       const { data: existing } = await supabase
         .from("ussd_shop_codes").select("id").eq("code", candidate).maybeSingle()
       if (!existing) { finalCode = candidate; break }

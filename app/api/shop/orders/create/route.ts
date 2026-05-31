@@ -6,6 +6,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp } from "@/lib/turnstile"
+import { secureTimestampedReference } from "@/lib/secure-random"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -464,7 +465,32 @@ export async function POST(request: NextRequest) {
       // Continue without parent - profit will only go to sub-agent
     }
 
-    // DB-level flood guards — active even without Upstash/Redis.
+    // Atomic flood guards via Upstash sliding window — closes the count→insert
+    // race where parallel requests all see count<cap and all insert. Each Upstash
+    // increment is atomic at the Lua-script level. Fails open if Upstash is
+    // misconfigured (the DB count below remains as fallback).
+    const [emailCap, phoneCap, shop5mCap, shop1hCap] = await Promise.all([
+      applyRateLimit(request, "shop_order_cap_email", 5, 60 * 60 * 1000, `e:${customer_email.toLowerCase()}`),
+      applyRateLimit(request, "shop_order_cap_phone", 5, 60 * 60 * 1000, `p:${customer_phone}`),
+      applyRateLimit(request, "shop_order_cap_shop_5m", 15, 5 * 60 * 1000, `s:${shop_id}`),
+      applyRateLimit(request, "shop_order_cap_shop_1h", 60, 60 * 60 * 1000, `s:${shop_id}`),
+    ])
+    if (!emailCap.allowed || !phoneCap.allowed) {
+      console.warn(`[SHOP-ORDER] ❌ Atomic cap hit (email_allowed=${emailCap.allowed} phone_allowed=${phoneCap.allowed}) for shop ${shop_id}`)
+      return NextResponse.json(
+        { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
+        { status: 429 }
+      )
+    }
+    if (!shop5mCap.allowed || !shop1hCap.allowed) {
+      console.warn(`[SHOP-ORDER] ❌ Atomic shop cap hit (5m_allowed=${shop5mCap.allowed} 1h_allowed=${shop1hCap.allowed}) for shop ${shop_id}`)
+      return NextResponse.json(
+        { error: "Too many pending orders for this shop. Please try again shortly." },
+        { status: 429 }
+      )
+    }
+
+    // DB-level flood guards — backup defence active even if Upstash misconfigured.
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
@@ -529,7 +555,7 @@ export async function POST(request: NextRequest) {
           total_price: finalTotalPrice,
           order_status: orderStatus,
           payment_status: "pending",
-          reference_code: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+          reference_code: secureTimestampedReference("ORD"),
           shop_customer_id: null, // Will be set when payment is confirmed
           parent_shop_id: parent_shop_id || null,
           parent_profit_amount: parent_profit_amount !== null ? parseFloat(parent_profit_amount.toString()) : 0,

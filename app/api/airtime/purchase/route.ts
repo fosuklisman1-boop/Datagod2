@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notifyAdmins } from "@/lib/sms-service"
+import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,9 +23,7 @@ function detectNetwork(phone: string): string | null {
 }
 
 function generateReference(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-  const seg = (n: number) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
-  return `AT-${seg(3)}-${seg(3)}`
+  return secureReference("AT", 2, 3)
 }
 
 async function getAdminSetting(key: string): Promise<any> {

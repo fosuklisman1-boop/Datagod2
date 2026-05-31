@@ -4,6 +4,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp } from "@/lib/turnstile"
+import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,9 +24,7 @@ function detectNetwork(phone: string): string | null {
 }
 
 function generateReference(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-  const seg = (n: number) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
-  return `AT-${seg(3)}-${seg(3)}`
+  return secureReference("AT", 2, 3)
 }
 
 async function getAdminSetting(key: string): Promise<any> {
@@ -170,8 +169,30 @@ export async function POST(request: NextRequest) {
 
     const merchantCommission = parseFloat((airtimeToDeliver * customMarkupRate / 100).toFixed(2))
 
-    // DB-level flood guards — active even without Upstash/Redis.
-    // Scripts rotate emails easily; phone numbers and shop+window are harder to rotate.
+    // Atomic flood guards via Upstash sliding window — closes the count→insert
+    // race. Fails open if Upstash misconfigured; DB checks below remain as fallback.
+    const [emailCap, phoneCap, shop5mCap, shop1hCap] = await Promise.all([
+      applyRateLimit(request, "shop_airtime_cap_email", 5, 60 * 60 * 1000, `e:${customerEmail.toLowerCase()}`),
+      applyRateLimit(request, "shop_airtime_cap_phone", 5, 60 * 60 * 1000, `p:${cleanPhone}`),
+      applyRateLimit(request, "shop_airtime_cap_shop_5m", 15, 5 * 60 * 1000, `s:${shopId}`),
+      applyRateLimit(request, "shop_airtime_cap_shop_1h", 60, 60 * 60 * 1000, `s:${shopId}`),
+    ])
+    if (!emailCap.allowed || !phoneCap.allowed) {
+      console.warn(`[SHOP-AIRTIME] ❌ Atomic cap hit (email_allowed=${emailCap.allowed} phone_allowed=${phoneCap.allowed}) for shop ${shopId}`)
+      return NextResponse.json(
+        { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
+        { status: 429 }
+      )
+    }
+    if (!shop5mCap.allowed || !shop1hCap.allowed) {
+      console.warn(`[SHOP-AIRTIME] ❌ Atomic shop cap hit (5m_allowed=${shop5mCap.allowed} 1h_allowed=${shop1hCap.allowed}) for shop ${shopId}`)
+      return NextResponse.json(
+        { error: "Too many pending orders for this shop. Please try again shortly." },
+        { status: 429 }
+      )
+    }
+
+    // DB-level flood guards — backup defence in case Upstash is unavailable.
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 

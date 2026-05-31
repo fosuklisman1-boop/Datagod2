@@ -10,6 +10,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp } from "@/lib/turnstile"
+import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,10 +18,7 @@ const supabase = createClient(
 )
 
 function generateRCReference(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-  const seg = (n: number) =>
-    Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
-  return `RC-${seg(3)}-${seg(3)}`
+  return secureReference("RC", 2, 3)
 }
 
 export async function POST(request: NextRequest) {
@@ -135,7 +133,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
-    // DB-level flood guards — calibrated to normal human behaviour.
+    // Atomic flood guards via Upstash sliding window — closes the count→insert
+    // race. Fails open if Upstash misconfigured; DB checks below remain as fallback.
+    const [emailCapRC, shop5mCapRC, shop1hCapRC] = await Promise.all([
+      applyRateLimit(request, "shop_rc_cap_email", 5, 60 * 60 * 1000, `e:${customerEmail.toLowerCase()}`),
+      applyRateLimit(request, "shop_rc_cap_shop_5m", 15, 5 * 60 * 1000, `s:${shopId}`),
+      applyRateLimit(request, "shop_rc_cap_shop_1h", 60, 60 * 60 * 1000, `s:${shopId}`),
+    ])
+    if (!emailCapRC.allowed) {
+      console.warn(`[RC-SHOP-INIT] ❌ Atomic email cap hit for shop ${shopId}`)
+      return NextResponse.json(
+        { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
+        { status: 429 }
+      )
+    }
+    if (!shop5mCapRC.allowed || !shop1hCapRC.allowed) {
+      console.warn(`[RC-SHOP-INIT] ❌ Atomic shop cap hit (5m_allowed=${shop5mCapRC.allowed} 1h_allowed=${shop1hCapRC.allowed}) for shop ${shopId}`)
+      return NextResponse.json(
+        { error: "Too many pending orders for this shop. Please try again shortly." },
+        { status: 429 }
+      )
+    }
+
+    // DB-level flood guards — backup defence in case Upstash is unavailable.
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 

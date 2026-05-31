@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { fulfillAfaOrder, isAfaAutoFulfillmentEnabled } from "@/lib/afa-fulfillment"
+import { secureString } from "@/lib/secure-random"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     // Generate order code and transaction code
     const orderCode = `AFA-${Date.now().toString().slice(-7)}`
-    const transactionCode = Math.random().toString(36).substring(2, 12).toUpperCase()
+    const transactionCode = secureString(10)
     console.log("[AFA-SUBMIT] Generated codes:", { orderCode, transactionCode })
 
     // Create AFA order

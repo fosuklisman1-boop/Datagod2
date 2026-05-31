@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { secureTimestampedReference } from "@/lib/secure-random"
 
 /**
  * Debug endpoint to help diagnose Paystack integration issues
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
     const testPayload = {
       email: email,
       amount: Math.round(parseFloat(amount) * 100),
-      reference: `DEBUG-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      reference: secureTimestampedReference("DEBUG"),
       metadata: {
         type: "wallet_topup",
         test: true,
