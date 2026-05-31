@@ -356,7 +356,7 @@ export const adminShopService = {
         headers["Authorization"] = `Bearer ${session.access_token}`
       }
 
-      const response = await fetch("/api/admin/shops", { headers })
+      const response = await fetch("/api/admin/shops?limit=500", { headers })
       if (!response.ok) {
         throw new Error("Failed to fetch shops")
       }
