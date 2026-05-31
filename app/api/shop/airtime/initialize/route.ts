@@ -65,18 +65,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Validate httpOnly session cookie — set server-side by the shop layout on page load.
-    // Scripts that hit the API directly won't have this cookie.
+    // Soft-warn cookie check while we diagnose hard-enforce false positives.
     const shopCookie = request.cookies.get("__shop_sess")?.value
+    const secretConfigured = !!process.env.SHOP_TOKEN_SECRET
     if (shopCookie) {
       const cookieCheck = verifyShopCookie(shopCookie, shopId)
       if (!cookieCheck.valid) {
-        console.warn(`[SHOP-AIRTIME] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId}`)
-        return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+        let cookieShopId = "unknown"
+        try {
+          const dot = shopCookie.lastIndexOf(".")
+          const data = shopCookie.slice(0, dot)
+          const payload = JSON.parse(Buffer.from(data, "base64url").toString())
+          cookieShopId = payload.shopId
+        } catch {}
+        console.warn(`[SHOP-AIRTIME] ⚠️ Cookie invalid: reason=${cookieCheck.reason} cookie_shop=${cookieShopId} request_shop=${shopId} secret_configured=${secretConfigured}`)
+      } else {
+        console.log(`[SHOP-AIRTIME] ✓ Cookie valid for shop ${shopId}`)
       }
     } else {
-      console.warn(`[SHOP-AIRTIME] ❌ Blocked: missing __shop_sess cookie for shop ${shopId}`)
-      return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+      console.warn(`[SHOP-AIRTIME] ⚠️ Missing __shop_sess cookie for shop ${shopId} secret_configured=${secretConfigured}`)
     }
 
     const amount = parseFloat(airtimeAmount || bodyAmount)
