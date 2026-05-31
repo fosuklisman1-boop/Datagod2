@@ -6,7 +6,7 @@
 // SHOP_TOKEN_SECRET in Vercel takes precedence; this is only used if the env var is missing.
 const SECRET = process.env.SHOP_TOKEN_SECRET || "e2d05114cd141aaa7ea91b01dce67e192feea2ed86f76daafb7ea19c24b182a8"
 const TTL_MS = 10 * 60 * 1000
-const COOKIE_VERSION = 2
+const COOKIE_VERSION = 3 // bumped: slug is now part of the payload
 
 const encoder = new TextEncoder()
 
@@ -16,12 +16,15 @@ function base64urlFromBytes(bytes: Uint8Array): string {
   return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
 
-export async function generateShopSession(): Promise<string> {
+// Issues a cookie bound to a specific shop slug. A cookie issued for `/shop/A`
+// will fail validation against any order placed against shop B.
+export async function generateShopSession(slug: string): Promise<string> {
   const nonceBytes = crypto.getRandomValues(new Uint8Array(8))
   const payload = {
     v: COOKIE_VERSION,
     exp: Date.now() + TTL_MS,
     nonce: base64urlFromBytes(nonceBytes),
+    slug,
   }
   const data = base64urlFromBytes(encoder.encode(JSON.stringify(payload)))
 

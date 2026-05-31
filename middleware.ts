@@ -1,6 +1,25 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@supabase/ssr"
 import { generateShopSession } from "@/lib/shop-token-edge"
+import { Ratelimit } from "@upstash/ratelimit"
+import { Redis } from "@upstash/redis"
+
+// Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
+// per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
+// fresh cookies for each scripted order burn through this in seconds → 429.
+const cookieIssuanceRedis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    })
+  : null
+const cookieIssuanceLimiter = cookieIssuanceRedis
+  ? new Ratelimit({
+      redis: cookieIssuanceRedis,
+      limiter: Ratelimit.slidingWindow(30, "1 h"),
+      prefix: "shop_cookie_issue",
+    })
+  : null
 
 export async function middleware(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID())
@@ -94,22 +113,47 @@ export async function middleware(request: NextRequest) {
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
   // ── Shop session cookie ─────────────────────────────────────────────────────
-  // Set __shop_sess on any /shop/* page load. The order endpoints require this
-  // cookie to be present and signature-valid, blocking scripts that hit the API
-  // without first loading the shop page in a browser. Refreshed on every visit
-  // so the 30-minute TTL stays warm during active browsing.
-  if (path.startsWith("/shop/")) {
-    try {
-      const token = await generateShopSession()
-      response.cookies.set("__shop_sess", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 10 * 60,
-        path: "/",
-      })
-    } catch (e) {
-      console.error("[MIDDLEWARE] Failed to set __shop_sess cookie:", e instanceof Error ? e.message : e)
+  // Set __shop_sess on any /shop/<slug>* page load, bound to that specific slug.
+  // The order endpoints require this cookie to be present, signature-valid, AND
+  // its embedded slug to match the order's target shop slug. This blocks both
+  // (a) scripts hitting the API without loading the shop page, and (b) using one
+  // harvested cookie to attack multiple shops.
+  const shopMatch = path.match(/^\/shop\/([^/]+)/)
+  if (shopMatch) {
+    const slug = decodeURIComponent(shopMatch[1])
+
+    // Per-IP cookie-issuance rate limit — caps harvest throughput.
+    let issuanceAllowed = true
+    if (cookieIssuanceLimiter) {
+      const ip =
+        request.headers.get("cf-connecting-ip") ||
+        request.headers.get("x-real-ip") ||
+        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        "unknown"
+      try {
+        const { success } = await cookieIssuanceLimiter.limit(ip)
+        if (!success) {
+          issuanceAllowed = false
+          console.warn(`[MIDDLEWARE] Cookie issuance rate-limited for IP=${ip} slug=${slug}`)
+        }
+      } catch (e) {
+        // Fail open — Redis hiccup shouldn't block legitimate browsing.
+      }
+    }
+
+    if (issuanceAllowed) {
+      try {
+        const token = await generateShopSession(slug)
+        response.cookies.set("__shop_sess", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 10 * 60,
+          path: "/",
+        })
+      } catch (e) {
+        console.error("[MIDDLEWARE] Failed to set __shop_sess cookie:", e instanceof Error ? e.message : e)
+      }
     }
   }
 

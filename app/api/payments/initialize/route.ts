@@ -54,26 +54,44 @@ export async function POST(request: NextRequest) {
 
     console.log("[PAYMENT-INIT] Request received:", { userId, amount, orderType })
 
-    // ANY payment-init for a specific orderId requires the shop session cookie,
-    // regardless of authentication. Turnstile already gated order CREATION upstream
-    // (orders/create, airtime/initialize, results-checker/initialize) — those tokens
-    // are single-use, so we can't re-verify here. Cookie ensures the request came
-    // from a real browser session that recently loaded /shop/*.
-    //
-    // Topups + dealer upgrades skip this branch (they pass no orderId).
-    // Sub-agent stock purchases use /api/wallet/debit, not Paystack, so they skip too.
+    // Cookie + slug-binding check for shop-order payments.
+    // Look up the order's shop_id → shop's current slug → verify cookie matches.
     if (orderId) {
       const shopCookie = request.cookies.get("__shop_sess")?.value
       if (!shopCookie) {
         console.warn(`[PAYMENT-INIT] ❌ Blocked: missing __shop_sess cookie for orderId=${orderId}`)
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
-      const cookieCheck = verifyShopSession(shopCookie)
+
+      // Determine which table the order lives in based on orderType, then resolve its shop slug
+      const orderTable = orderType === "airtime" ? "airtime_orders"
+        : orderType === "results_checker" ? "results_checker_orders"
+        : "shop_orders"
+      const { data: orderShopRef } = await supabase
+        .from(orderTable)
+        .select("shop_id")
+        .eq("id", orderId)
+        .single()
+      if (!orderShopRef?.shop_id) {
+        console.warn(`[PAYMENT-INIT] ❌ Order not found for cookie verification: orderId=${orderId} table=${orderTable}`)
+        return NextResponse.json({ error: "Order not found" }, { status: 404 })
+      }
+      const { data: shopForCookie } = await supabase
+        .from("user_shops")
+        .select("shop_slug")
+        .eq("id", orderShopRef.shop_id)
+        .single()
+      if (!shopForCookie?.shop_slug) {
+        console.warn(`[PAYMENT-INIT] ❌ Shop not found for cookie verification: shop_id=${orderShopRef.shop_id}`)
+        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+      }
+
+      const cookieCheck = verifyShopSession(shopCookie, shopForCookie.shop_slug)
       if (!cookieCheck.valid) {
-        console.warn(`[PAYMENT-INIT] ❌ Invalid shop session cookie (${cookieCheck.reason}) for orderId=${orderId} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
+        console.warn(`[PAYMENT-INIT] ❌ Invalid shop session cookie (${cookieCheck.reason}) for orderId=${orderId} expected_slug=${shopForCookie.shop_slug} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
-      console.log(`[PAYMENT-INIT] ✓ Cookie valid for orderId=${orderId} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
+      console.log(`[PAYMENT-INIT] ✓ Cookie valid for orderId=${orderId} slug=${shopForCookie.shop_slug}`)
     }
 
     // Validate input

@@ -112,20 +112,31 @@ export async function POST(request: NextRequest) {
       console.log(`[SHOP-ORDER] ⊘ Turnstile skipped (authenticated stock purchase) for shop ${shop_id}`)
     }
 
-    // Require __shop_sess cookie set by middleware on /shop/* page load.
-    // Scripts that hit the API without first loading the shop page won't have it.
+    // Require __shop_sess cookie that was issued for THIS shop's current slug.
+    // Slug binding: a cookie harvested from /shop/A is invalid for ordering at shop B.
+    // We look up the shop's current slug from DB so slug-rotation also invalidates cookies.
     if (!isAuthenticatedDashboardCall) {
       const shopCookie = request.cookies.get("__shop_sess")?.value
       if (!shopCookie) {
         console.warn(`[SHOP-ORDER] ❌ Blocked: missing __shop_sess cookie for shop ${shop_id}`)
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
-      const cookieCheck = verifyShopSession(shopCookie)
+      // Pull the shop's current slug for cookie-binding verification
+      const { data: shopForCookie } = await supabase
+        .from("user_shops")
+        .select("shop_slug")
+        .eq("id", shop_id)
+        .single()
+      if (!shopForCookie?.shop_slug) {
+        console.warn(`[SHOP-ORDER] ❌ Shop not found for cookie verification: ${shop_id}`)
+        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+      }
+      const cookieCheck = verifyShopSession(shopCookie, shopForCookie.shop_slug)
       if (!cookieCheck.valid) {
-        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
+        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id} expected_slug=${shopForCookie.shop_slug} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
-      console.log(`[SHOP-ORDER] ✓ Cookie valid for shop ${shop_id} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
+      console.log(`[SHOP-ORDER] ✓ Cookie valid for shop ${shop_id} slug=${shopForCookie.shop_slug}`)
     }
 
     console.log("[SHOP-ORDER] Creating order for:", {

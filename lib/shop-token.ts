@@ -8,9 +8,12 @@ import crypto from "crypto"
 // Must match the fallback in lib/shop-token-edge.ts exactly — both sides need the same secret
 // to produce/verify matching HMACs. SHOP_TOKEN_SECRET env var takes precedence in prod.
 const SECRET = process.env.SHOP_TOKEN_SECRET || "e2d05114cd141aaa7ea91b01dce67e192feea2ed86f76daafb7ea19c24b182a8"
-const REQUIRED_VERSION = 2
+const REQUIRED_VERSION = 3 // matches lib/shop-token-edge.ts
 
-export function verifyShopSession(cookie: string): { valid: boolean; reason?: string } {
+// Verifies the cookie's HMAC, expiry, version, AND optional slug binding.
+// Pass `expectedSlug` (the shop's current DB slug) to require the cookie
+// was issued for that exact shop. Omit to skip slug binding.
+export function verifyShopSession(cookie: string, expectedSlug?: string): { valid: boolean; reason?: string } {
   try {
     const dot = cookie.lastIndexOf(".")
     if (dot === -1) return { valid: false, reason: "malformed" }
@@ -28,6 +31,9 @@ export function verifyShopSession(cookie: string): { valid: boolean; reason?: st
     const payload = JSON.parse(Buffer.from(data, "base64url").toString())
     if (payload.v !== REQUIRED_VERSION) return { valid: false, reason: "stale_version" }
     if (Date.now() > payload.exp) return { valid: false, reason: "expired" }
+    if (expectedSlug && payload.slug !== expectedSlug) {
+      return { valid: false, reason: "slug_mismatch" }
+    }
 
     return { valid: true }
   } catch {

@@ -61,18 +61,27 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[RC-SHOP-INIT] ✓ Turnstile passed for shop ${shopId}`)
 
-    // Require __shop_sess cookie set by middleware on /shop/* page load.
+    // Require __shop_sess cookie bound to this shop's current slug.
     const shopCookie = request.cookies.get("__shop_sess")?.value
     if (!shopCookie) {
       console.warn(`[RC-SHOP-INIT] ❌ Blocked: missing __shop_sess cookie for shop ${shopId}`)
       return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
-    const cookieCheck = verifyShopSession(shopCookie)
+    const { data: shopForCookie } = await supabase
+      .from("user_shops")
+      .select("shop_slug")
+      .eq("id", shopId)
+      .single()
+    if (!shopForCookie?.shop_slug) {
+      console.warn(`[RC-SHOP-INIT] ❌ Shop not found for cookie verification: ${shopId}`)
+      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+    const cookieCheck = verifyShopSession(shopCookie, shopForCookie.shop_slug)
     if (!cookieCheck.valid) {
-      console.warn(`[RC-SHOP-INIT] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
+      console.warn(`[RC-SHOP-INIT] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId} expected_slug=${shopForCookie.shop_slug} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
       return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
-    console.log(`[RC-SHOP-INIT] ✓ Cookie valid for shop ${shopId} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
+    console.log(`[RC-SHOP-INIT] ✓ Cookie valid for shop ${shopId} slug=${shopForCookie.shop_slug}`)
 
     if (!isValidExamBoard(examBoard)) {
       return NextResponse.json({ error: "Invalid examBoard. Must be WAEC, BECE, or NOVDEC" }, { status: 400 })
