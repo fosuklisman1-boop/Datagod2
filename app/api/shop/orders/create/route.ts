@@ -76,21 +76,27 @@ export async function POST(request: NextRequest) {
       turnstileToken,
     } = body
 
-    // Authenticated dashboard callers (e.g., sub-agent stock purchases) bypass the cookie check.
-    // The Supabase Bearer token must validate against a real user.
+    // Bypass cookie + Turnstile checks ONLY for sub-agent stock purchases:
+    // - Must have a valid Supabase Bearer token AND
+    // - Body must explicitly declare is_stock_purchase: true
+    // A normal customer order (is_stock_purchase != true) goes through the full
+    // public-flow defences even if the request happens to carry an auth header.
     let isAuthenticatedDashboardCall = false
     const authHeader = request.headers.get("authorization")
-    if (authHeader?.startsWith("Bearer ")) {
+    const isStockPurchaseFlag = body?.is_stock_purchase === true
+    if (authHeader?.startsWith("Bearer ") && isStockPurchaseFlag) {
       const token = authHeader.slice(7)
       try {
         const { data: { user } } = await supabase.auth.getUser(token)
         if (user) {
           isAuthenticatedDashboardCall = true
-          console.log(`[SHOP-ORDER] ✓ Authenticated dashboard caller: ${user.id}`)
+          console.log(`[SHOP-ORDER] ✓ Authenticated sub-agent stock purchase: ${user.id}`)
         }
       } catch {
-        // Invalid token — fall through to cookie check
+        // Invalid token — fall through to cookie + turnstile checks
       }
+    } else if (authHeader?.startsWith("Bearer ") && !isStockPurchaseFlag) {
+      console.warn(`[SHOP-ORDER] ⚠️ Auth bypass rejected: Bearer token present but is_stock_purchase != true (likely abuse attempt)`)
     }
 
     // Turnstile CAPTCHA verification for unauthenticated public traffic.

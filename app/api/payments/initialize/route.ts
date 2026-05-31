@@ -54,10 +54,15 @@ export async function POST(request: NextRequest) {
 
     console.log("[PAYMENT-INIT] Request received:", { userId, amount, orderType })
 
-    // Unauthenticated shop-order payments require the __shop_sess cookie set by
-    // the /shop/* middleware. Authenticated dashboard flows (topup, upgrade)
-    // bypass this check via the Bearer token above.
-    if (!userId && orderId) {
+    // ANY payment-init for a specific orderId requires the shop session cookie,
+    // regardless of authentication. Turnstile already gated order CREATION upstream
+    // (orders/create, airtime/initialize, results-checker/initialize) — those tokens
+    // are single-use, so we can't re-verify here. Cookie ensures the request came
+    // from a real browser session that recently loaded /shop/*.
+    //
+    // Topups + dealer upgrades skip this branch (they pass no orderId).
+    // Sub-agent stock purchases use /api/wallet/debit, not Paystack, so they skip too.
+    if (orderId) {
       const shopCookie = request.cookies.get("__shop_sess")?.value
       if (!shopCookie) {
         console.warn(`[PAYMENT-INIT] ❌ Blocked: missing __shop_sess cookie for orderId=${orderId}`)
