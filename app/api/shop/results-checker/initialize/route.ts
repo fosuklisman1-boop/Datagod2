@@ -6,7 +6,9 @@ import {
   getMaxQuantity,
   calculateRCPrice,
 } from "@/lib/results-checker-service"
-import { rejectBot } from "@/lib/bot-protection"
+import { applyRateLimit } from "@/lib/rate-limiter"
+import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { verifyShopSession } from "@/lib/shop-token"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,7 +24,26 @@ function generateRCReference(): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const blocked = await rejectBot(); if (blocked) return blocked
+    // IP rate limit: 5/min per IP — unauthenticated abuse surface
+    const rateLimit = await applyRateLimit(
+      request,
+      "shop_rc_initialize",
+      RATE_LIMITS.SHOP_RC_INITIALIZE.maxRequests,
+      RATE_LIMITS.SHOP_RC_INITIALIZE.windowMs
+    )
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: RATE_LIMITS.SHOP_RC_INITIALIZE.message },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": RATE_LIMITS.SHOP_RC_INITIALIZE.maxRequests.toString(),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": new Date(rateLimit.resetAt).toISOString(),
+          },
+        }
+      )
+    }
 
     const { shopId, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone } =
       await request.json()
@@ -30,6 +51,19 @@ export async function POST(request: NextRequest) {
     if (!shopId || !examBoard || !rawQuantity || !customerEmail) {
       return NextResponse.json({ error: "shopId, examBoard, quantity, and customerEmail are required" }, { status: 400 })
     }
+
+    // Require __shop_sess cookie set by middleware on /shop/* page load.
+    const shopCookie = request.cookies.get("__shop_sess")?.value
+    if (!shopCookie) {
+      console.warn(`[RC-SHOP-INIT] ❌ Blocked: missing __shop_sess cookie for shop ${shopId}`)
+      return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+    }
+    const cookieCheck = verifyShopSession(shopCookie)
+    if (!cookieCheck.valid) {
+      console.warn(`[RC-SHOP-INIT] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId}`)
+      return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+    }
+
     if (!isValidExamBoard(examBoard)) {
       return NextResponse.json({ error: "Invalid examBoard. Must be WAEC, BECE, or NOVDEC" }, { status: 400 })
     }
@@ -74,6 +108,44 @@ export async function POST(request: NextRequest) {
 
     if (!shop) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+
+    // DB-level flood guards — calibrated to normal human behaviour.
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+
+    const [{ count: pendingByEmail }, { count: pendingByShop5m }, { count: pendingByShop1h }] = await Promise.all([
+      supabase
+        .from("results_checker_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_email", customerEmail)
+        .eq("status", "pending_payment")
+        .gte("created_at", oneHourAgo),
+      supabase
+        .from("results_checker_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shopId)
+        .eq("status", "pending_payment")
+        .gte("created_at", fiveMinutesAgo),
+      supabase
+        .from("results_checker_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shopId)
+        .eq("status", "pending_payment")
+        .gte("created_at", oneHourAgo),
+    ])
+
+    if ((pendingByEmail ?? 0) >= 5) {
+      return NextResponse.json(
+        { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
+        { status: 429 }
+      )
+    }
+    if ((pendingByShop5m ?? 0) >= 15 || (pendingByShop1h ?? 0) >= 60) {
+      return NextResponse.json(
+        { error: "Too many pending orders for this shop. Please try again shortly." },
+        { status: 429 }
+      )
     }
 
     const pricing = await calculateRCPrice({ examBoard, quantity, shopId })
