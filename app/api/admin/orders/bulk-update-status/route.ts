@@ -710,6 +710,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Update USSD shop orders
+    if (finalUssdShopOrderIds.length > 0) {
+      const { error: ussdShopUpdateError } = await supabase
+        .from("ussd_shop_orders")
+        .update({ order_status: status, updated_at: new Date().toISOString() })
+        .in("id", finalUssdShopOrderIds)
+
+      if (ussdShopUpdateError) {
+        throw new Error(`Failed to update USSD shop order status: ${ussdShopUpdateError.message}`)
+      }
+
+      console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdShopOrderIds.length} USSD shop orders to status: ${status}`)
+    }
+
     return NextResponse.json({
       success: true,
       count: orderIds.length,
