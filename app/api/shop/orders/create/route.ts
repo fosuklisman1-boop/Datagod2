@@ -506,7 +506,7 @@ export async function POST(request: NextRequest) {
           .eq("payment_status", "pending")
           .gte("created_at", oneHourAgoCheck)
 
-        if ((hourlyPending ?? 0) >= 20) {
+        if ((hourlyPending ?? 0) >= 30) {
           await supabase
             .from("user_shops")
             .update({ is_blocked: true, block_reason: "Auto-blocked: suspected scripted order flooding" })
