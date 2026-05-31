@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
       .eq("shop_id", shopId)
       .eq("customer_phone", phone.trim())
       .order("created_at", { ascending: false })
+      .limit(200)
 
     const { data: airtimeOrders } = await supabase
       .from("airtime_orders")
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
       .eq("shop_id", shopId)
       .eq("beneficiary_phone", phone.trim())
       .order("created_at", { ascending: false })
+      .limit(200)
 
     const combinedOrders = [
       ...(dataOrders || []).map(o => ({ ...o, type: 'data' })),
