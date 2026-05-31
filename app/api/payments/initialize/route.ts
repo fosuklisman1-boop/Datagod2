@@ -125,8 +125,10 @@ export async function POST(request: NextRequest) {
       console.log(`[PAYMENT-INIT] ${orderType} order detected (${orderId}). Verifying price from database...`)
 
       const amountColumn = (orderType === "airtime" || orderType === "results_checker") ? "total_paid" : "total_price"
-      const statusColumn = orderType === "results_checker" ? "status" : orderType === "airtime" ? "status" : "payment_status"
-      const selectColumns = `${amountColumn}, status, payment_status`
+      // shop_orders uses order_status; airtime/results_checker use status
+      const isShopOrder = orderType !== "airtime" && orderType !== "results_checker"
+      const statusField = isShopOrder ? "order_status" : "status"
+      const selectColumns = `${amountColumn}, ${statusField}, payment_status`
       const { data: orderData, error: orderError } = await supabase
         .from(table)
         .select(selectColumns)
@@ -143,13 +145,13 @@ export async function POST(request: NextRequest) {
 
       // Reject any order that is no longer awaiting payment — blocks reuse of
       // expired/failed/already-paid order IDs across all order types.
-      const orderStatus = (orderData as any).status
+      const orderStatus = (orderData as any)[statusField]
       const orderPaymentStatus = (orderData as any).payment_status
       const alreadyPaid = orderPaymentStatus === "completed"
       const notPayable = ["failed", "expired", "cancelled", "completed"].includes(orderStatus)
 
       if (alreadyPaid || notPayable) {
-        console.warn(`[PAYMENT-INIT] ❌ Order ${orderId} (${orderType}) not payable — status: ${orderStatus}, payment_status: ${orderPaymentStatus}`)
+        console.warn(`[PAYMENT-INIT] ❌ Order ${orderId} (${orderType}) not payable — ${statusField}: ${orderStatus}, payment_status: ${orderPaymentStatus}`)
         return NextResponse.json(
           { error: "This order is no longer available for payment." },
           { status: 400 }
