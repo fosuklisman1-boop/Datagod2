@@ -215,6 +215,7 @@ export async function DELETE(request: NextRequest) {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "x-internal-secret": process.env.INTERNAL_API_SECRET ?? "",
             },
             body: JSON.stringify({
               shop_order_id: order.id,
@@ -282,6 +283,7 @@ export async function DELETE(request: NextRequest) {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "x-internal-secret": process.env.INTERNAL_API_SECRET ?? "",
             },
             body: JSON.stringify({
               order_id: order.id,

@@ -38,6 +38,20 @@ export interface FulfillmentResponse {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Internal-only endpoint. Legitimate callers (webhook, cron, payment-verify,
+    // admin tools) pass an INTERNAL_API_SECRET header. Without it, external
+    // callers cannot force unpaid orders into fulfillment.
+    const providedSecret = request.headers.get("x-internal-secret")
+    const expectedSecret = process.env.INTERNAL_API_SECRET
+    if (!expectedSecret) {
+      console.error("[FULFILLMENT] ❌ INTERNAL_API_SECRET not configured — refusing all requests")
+      return NextResponse.json({ error: "Server misconfigured" }, { status: 503 })
+    }
+    if (providedSecret !== expectedSecret) {
+      console.warn("[FULFILLMENT] ❌ Blocked: missing or invalid x-internal-secret header")
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
+    }
+
     const body: FulfillmentRequest = await request.json()
     const { shop_order_id, network, phone_number, volume_gb, customer_name } = body
 
@@ -55,12 +69,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if order is in blacklist queue and get true details
+    // Check if order is in blacklist queue and get true details + payment_status.
+    // Defence in depth: even legitimate callers should only fulfill paid orders.
     const { data: orderData, error: orderError } = await supabase
       .from("shop_orders")
-      .select("queue, network, volume_gb, customer_phone")
+      .select("queue, network, volume_gb, customer_phone, payment_status, order_status")
       .eq("id", shop_order_id)
       .single()
+
+    if (orderData && orderData.payment_status !== "completed") {
+      console.warn(`[FULFILLMENT] ❌ Blocked: order ${shop_order_id} payment_status=${orderData.payment_status}, not 'completed'`)
+      return NextResponse.json(
+        { error: "Cannot fulfill: payment not completed", success: false },
+        { status: 400 }
+      )
+    }
+
+    if (orderData && (orderData.order_status === "completed")) {
+      console.warn(`[FULFILLMENT] ❌ Blocked: order ${shop_order_id} already completed — refusing re-fulfillment`)
+      return NextResponse.json(
+        { error: "Order already fulfilled", success: false },
+        { status: 409 }
+      )
+    }
 
     if (orderError || !orderData) {
       console.error("[FULFILLMENT] Error fetching order queue:", orderError)

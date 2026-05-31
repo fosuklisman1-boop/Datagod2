@@ -449,7 +449,10 @@ export async function POST(request: NextRequest) {
                 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
                 await fetch(`${baseUrl}/api/fulfillment/process-order`, {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  headers: {
+                    "Content-Type": "application/json",
+                    "x-internal-secret": process.env.INTERNAL_API_SECRET ?? "",
+                  },
                   body: JSON.stringify({
                     shop_order_id: shopOrderData.id,
                     network: shopOrderData.network,
