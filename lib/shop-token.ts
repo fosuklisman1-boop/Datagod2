@@ -1,20 +1,13 @@
 import crypto from "crypto"
 
+// HMAC-signed proof that this request came from a real browser that loaded
+// a /shop/* page (the middleware sets this cookie). The cookie is not bound
+// to a specific shop — combined with IP rate limit, DB caps, and bad-UA
+// blocking, it raises the cost of scripted attacks significantly.
+
 const SECRET = process.env.SHOP_TOKEN_SECRET || "fallback-dev-secret-change-in-prod"
-const TTL_MS = 30 * 60 * 1000 // 30 minutes
 
-export function generateShopCookie(shopId: string): string {
-  const payload = {
-    shopId,
-    exp: Date.now() + TTL_MS,
-    nonce: crypto.randomBytes(8).toString("hex"),
-  }
-  const data = Buffer.from(JSON.stringify(payload)).toString("base64url")
-  const sig = crypto.createHmac("sha256", SECRET).update(data).digest("base64url")
-  return `${data}.${sig}`
-}
-
-export function verifyShopCookie(cookie: string, shopId: string): { valid: boolean; reason?: string } {
+export function verifyShopSession(cookie: string): { valid: boolean; reason?: string } {
   try {
     const dot = cookie.lastIndexOf(".")
     if (dot === -1) return { valid: false, reason: "malformed" }
@@ -31,7 +24,6 @@ export function verifyShopCookie(cookie: string, shopId: string): { valid: boole
 
     const payload = JSON.parse(Buffer.from(data, "base64url").toString())
     if (Date.now() > payload.exp) return { valid: false, reason: "expired" }
-    if (payload.shopId !== shopId) return { valid: false, reason: "shop_mismatch" }
 
     return { valid: true }
   } catch {

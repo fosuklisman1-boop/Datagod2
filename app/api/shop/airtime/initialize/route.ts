@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { verifyShopCookie } from "@/lib/shop-token"
+import { verifyShopSession } from "@/lib/shop-token"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -65,25 +65,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Soft-warn cookie check while we diagnose hard-enforce false positives.
+    // Require __shop_sess cookie set by middleware on /shop/* page load.
     const shopCookie = request.cookies.get("__shop_sess")?.value
-    const secretConfigured = !!process.env.SHOP_TOKEN_SECRET
-    if (shopCookie) {
-      const cookieCheck = verifyShopCookie(shopCookie, shopId)
-      if (!cookieCheck.valid) {
-        let cookieShopId = "unknown"
-        try {
-          const dot = shopCookie.lastIndexOf(".")
-          const data = shopCookie.slice(0, dot)
-          const payload = JSON.parse(Buffer.from(data, "base64url").toString())
-          cookieShopId = payload.shopId
-        } catch {}
-        console.warn(`[SHOP-AIRTIME] ⚠️ Cookie invalid: reason=${cookieCheck.reason} cookie_shop=${cookieShopId} request_shop=${shopId} secret_configured=${secretConfigured}`)
-      } else {
-        console.log(`[SHOP-AIRTIME] ✓ Cookie valid for shop ${shopId}`)
-      }
-    } else {
-      console.warn(`[SHOP-AIRTIME] ⚠️ Missing __shop_sess cookie for shop ${shopId} secret_configured=${secretConfigured}`)
+    if (!shopCookie) {
+      console.warn(`[SHOP-AIRTIME] ❌ Blocked: missing __shop_sess cookie for shop ${shopId}`)
+      return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+    }
+    const cookieCheck = verifyShopSession(shopCookie)
+    if (!cookieCheck.valid) {
+      console.warn(`[SHOP-AIRTIME] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId}`)
+      return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
 
     const amount = parseFloat(airtimeAmount || bodyAmount)

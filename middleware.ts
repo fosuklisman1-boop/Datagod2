@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@supabase/ssr"
+import { generateShopSession } from "@/lib/shop-token-edge"
 
 export async function middleware(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID())
@@ -91,6 +92,26 @@ export async function middleware(request: NextRequest) {
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
   // Deny access to sensitive browser APIs from this origin.
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+  // ── Shop session cookie ─────────────────────────────────────────────────────
+  // Set __shop_sess on any /shop/* page load. The order endpoints require this
+  // cookie to be present and signature-valid, blocking scripts that hit the API
+  // without first loading the shop page in a browser. Refreshed on every visit
+  // so the 30-minute TTL stays warm during active browsing.
+  if (path.startsWith("/shop/")) {
+    try {
+      const token = await generateShopSession()
+      response.cookies.set("__shop_sess", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 60,
+        path: "/",
+      })
+    } catch (e) {
+      console.error("[MIDDLEWARE] Failed to set __shop_sess cookie:", e instanceof Error ? e.message : e)
+    }
+  }
 
   return response
 }

@@ -4,7 +4,7 @@ import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { verifyShopCookie } from "@/lib/shop-token"
+import { verifyShopSession } from "@/lib/shop-token"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -91,28 +91,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // For unauthenticated public shop traffic, the httpOnly cookie set by the shop layout
-    // is required. Soft-warn while diagnosing — flip back to hard reject once stable.
+    // Require __shop_sess cookie set by middleware on /shop/* page load.
+    // Scripts that hit the API without first loading the shop page won't have it.
     if (!isAuthenticatedDashboardCall) {
       const shopCookie = request.cookies.get("__shop_sess")?.value
-      const secretConfigured = !!process.env.SHOP_TOKEN_SECRET
-      if (shopCookie) {
-        const cookieCheck = verifyShopCookie(shopCookie, shop_id)
-        if (!cookieCheck.valid) {
-          // Decode cookie payload (without trusting signature) to see what shopId is inside
-          let cookieShopId = "unknown"
-          try {
-            const dot = shopCookie.lastIndexOf(".")
-            const data = shopCookie.slice(0, dot)
-            const payload = JSON.parse(Buffer.from(data, "base64url").toString())
-            cookieShopId = payload.shopId
-          } catch {}
-          console.warn(`[SHOP-ORDER] ⚠️ Cookie invalid: reason=${cookieCheck.reason} cookie_shop=${cookieShopId} request_shop=${shop_id} secret_configured=${secretConfigured}`)
-        } else {
-          console.log(`[SHOP-ORDER] ✓ Cookie valid for shop ${shop_id}`)
-        }
-      } else {
-        console.warn(`[SHOP-ORDER] ⚠️ Missing __shop_sess cookie for shop ${shop_id} secret_configured=${secretConfigured}`)
+      if (!shopCookie) {
+        console.warn(`[SHOP-ORDER] ❌ Blocked: missing __shop_sess cookie for shop ${shop_id}`)
+        return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
+      }
+      const cookieCheck = verifyShopSession(shopCookie)
+      if (!cookieCheck.valid) {
+        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id}`)
+        return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
     }
 
