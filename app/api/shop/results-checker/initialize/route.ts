@@ -60,9 +60,10 @@ export async function POST(request: NextRequest) {
     }
     const cookieCheck = verifyShopSession(shopCookie)
     if (!cookieCheck.valid) {
-      console.warn(`[RC-SHOP-INIT] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId}`)
+      console.warn(`[RC-SHOP-INIT] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
       return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
+    console.log(`[RC-SHOP-INIT] ✓ Cookie valid for shop ${shopId} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
 
     if (!isValidExamBoard(examBoard)) {
       return NextResponse.json({ error: "Invalid examBoard. Must be WAEC, BECE, or NOVDEC" }, { status: 400 })

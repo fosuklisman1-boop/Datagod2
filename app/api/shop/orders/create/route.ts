@@ -101,9 +101,10 @@ export async function POST(request: NextRequest) {
       }
       const cookieCheck = verifyShopSession(shopCookie)
       if (!cookieCheck.valid) {
-        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id}`)
+        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
+      console.log(`[SHOP-ORDER] ✓ Cookie valid for shop ${shop_id} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
     }
 
     console.log("[SHOP-ORDER] Creating order for:", {

@@ -73,9 +73,10 @@ export async function POST(request: NextRequest) {
     }
     const cookieCheck = verifyShopSession(shopCookie)
     if (!cookieCheck.valid) {
-      console.warn(`[SHOP-AIRTIME] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId}`)
+      console.warn(`[SHOP-AIRTIME] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shopId} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
       return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
+    console.log(`[SHOP-AIRTIME] ✓ Cookie valid for shop ${shopId} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
 
     const amount = parseFloat(airtimeAmount || bodyAmount)
     if (!isFinite(amount) || amount <= 0) {

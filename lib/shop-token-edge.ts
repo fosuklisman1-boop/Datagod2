@@ -2,8 +2,11 @@
 // Imported by middleware.ts (Edge runtime — no Node `crypto` module).
 // Verification stays in lib/shop-token.ts which runs in Node route handlers.
 
-const SECRET = process.env.SHOP_TOKEN_SECRET || "fallback-dev-secret-change-in-prod"
+// Fallback is intentionally a fresh random value — old fallback was leaked via git history.
+// SHOP_TOKEN_SECRET in Vercel takes precedence; this is only used if the env var is missing.
+const SECRET = process.env.SHOP_TOKEN_SECRET || "e2d05114cd141aaa7ea91b01dce67e192feea2ed86f76daafb7ea19c24b182a8"
 const TTL_MS = 10 * 60 * 1000
+const COOKIE_VERSION = 2
 
 const encoder = new TextEncoder()
 
@@ -16,6 +19,7 @@ function base64urlFromBytes(bytes: Uint8Array): string {
 export async function generateShopSession(): Promise<string> {
   const nonceBytes = crypto.getRandomValues(new Uint8Array(8))
   const payload = {
+    v: COOKIE_VERSION,
     exp: Date.now() + TTL_MS,
     nonce: base64urlFromBytes(nonceBytes),
   }

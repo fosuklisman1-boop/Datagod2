@@ -5,7 +5,10 @@ import crypto from "crypto"
 // to a specific shop — combined with IP rate limit, DB caps, and bad-UA
 // blocking, it raises the cost of scripted attacks significantly.
 
-const SECRET = process.env.SHOP_TOKEN_SECRET || "fallback-dev-secret-change-in-prod"
+// Must match the fallback in lib/shop-token-edge.ts exactly — both sides need the same secret
+// to produce/verify matching HMACs. SHOP_TOKEN_SECRET env var takes precedence in prod.
+const SECRET = process.env.SHOP_TOKEN_SECRET || "e2d05114cd141aaa7ea91b01dce67e192feea2ed86f76daafb7ea19c24b182a8"
+const REQUIRED_VERSION = 2
 
 export function verifyShopSession(cookie: string): { valid: boolean; reason?: string } {
   try {
@@ -23,6 +26,7 @@ export function verifyShopSession(cookie: string): { valid: boolean; reason?: st
     }
 
     const payload = JSON.parse(Buffer.from(data, "base64url").toString())
+    if (payload.v !== REQUIRED_VERSION) return { valid: false, reason: "stale_version" }
     if (Date.now() > payload.exp) return { valid: false, reason: "expired" }
 
     return { valid: true }
