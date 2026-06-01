@@ -174,6 +174,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Block subscription cycling: refuse a new dealer upgrade payment if the
+    // user already has an active subscription. Stops "subscribe → use →
+    // cancel/chargeback → re-subscribe" abuse loops on the same account.
+    // Admins bypass for support/testing purposes.
+    if (isUpgrade && userId && !isAdmin) {
+      const { data: activeSub } = await supabase
+        .from("user_subscriptions")
+        .select("id, end_date, status")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .gt("end_date", new Date().toISOString())
+        .maybeSingle()
+      if (activeSub) {
+        console.warn(`[PAYMENT-INIT] ❌ Duplicate subscription blocked for user ${userId} (active sub ${activeSub.id} until ${activeSub.end_date})`)
+        return NextResponse.json(
+          { error: "You already have an active subscription. Wait for it to expire before purchasing another." },
+          { status: 409 }
+        )
+      }
+    }
+
     let finalAmount = amount
 
     // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB

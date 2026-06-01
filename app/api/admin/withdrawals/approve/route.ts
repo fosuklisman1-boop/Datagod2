@@ -5,6 +5,7 @@ import { sendSMS } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { initiateTransfer } from "@/lib/moolre-transfer"
 import { sendPushToUser } from "@/lib/push-service"
+import { checkWithdrawalCoolingOff } from "@/lib/withdrawal-policy"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -132,6 +133,24 @@ export async function POST(request: NextRequest) {
 
     if (!withdrawalId || typeof withdrawalId !== "string") {
       return NextResponse.json({ error: "Withdrawal ID required" }, { status: 400 })
+    }
+
+    // Cooling-off check (defense in depth — also enforced at request time).
+    // Pulls the shop_id from the row before the atomic lock so we can refuse
+    // approval if the shop hasn't passed its 7d-first / 24h-subsequent window.
+    {
+      const { data: req } = await supabase
+        .from("withdrawal_requests")
+        .select("shop_id")
+        .eq("id", withdrawalId)
+        .maybeSingle()
+      if (req?.shop_id) {
+        const cd = await checkWithdrawalCoolingOff(supabase, req.shop_id)
+        if (!cd.allowed) {
+          console.warn(`[WITHDRAWAL-APPROVE] ❌ Cooling-off blocks approval for ${withdrawalId}: ${cd.reason}`)
+          return NextResponse.json({ error: `Cooling-off in effect: ${cd.reason}` }, { status: 403 })
+        }
+      }
     }
 
     // CRITICAL FIX — Anti-double-spend: atomically move status to "processing" BEFORE

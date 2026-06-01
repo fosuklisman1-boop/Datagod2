@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
 import { getPriceAdjustments, getAdjustmentForNetwork, applyPriceAdjustment } from "./price-adjustment-service"
+import { checkWithdrawalCoolingOff } from "./withdrawal-policy"
 
 // Public shape of a shop returned to the anonymous storefront client. The
 // internal id and user_id columns are intentionally absent — server-side
@@ -596,6 +597,14 @@ export const withdrawalService = {
     // Validate minimum withdrawal amount
     if (withdrawalData.amount < 5) {
       throw new Error("Minimum withdrawal amount is GHS 5.00")
+    }
+
+    // Cooling-off period: 7 days after first payment for first withdrawal,
+    // 24h between subsequent withdrawals. Defends against chargeback fraud
+    // (most card chargebacks land 7-30 days post-payment).
+    const cooldown = await checkWithdrawalCoolingOff(supabase, shopId)
+    if (!cooldown.allowed) {
+      throw new Error(cooldown.reason || "Withdrawal currently not allowed.")
     }
 
     // Block new withdrawals if any are pending OR approved (in-flight)
