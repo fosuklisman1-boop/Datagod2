@@ -631,6 +631,7 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
     // If status changed, update tracking and shop order
     if (statusResult.status !== tracking.status) {
       const newStatus = statusResult.status
+      const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
 
       console.log(`[MTN-SYNC] Updating status: ${tracking.status} -> ${newStatus}`)
 
@@ -656,7 +657,7 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         const { error: shopOrderError } = await supabase
           .from("shop_orders")
           .update({
-            order_status: newStatus,
+            order_status: orderTableStatus,
             updated_at: new Date().toISOString(),
           })
           .eq("id", tracking.shop_order_id)
@@ -674,7 +675,7 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         const { error: orderError } = await supabase
           .from("orders")
           .update({
-            status: newStatus,
+            status: orderTableStatus,
             updated_at: new Date().toISOString(),
           })
           .eq("id", tracking.order_id)
@@ -692,7 +693,7 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         const { error: apiOrderError } = await supabase
           .from("api_orders")
           .update({
-            status: newStatus,
+            status: orderTableStatus,
             updated_at: new Date().toISOString(),
           })
           .eq("id", tracking.api_order_id)
