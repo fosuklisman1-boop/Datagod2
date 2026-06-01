@@ -83,11 +83,13 @@ export async function POST(request: NextRequest) {
     // Cookie + slug-binding check for shop-order payments.
     // Look up the order's shop_id → shop's current slug → verify cookie matches.
     if (orderId) {
-      // Per-ORDER init cap: a single order may only be initialized a few times.
+      // Per-ORDER init cap: a single order may be initialized at most twice
+      // (initial attempt + one retry — covers the common MoMo "wrong PIN /
+      // timeout, try again" case without enabling prompt amplification).
       // Without this, an attacker re-initializes one pending order repeatedly,
       // each call minting a new Paystack checkout = a new MoMo prompt to a new
       // victim number. Capping per orderId collapses that amplification.
-      const perOrderCap = await applyRateLimit(request, "payment_init_order", 3, 60 * 60 * 1000, `o:${orderId}`)
+      const perOrderCap = await applyRateLimit(request, "payment_init_order", 2, 60 * 60 * 1000, `o:${orderId}`)
       if (!perOrderCap.allowed) {
         console.warn(`[PAYMENT-INIT] ❌ Per-order init cap hit for orderId=${orderId}`)
         return NextResponse.json(
