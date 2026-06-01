@@ -83,6 +83,19 @@ export async function POST(request: NextRequest) {
     // Cookie + slug-binding check for shop-order payments.
     // Look up the order's shop_id → shop's current slug → verify cookie matches.
     if (orderId) {
+      // Per-ORDER init cap: a single order may only be initialized a few times.
+      // Without this, an attacker re-initializes one pending order repeatedly,
+      // each call minting a new Paystack checkout = a new MoMo prompt to a new
+      // victim number. Capping per orderId collapses that amplification.
+      const perOrderCap = await applyRateLimit(request, "payment_init_order", 3, 60 * 60 * 1000, `o:${orderId}`)
+      if (!perOrderCap.allowed) {
+        console.warn(`[PAYMENT-INIT] ❌ Per-order init cap hit for orderId=${orderId}`)
+        return NextResponse.json(
+          { error: "This order has already been initialized for payment. Please use the existing payment link or place a new order." },
+          { status: 429 }
+        )
+      }
+
       const shopCookie = request.cookies.get("__shop_sess")?.value
       if (!shopCookie) {
         console.warn(`[PAYMENT-INIT] ❌ Blocked: missing __shop_sess cookie for orderId=${orderId}`)
