@@ -42,6 +42,13 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true)
   const [honeypot, setHoneypot] = useState<string>("")
+  // Checkout phone-OTP gate
+  const [otpRequired, setOtpRequired] = useState<boolean>(false)
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState("")
+  const [otpVerified, setOtpVerified] = useState(false)
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [verifyingOtp, setVerifyingOtp] = useState(false)
 
   // Success state
   const [vouchers, setVouchers] = useState<Array<{ pin: string; serial_number: string | null }> | null>(null)
@@ -53,12 +60,41 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   }, [shop])
 
   useEffect(() => {
-    // Fetch Turnstile kill-switch state
+    // Fetch checkout requirements (Turnstile + OTP gate)
     fetch("/api/public/turnstile-status")
-      .then(r => r.ok ? r.json() : { enabled: true })
-      .then(d => setTurnstileEnabled(d.enabled !== false))
-      .catch(() => setTurnstileEnabled(true))
+      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false })
+      .then(d => { setTurnstileEnabled(d.enabled !== false); setOtpRequired(d.otp_required === true) })
+      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
   }, [])
+
+  const handleSendOtp = async () => {
+    const phone = formData.customerPhone.replace(/\s/g, "")
+    if (!/^\d{10}$/.test(phone)) { toast.error("Enter a valid 10-digit phone number first"); return }
+    setSendingOtp(true)
+    try {
+      const res = await fetch("/api/auth/send-phone-otp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d?.error || "Failed to send code"); return }
+      toast.success("Verification code sent"); setOtpSent(true)
+    } catch { toast.error("Network error") } finally { setSendingOtp(false) }
+  }
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.length < 4) { toast.error("Enter the code from your SMS"); return }
+    setVerifyingOtp(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: formData.customerPhone.replace(/\s/g, ""), code: otpCode.trim() }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.verified) { toast.error(d?.error || "Incorrect code"); return }
+      toast.success("Phone verified ✓"); setOtpVerified(true)
+    } catch { toast.error("Network error") } finally { setVerifyingOtp(false) }
+  }
 
   const loadBoardPricing = async () => {
     if (!shop?.id) return
@@ -354,7 +390,10 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
             </div>
             <div>
               <Label className="text-sm">Phone Number</Label>
-              <Input value={formData.customerPhone} onChange={e => setFormData(p => ({ ...p, customerPhone: e.target.value }))}
+              <Input value={formData.customerPhone} onChange={e => {
+                  setFormData(p => ({ ...p, customerPhone: e.target.value }))
+                  if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                }}
                 placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.customerPhone ? "border-red-400" : ""}`} />
               {formErrors.customerPhone && <p className="text-xs text-red-500 mt-1">{formErrors.customerPhone}</p>}
               <p className="text-xs text-gray-400 mt-1">Voucher serial numbers &amp; PINs will be sent to this number via SMS</p>
@@ -375,6 +414,36 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
           <HoneypotField value={honeypot} onChange={setHoneypot} />
 
+          {/* Checkout phone-OTP step (only when admin gate is ON) */}
+          {otpRequired && !otpVerified && (
+            <div className="p-4 rounded-xl bg-purple-50 border border-purple-200 space-y-3">
+              <p className="text-sm font-semibold text-purple-900">Verify your phone number to continue</p>
+              {!otpSent ? (
+                <Button type="button" onClick={handleSendOtp} disabled={sendingOtp} className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                  {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
+                    onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="text-center text-lg tracking-[0.4em] font-mono" />
+                  <div className="flex gap-2">
+                    <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                      {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp}>Resend</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {otpRequired && otpVerified && (
+            <div className="p-3 rounded-xl bg-green-50 border border-green-200 flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+              <span className="text-sm font-medium text-green-900">Phone verified</span>
+            </div>
+          )}
+
           {turnstileEnabled && (
             <div className="flex justify-center">
               <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
@@ -383,7 +452,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
           <Button
             onClick={handleSubmit}
-            disabled={submitting || (turnstileEnabled && !turnstileToken)}
+            disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified)}
             className="w-full h-14 bg-slate-900 hover:bg-violet-700 text-white font-black rounded-xl shadow-xl transition-all duration-300 text-base"
           >
             {submitting

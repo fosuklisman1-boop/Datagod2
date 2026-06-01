@@ -22,6 +22,13 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true)
   const [honeypot, setHoneypot] = useState<string>("")
+  // Checkout phone-OTP gate
+  const [otpRequired, setOtpRequired] = useState<boolean>(false)
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState("")
+  const [otpVerified, setOtpVerified] = useState(false)
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [verifyingOtp, setVerifyingOtp] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [constraints, setConstraints] = useState<any>(null)
@@ -42,12 +49,41 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   useEffect(() => {
     loadNetworkLogos()
     checkAllAvailability()
-    // Fetch Turnstile kill-switch state
+    // Fetch checkout requirements (Turnstile + OTP gate)
     fetch("/api/public/turnstile-status")
-      .then(r => r.ok ? r.json() : { enabled: true })
-      .then(d => setTurnstileEnabled(d.enabled !== false))
-      .catch(() => setTurnstileEnabled(true))
+      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false })
+      .then(d => { setTurnstileEnabled(d.enabled !== false); setOtpRequired(d.otp_required === true) })
+      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
   }, [])
+
+  const handleSendOtp = async () => {
+    const v = validatePhoneNumber(formData.beneficiaryPhone, selectedNetwork || undefined)
+    if (!v.isValid) { toast.error("Enter a valid phone number first"); return }
+    setSendingOtp(true)
+    try {
+      const res = await fetch("/api/auth/send-phone-otp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: formData.beneficiaryPhone }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d?.error || "Failed to send code"); return }
+      toast.success("Verification code sent"); setOtpSent(true)
+    } catch { toast.error("Network error") } finally { setSendingOtp(false) }
+  }
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.length < 4) { toast.error("Enter the code from your SMS"); return }
+    setVerifyingOtp(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: formData.beneficiaryPhone, code: otpCode.trim() }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.verified) { toast.error(d?.error || "Incorrect code"); return }
+      toast.success("Phone verified ✓"); setOtpVerified(true)
+    } catch { toast.error("Network error") } finally { setVerifyingOtp(false) }
+  }
 
   useEffect(() => {
     if (shop?.id && selectedNetwork) {
@@ -319,7 +355,10 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   placeholder="024XXXXXXX"
                   className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl font-mono text-lg"
                   value={formData.beneficiaryPhone}
-                  onChange={e => setFormData({...formData, beneficiaryPhone: e.target.value})}
+                  onChange={e => {
+                    setFormData({...formData, beneficiaryPhone: e.target.value})
+                    if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                  }}
                 />
               </div>
               <div className="space-y-2">
@@ -385,6 +424,36 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           <HoneypotField value={honeypot} onChange={setHoneypot} />
 
+          {/* Checkout phone-OTP step (only when admin gate is ON) */}
+          {otpRequired && !otpVerified && (
+            <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 space-y-3">
+              <p className="text-sm font-semibold text-purple-900">Verify the phone number to continue</p>
+              {!otpSent ? (
+                <Button type="button" onClick={handleSendOtp} disabled={sendingOtp} className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                  {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
+                    onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="text-center text-lg tracking-[0.4em] font-mono" />
+                  <div className="flex gap-2">
+                    <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                      {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp}>Resend</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {otpRequired && otpVerified && (
+            <div className="p-3 rounded-xl bg-green-50 border border-green-200 flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+              <span className="text-sm font-medium text-green-900">Phone verified</span>
+            </div>
+          )}
+
           {turnstileEnabled && (
             <div className="flex justify-center">
               <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
@@ -393,7 +462,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           <Button
             type="submit"
-            disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken)}
+            disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified)}
             className="w-full h-16 bg-gradient-to-r from-violet-600 via-indigo-700 to-purple-600 hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-violet-200 transition-all duration-300 disabled:opacity-50 disabled:grayscale"
           >
             {submitting ? (
