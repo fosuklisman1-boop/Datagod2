@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabase } from "@/lib/supabase"
+import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { getMTNProvider } from "@/lib/mtn-providers/factory"
 import { SykesProvider } from "@/lib/mtn-providers/sykes-provider"

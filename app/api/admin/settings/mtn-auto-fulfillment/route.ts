@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { isAutoFulfillmentEnabled, setAutoFulfillmentEnabled } from "@/lib/mtn-fulfillment"
-import { supabase } from "@/lib/supabase"
+import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 /**
