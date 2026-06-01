@@ -64,13 +64,18 @@ export default function ShopStorefront() {
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true) // default true until status loads
   const [honeypot, setHoneypot] = useState<string>("")
-  // Checkout phone-OTP gate (admin-toggleable)
+  // Checkout phone-OTP gate (admin-toggleable). When ON, the customer enters a
+  // MoMo PAYMENT number, verifies it via OTP, and we charge it directly (no
+  // hosted redirect), showing a live "approve the prompt" modal.
   const [otpRequired, setOtpRequired] = useState<boolean>(false)
+  const [paymentPhone, setPaymentPhone] = useState("")
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
   const [otpVerified, setOtpVerified] = useState(false)
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
+  // Live MoMo charge modal
+  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; orderId?: string; summary?: any; message?: string }>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
@@ -109,24 +114,24 @@ export default function ShopStorefront() {
     }
   }, [selectedNetwork])
 
-  // One-time OTP: if the entered phone was already verified before, auto-skip
-  // the OTP step (don't make returning customers re-verify every purchase).
+  // One-time OTP: if the PAYMENT number was already verified before, auto-skip
+  // the OTP step (returning customers don't re-verify every purchase).
   useEffect(() => {
     if (!otpRequired || otpVerified) return
-    const phone = orderData.customer_phone.replace(/\D/g, "")
+    const phone = paymentPhone.replace(/\D/g, "")
     if (!/^0?\d{9}$/.test(phone)) return
     const t = setTimeout(() => {
       fetch("/api/public/phone-verified", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: orderData.customer_phone }),
+        body: JSON.stringify({ phone: paymentPhone }),
       })
         .then(r => r.ok ? r.json() : { verified: false })
         .then(d => { if (d.verified) setOtpVerified(true) })
         .catch(() => {})
     }, 600)
     return () => clearTimeout(t)
-  }, [orderData.customer_phone, otpRequired, otpVerified])
+  }, [paymentPhone, otpRequired, otpVerified])
 
   const loadShopData = async () => {
     try {
@@ -231,18 +236,16 @@ export default function ShopStorefront() {
     return result.isValid
   }
 
-  // ── Checkout phone-OTP (only used when otpRequired) ──────────────────────
+  // ── Checkout payment-number OTP (only used when otpRequired) ─────────────
   const handleSendCheckoutOtp = async () => {
-    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage?.network)) {
-      toast.error("Enter a valid phone number first")
-      return
-    }
+    const digits = paymentPhone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) { toast.error("Enter a valid Mobile Money number first"); return }
     setSendingOtp(true)
     try {
       const res = await fetch("/api/auth/send-phone-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: orderData.customer_phone }),
+        body: JSON.stringify({ phone: paymentPhone }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(data?.error || "Failed to send code"); return }
@@ -262,17 +265,37 @@ export default function ShopStorefront() {
       const res = await fetch("/api/auth/verify-phone-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: orderData.customer_phone, code: otpCode.trim() }),
+        body: JSON.stringify({ phone: paymentPhone, code: otpCode.trim() }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok || !data.verified) { toast.error(data?.error || "Incorrect code"); return }
-      toast.success("Phone verified ✓")
+      toast.success("Payment number verified ✓")
       setOtpVerified(true)
     } catch {
       toast.error("Network error. Please try again.")
     } finally {
       setVerifyingOtp(false)
     }
+  }
+
+  // Poll order payment status while the live MoMo prompt modal is open.
+  const pollMomoStatus = (orderId: string, summary: any) => {
+    const started = Date.now()
+    const TIMEOUT_MS = 4 * 60 * 1000 // 4 minutes to approve the prompt
+    const tick = async () => {
+      if (Date.now() - started > TIMEOUT_MS) {
+        setMomoModal({ state: "failed", message: "Payment timed out. If you approved the prompt, your order will still be processed — check your orders, or try again." })
+        return
+      }
+      try {
+        const res = await fetch(`/api/payments/momo-status?orderId=${orderId}&orderType=data`)
+        const d = await res.json().catch(() => ({ status: "pending" }))
+        if (d.status === "completed") { setMomoModal({ state: "success", orderId, summary }); return }
+        if (d.status === "failed") { setMomoModal({ state: "failed", message: "Payment was not completed. Please try again." }); return }
+      } catch { /* keep polling */ }
+      setTimeout(tick, 3000)
+    }
+    setTimeout(tick, 3000)
   }
 
   const handleSubmitOrder = async () => {
@@ -337,6 +360,8 @@ export default function ShopStorefront() {
           customer_name: orderData.customer_name,
           customer_email: orderData.customer_email,
           customer_phone: normalizedPhone,
+          // When the gate is on, this is the OTP-verified number we charge.
+          paymentPhone: otpRequired ? paymentPhone : undefined,
           shop_package_id: selectedPackage.id,
           package_id: pkg.id,
           network: pkg.network,
@@ -378,6 +403,49 @@ export default function ShopStorefront() {
           total_price: totalPrice,
         }))
         console.log("[CHECKOUT] Order data saved to localStorage")
+      }
+
+      // ── Direct MoMo charge path (checkout OTP gate ON) ───────────────────
+      // When the gate is on, the customer has OTP-verified a Mobile Money number.
+      // Instead of the hosted Paystack redirect (which lets anyone trigger a prompt
+      // to ANY number), we charge that verified number directly via Paystack /charge.
+      // The prompt can therefore only ever reach a number the customer proved they
+      // control. We then keep them on-page with a live modal that polls order
+      // status until the charge.success webhook confirms the approved prompt.
+      if (otpRequired) {
+        if (!otpVerified) {
+          toast.error("Please verify your Mobile Money number first")
+          return
+        }
+        const { data: { session: momoSession } } = await supabase.auth.getSession()
+        const summary = {
+          packageLabel: `${pkg.size} • ${pkg.network}`,
+          beneficiary: normalizedPhone,
+          paymentPhone,
+          amount: totalPrice,
+        }
+        const chargeRes = await fetch("/api/payments/initialize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: totalPrice,
+            email: orderData.customer_email,
+            userId: momoSession?.user?.id || null,
+            orderId: order.id,
+            shopSlug,
+            momoDirect: true,
+            paymentPhone,
+          }),
+        })
+        const chargeData = await chargeRes.json().catch(() => ({}))
+        if (!chargeRes.ok || !chargeData.success) {
+          throw new Error(chargeData?.error || "Could not start the Mobile Money charge. Please try again.")
+        }
+        // Close the checkout dialog and show the live "approve the prompt" modal.
+        setCheckoutOpen(false)
+        setMomoModal({ state: "awaiting", orderId: order.id, summary })
+        pollMomoStatus(order.id, { ...summary, reference: chargeData.reference })
+        return
       }
 
       // Initialize Paystack payment
@@ -1000,59 +1068,78 @@ export default function ShopStorefront() {
                 <Alert className="border-blue-300 bg-blue-50">
                   <AlertCircle className="h-4 w-4 text-blue-600" />
                   <AlertDescription className="text-xs text-blue-700">
-                    You will be redirected to Paystack to complete your payment.
+                    {otpRequired
+                      ? "A Mobile Money prompt will be sent to your verified number. Approve it with your PIN to complete the order."
+                      : "You will be redirected to Paystack to complete your payment."}
                   </AlertDescription>
                 </Alert>
 
                 <HoneypotField value={honeypot} onChange={setHoneypot} />
 
-                {/* Checkout phone-OTP step (only when admin gate is ON) */}
-                {otpRequired && !otpVerified && (
+                {/* Payment-number + OTP step (only when admin gate is ON).
+                    The number entered here is the one Paystack charges directly,
+                    so the prompt can only ever go to a number the buyer verified. */}
+                {otpRequired && (
                   <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
-                    <p className="text-sm font-semibold text-purple-900">
-                      Verify your phone number to continue
-                    </p>
-                    {!otpSent ? (
-                      <Button
-                        type="button"
-                        onClick={handleSendCheckoutOtp}
-                        disabled={sendingOtp}
-                        className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                      >
-                        {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
-                      </Button>
-                    ) : (
-                      <div className="space-y-2">
-                        <Input
-                          inputMode="numeric"
-                          maxLength={6}
-                          placeholder="Enter 6-digit code"
-                          value={otpCode}
-                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                          className="text-center text-lg tracking-[0.4em] font-mono"
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            onClick={handleVerifyCheckoutOtp}
-                            disabled={verifyingOtp || otpCode.length < 4}
-                            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
-                          >
-                            {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
-                          </Button>
-                          <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp}>
-                            Resend
-                          </Button>
+                    <div>
+                      <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</Label>
+                      <Input
+                        value={paymentPhone}
+                        onChange={(e) => {
+                          setPaymentPhone(e.target.value)
+                          // changing the number invalidates any prior verification
+                          if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                        }}
+                        placeholder="0241234567"
+                        className="mt-1 bg-white"
+                        disabled={otpVerified}
+                      />
+                      <p className="text-xs text-purple-700 mt-1">
+                        The payment prompt is sent to this number. You verify it once.
+                      </p>
+                    </div>
+
+                    {!otpVerified ? (
+                      !otpSent ? (
+                        <Button
+                          type="button"
+                          onClick={handleSendCheckoutOtp}
+                          disabled={sendingOtp}
+                          className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                        >
+                          {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
+                        </Button>
+                      ) : (
+                        <div className="space-y-2">
+                          <Input
+                            inputMode="numeric"
+                            maxLength={6}
+                            placeholder="Enter 6-digit code"
+                            value={otpCode}
+                            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                            className="text-center text-lg tracking-[0.4em] font-mono bg-white"
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              onClick={handleVerifyCheckoutOtp}
+                              disabled={verifyingOtp || otpCode.length < 4}
+                              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                            >
+                              {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                            </Button>
+                            <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp}>
+                              Resend
+                            </Button>
+                          </div>
                         </div>
+                      )
+                    ) : (
+                      <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                       </div>
                     )}
-                  </div>
-                )}
-
-                {otpRequired && otpVerified && (
-                  <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
-                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                    <span className="text-sm font-medium text-green-900">Phone verified</span>
                   </div>
                 )}
 
@@ -1095,6 +1182,83 @@ export default function ShopStorefront() {
           </div>
         )
       }
+
+      {/* Live Mobile Money prompt modal (direct-charge flow). Stays on-page while
+          the customer approves the prompt; polls order status until the webhook
+          flips it to completed, then shows the order summary. */}
+      {momoModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
+          <Card className="w-full max-w-md bg-white">
+            {momoModal.state === "awaiting" && (
+              <CardContent className="pt-8 pb-6 text-center space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Approve the prompt on your phone</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    We sent a Mobile Money prompt to{" "}
+                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
+                    <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
+                </div>
+                <p className="text-xs text-gray-400">Keep this page open. This can take up to a minute.</p>
+              </CardContent>
+            )}
+
+            {momoModal.state === "success" && (
+              <CardContent className="pt-8 pb-6 text-center space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                  <svg className="w-9 h-9 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Payment successful 🎉</h3>
+                  <p className="text-sm text-gray-600 mt-1">Your order is confirmed and is being processed.</p>
+                </div>
+                <div className="text-left p-4 rounded-lg bg-gray-50 border border-gray-200 space-y-1.5 text-sm">
+                  <div className="flex justify-between"><span className="text-gray-500">Package</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Beneficiary</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
+                  {momoModal.summary?.reference && (
+                    <div className="flex justify-between"><span className="text-gray-500">Reference</span><span className="font-mono text-xs">{momoModal.summary.reference}</span></div>
+                  )}
+                </div>
+                <Button
+                  onClick={() => {
+                    setMomoModal(null)
+                    setSelectedPackage(null)
+                    setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+                    setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
+                  }}
+                  className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+                >
+                  Done
+                </Button>
+              </CardContent>
+            )}
+
+            {momoModal.state === "failed" && (
+              <CardContent className="pt-8 pb-6 text-center space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                  <AlertCircle className="w-9 h-9 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Payment not completed</h3>
+                  <p className="text-sm text-gray-600 mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setMomoModal(null)} className="flex-1">Close</Button>
+                  <Button onClick={() => { setMomoModal(null); setCheckoutOpen(true) }} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">Try again</Button>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* Floating WhatsApp Icon */}
       {

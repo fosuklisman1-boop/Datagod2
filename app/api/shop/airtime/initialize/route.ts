@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    let { shopId, shopSlug, beneficiaryPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot } = body
+    let { shopId, shopSlug, beneficiaryPhone, paymentPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot } = body
 
     // SECURITY: prefer slug over client-provided shopId. The slug is public; the
     // UUID is internal. If slug is provided, resolve it server-side and overwrite
@@ -124,19 +124,22 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[SHOP-AIRTIME] ✓ Cookie valid for shop ${shopId} slug=${shopForCookie.shop_slug}`)
 
-    // Checkout phone-OTP gate (admin toggle). For airtime we verify the
-    // beneficiary phone (the recipient) — during an attack this restricts
-    // airtime to verified numbers. Admin keeps it OFF in normal operation.
+    // Checkout phone-OTP gate (admin toggle). We verify the PAYMENT number — the
+    // MoMo number that will actually be charged (direct-charge flow) — so the
+    // prompt can only reach a number the buyer proved they control. Falls back to
+    // the beneficiary phone for older clients that don't send a payment number.
+    // Admin keeps this OFF in normal operation.
     if (await isStorefrontOtpRequired()) {
-      const verified = await isPhoneVerified(beneficiaryPhone)
+      const numberToVerify = (paymentPhone && String(paymentPhone).trim()) || beneficiaryPhone
+      const verified = await isPhoneVerified(numberToVerify)
       if (!verified) {
-        console.warn(`[SHOP-AIRTIME] ❌ Phone not OTP-verified for shop ${shopId}`)
+        console.warn(`[SHOP-AIRTIME] ❌ Payment number not OTP-verified for shop ${shopId}`)
         return NextResponse.json(
-          { error: "Please verify the phone number to continue.", code: "OTP_REQUIRED" },
+          { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
           { status: 403 }
         )
       }
-      console.log(`[SHOP-AIRTIME] ✓ Phone OTP-verified for shop ${shopId}`)
+      console.log(`[SHOP-AIRTIME] ✓ Payment number OTP-verified for shop ${shopId}`)
     }
 
     const amount = parseFloat(airtimeAmount || bodyAmount)

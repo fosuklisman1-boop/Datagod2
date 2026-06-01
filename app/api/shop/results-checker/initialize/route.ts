@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    let { shopId, shopSlug, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, turnstileToken, website: honeypot } = body
+    let { shopId, shopSlug, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, paymentPhone, turnstileToken, website: honeypot } = body
 
     // SECURITY: prefer slug over client-provided shopId. Resolve server-side.
     if (shopSlug) {
@@ -107,17 +107,21 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[RC-SHOP-INIT] ✓ Cookie valid for shop ${shopId} slug=${shopForCookie.shop_slug}`)
 
-    // Checkout phone-OTP gate (admin toggle). Verifies the customer phone.
+    // Checkout phone-OTP gate (admin toggle). Verifies the PAYMENT number — the
+    // MoMo number that will actually be charged (direct-charge flow) — so the
+    // prompt can only reach a number the buyer proved they control. Falls back to
+    // the customer phone for older clients that don't send a payment number.
     if (await isStorefrontOtpRequired()) {
-      const verified = await isPhoneVerified(customerPhone)
+      const numberToVerify = (paymentPhone && String(paymentPhone).trim()) || customerPhone
+      const verified = await isPhoneVerified(numberToVerify)
       if (!verified) {
-        console.warn(`[RC-SHOP-INIT] ❌ Phone not OTP-verified for shop ${shopId}`)
+        console.warn(`[RC-SHOP-INIT] ❌ Payment number not OTP-verified for shop ${shopId}`)
         return NextResponse.json(
-          { error: "Please verify your phone number to continue.", code: "OTP_REQUIRED" },
+          { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
           { status: 403 }
         )
       }
-      console.log(`[RC-SHOP-INIT] ✓ Phone OTP-verified for shop ${shopId}`)
+      console.log(`[RC-SHOP-INIT] ✓ Payment number OTP-verified for shop ${shopId}`)
     }
 
     if (!isValidExamBoard(examBoard)) {
