@@ -94,17 +94,18 @@ export async function GET(request: NextRequest) {
                             .eq("id", order.id)
 
                         // Mirror status to the originating order table
+                        const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
                         if (order.order_type === "bulk" && order.order_id) {
-                            await supabase.from("orders").update({ status: newStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
+                            await supabase.from("orders").update({ status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
                         } else if (order.order_type === "api" && (order.api_order_id || order.order_id)) {
                             const apiId = order.api_order_id || order.order_id
-                            await supabase.from("api_orders").update({ status: newStatus, updated_at: new Date().toISOString() }).eq("id", apiId)
+                            await supabase.from("api_orders").update({ status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", apiId)
                         } else if (order.order_type === "ussd" && order.order_id) {
-                            await supabase.from("ussd_orders").update({ order_status: newStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
+                            await supabase.from("ussd_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
                         } else if (order.order_type === "ussd_shop" && order.order_id) {
-                            await supabase.from("ussd_shop_orders").update({ order_status: newStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
+                            await supabase.from("ussd_shop_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
                         } else if (order.shop_order_id) {
-                            await supabase.from("shop_orders").update({ order_status: newStatus, updated_at: new Date().toISOString() }).eq("id", order.shop_order_id)
+                            await supabase.from("shop_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.shop_order_id)
                         }
 
                         console.log(`[CRON-XPRESS] ✅ ${order.mtn_order_id}: ${oldStatus} -> ${newStatus}`)
