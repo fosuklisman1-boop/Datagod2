@@ -108,12 +108,15 @@ export async function POST(request: NextRequest) {
     // Bypass cookie + Turnstile checks ONLY for genuine sub-agent stock purchases:
     //   1) Must have a valid Supabase Bearer token, AND
     //   2) Body must declare is_stock_purchase: true, AND
-    //   3) The authenticated user must actually own a sub-agent shop
-    //      (user_shops row where user_id = auth.uid() AND parent_shop_id IS NOT NULL).
+    //   3) The order's target shop (shop_id) must be a sub-agent shop OWNED BY
+    //      the authenticated user (user_shops row where id = shop_id AND
+    //      user_id = auth.uid() AND parent_shop_id IS NOT NULL).
     //
-    // (1) + (2) used to be sufficient — but (2) is a client-claimed flag, so any
-    // authenticated user could set it and bypass. (3) ties the bypass to a real
-    // database precondition that an attacker creating throwaway accounts can't fake.
+    // SCOPE NOTE: (3) is bound to the SPECIFIC shop_id being ordered against —
+    // not "owns any sub-agent shop". Otherwise an attacker who owns one
+    // sub-agent shop could set is_stock_purchase=true against a VICTIM shop's
+    // slug and bypass cookie+Turnstile for any shop on the platform. The legit
+    // buy-stock flow always orders against the user's own shop, so this is safe.
     let isAuthenticatedDashboardCall = false
     const authHeader = request.headers.get("authorization")
     const isStockPurchaseFlag = body?.is_stock_purchase === true
@@ -122,18 +125,18 @@ export async function POST(request: NextRequest) {
       try {
         const { data: { user } } = await supabase.auth.getUser(token)
         if (user) {
-          const { data: subAgentShop } = await supabase
+          const { data: ownedSubAgentShop } = await supabase
             .from("user_shops")
             .select("id")
-            .eq("user_id", user.id)
-            .not("parent_shop_id", "is", null)
-            .limit(1)
+            .eq("id", shop_id)                      // the SPECIFIC shop this order targets
+            .eq("user_id", user.id)                 // owned by the caller
+            .not("parent_shop_id", "is", null)      // and is a sub-agent shop
             .maybeSingle()
-          if (subAgentShop) {
+          if (ownedSubAgentShop) {
             isAuthenticatedDashboardCall = true
-            console.log(`[SHOP-ORDER] ✓ Verified sub-agent stock purchase by user ${user.id} (sub-agent shop ${subAgentShop.id})`)
+            console.log(`[SHOP-ORDER] ✓ Verified sub-agent stock purchase by user ${user.id} for own shop ${shop_id}`)
           } else {
-            console.warn(`[SHOP-ORDER] ❌ Auth bypass rejected: user ${user.id} does NOT own a sub-agent shop — falling through to cookie+Turnstile`)
+            console.warn(`[SHOP-ORDER] ❌ Auth bypass rejected: user ${user.id} does not own sub-agent shop ${shop_id} — falling through to cookie+Turnstile`)
           }
         }
       } catch {
