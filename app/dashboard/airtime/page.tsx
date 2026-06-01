@@ -102,21 +102,23 @@ export default function AirtimePage() {
     setUserRole(role)
     const isDealer = role === "dealer" || role === "sub_agent"
 
-    // Fetch availability settings
-    const { data: settingsData } = await supabase
-      .from("admin_settings")
-      .select("key, value")
-      .in("key", [
-        "airtime_enabled_mtn", "airtime_enabled_telecel", "airtime_enabled_at",
-        `airtime_fee_mtn_${isDealer ? 'dealer' : 'customer'}`,
-        `airtime_fee_telecel_${isDealer ? 'dealer' : 'customer'}`,
-        `airtime_fee_at_${isDealer ? 'dealer' : 'customer'}`
-      ])
+    // Fetch availability settings via curated public-config (admin_settings is
+    // service-role only). cfg.admin_settings is a key→value map of airtime_* keys.
+    let airtimeSettings: Record<string, any> = {}
+    try {
+      const res = await fetch("/api/public/config")
+      if (res.ok) {
+        const cfg = await res.json()
+        airtimeSettings = cfg.admin_settings ?? {}
+      }
+    } catch (e) {
+      console.warn("Could not load airtime config:", e)
+    }
 
     // Filter networks
     const enabledNets = ["MTN", "Telecel", "AT"].filter(n => {
-      const setting = settingsData?.find(s => s.key === `airtime_enabled_${n.toLowerCase()}`)
-      return setting?.value?.enabled !== false
+      const setting = airtimeSettings[`airtime_enabled_${n.toLowerCase()}`]
+      return setting?.enabled !== false
     })
 
     setAvailableNetworks(enabledNets)
@@ -128,8 +130,8 @@ export default function AirtimePage() {
 
     // Set specific fee for current network
     const netKey = network.toLowerCase()
-    const feeSetting = settingsData?.find(s => s.key === `airtime_fee_${netKey}_${isDealer ? 'dealer' : 'customer'}`)
-    setFeeRate(feeSetting?.value?.rate ?? 5)
+    const feeSetting = airtimeSettings[`airtime_fee_${netKey}_${isDealer ? 'dealer' : 'customer'}`]
+    setFeeRate(feeSetting?.rate ?? 5)
   }, [network, router])
 
   // ----- Load order history -----

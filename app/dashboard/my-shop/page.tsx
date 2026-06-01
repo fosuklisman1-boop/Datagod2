@@ -136,14 +136,15 @@ export default function MyShopPage() {
           novdec: (userShop.results_checker_markup_novdec ?? 0).toString(),
         })
 
-        // Load RC max markups from admin settings
+        // Load RC max markups via curated public-config (admin_settings is
+        // service-role only).
         try {
-          const { data: rcSettings } = await supabase
-            .from("admin_settings")
-            .select("key, value")
-            .in("key", ["results_checker_max_markup_waec", "results_checker_max_markup_bece", "results_checker_max_markup_novdec"])
           const rcMap: Record<string, any> = {}
-          for (const row of rcSettings ?? []) rcMap[row.key] = row.value
+          const res = await fetch("/api/public/config")
+          if (res.ok) {
+            const cfg = await res.json()
+            Object.assign(rcMap, cfg.admin_settings ?? {})
+          }
           setRcMaxMarkups({
             waec:   rcMap["results_checker_max_markup_waec"]?.max   ?? 0,
             bece:   rcMap["results_checker_max_markup_bece"]?.max   ?? 0,

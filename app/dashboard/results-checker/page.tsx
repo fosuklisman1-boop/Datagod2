@@ -96,13 +96,17 @@ export default function ResultsCheckerPage() {
   }
 
   const loadBoardSettings = async () => {
-    const { data } = await supabase
-      .from("admin_settings")
-      .select("key, value")
-      .like("key", "results_checker_%")
-
+    // admin_settings is service-role only; read curated config via API.
     const map: Record<string, any> = {}
-    for (const row of data ?? []) map[row.key] = row.value
+    try {
+      const res = await fetch("/api/public/config")
+      if (res.ok) {
+        const cfg = await res.json()
+        Object.assign(map, cfg.admin_settings ?? {})
+      }
+    } catch (e) {
+      console.warn("Could not load results-checker config:", e)
+    }
 
     const settings: Record<string, BoardPricing> = {}
     for (const board of EXAM_BOARDS) {

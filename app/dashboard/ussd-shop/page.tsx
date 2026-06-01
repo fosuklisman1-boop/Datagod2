@@ -63,17 +63,14 @@ export default function UssdShopPage() {
 
       if (!shopRow) { setLoading(false); return }
 
-      const [codeRes, settingsRes, ordersRes, walletRes] = await Promise.all([
+      // app_settings is service-role only; read ussd config via curated public API.
+      const [codeRes, cfgRes, ordersRes, walletRes] = await Promise.all([
         supabase
           .from("ussd_shop_codes")
           .select("id, code, status, token_balance, activation_fee_paid, created_at")
           .eq("shop_id", shopRow.id)
           .maybeSingle(),
-        supabase
-          .from("app_settings")
-          .select("ussd_shop_dial_code, ussd_shop_activation_fee, ussd_shop_session_price, ussd_shop_min_sessions, ussd_shop_max_sessions")
-          .limit(1)
-          .maybeSingle(),
+        fetch("/api/public/config").then(r => r.ok ? r.json() : { app_settings: {} }).catch(() => ({ app_settings: {} })),
         supabase
           .from("ussd_shop_orders")
           .select("id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, created_at")
@@ -87,12 +84,13 @@ export default function UssdShopPage() {
           .maybeSingle(),
       ])
 
+      const ussdCfg = cfgRes?.app_settings ?? {}
       setShopCode(codeRes.data ?? null)
-      setDialCode(settingsRes.data?.ussd_shop_dial_code ?? "")
-      setActivationFee(Number(settingsRes.data?.ussd_shop_activation_fee ?? 0))
-      setSessionPrice(Number(settingsRes.data?.ussd_shop_session_price ?? 0))
-      setMinSessions(Number(settingsRes.data?.ussd_shop_min_sessions ?? 1))
-      setMaxSessions(Number(settingsRes.data?.ussd_shop_max_sessions ?? 100))
+      setDialCode(ussdCfg.ussd_shop_dial_code ?? "")
+      setActivationFee(Number(ussdCfg.ussd_shop_activation_fee ?? 0))
+      setSessionPrice(Number(ussdCfg.ussd_shop_session_price ?? 0))
+      setMinSessions(Number(ussdCfg.ussd_shop_min_sessions ?? 1))
+      setMaxSessions(Number(ussdCfg.ussd_shop_max_sessions ?? 100))
       setOrders(ordersRes.data ?? [])
       setWalletBalance(walletRes.data ? Number(walletRes.data.balance) : null)
     } catch {
