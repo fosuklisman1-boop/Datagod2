@@ -1,6 +1,27 @@
 import { supabase } from "./supabase"
 import { getPriceAdjustments, getAdjustmentForNetwork, applyPriceAdjustment } from "./price-adjustment-service"
 
+// Public shape of a shop returned to the anonymous storefront client. The
+// internal id and user_id columns are intentionally absent — server-side
+// APIs resolve them from shop_slug as needed.
+export interface PublicShop {
+  shop_name: string
+  shop_slug: string
+  description: string | null
+  logo_url: string | null
+  banner_url: string | null
+  is_active: boolean
+  is_blocked: boolean
+  parent_shop_id: string | null
+  airtime_markup_mtn: number | null
+  airtime_markup_telecel: number | null
+  airtime_markup_at: number | null
+  results_checker_markup_waec: number | null
+  results_checker_markup_bece: number | null
+  results_checker_markup_novdec: number | null
+  created_at: string
+}
+
 // Shop operations
 export const shopService = {
   // Create a shop for user
@@ -47,20 +68,19 @@ export const shopService = {
   // exist in the schema and are safe for anon to see. EXCLUDES:
   //   - id, user_id (internal UUIDs — server-only)
   //   - block_reason, blocked_at, tier_level, updated_at (internal admin data)
-  async getShopBySlug(slug: string) {
+  //
+  // Returns PublicShop | null. Explicit type avoids Supabase's TS inference
+  // generating a GenericStringError union for multi-column selects.
+  async getShopBySlug(slug: string): Promise<PublicShop | null> {
     const { data, error } = await supabase
       .from("user_shops")
-      .select(
-        "shop_name, shop_slug, description, logo_url, banner_url, is_active, is_blocked, parent_shop_id, " +
-        "airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at, " +
-        "results_checker_markup_waec, results_checker_markup_bece, results_checker_markup_novdec, created_at"
-      )
+      .select("shop_name, shop_slug, description, logo_url, banner_url, is_active, is_blocked, parent_shop_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at, results_checker_markup_waec, results_checker_markup_bece, results_checker_markup_novdec, created_at")
       .eq("shop_slug", slug)
       .eq("is_active", true)
       .single()
 
     if (error && error.code !== "PGRST116") throw error
-    return data
+    return (data as unknown as PublicShop) ?? null
   },
 
   // Update shop
