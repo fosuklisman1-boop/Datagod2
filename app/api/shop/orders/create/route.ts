@@ -7,6 +7,7 @@ import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
 import { secureTimestampedReference } from "@/lib/secure-random"
+import { checkEmailQuality } from "@/lib/email-heuristics"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -105,12 +106,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 })
     }
 
-    // Strict email + phone format validation. Real browser forms enforce these
-    // client-side; scripted attackers send garbage (e.g. "fhcbgbfx@", no domain).
-    // Rejecting here is cheap and kills the lazy-script wave before any DB work.
-    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
-    if (!customer_email || typeof customer_email !== "string" || !EMAIL_RE.test(customer_email.trim())) {
-      console.warn(`[SHOP-ORDER] ❌ Invalid email format for shop ${shop_id}: ${String(customer_email).slice(0, 40)}`)
+    // Email quality check: format + bot heuristics (repeated-char local parts like
+    // "kkkkkkk", known throwaway domains like "mli.mc"). Near-zero false positives;
+    // rejects the current scripted wave before any DB work. NOT a substitute for
+    // Cloudflare/Turnstile — a cheap speed bump while the edge defence ramps.
+    const emailCheck = checkEmailQuality(customer_email)
+    if (!emailCheck.ok) {
+      console.warn(`[SHOP-ORDER] ❌ Email rejected (${emailCheck.reason}) for shop ${shop_id}: ${String(customer_email).slice(0, 40)}`)
       return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 })
     }
     // Ghana phone: 10 digits starting 0, or 9 digits, optionally +233 prefix.
