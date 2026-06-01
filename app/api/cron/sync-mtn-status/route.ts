@@ -368,6 +368,7 @@ export async function GET(request: NextRequest) {
           }
 
           // Update corresponding order table and send notification
+          const orderTableStatus = normalizedStatus === "failed" ? "pending" : normalizedStatus
           let userId: string | null = null
           let orderDetails: { network?: string; size?: string; phone?: string } = {}
 
@@ -375,7 +376,7 @@ export async function GET(request: NextRequest) {
             const { data: orderData, error: orderError } = await supabase
               .from("orders")
               .update({
-                status: normalizedStatus,
+                status: orderTableStatus,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", order.order_id)
@@ -393,7 +394,7 @@ export async function GET(request: NextRequest) {
             const { data: apiData, error: apiError } = await supabase
               .from("api_orders")
               .update({
-                status: normalizedStatus,
+                status: orderTableStatus,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", apiId)
@@ -410,7 +411,7 @@ export async function GET(request: NextRequest) {
             const { data: ussdData, error: ussdError } = await supabase
               .from("ussd_orders")
               .update({
-                order_status: normalizedStatus,
+                order_status: orderTableStatus,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", order.order_id)
@@ -426,7 +427,7 @@ export async function GET(request: NextRequest) {
             const { data: ussdShopData, error: ussdShopError } = await supabase
               .from("ussd_shop_orders")
               .update({
-                order_status: normalizedStatus,
+                order_status: orderTableStatus,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", order.order_id)
@@ -442,7 +443,7 @@ export async function GET(request: NextRequest) {
             const { data: shopData, error: shopError } = await supabase
               .from("shop_orders")
               .update({
-                order_status: normalizedStatus,
+                order_status: orderTableStatus,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", order.shop_order_id)
