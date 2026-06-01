@@ -105,11 +105,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 })
     }
 
-    // Bypass cookie + Turnstile checks ONLY for sub-agent stock purchases:
-    // - Must have a valid Supabase Bearer token AND
-    // - Body must explicitly declare is_stock_purchase: true
-    // A normal customer order (is_stock_purchase != true) goes through the full
-    // public-flow defences even if the request happens to carry an auth header.
+    // Bypass cookie + Turnstile checks ONLY for genuine sub-agent stock purchases:
+    //   1) Must have a valid Supabase Bearer token, AND
+    //   2) Body must declare is_stock_purchase: true, AND
+    //   3) The authenticated user must actually own a sub-agent shop
+    //      (user_shops row where user_id = auth.uid() AND parent_shop_id IS NOT NULL).
+    //
+    // (1) + (2) used to be sufficient — but (2) is a client-claimed flag, so any
+    // authenticated user could set it and bypass. (3) ties the bypass to a real
+    // database precondition that an attacker creating throwaway accounts can't fake.
     let isAuthenticatedDashboardCall = false
     const authHeader = request.headers.get("authorization")
     const isStockPurchaseFlag = body?.is_stock_purchase === true
@@ -118,8 +122,19 @@ export async function POST(request: NextRequest) {
       try {
         const { data: { user } } = await supabase.auth.getUser(token)
         if (user) {
-          isAuthenticatedDashboardCall = true
-          console.log(`[SHOP-ORDER] ✓ Authenticated sub-agent stock purchase: ${user.id}`)
+          const { data: subAgentShop } = await supabase
+            .from("user_shops")
+            .select("id")
+            .eq("user_id", user.id)
+            .not("parent_shop_id", "is", null)
+            .limit(1)
+            .maybeSingle()
+          if (subAgentShop) {
+            isAuthenticatedDashboardCall = true
+            console.log(`[SHOP-ORDER] ✓ Verified sub-agent stock purchase by user ${user.id} (sub-agent shop ${subAgentShop.id})`)
+          } else {
+            console.warn(`[SHOP-ORDER] ❌ Auth bypass rejected: user ${user.id} does NOT own a sub-agent shop — falling through to cookie+Turnstile`)
+          }
         }
       } catch {
         // Invalid token — fall through to cookie + turnstile checks
