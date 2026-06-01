@@ -61,22 +61,46 @@ function phoneVariants(phone: string): string[] {
 }
 
 /**
- * Has this phone EVER completed an OTP verification? One-time: once verified,
- * the number is trusted for all future orders (per-phone caps bound volume).
+ * Is this phone trusted for checkout? True if EITHER:
+ *   (a) it completed an OTP verification (phone_otp_verifications, used=true), OR
+ *   (b) it has a COMPLETED, PAID order in its history (grandfathered).
+ *
+ * (b) auto-trusts existing customers who bought before the OTP gate existed —
+ * a paid+completed order is a proven legit customer, and the attacker's flood
+ * orders are never paid, so they're never grandfathered. One-time: once
+ * trusted, always trusted; per-phone caps bound volume thereafter.
  */
 export async function isPhoneVerified(phone: string): Promise<boolean> {
   if (!supabase) return false
   if (!phone) return false
 
+  const variants = phoneVariants(phone)
   try {
-    const { data } = await supabase
-      .from("phone_otp_verifications")
-      .select("id")
-      .in("phone", phoneVariants(phone))
-      .eq("used", true)
-      .limit(1)
-      .maybeSingle()
-    return !!data
+    const [otp, shopOrder, airtimeOrder, rcOrder] = await Promise.all([
+      supabase
+        .from("phone_otp_verifications")
+        .select("id", { count: "exact", head: true })
+        .in("phone", variants).eq("used", true),
+      // Past PAID data order (the bulk of business + the attack target)
+      supabase
+        .from("shop_orders")
+        .select("id", { count: "exact", head: true })
+        .in("customer_phone", variants).eq("payment_status", "completed"),
+      // Past PAID airtime to this number (gate verifies beneficiary phone)
+      supabase
+        .from("airtime_orders")
+        .select("id", { count: "exact", head: true })
+        .in("beneficiary_phone", variants).eq("payment_status", "completed"),
+      // Past PAID results-checker order
+      supabase
+        .from("results_checker_orders")
+        .select("id", { count: "exact", head: true })
+        .in("customer_phone", variants).eq("payment_status", "completed"),
+    ])
+    return (otp.count ?? 0) > 0
+      || (shopOrder.count ?? 0) > 0
+      || (airtimeOrder.count ?? 0) > 0
+      || (rcOrder.count ?? 0) > 0
   } catch {
     return false
   }
