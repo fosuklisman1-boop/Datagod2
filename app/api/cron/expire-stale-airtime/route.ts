@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
   try {
     const cutoff = new Date(Date.now() - EXPIRY_MINUTES * 60 * 1000).toISOString()
 
-    const { data, error } = await supabase
+    // 1) Airtime orders
+    const { data: airtimeExpired, error: airtimeErr } = await supabase
       .from("airtime_orders")
       .update({ status: "expired", payment_status: "expired", updated_at: new Date().toISOString() })
       .eq("status", "pending_payment")
@@ -25,17 +26,49 @@ export async function GET(request: NextRequest) {
       .lt("created_at", cutoff)
       .select("id")
 
-    if (error) {
-      console.error("[EXPIRE-AIRTIME] DB error:", error)
-      return NextResponse.json({ error: "DB update failed" }, { status: 500 })
+    if (airtimeErr) {
+      console.error("[EXPIRE-STALE] airtime_orders DB error:", airtimeErr)
     }
 
-    const expired = data?.length ?? 0
-    console.log(`[EXPIRE-AIRTIME] Expired ${expired} stale airtime orders (cutoff: ${cutoff})`)
+    // 2) Shop (data) orders — CRITICAL: unpaid flood orders that never expire
+    //    accumulate in the per-shop pending cap and block legitimate customers.
+    //    Expiring them frees the cap so real buyers aren't locked out during an
+    //    attack. Only touches payment_status='pending' rows (paid orders already
+    //    flipped to 'completed' by the webhook, so they're untouched).
+    const { data: shopExpired, error: shopErr } = await supabase
+      .from("shop_orders")
+      .update({ order_status: "expired", payment_status: "expired", updated_at: new Date().toISOString() })
+      .eq("payment_status", "pending")
+      .lt("created_at", cutoff)
+      .select("id")
 
-    return NextResponse.json({ expired })
+    if (shopErr) {
+      console.error("[EXPIRE-STALE] shop_orders DB error:", shopErr)
+    }
+
+    // 3) Results-checker orders
+    const { data: rcExpired, error: rcErr } = await supabase
+      .from("results_checker_orders")
+      .update({ status: "expired", payment_status: "expired", updated_at: new Date().toISOString() })
+      .eq("status", "pending_payment")
+      .eq("payment_status", "pending_payment")
+      .lt("created_at", cutoff)
+      .select("id")
+
+    if (rcErr) {
+      console.error("[EXPIRE-STALE] results_checker_orders DB error:", rcErr)
+    }
+
+    const result = {
+      airtime: airtimeExpired?.length ?? 0,
+      shop: shopExpired?.length ?? 0,
+      results_checker: rcExpired?.length ?? 0,
+    }
+    console.log(`[EXPIRE-STALE] Expired stale pending orders (cutoff ${cutoff}):`, result)
+
+    return NextResponse.json({ expired: result })
   } catch (err) {
-    console.error("[EXPIRE-AIRTIME] Unexpected error:", err)
+    console.error("[EXPIRE-STALE] Unexpected error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
