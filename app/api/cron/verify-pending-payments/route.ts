@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { getInternalBaseUrl } from "@/lib/internal-url"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -102,10 +103,11 @@ async function triggerFulfillment(order: {
 }): Promise<{ success: boolean; message: string }> {
   try {
     console.log(`[VERIFY-PAYMENT] Triggering fulfillment for order ${order.id}`)
-    
-    // Call the fulfillment process-order endpoint internally
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
-    
+
+    // Use the INTERNAL origin (bypasses Cloudflare) — calling the public
+    // domain server-to-server gets hit by Bot Fight Mode → HTML challenge.
+    const baseUrl = getInternalBaseUrl()
+
     const response = await fetch(`${baseUrl}/api/fulfillment/process-order`, {
       method: "POST",
       headers: {
