@@ -105,6 +105,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 })
     }
 
+    // Strict email + phone format validation. Real browser forms enforce these
+    // client-side; scripted attackers send garbage (e.g. "fhcbgbfx@", no domain).
+    // Rejecting here is cheap and kills the lazy-script wave before any DB work.
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+    if (!customer_email || typeof customer_email !== "string" || !EMAIL_RE.test(customer_email.trim())) {
+      console.warn(`[SHOP-ORDER] ❌ Invalid email format for shop ${shop_id}: ${String(customer_email).slice(0, 40)}`)
+      return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 })
+    }
+    // Ghana phone: 10 digits starting 0, or 9 digits, optionally +233 prefix.
+    const phoneDigits = String(customer_phone || "").replace(/\D/g, "")
+    const normalizedPhone = phoneDigits.startsWith("233") ? "0" + phoneDigits.slice(3) : phoneDigits
+    if (!/^0\d{9}$/.test(normalizedPhone)) {
+      console.warn(`[SHOP-ORDER] ❌ Invalid phone format for shop ${shop_id}: ${String(customer_phone).slice(0, 20)}`)
+      return NextResponse.json({ error: "Please enter a valid phone number." }, { status: 400 })
+    }
+
     // Bypass cookie + Turnstile checks ONLY for genuine sub-agent stock purchases:
     //   1) Must have a valid Supabase Bearer token, AND
     //   2) Body must declare is_stock_purchase: true, AND
