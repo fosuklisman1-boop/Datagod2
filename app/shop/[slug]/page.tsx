@@ -239,7 +239,7 @@ export default function ShopStorefront() {
       const volumeGb = parseInt(pkg.size.toString().replace(/[^0-9]/g, "")) || 0
 
       console.log("[CHECKOUT] Creating order with details:", {
-        shop_id: shop.id,
+        shop_slug: shopSlug,
         customer_name: orderData.customer_name,
         customer_email: orderData.customer_email,
         network: pkg.network,
@@ -291,7 +291,7 @@ export default function ShopStorefront() {
       if (typeof window !== "undefined" && window.localStorage) {
         localStorage.setItem('checkout_order_id', order.id)
         localStorage.setItem('checkout_order_data', JSON.stringify({
-          shop_id: shop.id,
+          shop_slug: shopSlug,
           customer_name: orderData.customer_name,
           customer_email: orderData.customer_email,
           customer_phone: normalizedPhone,
@@ -985,7 +985,7 @@ export default function ShopStorefront() {
 
       {shop && (
         <AIChatWidget
-          shop={{ id: shop.id, shop_name: shop.shop_name }}
+          shop={{ shop_name: shop.shop_name }}
           shopSlug={shopSlug}
           onCheckoutPrefill={(pkg) => {
             const match = packages.find(

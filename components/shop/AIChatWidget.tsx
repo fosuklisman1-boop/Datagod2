@@ -25,7 +25,7 @@ interface ActionButton {
 }
 
 interface Props {
-  shop: { id: string; shop_name: string }
+  shop: { shop_name: string }
   shopSlug: string
   onCheckoutPrefill?: (pkg: ShopPackageData) => void
 }
@@ -140,7 +140,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, context: "storefront", shopSlug, shopId: shop.id }),
+        body: JSON.stringify({ messages: history, context: "storefront", shopSlug }),
       })
 
       if (!res.ok || !res.body) throw new Error("Request failed")
@@ -192,7 +192,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       setIsStreaming(false)
       setStreamingContent("")
     }
-  }, [input, isStreaming, messages, shopSlug, shop.id, onCheckoutPrefill])
+  }, [input, isStreaming, messages, shopSlug, onCheckoutPrefill])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {

@@ -140,7 +140,7 @@ export default function ShopAirtimePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shopId: shop.id,
+          shopSlug: shopSlug,
           customerName: formData.customerName,
           customerEmail: formData.customerEmail,
           beneficiaryPhone: phoneVal.normalized,
@@ -148,7 +148,6 @@ export default function ShopAirtimePage() {
           amount: formData.amount,
           paySeparately: paySeparately,
           totalPrice: totalPrice,
-          shopSlug: shopSlug
         })
       })
 
@@ -162,10 +161,9 @@ export default function ShopAirtimePage() {
         body: JSON.stringify({
           amount: totalPrice,
           email: formData.customerEmail,
-          shopId: shop.id,
           orderId: data.orderId,
           orderType: "airtime",
-          shopSlug
+          shopSlug,
         })
       })
 

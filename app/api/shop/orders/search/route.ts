@@ -25,11 +25,23 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { phone, shopId } = await request.json()
+    const body = await request.json()
+    const { phone } = body
+    let { shopId, shopSlug } = body
+
+    // SECURITY: prefer slug, resolve server-side. Slug is the public identifier.
+    if (shopSlug) {
+      const { data: shopRow } = await supabase
+        .from("user_shops")
+        .select("id")
+        .eq("shop_slug", shopSlug)
+        .single()
+      if (shopRow) shopId = shopRow.id
+    }
 
     if (!phone || !shopId) {
       return NextResponse.json(
-        { error: "Phone number and shop ID are required" },
+        { error: "Phone number and shop slug (or id) are required" },
         { status: 400 }
       )
     }
