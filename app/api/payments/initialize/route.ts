@@ -32,15 +32,22 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Rate limit: 6 requests/min per IP — prevents Paystack transaction spam /
-    // card-testing. Tightened from 10 now that Cloudflare provides the real
-    // client IP via cf-connecting-ip (so this caps the actual attacker, not a
-    // shared upstream).
-    const rateLimit = await applyRateLimit(request, "payments_initialize", 6, 60_000)
-    if (!rateLimit.allowed) {
+    // Rate limit: every payment-init = one Paystack checkout session = one
+    // potential MoMo prompt to whatever number the attacker types. Tightened
+    // aggressively to throttle prompt-spam to innocent third parties.
+    // Per-IP: 3/min AND 30/hour (Cloudflare provides the real IP via cf-connecting-ip).
+    const rlMinute = await applyRateLimit(request, "payments_initialize", 3, 60_000)
+    if (!rlMinute.allowed) {
       return NextResponse.json(
         { error: "Too many payment requests. Please wait a moment." },
-        { status: 429, headers: { "X-RateLimit-Reset": new Date(rateLimit.resetAt).toISOString() } }
+        { status: 429, headers: { "X-RateLimit-Reset": new Date(rlMinute.resetAt).toISOString() } }
+      )
+    }
+    const rlHour = await applyRateLimit(request, "payments_initialize_hr", 30, 60 * 60 * 1000)
+    if (!rlHour.allowed) {
+      return NextResponse.json(
+        { error: "Too many payment requests. Please try again later." },
+        { status: 429, headers: { "X-RateLimit-Reset": new Date(rlHour.resetAt).toISOString() } }
       )
     }
 
