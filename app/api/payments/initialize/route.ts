@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
-import { isPhoneVerified } from "@/lib/storefront-otp"
+import { isPhoneVerified, isStorefrontOtpRequired } from "@/lib/storefront-otp"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -194,6 +194,25 @@ export async function POST(request: NextRequest) {
 
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
+
+    // Attack mode = the storefront OTP gate is ON. It also locks down the
+    // ORDER-FREE payment paths (wallet top-up, dealer upgrade). These reach a
+    // hosted Paystack checkout that, via the mobile_money channel, lets any
+    // signed-in account type ANY number and fire a MoMo prompt at it — the exact
+    // prompt-spam vector, with no beneficiary/OTP to bind it. In attack mode we
+    // (a) drop the mobile_money channel for these paths (see channels below) and
+    // (b) apply a per-user burst cap here. Admins bypass for support/testing.
+    const attackModeOn = await isStorefrontOtpRequired()
+    if (attackModeOn && (isTopup || isUpgrade) && !isAdmin && userId) {
+      const perUser = await applyRateLimit(request, "payment_init_topup_user", 3, 60 * 60 * 1000, `tu:${userId}`)
+      if (!perUser.allowed) {
+        console.warn(`[PAYMENT-INIT] ❌ Attack-mode order-free per-user cap hit for ${userId}`)
+        return NextResponse.json(
+          { error: "Too many payment attempts. Please try again later." },
+          { status: 429 }
+        )
+      }
+    }
 
     // Wallet top-ups MUST have an authenticated user — otherwise the credit step
     // has no user_id to credit and the top-up gets permanently stuck.
@@ -479,6 +498,21 @@ export async function POST(request: NextRequest) {
       return resp
     }
 
+    // Card channel can be disabled platform-wide during a card-testing attack
+    // by setting PAYMENT_CARD_DISABLED=true. Ghana is mobile-money-first, so
+    // dropping card barely affects legit revenue while killing card-testing.
+    let hostedChannels = process.env.PAYMENT_CARD_DISABLED === "true"
+      ? ["mobile_money", "bank_transfer"]
+      : ["card", "mobile_money", "bank_transfer"]
+    // Attack mode: the order-free paths (wallet top-up, dealer upgrade) must not
+    // be able to emit a MoMo prompt to an arbitrary number. Strip mobile_money
+    // for them; storefront orders are unaffected (they use the gated, OTP-verified
+    // direct charge above, never this hosted redirect).
+    if (attackModeOn && (isTopup || isUpgrade) && !isAdmin) {
+      hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
+      if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
+    }
+
     const paymentResult = await initializePayment({
       email,
       amount: totalAmount,
@@ -486,12 +520,7 @@ export async function POST(request: NextRequest) {
       redirectUrl,
       metadata: paymentMetadata,
       channel: paymentChannel,
-      // Card channel can be disabled platform-wide during a card-testing attack
-      // by setting PAYMENT_CARD_DISABLED=true. Ghana is mobile-money-first, so
-      // dropping card barely affects legit revenue while killing card-testing.
-      channels: process.env.PAYMENT_CARD_DISABLED === "true"
-        ? ["mobile_money", "bank_transfer"]
-        : ["card", "mobile_money", "bank_transfer"],
+      channels: hostedChannels,
     })
 
     console.log("[PAYMENT-INIT] ✓ Success")

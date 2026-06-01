@@ -1,81 +1,30 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { secureTimestampedReference } from "@/lib/secure-random"
 
 /**
- * Debug endpoint to help diagnose Paystack integration issues
- * This endpoint tests what's being sent to Paystack and receives back
+ * Paystack diagnostics endpoint.
+ *
+ * NOTE: This used to create a REAL Paystack transaction (live secret-key call to
+ * /transaction/initialize) "to test the integration". That is a standing
+ * liability — any code path that mints real Paystack transactions outside the
+ * normal, gated payment flow is an abuse surface. It has been neutered: it now
+ * only reports whether the required env vars are present and never contacts
+ * Paystack. Admin-gated regardless.
  */
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
-  try {
-    const body = await request.json()
-    const { amount, email } = body
-
-    if (!amount || !email) {
-      return NextResponse.json(
-        { error: "Missing amount or email" },
-        { status: 400 }
-      )
-    }
-
-    // Test 1: Check environment variables
-    const envCheck = {
+  return NextResponse.json({
+    success: true,
+    disabled: true,
+    message:
+      "Live Paystack test transactions are disabled. This endpoint no longer " +
+      "creates charges. Use the normal payment flow to validate integration.",
+    envCheck: {
       PAYSTACK_SECRET_KEY: !!process.env.PAYSTACK_SECRET_KEY,
+      NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: !!process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY,
       PAYSTACK_CURRENCY: process.env.PAYSTACK_CURRENCY || "GHS (default)",
-    }
-
-    // Test 2: Build the request payload exactly as the lib does
-    const testPayload = {
-      email: email,
-      amount: Math.round(parseFloat(amount) * 100),
-      reference: secureTimestampedReference("DEBUG"),
-      metadata: {
-        type: "wallet_topup",
-        test: true,
-      },
-      channels: ["card", "mobile_money", "bank_transfer"],
-    }
-
-    // Test 3: Make request to Paystack
-    const response = await fetch("https://api.paystack.co/transaction/initialize", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(testPayload),
-    })
-
-    const data = await response.json()
-    const headers = Object.fromEntries(response.headers.entries())
-
-    return NextResponse.json(
-      {
-        success: response.status === 200 && data.status,
-        statusCode: response.status,
-        message: data.message,
-        envCheck,
-        data: {
-          authorizationUrl: data.data?.authorization_url,
-          accessCode: data.data?.access_code,
-          reference: data.data?.reference,
-        },
-        diagnostic: {
-          responseStatus: response.status,
-          apiResponse: data,
-          contentType: headers["content-type"],
-        },
-      },
-      { status: response.status }
-    )
-  } catch (error) {
-    console.error("[PAYSTACK-DEBUG] Error:", error instanceof Error ? error.message : error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Debug test failed" },
-      { status: 500 }
-    )
-  }
+    },
+  })
 }
