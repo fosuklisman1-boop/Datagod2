@@ -125,6 +125,35 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Cross-account velocity tracking. The per-IP signup rate limit (5/hr) at
+    // the top of this handler is the hard cap; this is a softer signal that
+    // flags suspicious patterns (e.g., 3+ accounts in 24h from one IP) for
+    // admin investigation. We use a wide window (100/24h) so the counter
+    // doesn't actually block traffic — we just inspect `remaining` for
+    // velocity insight.
+    try {
+      const velocityProbe = await applyRateLimit(request, "signup_velocity_probe", 100, 24 * 60 * 60 * 1000)
+      const recentSignupsFromThisIp = 100 - velocityProbe.remaining
+      if (recentSignupsFromThisIp >= 3) {
+        console.warn(`[SIGNUP] 🚨 Velocity alert: ${recentSignupsFromThisIp} signups from this IP in last 24h. New user_id=${userId} phone=${phoneNumber}`)
+        // Best-effort admin notification — non-blocking
+        await supabaseServiceRole.from("notifications").insert([{
+          user_id: null,
+          title: "Multi-account signup alert",
+          message: `${recentSignupsFromThisIp} accounts created from the same IP in 24h. Latest: ${firstName} ${lastName} (${phoneNumber}). Investigate for fraud-ring activity.`,
+          type: "fraud_alert",
+          metadata: { recent_count: recentSignupsFromThisIp, new_user_id: userId, phone: phoneNumber },
+          is_read: false,
+          created_at: new Date().toISOString(),
+        }]).then(({ error }) => {
+          if (error) console.warn("[SIGNUP] Velocity notification insert failed:", error.message)
+        })
+      }
+    } catch (e) {
+      // Velocity tracking failure shouldn't block signup
+      console.warn("[SIGNUP] Velocity probe failed:", e instanceof Error ? e.message : e)
+    }
+
     // Sync role into auth user_metadata so session reflects it immediately
     if (defaultRole !== 'user') {
       supabaseServiceRole.auth.admin.updateUserById(userId, {

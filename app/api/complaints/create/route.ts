@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendPushToUser } from "@/lib/push-service"
+import { applyRateLimit } from "@/lib/rate-limiter"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -20,6 +21,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     const userId = user.id
+
+    // Cap complaint creation to prevent support-queue DoS attacks. Per-user
+    // limit (5/day) handles abuse on one account; per-IP (15/day) catches
+    // multi-account complaint spam from a single attacker.
+    const userCap = await applyRateLimit(request, "complaint_create_user", 5, 24 * 60 * 60 * 1000, userId)
+    if (!userCap.allowed) {
+      return NextResponse.json(
+        { error: "You've reached the daily complaint limit (5). Please contact support directly for further issues." },
+        { status: 429 }
+      )
+    }
+    const ipCap = await applyRateLimit(request, "complaint_create_ip", 15, 24 * 60 * 60 * 1000)
+    if (!ipCap.allowed) {
+      return NextResponse.json(
+        { error: "Too many complaints from this network today. Please try again tomorrow." },
+        { status: 429 }
+      )
+    }
 
     const formData = await request.formData()
 

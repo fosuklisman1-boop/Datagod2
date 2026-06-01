@@ -53,10 +53,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  // Rate limit keyed to user ID after auth
+  // Per-user rate limit (anti-burst on a single account)
   const rateLimit = await applyRateLimit(request, "api_key_generate", 5, 60 * 60 * 1000, sessionUser.id)
   if (!rateLimit.allowed) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+  }
+  // Per-IP rate limit (anti multi-account parallelisation — attacker can't
+  // create N accounts and generate N×5 keys from the same source).
+  const ipRateLimit = await applyRateLimit(request, "api_key_generate_ip", 10, 60 * 60 * 1000)
+  if (!ipRateLimit.allowed) {
+    return NextResponse.json({ error: "Too many key generations from this network. Please slow down." }, { status: 429 })
   }
 
   // Check user role (only dealers and admins can generate keys)
