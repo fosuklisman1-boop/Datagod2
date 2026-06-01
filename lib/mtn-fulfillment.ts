@@ -792,6 +792,11 @@ export async function updateMTNOrderFromWebhook(
             ? "processing"
             : "pending"
 
+    // Tracking keeps "failed" so the dedupe guard in fulfillment-service.ts
+    // can verify with the provider before allowing retry.
+    // Order tables see "pending" so customers see the order as re-fulfillable.
+    const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
+
     // Update tracking table
     const { error: trackingError } = await supabase
       .from("mtn_fulfillment_tracking")
@@ -825,7 +830,7 @@ export async function updateMTNOrderFromWebhook(
       const { error: orderError } = await supabase
         .from("orders")
         .update({
-          status: newStatus,
+          status: orderTableStatus,
           updated_at: new Date().toISOString(),
         })
         .eq("id", tracking.order_id)
@@ -833,14 +838,14 @@ export async function updateMTNOrderFromWebhook(
       if (orderError) {
         console.error("[MTN] Error updating bulk order:", orderError)
       } else {
-        console.log(`[MTN] Updated bulk order ${tracking.order_id} status to ${newStatus}`)
+        console.log(`[MTN] Updated bulk order ${tracking.order_id} status to ${orderTableStatus}`)
       }
     } else if (tracking.order_type === "api" && tracking.api_order_id) {
       // Update programmatic API orders table
       const { error: apiError } = await supabase
         .from("api_orders")
         .update({
-          status: newStatus,
+          status: orderTableStatus,
           updated_at: new Date().toISOString(),
         })
         .eq("id", tracking.api_order_id)
@@ -848,14 +853,14 @@ export async function updateMTNOrderFromWebhook(
       if (apiError) {
         console.error("[MTN] Error updating API order:", apiError)
       } else {
-        console.log(`[MTN] Updated API order ${tracking.api_order_id} status to ${newStatus}`)
+        console.log(`[MTN] Updated API order ${tracking.api_order_id} status to ${orderTableStatus}`)
       }
     } else if (tracking.shop_order_id) {
       // Update shop_orders table
       const { error: shopError } = await supabase
         .from("shop_orders")
         .update({
-          order_status: newStatus,
+          order_status: orderTableStatus,
           updated_at: new Date().toISOString(),
         })
         .eq("id", tracking.shop_order_id)
@@ -863,7 +868,7 @@ export async function updateMTNOrderFromWebhook(
       if (shopError) {
         console.error("[MTN] Error updating shop order:", shopError)
       } else {
-        console.log(`[MTN] Updated shop order ${tracking.shop_order_id} status to ${newStatus}`)
+        console.log(`[MTN] Updated shop order ${tracking.shop_order_id} status to ${orderTableStatus}`)
       }
     }
 
@@ -947,6 +952,9 @@ export async function updateDataKazinaOrderFromPayload(
       return true // Still return true as it's a valid webhook, just not an update
     }
 
+    // Tracking keeps "failed"; order tables see "pending" to allow re-fulfillment
+    const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
+
     // Update tracking table
     const { error: trackingError } = await supabase
       .from("mtn_fulfillment_tracking")
@@ -978,35 +986,35 @@ export async function updateDataKazinaOrderFromPayload(
     if (tracking.order_type === "bulk" && tracking.order_id) {
       const { error: orderError } = await supabase
         .from("orders")
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
         .eq("id", tracking.order_id)
 
       if (orderError) console.error("[MTN] Error updating bulk order:", orderError)
     } else if (tracking.order_type === "api" && tracking.api_order_id) {
       const { error: apiError } = await supabase
         .from("api_orders")
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
         .eq("id", tracking.api_order_id)
 
       if (apiError) console.error("[MTN] Error updating api order:", apiError)
     } else if (tracking.order_type === "ussd" && tracking.order_id) {
       const { error: ussdError } = await supabase
         .from("ussd_orders")
-        .update({ order_status: newStatus, updated_at: new Date().toISOString() })
+        .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
         .eq("id", tracking.order_id)
 
       if (ussdError) console.error("[MTN] Error updating ussd order:", ussdError)
     } else if (tracking.order_type === "ussd_shop" && tracking.order_id) {
       const { error: ussdShopError } = await supabase
         .from("ussd_shop_orders")
-        .update({ order_status: newStatus, updated_at: new Date().toISOString() })
+        .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
         .eq("id", tracking.order_id)
 
       if (ussdShopError) console.error("[MTN] Error updating ussd_shop order:", ussdShopError)
     } else if (tracking.shop_order_id) {
       const { error: shopError } = await supabase
         .from("shop_orders")
-        .update({ order_status: newStatus, updated_at: new Date().toISOString() })
+        .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
         .eq("id", tracking.shop_order_id)
 
       if (shopError) console.error("[MTN] Error updating shop order:", shopError)
