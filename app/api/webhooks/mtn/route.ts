@@ -374,41 +374,6 @@ async function handleOrderFailed(
       log("warn", "Webhook", "Failed to notify admins of failure", { traceId, error: String(smsError) })
     }
 
-    // Send failure Email
-    try {
-      let emailAddress: string | undefined;
-      let customerName: string | undefined;
-
-      if (tracking.shop_order_id) {
-        const { data: so } = await supabase.from('shop_orders').select('customer_email, customer_name').eq('id', tracking.shop_order_id).single();
-        if (so?.customer_email) { emailAddress = so.customer_email; customerName = so.customer_name; }
-      } else if (tracking.order_id) {
-        const { data: o } = await supabase.from('orders').select('user_id').eq('id', tracking.order_id).single();
-        if (o?.user_id) {
-          const { data: u } = await supabase.from('users').select('email, first_name').eq('id', o.user_id).single();
-          if (u?.email) { emailAddress = u.email; customerName = u.first_name; }
-        }
-      }
-
-      if (emailAddress) {
-        const { sendEmail, EmailTemplates } = await import("@/lib/email-service");
-        const payload = EmailTemplates.orderFailed(
-          order.id.toString(),
-          order.message || "Order could not be processed"
-        );
-        await sendEmail({
-          to: [{ email: emailAddress, name: customerName }],
-          subject: payload.subject,
-          htmlContent: (payload as any).htmlContent || payload.html,
-          referenceId: order.id.toString(),
-          type: 'order_failed'
-        });
-        log("info", "Webhook", "Sent failure Email", { traceId, email: emailAddress });
-      }
-    } catch (emailError) {
-      log("warn", "Webhook", "Failed to send failure Email", { traceId, error: String(emailError) });
-    }
-
     // Check if eligible for retry
     if (tracking.retry_count < mtnConfig.maxRetries) {
       await supabase
