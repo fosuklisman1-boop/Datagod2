@@ -29,7 +29,12 @@ export async function POST(request: NextRequest) {
     const body = await request.text()
     const hash = crypto.createHmac("sha512", paystackSecretKey).update(body).digest("hex")
 
-    if (hash !== signature) {
+    // Timing-safe comparison — sha512 hex is 128 chars so a string `===` would
+    // leak side-channel timing info to a high-precision local attacker. In
+    // practice not exploitable over the public internet but textbook-wrong.
+    const expectedBuf = Buffer.from(hash, "hex")
+    const actualBuf = Buffer.from(signature, "hex")
+    if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
       console.warn("[WEBHOOK] Invalid signature")
       return NextResponse.json(
         { error: "Invalid signature" },

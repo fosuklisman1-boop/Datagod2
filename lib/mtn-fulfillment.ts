@@ -495,11 +495,23 @@ async function _legacyCreateMTNOrderSykes(order: MTNOrderRequest): Promise<MTNOr
 }
 
 /**
- * Verify webhook signature
+ * Verify webhook signature.
+ *
+ * SECURITY: only the dedicated MTN_WEBHOOK_SECRET is accepted. We deliberately
+ * do NOT fall back to the API key here — the API key has broader exposure
+ * (sent to MTN on every outbound call, present in logs/observability tools).
+ * If an attacker ever obtained the API key from any of those side channels,
+ * they could forge webhooks with the old fallback design.
  */
 export function verifyWebhookSignature(payload: string, signature: string): boolean {
   try {
-    const secret = mtnConfig.webhookSecret || MTN_API_KEY
+    const secret = mtnConfig.webhookSecret
+    if (!secret) {
+      // In production this is fatal — refuse to validate. In dev/test it lets
+      // local testing without webhook secret configured fail predictably.
+      console.error("[MTN] verifyWebhookSignature: MTN_WEBHOOK_SECRET not configured")
+      return false
+    }
     const expectedSignature = crypto
       .createHmac("sha256", secret)
       .update(payload)

@@ -33,11 +33,34 @@ async function verifyAdmin(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
     try {
-        const { data, error } = await supabase
-            .from("subscription_plans")
-            .select("*")
-            .order("price", { ascending: true })
+        // Determine if caller is admin. Admins get the full list (incl. inactive plans
+        // for editing); anonymous/non-admin callers get only currently-active plans
+        // with display fields only — never internal columns.
+        let isAdminCaller = false
+        const authHeader = request.headers.get("authorization")
+        if (authHeader?.startsWith("Bearer ")) {
+            try {
+                const { data: { user } } = await supabase.auth.getUser(authHeader.slice(7))
+                if (user) {
+                    const { data: userRow } = await supabase
+                        .from("users")
+                        .select("role")
+                        .eq("id", user.id)
+                        .single()
+                    isAdminCaller = userRow?.role === "admin"
+                }
+            } catch { /* fall through as non-admin */ }
+        }
 
+        const query = supabase
+            .from("subscription_plans")
+            .select(isAdminCaller
+                ? "*"
+                : "id, name, description, price, duration_days")
+            .order("price", { ascending: true })
+        const filteredQuery = isAdminCaller ? query : query.eq("is_active", true)
+
+        const { data, error } = await filteredQuery
         if (error) throw error
 
         return NextResponse.json({ plans: data })
