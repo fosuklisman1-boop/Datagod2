@@ -51,6 +51,40 @@ export function invalidateStorefrontOtpCache(): void {
   enabledCache = null
 }
 
+// ── Wallet / upgrade payment gate ──────────────────────────────────────────
+// Independent of the storefront gate. The order-free payment paths (wallet
+// top-up, dealer upgrade) reach a hosted Paystack checkout that, via the
+// mobile_money channel, lets ANY signed-in account type ANY number and fire a
+// MoMo prompt at it — the prompt-spam vector, with no order/beneficiary to bind
+// it. This toggle locks those paths down (the route drops mobile_money + caps
+// per user) without touching the storefront flow. Separate switch so an admin
+// can protect top-ups/upgrades during an attack while leaving normal shop
+// checkout — or vice-versa — exactly as they want.
+let walletGateCache: { enabled: boolean; expiresAt: number } | null = null
+
+export async function isWalletOtpRequired(): Promise<boolean> {
+  if (walletGateCache && walletGateCache.expiresAt > Date.now()) return walletGateCache.enabled
+  if (!supabase) return false
+
+  try {
+    const { data } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "wallet_otp_required")
+      .maybeSingle()
+
+    const enabled = data?.value?.enabled === true // default off unless explicitly true
+    walletGateCache = { enabled, expiresAt: Date.now() + CACHE_TTL_MS }
+    return enabled
+  } catch {
+    return false // fail open — never block payments on a DB hiccup
+  }
+}
+
+export function invalidateWalletOtpCache(): void {
+  walletGateCache = null
+}
+
 // Phone formats vary (0XXXXXXXXX vs 233XXXXXXXXX vs +233...). Build the
 // candidate set so the verification lookup matches however it was stored.
 function phoneVariants(phone: string): string[] {

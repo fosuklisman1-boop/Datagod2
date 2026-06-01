@@ -79,6 +79,8 @@ export default function AdminSettingsPage() {
   // Storefront checkout phone-OTP gate
   const [checkoutOtpEnabled, setCheckoutOtpEnabled] = useState(false)
   const [savingCheckoutOtp, setSavingCheckoutOtp] = useState(false)
+  const [walletLockEnabled, setWalletLockEnabled] = useState(false)
+  const [savingWalletLock, setSavingWalletLock] = useState(false)
 
   // Guest purchase settings
   const [guestPurchaseUrl, setGuestPurchaseUrl] = useState("")
@@ -250,6 +252,17 @@ export default function AdminSettingsPage() {
             setCheckoutOtpEnabled(otpData.enabled)
           }
         }
+
+        // Load wallet/upgrade payment-lock state
+        const walletLockResponse = await fetch("/api/admin/settings/wallet-otp", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (walletLockResponse.ok) {
+          const wlData = await walletLockResponse.json()
+          if (typeof wlData.enabled === "boolean") {
+            setWalletLockEnabled(wlData.enabled)
+          }
+        }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
         const errorMessage = error instanceof Error ? error.message : "Failed to load settings"
@@ -374,6 +387,41 @@ export default function AdminSettingsPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update checkout OTP setting")
     } finally {
       setSavingCheckoutOtp(false)
+    }
+  }
+
+  const handleWalletLockToggle = async (enabled: boolean) => {
+    setSavingWalletLock(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        setSavingWalletLock(false)
+        return
+      }
+      const response = await fetch("/api/admin/settings/wallet-otp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to update wallet protection setting")
+      }
+      setWalletLockEnabled(enabled)
+      toast.success(
+        enabled
+          ? "🔐 Wallet & upgrade protection ON — top-ups/upgrades can't send MoMo prompts (card/bank only)"
+          : "Wallet & upgrade protection OFF — MoMo top-ups/upgrades open again"
+      )
+    } catch (error) {
+      console.error("Error updating wallet protection:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update wallet protection setting")
+    } finally {
+      setSavingWalletLock(false)
     }
   }
 
@@ -1576,6 +1624,44 @@ export default function AdminSettingsPage() {
                   checked={checkoutOtpEnabled}
                   onCheckedChange={handleCheckoutOtpToggle}
                   disabled={savingCheckoutOtp}
+                  className="data-[state=checked]:bg-green-600"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Wallet & Upgrade Payment Protection */}
+        <Card className="mt-6 border-2 border-blue-500">
+          <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50">
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              💳 Wallet &amp; Upgrade Payment Protection
+            </CardTitle>
+            <CardDescription className="text-blue-800 mt-1">
+              Locks down the <b>order-free</b> payment paths — wallet top-ups &amp; dealer
+              upgrades — which otherwise let any signed-in account open a hosted
+              checkout and fire Mobile Money prompts at any number. Independent of
+              the checkout OTP gate. Turn ON during an attack.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-blue-50 border-2 border-blue-300 rounded-lg">
+              <div className="flex-1">
+                <p className="font-bold text-gray-900 text-lg">Protect Top-ups &amp; Upgrades</p>
+                <p className="text-sm text-gray-700 mt-2">
+                  {walletLockEnabled
+                    ? "🔒 ON — top-ups/upgrades require an OTP-verified payment number (direct charge), and the unverified hosted MoMo path is disabled. Prompt-spam via these paths is blocked."
+                    : "OFF — top-ups/upgrades use the open hosted checkout (the path the attacker used: WALLET- references). Enable to require a verified payment number + direct charge."}
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-4 min-w-fit">
+                <span className={`text-sm font-bold ${walletLockEnabled ? "text-green-700" : "text-gray-500"}`}>
+                  {walletLockEnabled ? "ON" : "OFF"}
+                </span>
+                <Switch
+                  checked={walletLockEnabled}
+                  onCheckedChange={handleWalletLockToggle}
+                  disabled={savingWalletLock}
                   className="data-[state=checked]:bg-green-600"
                 />
               </div>

@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
-import { isPhoneVerified, isStorefrontOtpRequired } from "@/lib/storefront-otp"
+import { isPhoneVerified, isWalletOtpRequired } from "@/lib/storefront-otp"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -195,15 +195,16 @@ export async function POST(request: NextRequest) {
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
 
-    // Attack mode = the storefront OTP gate is ON. It also locks down the
-    // ORDER-FREE payment paths (wallet top-up, dealer upgrade). These reach a
-    // hosted Paystack checkout that, via the mobile_money channel, lets any
-    // signed-in account type ANY number and fire a MoMo prompt at it — the exact
-    // prompt-spam vector, with no beneficiary/OTP to bind it. In attack mode we
-    // (a) drop the mobile_money channel for these paths (see channels below) and
-    // (b) apply a per-user burst cap here. Admins bypass for support/testing.
-    const attackModeOn = await isStorefrontOtpRequired()
-    if (attackModeOn && (isTopup || isUpgrade) && !isAdmin && userId) {
+    // Dedicated wallet/upgrade gate (its own admin toggle, independent of the
+    // storefront OTP gate). The ORDER-FREE paths (wallet top-up, dealer upgrade)
+    // reach a hosted Paystack checkout that, via the mobile_money channel, lets
+    // any signed-in account type ANY number and fire a MoMo prompt at it — the
+    // exact prompt-spam vector, with no order/beneficiary to bind it. (Confirmed
+    // live: attacker refs are WALLET-… from this very path.) When the gate is ON
+    // we (a) drop the mobile_money channel for these paths (see channels below)
+    // and (b) apply a per-user burst cap here. Admins bypass for support/testing.
+    const walletGateOn = await isWalletOtpRequired()
+    if (walletGateOn && (isTopup || isUpgrade) && !isAdmin && userId) {
       const perUser = await applyRateLimit(request, "payment_init_topup_user", 3, 60 * 60 * 1000, `tu:${userId}`)
       if (!perUser.allowed) {
         console.warn(`[PAYMENT-INIT] ❌ Attack-mode order-free per-user cap hit for ${userId}`)
@@ -504,11 +505,11 @@ export async function POST(request: NextRequest) {
     let hostedChannels = process.env.PAYMENT_CARD_DISABLED === "true"
       ? ["mobile_money", "bank_transfer"]
       : ["card", "mobile_money", "bank_transfer"]
-    // Attack mode: the order-free paths (wallet top-up, dealer upgrade) must not
-    // be able to emit a MoMo prompt to an arbitrary number. Strip mobile_money
-    // for them; storefront orders are unaffected (they use the gated, OTP-verified
-    // direct charge above, never this hosted redirect).
-    if (attackModeOn && (isTopup || isUpgrade) && !isAdmin) {
+    // Wallet/upgrade gate: the order-free paths (wallet top-up, dealer upgrade)
+    // must not be able to emit a MoMo prompt to an arbitrary number. Strip
+    // mobile_money for them; storefront orders are unaffected (they use the gated,
+    // OTP-verified direct charge above, never this hosted redirect).
+    if (walletGateOn && (isTopup || isUpgrade) && !isAdmin) {
       hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
       if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
     }
