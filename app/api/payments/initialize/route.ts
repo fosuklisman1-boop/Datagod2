@@ -1,13 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
-import { initializePayment } from "@/lib/paystack"
+import { initializePayment, chargeMobileMoney } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
+import { isPhoneVerified } from "@/lib/storefront-otp"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
+
+// Ghana MoMo provider from phone prefix → Paystack provider code.
+const MOMO_PREFIX: Record<string, "mtn" | "vod" | "tgo"> = {
+  "024": "mtn", "025": "mtn", "053": "mtn", "054": "mtn", "055": "mtn", "059": "mtn",
+  "020": "vod", "050": "vod",
+  "026": "tgo", "027": "tgo", "056": "tgo", "057": "tgo",
+}
+function detectMomoProvider(phone: string): "mtn" | "vod" | "tgo" | null {
+  const d = phone.replace(/\D/g, "")
+  const local = d.startsWith("233") ? "0" + d.slice(3) : (d.startsWith("0") ? d : "0" + d)
+  return MOMO_PREFIX[local.slice(0, 3)] ?? null
+}
 
 const ALLOWED_ORIGINS = [
   "https://www.datagod.store",
@@ -52,7 +65,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    let { amount, email, shopId, orderId, shopSlug, type, planId, orderType } = body
+    let { amount, email, shopId, orderId, shopSlug, type, planId, orderType, momoDirect, paymentPhone } = body
 
     // SECURITY: never trust client's shopId — resolve from slug. The slug is the
     // public identifier; the UUID is internal. Wallet topups and dealer upgrades
@@ -396,21 +409,71 @@ export async function POST(request: NextRequest) {
     }
     console.log("[PAYMENT-INIT] Redirect URL:", redirectUrl)
 
+    const paymentMetadata = {
+      userId,
+      shopId: shopId || null,
+      type: type || (orderType === "airtime" ? "airtime_purchase" : "shop_order"),
+      planId: planId || null,
+      orderId: orderId || null,
+      orderType: orderType || "data",
+      originalAmount: finalAmount,
+      paystackFee: paystackFee,
+    }
+
+    // ── Direct MoMo charge path ──────────────────────────────────────────────
+    // When the client requests momoDirect (used while the checkout OTP gate is
+    // on), we charge a SERVER-SPECIFIED, OTP-VERIFIED MoMo number directly via
+    // Paystack /charge — no hosted redirect page where a random victim number
+    // could be typed. The prompt can ONLY go to the verified number. The
+    // existing charge.success webhook resolves `reference` → wallet_payments →
+    // order exactly as the redirect flow does, so fulfillment is unchanged.
+    if (momoDirect) {
+      if (!orderId) {
+        return NextResponse.json({ error: "Direct MoMo charge requires an order." }, { status: 400 })
+      }
+      const payPhone = String(paymentPhone || "").trim()
+      const provider = detectMomoProvider(payPhone)
+      if (!provider) {
+        return NextResponse.json({ error: "Could not detect mobile money network from the payment number." }, { status: 400 })
+      }
+      // The payment number MUST be OTP-verified (server-enforced — the client
+      // can't fake this; verification lives in phone_otp_verifications).
+      const payVerified = await isPhoneVerified(payPhone)
+      if (!payVerified) {
+        return NextResponse.json(
+          { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
+          { status: 403 }
+        )
+      }
+
+      const charge = await chargeMobileMoney({
+        email,
+        amount: totalAmount,
+        phone: payPhone,
+        provider,
+        reference,
+        metadata: paymentMetadata,
+      })
+
+      const corsHeaders = getCorsHeaders(request.headers.get("origin"))
+      const resp = NextResponse.json({
+        success: true,
+        momoDirect: true,
+        reference,
+        status: charge.status, // usually "pay_offline" / "send_otp" / "pending"
+        paymentId: paymentData[0].id,
+      })
+      Object.entries(corsHeaders).forEach(([k, v]) => resp.headers.set(k, v))
+      resp.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
+      return resp
+    }
+
     const paymentResult = await initializePayment({
       email,
       amount: totalAmount,
       reference,
       redirectUrl,
-      metadata: {
-        userId,
-        shopId: shopId || null,
-        type: type || (orderType === "airtime" ? "airtime_purchase" : "shop_order"),
-        planId: planId || null,
-        orderId: orderId || null,
-        orderType: orderType || "data",
-        originalAmount: finalAmount,
-        paystackFee: paystackFee,
-      },
+      metadata: paymentMetadata,
       // Card channel can be disabled platform-wide during a card-testing attack
       // by setting PAYMENT_CARD_DISABLED=true. Ghana is mobile-money-first, so
       // dropping card barely affects legit revenue while killing card-testing.
