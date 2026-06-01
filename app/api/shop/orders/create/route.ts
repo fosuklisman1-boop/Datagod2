@@ -258,6 +258,7 @@ export async function POST(request: NextRequest) {
         .from("sub_agent_shop_packages")
         .select("parent_price, sub_agent_profit_margin, package_id")
         .eq("id", shop_package_id)
+        .eq("shop_id", shop_id) // package must belong to this sub-agent shop
         .single()
 
       if (!subAgentPkgError && subAgentPkg) {
@@ -328,14 +329,17 @@ export async function POST(request: NextRequest) {
       const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
 
 
+      // Integrity: the package must belong to THIS shop. Without the shop_id
+      // match an order could be priced from another shop's catalog entry.
       const { data: shopPkg, error: shopPkgError } = await supabase
         .from("shop_packages")
         .select("profit_margin, packages(size, price, dealer_price)")
         .eq("id", shop_package_id)
+        .eq("shop_id", shop_id)
         .single()
 
       if (shopPkgError || !shopPkg) {
-        console.error("[SHOP-ORDER] ❌ Could not find shop package:", shopPkgError)
+        console.error("[SHOP-ORDER] ❌ Could not find shop package for this shop:", shopPkgError)
         return NextResponse.json({ error: "Invalid package" }, { status: 400 })
       }
 
