@@ -65,19 +65,18 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
     setLoadingPrices(true)
     try {
       // Fetch admin settings for base prices + max markups
-      const { createClient } = await import("@supabase/supabase-js")
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-
-      const { data: settings } = await supabase
-        .from("admin_settings")
-        .select("key, value")
-        .like("key", "results_checker_%")
-
+      // admin_settings is locked to service_role; read curated config via the
+      // public config endpoint instead of the (now-denied) anon client.
       const settingsMap: Record<string, any> = {}
-      for (const row of settings ?? []) settingsMap[row.key] = row.value
+      try {
+        const cfgRes = await fetch("/api/public/config")
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json()
+          Object.assign(settingsMap, cfg.admin_settings ?? {})
+        }
+      } catch (e) {
+        console.warn("Could not load results-checker config:", e)
+      }
 
       // Count available inventory per board via server-side API (anon key cannot read inventory table)
       const availableCounts: Record<string, number> = { WAEC: 0, BECE: 0, NOVDEC: 0 }
