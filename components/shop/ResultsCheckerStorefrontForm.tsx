@@ -67,6 +67,20 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
   }, [])
 
+  // One-time OTP: auto-skip the step if the customer phone was already verified.
+  useEffect(() => {
+    if (!otpRequired || otpVerified) return
+    const phone = formData.customerPhone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(phone)) return
+    const t = setTimeout(() => {
+      fetch("/api/public/phone-verified", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: formData.customerPhone.replace(/\s/g, "") }),
+      }).then(r => r.ok ? r.json() : { verified: false }).then(d => { if (d.verified) setOtpVerified(true) }).catch(() => {})
+    }, 600)
+    return () => clearTimeout(t)
+  }, [formData.customerPhone, otpRequired, otpVerified])
+
   const handleSendOtp = async () => {
     const phone = formData.customerPhone.replace(/\s/g, "")
     if (!/^\d{10}$/.test(phone)) { toast.error("Enter a valid 10-digit phone number first"); return }

@@ -56,6 +56,20 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
   }, [])
 
+  // One-time OTP: auto-skip the step if the beneficiary phone was already verified.
+  useEffect(() => {
+    if (!otpRequired || otpVerified) return
+    const phone = formData.beneficiaryPhone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(phone)) return
+    const t = setTimeout(() => {
+      fetch("/api/public/phone-verified", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: formData.beneficiaryPhone }),
+      }).then(r => r.ok ? r.json() : { verified: false }).then(d => { if (d.verified) setOtpVerified(true) }).catch(() => {})
+    }, 600)
+    return () => clearTimeout(t)
+  }, [formData.beneficiaryPhone, otpRequired, otpVerified])
+
   const handleSendOtp = async () => {
     const v = validatePhoneNumber(formData.beneficiaryPhone, selectedNetwork || undefined)
     if (!v.isValid) { toast.error("Enter a valid phone number first"); return }

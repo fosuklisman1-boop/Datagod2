@@ -109,6 +109,25 @@ export default function ShopStorefront() {
     }
   }, [selectedNetwork])
 
+  // One-time OTP: if the entered phone was already verified before, auto-skip
+  // the OTP step (don't make returning customers re-verify every purchase).
+  useEffect(() => {
+    if (!otpRequired || otpVerified) return
+    const phone = orderData.customer_phone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(phone)) return
+    const t = setTimeout(() => {
+      fetch("/api/public/phone-verified", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: orderData.customer_phone }),
+      })
+        .then(r => r.ok ? r.json() : { verified: false })
+        .then(d => { if (d.verified) setOtpVerified(true) })
+        .catch(() => {})
+    }, 600)
+    return () => clearTimeout(t)
+  }, [orderData.customer_phone, otpRequired, otpVerified])
+
   const loadShopData = async () => {
     try {
       setLoading(true)
