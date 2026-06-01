@@ -20,6 +20,7 @@ interface AirtimeStorefrontFormProps {
 export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormProps) {
   const [submitting, setSubmitting] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
+  const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true)
   const [honeypot, setHoneypot] = useState<string>("")
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
@@ -41,6 +42,11 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   useEffect(() => {
     loadNetworkLogos()
     checkAllAvailability()
+    // Fetch Turnstile kill-switch state
+    fetch("/api/public/turnstile-status")
+      .then(r => r.ok ? r.json() : { enabled: true })
+      .then(d => setTurnstileEnabled(d.enabled !== false))
+      .catch(() => setTurnstileEnabled(true))
   }, [])
 
   useEffect(() => {
@@ -379,13 +385,15 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           <HoneypotField value={honeypot} onChange={setHoneypot} />
 
-          <div className="flex justify-center">
-            <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
-          </div>
+          {turnstileEnabled && (
+            <div className="flex justify-center">
+              <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+            </div>
+          )}
 
           <Button
             type="submit"
-            disabled={submitting || !selectedNetwork || !turnstileToken}
+            disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken)}
             className="w-full h-16 bg-gradient-to-r from-violet-600 via-indigo-700 to-purple-600 hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-violet-200 transition-all duration-300 disabled:opacity-50 disabled:grayscale"
           >
             {submitting ? (

@@ -40,6 +40,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
+  const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true)
   const [honeypot, setHoneypot] = useState<string>("")
 
   // Success state
@@ -50,6 +51,14 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   useEffect(() => {
     loadBoardPricing()
   }, [shop])
+
+  useEffect(() => {
+    // Fetch Turnstile kill-switch state
+    fetch("/api/public/turnstile-status")
+      .then(r => r.ok ? r.json() : { enabled: true })
+      .then(d => setTurnstileEnabled(d.enabled !== false))
+      .catch(() => setTurnstileEnabled(true))
+  }, [])
 
   const loadBoardPricing = async () => {
     if (!shop?.id) return
@@ -367,13 +376,15 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
           <HoneypotField value={honeypot} onChange={setHoneypot} />
 
-          <div className="flex justify-center">
-            <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
-          </div>
+          {turnstileEnabled && (
+            <div className="flex justify-center">
+              <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+            </div>
+          )}
 
           <Button
             onClick={handleSubmit}
-            disabled={submitting || !turnstileToken}
+            disabled={submitting || (turnstileEnabled && !turnstileToken)}
             className="w-full h-14 bg-slate-900 hover:bg-violet-700 text-white font-black rounded-xl shadow-xl transition-all duration-300 text-base"
           >
             {submitting

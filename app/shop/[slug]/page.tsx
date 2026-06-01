@@ -62,6 +62,7 @@ export default function ShopStorefront() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
+  const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true) // default true until status loads
   const [honeypot, setHoneypot] = useState<string>("")
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   const [termsContent, setTermsContent] = useState("")
@@ -76,7 +77,13 @@ export default function ShopStorefront() {
   useEffect(() => {
     loadShopData()
     loadNetworkLogos()
-    
+
+    // Fetch Turnstile kill-switch state — controls whether we render the widget
+    fetch("/api/public/turnstile-status")
+      .then(r => r.ok ? r.json() : { enabled: true })
+      .then(d => setTurnstileEnabled(d.enabled !== false))
+      .catch(() => setTurnstileEnabled(true))  // fail-safe: assume enabled
+
     // Save storefront slug to localStorage so users are redirected here from the main site
     if (shopSlug && typeof window !== "undefined") {
       localStorage.setItem("storefront_slug", shopSlug)
@@ -922,14 +929,16 @@ export default function ShopStorefront() {
 
                 <HoneypotField value={honeypot} onChange={setHoneypot} />
 
-                <div className="pt-2">
-                  <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
-                </div>
+                {turnstileEnabled && (
+                  <div className="pt-2">
+                    <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+                  </div>
+                )}
 
                 <div className="flex gap-2 pt-4">
                   <Button
                     onClick={handleSubmitOrder}
-                    disabled={submitting || !turnstileToken}
+                    disabled={submitting || (turnstileEnabled && !turnstileToken)}
                     className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
                   >
                     {submitting ? (
