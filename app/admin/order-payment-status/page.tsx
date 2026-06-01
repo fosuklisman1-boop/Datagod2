@@ -755,7 +755,7 @@ export default function OrderPaymentStatusPage() {
                 </div>
               </div>
 
-              <div className="flex items-end gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-4">
                 <div className="flex-1">
                   <label className="text-sm font-medium mb-1 block">New Status *</label>
                   <select
@@ -772,7 +772,7 @@ export default function OrderPaymentStatusPage() {
                   </select>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     onClick={handleBulkStatusUpdate}
                     disabled={bulkUpdating || !bulkDate || !bulkStatus}
