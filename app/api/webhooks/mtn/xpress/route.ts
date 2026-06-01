@@ -150,6 +150,7 @@ export async function POST(request: NextRequest) {
         }
 
         const newStatus = normalizeStatus(rawStatus)
+        const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
 
         // Status priority guard — never regress completed/failed back to pending
         const statusPriority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3 }
@@ -195,16 +196,16 @@ export async function POST(request: NextRequest) {
 
         // Mirror status to the originating order table
         if (tracking.order_type === "bulk" && tracking.order_id) {
-            await supabase.from("orders").update({ status: newStatus, updated_at: new Date().toISOString() }).eq("id", tracking.order_id)
+            await supabase.from("orders").update({ status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", tracking.order_id)
         } else if (tracking.order_type === "api" && (tracking.api_order_id || tracking.order_id)) {
             const apiId = tracking.api_order_id || tracking.order_id
-            await supabase.from("api_orders").update({ status: newStatus, updated_at: new Date().toISOString() }).eq("id", apiId)
+            await supabase.from("api_orders").update({ status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", apiId)
         } else if (tracking.order_type === "ussd" && tracking.order_id) {
-            await supabase.from("ussd_orders").update({ order_status: newStatus, updated_at: new Date().toISOString() }).eq("id", tracking.order_id)
+            await supabase.from("ussd_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", tracking.order_id)
         } else if (tracking.order_type === "ussd_shop" && tracking.order_id) {
-            await supabase.from("ussd_shop_orders").update({ order_status: newStatus, updated_at: new Date().toISOString() }).eq("id", tracking.order_id)
+            await supabase.from("ussd_shop_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", tracking.order_id)
         } else if (tracking.shop_order_id) {
-            await supabase.from("shop_orders").update({ order_status: newStatus, updated_at: new Date().toISOString() }).eq("id", tracking.shop_order_id)
+            await supabase.from("shop_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", tracking.shop_order_id)
         }
 
         // Send notifications on terminal states
