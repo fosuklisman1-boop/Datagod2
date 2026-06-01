@@ -4,6 +4,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
+import { isStorefrontOtpRequired, isPhoneVerified } from "@/lib/storefront-otp"
 import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
@@ -122,6 +123,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
     console.log(`[SHOP-AIRTIME] ✓ Cookie valid for shop ${shopId} slug=${shopForCookie.shop_slug}`)
+
+    // Checkout phone-OTP gate (admin toggle). For airtime we verify the
+    // beneficiary phone (the recipient) — during an attack this restricts
+    // airtime to verified numbers. Admin keeps it OFF in normal operation.
+    if (await isStorefrontOtpRequired()) {
+      const verified = await isPhoneVerified(beneficiaryPhone)
+      if (!verified) {
+        console.warn(`[SHOP-AIRTIME] ❌ Phone not OTP-verified for shop ${shopId}`)
+        return NextResponse.json(
+          { error: "Please verify the phone number to continue.", code: "OTP_REQUIRED" },
+          { status: 403 }
+        )
+      }
+      console.log(`[SHOP-AIRTIME] ✓ Phone OTP-verified for shop ${shopId}`)
+    }
 
     const amount = parseFloat(airtimeAmount || bodyAmount)
     if (!isFinite(amount) || amount <= 0) {

@@ -10,6 +10,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
+import { isStorefrontOtpRequired, isPhoneVerified } from "@/lib/storefront-otp"
 import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
@@ -105,6 +106,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
     }
     console.log(`[RC-SHOP-INIT] ✓ Cookie valid for shop ${shopId} slug=${shopForCookie.shop_slug}`)
+
+    // Checkout phone-OTP gate (admin toggle). Verifies the customer phone.
+    if (await isStorefrontOtpRequired()) {
+      const verified = await isPhoneVerified(customerPhone)
+      if (!verified) {
+        console.warn(`[RC-SHOP-INIT] ❌ Phone not OTP-verified for shop ${shopId}`)
+        return NextResponse.json(
+          { error: "Please verify your phone number to continue.", code: "OTP_REQUIRED" },
+          { status: 403 }
+        )
+      }
+      console.log(`[RC-SHOP-INIT] ✓ Phone OTP-verified for shop ${shopId}`)
+    }
 
     if (!isValidExamBoard(examBoard)) {
       return NextResponse.json({ error: "Invalid examBoard. Must be WAEC, BECE, or NOVDEC" }, { status: 400 })

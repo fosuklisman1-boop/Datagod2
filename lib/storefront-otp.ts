@@ -12,8 +12,10 @@ const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.NEXT_PUBLI
     })
   : null
 
-// How recently the phone must have been verified to count as "verified for checkout".
-const VERIFIED_WINDOW_MINUTES = 30
+// One-time verification: a phone that has EVER completed an OTP verification is
+// trusted for all future orders. The OTP gate exists to make each phone prove
+// itself once (stops anonymous mass automation); per-phone order caps (5/hr)
+// bound volume thereafter. Repeat customers never re-verify.
 
 // In-memory cache for the toggle (30s TTL) so we don't hit the DB on every order.
 let enabledCache: { enabled: boolean; expiresAt: number } | null = null
@@ -59,21 +61,19 @@ function phoneVariants(phone: string): string[] {
 }
 
 /**
- * Was this phone verified via OTP within the last VERIFIED_WINDOW_MINUTES?
- * Looks for a `used: true` phone_otp_verifications row created recently.
+ * Has this phone EVER completed an OTP verification? One-time: once verified,
+ * the number is trusted for all future orders (per-phone caps bound volume).
  */
-export async function isPhoneRecentlyVerified(phone: string): Promise<boolean> {
+export async function isPhoneVerified(phone: string): Promise<boolean> {
   if (!supabase) return false
   if (!phone) return false
 
-  const since = new Date(Date.now() - VERIFIED_WINDOW_MINUTES * 60 * 1000).toISOString()
   try {
     const { data } = await supabase
       .from("phone_otp_verifications")
       .select("id")
       .in("phone", phoneVariants(phone))
       .eq("used", true)
-      .gte("created_at", since)
       .limit(1)
       .maybeSingle()
     return !!data

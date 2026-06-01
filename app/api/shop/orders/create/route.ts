@@ -8,7 +8,7 @@ import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
 import { secureTimestampedReference } from "@/lib/secure-random"
 import { checkEmailQuality } from "@/lib/email-heuristics"
-import { isStorefrontOtpRequired, isPhoneRecentlyVerified } from "@/lib/storefront-otp"
+import { isStorefrontOtpRequired, isPhoneVerified } from "@/lib/storefront-otp"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
     // defense against automated flood / card-testing / prompt-spam. Skipped for
     // authenticated sub-agent stock purchases.
     if (!isAuthenticatedDashboardCall && (await isStorefrontOtpRequired())) {
-      const verified = await isPhoneRecentlyVerified(customer_phone)
+      const verified = await isPhoneVerified(customer_phone)
       if (!verified) {
         console.warn(`[SHOP-ORDER] ❌ Phone not OTP-verified for shop ${shop_id}`)
         return NextResponse.json(
