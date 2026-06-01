@@ -653,7 +653,7 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
 
       // Update shop_orders if completed or failed
       if (tracking.shop_order_id && (newStatus === "completed" || newStatus === "failed")) {
-        console.log(`[MTN-SYNC] Updating shop_order ${tracking.shop_order_id} to ${newStatus}`)
+        console.log(`[MTN-SYNC] Updating shop_order ${tracking.shop_order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
         const { error: shopOrderError } = await supabase
           .from("shop_orders")
           .update({
@@ -665,13 +665,13 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         if (shopOrderError) {
           console.error(`[MTN-SYNC] Failed to update shop_order:`, shopOrderError)
         } else {
-          console.log(`[MTN-SYNC] ✅ Updated shop_order ${tracking.shop_order_id} to ${newStatus}`)
+          console.log(`[MTN-SYNC] ✅ Updated shop_order ${tracking.shop_order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
         }
       }
 
       // Update orders table if bulk order
       if (tracking.order_id && (newStatus === "completed" || newStatus === "failed")) {
-        console.log(`[MTN-SYNC] Updating bulk order ${tracking.order_id} to ${newStatus}`)
+        console.log(`[MTN-SYNC] Updating bulk order ${tracking.order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
         const { error: orderError } = await supabase
           .from("orders")
           .update({
@@ -683,13 +683,13 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         if (orderError) {
           console.error(`[MTN-SYNC] Failed to update order:`, orderError)
         } else {
-          console.log(`[MTN-SYNC] ✅ Updated order ${tracking.order_id} to ${newStatus}`)
+          console.log(`[MTN-SYNC] ✅ Updated order ${tracking.order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
         }
       }
 
       // Update api_orders table if programmatic order
       if (tracking.api_order_id && (newStatus === "completed" || newStatus === "failed")) {
-        console.log(`[MTN-SYNC] Updating API order ${tracking.api_order_id} to ${newStatus}`)
+        console.log(`[MTN-SYNC] Updating API order ${tracking.api_order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
         const { error: apiOrderError } = await supabase
           .from("api_orders")
           .update({
@@ -701,7 +701,7 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         if (apiOrderError) {
           console.error(`[MTN-SYNC] Failed to update api_order:`, apiOrderError)
         } else {
-          console.log(`[MTN-SYNC] ✅ Updated api_order ${tracking.api_order_id} to ${newStatus}`)
+          console.log(`[MTN-SYNC] ✅ Updated api_order ${tracking.api_order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
         }
       }
 
