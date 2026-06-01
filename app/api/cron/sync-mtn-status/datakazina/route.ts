@@ -117,10 +117,11 @@ export async function GET(request: NextRequest) {
                             .eq("id", order.id)
 
                         // Update original order record
+                        const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
                         if (order.order_type === "bulk" && order.order_id) {
-                            await supabase.from("orders").update({ status: newStatus }).eq("id", order.order_id)
+                            await supabase.from("orders").update({ status: orderTableStatus }).eq("id", order.order_id)
                         } else if (order.shop_order_id) {
-                            await supabase.from("shop_orders").update({ order_status: newStatus }).eq("id", order.shop_order_id)
+                            await supabase.from("shop_orders").update({ order_status: orderTableStatus }).eq("id", order.shop_order_id)
                         }
 
                         console.log(`[CRON-DATAKAZINA] ✅ Order ${order.mtn_order_id} updated: ${oldStatus} -> ${newStatus}`)
