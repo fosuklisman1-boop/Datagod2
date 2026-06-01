@@ -47,6 +47,94 @@ export async function POST(request: NextRequest) {
     const autoFulfillEnabled = await isAutoFulfillmentEnabled()
     console.log(`[DOWNLOAD] Auto-fulfillment enabled: ${autoFulfillEnabled}`)
 
+    // Failed orders download — export-only, no claim/batch record
+    if (filters?.failureMode === "failed") {
+      // Step 1: fetch all failed tracking rows, sorted newest-first
+      const { data: failedTracking } = await supabase
+        .from("mtn_fulfillment_tracking")
+        .select("shop_order_id, order_id, api_order_id, status, created_at")
+        .eq("status", "failed")
+        .order("created_at", { ascending: false })
+
+      // Dedupe: keep only the latest tracking row per order (skip if a later attempt succeeded)
+      const latestPerOrder = new Map<string, string>()
+      for (const t of failedTracking || []) {
+        const id = t.shop_order_id || t.order_id || t.api_order_id
+        if (id && !latestPerOrder.has(id)) latestPerOrder.set(id, t.status)
+      }
+      const failedOrderIds = Array.from(latestPerOrder.keys())
+
+      // Build a reusable base query with date/network/time filters
+      const buildQuery = () => {
+        let q = supabase.from("combined_orders_view").select("*")
+        if (filters.date) {
+          q = q.gte("created_at", `${filters.date}T00:00:00Z`)
+          q = q.lte("created_at", `${filters.date}T23:59:59Z`)
+        }
+        if (filters.startTime || filters.endTime) {
+          const d = filters.date || new Date().toISOString().split("T")[0]
+          if (filters.startTime) q = q.gte("created_at", `${d}T${filters.startTime}:00Z`)
+          if (filters.endTime) q = q.lte("created_at", `${d}T${filters.endTime}:59Z`)
+        }
+        if (filters.network && filters.network !== "all") q = q.eq("network", filters.network)
+        if (autoFulfillEnabled) {
+          q = q.neq("network", "AT - iShare").neq("network", "Telecel").neq("network", "AT - BigTime")
+        }
+        return q
+      }
+
+      const seenIds = new Set<string>()
+      const failedOrders: any[] = []
+
+      // Query A: orders whose latest tracking row is "failed"
+      if (failedOrderIds.length > 0) {
+        const { data: queryA } = await buildQuery().in("id", failedOrderIds)
+        for (const o of queryA || []) {
+          if (!seenIds.has(o.id)) { seenIds.add(o.id); failedOrders.push(o) }
+        }
+      }
+
+      // Query B: orders still carrying status="failed" in the view (historical, pre-PR)
+      const { data: queryB } = await buildQuery().eq("status", "failed")
+      for (const o of queryB || []) {
+        if (!seenIds.has(o.id)) { seenIds.add(o.id); failedOrders.push(o) }
+      }
+
+      if (failedOrders.length === 0) {
+        return NextResponse.json({ error: "No orders found" }, { status: 404 })
+      }
+
+      console.log(`[DOWNLOAD] Failed orders export: ${failedOrders.length} orders`)
+
+      const excelData = failedOrders.map((order: any) => {
+        const cleanSizeStr = order.volume_gb?.toString().replace(/[^0-9.]/g, "")
+        const parsedSize = parseFloat(cleanSizeStr)
+        return {
+          Phone: order.phone_number,
+          Size: !isNaN(parsedSize) ? parsedSize : (order.volume_gb || "")
+        }
+      })
+
+      const worksheet = XLSX.utils.json_to_sheet(excelData)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Orders")
+      worksheet["!cols"] = [{ wch: 15 }, { wch: 10 }]
+
+      const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" })
+      const now = new Date()
+      const dateTime = now.toISOString().replace(/[:.]/g, "-").split("Z")[0]
+      const networkSlug = filters.network && filters.network !== "all" ? filters.network : "all"
+      const dateSlug = filters.date || "unknown"
+      const fileName = `orders-failed-${networkSlug}-${dateSlug}-${dateTime}.xlsx`
+
+      return new NextResponse(excelBuffer, {
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="${fileName}"`
+        }
+      })
+    }
+
     let orders: any[] = []
     let bulkOrderIds: string[] = []
     let shopOrderIds: string[] = []
