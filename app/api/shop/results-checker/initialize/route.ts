@@ -9,7 +9,7 @@ import {
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
-import { verifyTurnstileToken, getRequestIp } from "@/lib/turnstile"
+import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
 import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
@@ -71,13 +71,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "shopId, examBoard, quantity, and customerEmail are required" }, { status: 400 })
     }
 
-    // Turnstile CAPTCHA verification — fresh token required per form submission.
-    const turnstileResult = await verifyTurnstileToken(turnstileToken, getRequestIp(request.headers))
-    if (!turnstileResult.valid) {
-      console.warn(`[RC-SHOP-INIT] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shopId} turnstile_configured=${!!process.env.TURNSTILE_SECRET_KEY} token_present=${!!turnstileToken}`)
-      return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 403 })
+    // Turnstile CAPTCHA verification — admin can disable globally via toggle.
+    const turnstileEnabled = await isTurnstileEnabled()
+    if (!turnstileEnabled) {
+      console.warn(`[RC-SHOP-INIT] ⚠️ Turnstile DISABLED by admin toggle — skipping verification for shop ${shopId}`)
+    } else {
+      const turnstileResult = await verifyTurnstileToken(turnstileToken, getRequestIp(request.headers))
+      if (!turnstileResult.valid) {
+        console.warn(`[RC-SHOP-INIT] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shopId} turnstile_configured=${!!process.env.TURNSTILE_SECRET_KEY} token_present=${!!turnstileToken}`)
+        return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 403 })
+      }
+      console.log(`[RC-SHOP-INIT] ✓ Turnstile passed for shop ${shopId}`)
     }
-    console.log(`[RC-SHOP-INIT] ✓ Turnstile passed for shop ${shopId}`)
 
     // Require __shop_sess cookie bound to this shop's current slug.
     const shopCookie = request.cookies.get("__shop_sess")?.value

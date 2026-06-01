@@ -72,6 +72,10 @@ export default function AdminSettingsPage() {
   const [christmasThemeEnabled, setChristmasThemeEnabled] = useState(false)
   const [savingChristmasTheme, setSavingChristmasTheme] = useState(false)
 
+  // Cloudflare Turnstile master kill switch
+  const [turnstileEnabled, setTurnstileEnabled] = useState(true)
+  const [savingTurnstile, setSavingTurnstile] = useState(false)
+
   // Guest purchase settings
   const [guestPurchaseUrl, setGuestPurchaseUrl] = useState("")
   const [guestPurchaseButtonText, setGuestPurchaseButtonText] = useState("Buy as Guest")
@@ -220,6 +224,17 @@ export default function AdminSettingsPage() {
         if (providerData.provider) {
           setMtnProvider(providerData.provider)
         }
+
+        // Load Turnstile kill-switch state
+        const turnstileResponse = await fetch("/api/admin/settings/turnstile", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (turnstileResponse.ok) {
+          const turnstileData = await turnstileResponse.json()
+          if (typeof turnstileData.enabled === "boolean") {
+            setTurnstileEnabled(turnstileData.enabled)
+          }
+        }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
         const errorMessage = error instanceof Error ? error.message : "Failed to load settings"
@@ -309,6 +324,44 @@ export default function AdminSettingsPage() {
       toast.error(errorMessage)
     } finally {
       setSavingChristmasTheme(false)
+    }
+  }
+
+  const handleTurnstileToggle = async (enabled: boolean) => {
+    setSavingTurnstile(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        setSavingTurnstile(false)
+        return
+      }
+
+      const response = await fetch("/api/admin/settings/turnstile", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ enabled }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to update Turnstile setting")
+      }
+
+      setTurnstileEnabled(enabled)
+      toast.success(
+        enabled
+          ? "🔒 Turnstile verification re-enabled — security on"
+          : "⚠️ Turnstile verification DISABLED — orders will skip CAPTCHA"
+      )
+    } catch (error) {
+      console.error("Error updating Turnstile setting:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update Turnstile setting")
+    } finally {
+      setSavingTurnstile(false)
     }
   }
 
@@ -1441,6 +1494,47 @@ export default function AdminSettingsPage() {
           </CardHeader>
           <CardContent>
             <PhoneBlacklistManager />
+          </CardContent>
+        </Card>
+
+        {/* Cloudflare Turnstile Kill Switch */}
+        <Card className="mt-6 border-2 border-orange-500">
+          <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50">
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              🔒 Cloudflare Turnstile (CAPTCHA)
+            </CardTitle>
+            <CardDescription className="text-orange-800 mt-1">
+              Master kill switch for the bot-protection CAPTCHA on shop orders.
+              Only disable during an outage or when rotating the Turnstile secret.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-orange-50 border-2 border-orange-300 rounded-lg">
+              <div className="flex-1">
+                <p className="font-bold text-gray-900 text-lg">Turnstile Verification</p>
+                <p className="text-sm text-gray-700 mt-2">
+                  {turnstileEnabled
+                    ? "✅ Turnstile is ACTIVE — every shop order POST must include a valid Cloudflare token. Bots get blocked at this layer."
+                    : "⚠️ Turnstile is DISABLED — shop orders bypass CAPTCHA verification. Cookie + honeypot + atomic caps still apply, but bot-resistance is significantly weakened. Re-enable as soon as the incident is resolved."}
+                </p>
+                {!turnstileEnabled && (
+                  <p className="text-xs font-bold text-red-700 mt-2">
+                    🚨 Don't forget to re-enable this once the issue is fixed.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-4 min-w-fit">
+                <span className={`text-sm font-bold ${turnstileEnabled ? "text-green-700" : "text-red-700"}`}>
+                  {turnstileEnabled ? "ON" : "OFF"}
+                </span>
+                <Switch
+                  checked={turnstileEnabled}
+                  onCheckedChange={handleTurnstileToggle}
+                  disabled={savingTurnstile}
+                  className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-red-500"
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 

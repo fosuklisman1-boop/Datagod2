@@ -5,7 +5,7 @@ import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
-import { verifyTurnstileToken, getRequestIp } from "@/lib/turnstile"
+import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
 import { secureTimestampedReference } from "@/lib/secure-random"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -130,13 +130,19 @@ export async function POST(request: NextRequest) {
 
     // Turnstile CAPTCHA verification for unauthenticated public traffic.
     // Dashboard sub-agent stock purchases bypass via the Bearer token above.
+    // Admin can disable Turnstile globally via /api/admin/settings/turnstile.
     if (!isAuthenticatedDashboardCall) {
-      const turnstileResult = await verifyTurnstileToken(turnstileToken, getRequestIp(request.headers))
-      if (!turnstileResult.valid) {
-        console.warn(`[SHOP-ORDER] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shop_id} turnstile_configured=${!!process.env.TURNSTILE_SECRET_KEY} token_present=${!!turnstileToken}`)
-        return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 403 })
+      const turnstileEnabled = await isTurnstileEnabled()
+      if (!turnstileEnabled) {
+        console.warn(`[SHOP-ORDER] ⚠️ Turnstile DISABLED by admin toggle — skipping verification for shop ${shop_id}`)
+      } else {
+        const turnstileResult = await verifyTurnstileToken(turnstileToken, getRequestIp(request.headers))
+        if (!turnstileResult.valid) {
+          console.warn(`[SHOP-ORDER] ❌ Turnstile verification failed (${turnstileResult.reason}) for shop ${shop_id} turnstile_configured=${!!process.env.TURNSTILE_SECRET_KEY} token_present=${!!turnstileToken}`)
+          return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 403 })
+        }
+        console.log(`[SHOP-ORDER] ✓ Turnstile passed for shop ${shop_id}`)
       }
-      console.log(`[SHOP-ORDER] ✓ Turnstile passed for shop ${shop_id}`)
     } else {
       console.log(`[SHOP-ORDER] ⊘ Turnstile skipped (authenticated stock purchase) for shop ${shop_id}`)
     }
