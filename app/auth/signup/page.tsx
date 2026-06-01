@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
@@ -11,10 +11,11 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Loader2 } from "lucide-react"
+import { CheckCircle2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
+import GoogleAuthButton from "@/components/GoogleAuthButton"
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.
 
@@ -77,6 +78,15 @@ export default function SignupPage() {
   })
   const [signupsEnabled, setSignupsEnabled] = useState<boolean | null>(null)
 
+  // OTP state
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState("")
+  const [phoneVerified, setPhoneVerified] = useState(false)
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [verifyLoading, setVerifyLoading] = useState(false)
+  const [resendTimer, setResendTimer] = useState(0)
+  const resendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
   // Terms state
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [termsModalOpen, setTermsModalOpen] = useState(false)
@@ -126,6 +136,81 @@ export default function SignupPage() {
       ...prev,
       [name]: value,
     }))
+    // Reset phone verification when phone number changes
+    if (name === "phoneNumber") {
+      setOtpSent(false)
+      setOtpCode("")
+      setPhoneVerified(false)
+    }
+  }
+
+  const startResendTimer = () => {
+    setResendTimer(60)
+    resendTimerRef.current = setInterval(() => {
+      setResendTimer((t) => {
+        if (t <= 1) {
+          clearInterval(resendTimerRef.current!)
+          return 0
+        }
+        return t - 1
+      })
+    }, 1000)
+  }
+
+  const handleSendOtp = async () => {
+    const phoneDigits = formData.phoneNumber.replace(/\D/g, "")
+    if (phoneDigits.length < 9 || phoneDigits.length > 10) {
+      toast.error("Enter a valid phone number (9-10 digits) first")
+      return
+    }
+    setOtpLoading(true)
+    try {
+      const res = await fetch("/api/auth/send-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: formData.phoneNumber }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error || "Failed to send OTP")
+        return
+      }
+      setOtpSent(true)
+      setPhoneVerified(false)
+      setOtpCode("")
+      startResendTimer()
+      toast.success("OTP sent! Check your phone.")
+    } catch {
+      toast.error("Failed to send OTP")
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.length !== 6) {
+      toast.error("Enter the 6-digit OTP")
+      return
+    }
+    setVerifyLoading(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: formData.phoneNumber, code: otpCode }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.verified) {
+        toast.error(data.error || "Invalid or expired code")
+        return
+      }
+      setPhoneVerified(true)
+      toast.success("Phone number verified!")
+    } catch {
+      toast.error("Failed to verify OTP")
+    } finally {
+      setVerifyLoading(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -162,6 +247,12 @@ export default function SignupPage() {
       const phoneDigits = formData.phoneNumber.replace(/\D/g, '')
       if (phoneDigits.length < 9 || phoneDigits.length > 10) {
         toast.error("Phone number must be 9 or 10 digits")
+        setIsLoading(false)
+        return
+      }
+
+      if (!phoneVerified) {
+        toast.error("Please verify your phone number with the OTP first")
         setIsLoading(false)
         return
       }
@@ -261,18 +352,59 @@ export default function SignupPage() {
                   />
                 </div>
 
-                {/* Phone Number */}
+                {/* Phone Number + OTP */}
                 <div className="space-y-2">
                   <Label htmlFor="phoneNumber">Phone Number</Label>
-                  <Input
-                    id="phoneNumber"
-                    name="phoneNumber"
-                    type="tel"
-                    placeholder="Enter your phone number"
-                    value={formData.phoneNumber}
-                    onChange={handleChange}
-                    required
-                  />
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        id="phoneNumber"
+                        name="phoneNumber"
+                        type="tel"
+                        placeholder="Enter your phone number"
+                        value={formData.phoneNumber}
+                        onChange={handleChange}
+                        required
+                        className={phoneVerified ? "pr-8 border-green-500 focus-visible:ring-green-500" : ""}
+                      />
+                      {phoneVerified && (
+                        <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleSendOtp}
+                      disabled={otpLoading || resendTimer > 0 || phoneVerified}
+                      className="shrink-0 text-xs px-3"
+                    >
+                      {otpLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : resendTimer > 0 ? `${resendTimer}s` : otpSent ? "Resend" : "Send OTP"}
+                    </Button>
+                  </div>
+
+                  {otpSent && !phoneVerified && (
+                    <div className="flex gap-2 pt-1">
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        placeholder="Enter 6-digit code"
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleVerifyOtp}
+                        disabled={verifyLoading || otpCode.length !== 6}
+                        className="shrink-0 text-xs px-3"
+                      >
+                        {verifyLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Verify"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Email */}
@@ -341,10 +473,21 @@ export default function SignupPage() {
                 <Button
                   type="submit"
                   className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={isLoading || !termsAccepted}
+                  disabled={isLoading || !termsAccepted || !phoneVerified}
                 >
                   {isLoading ? "Creating account..." : "Create Account"}
                 </Button>
+
+                {/* Google OAuth */}
+                <div className="relative my-1">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-gray-200" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-white/70 px-2 text-gray-400">or</span>
+                  </div>
+                </div>
+                <GoogleAuthButton />
 
                 {/* Login Link */}
                 <div className="text-center text-sm text-gray-600">

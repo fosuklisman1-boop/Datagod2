@@ -12,6 +12,7 @@ import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
 import { supabase } from "@/lib/supabase"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
+import GoogleAuthButton from "@/components/GoogleAuthButton"
 import { useCommunityLink } from "@/hooks/use-community-link"
 import { MessageCircle } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -135,6 +136,17 @@ export default function LoginForm() {
             >
               {isLoading ? "Signing in..." : "Sign In"}
             </Button>
+
+            {/* Google OAuth */}
+            <div className="relative my-1">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-gray-200" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white/70 px-2 text-gray-400">or</span>
+              </div>
+            </div>
+            <GoogleAuthButton redirectTo={redirectTo} />
 
             {/* Forgot Password Link */}
             <div className="text-center">

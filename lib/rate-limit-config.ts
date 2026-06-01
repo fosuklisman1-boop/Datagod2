@@ -17,6 +17,12 @@ export const RATE_LIMITS = {
         message: 'Too many password reset requests. Please check your email or phone, or try again later.',
     },
 
+    PHONE_OTP: {
+        maxRequests: 5,
+        windowMs: 60 * 60 * 1000, // 1 hour per IP
+        message: 'Too many OTP requests. Please try again later.',
+    },
+
     // Public endpoints
     PUBLIC_PACKAGES: {
         maxRequests: 60,

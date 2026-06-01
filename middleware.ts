@@ -77,7 +77,13 @@ export async function middleware(request: NextRequest) {
   // Authenticated users navigating to auth pages are bounced to the dashboard,
   // EXCEPT /auth/reset-password: Supabase's magic-link flow signs the user in
   // via the OTP token before they land on that page, so it must stay accessible.
-  if (isAuthenticated && path.startsWith("/auth") && !path.startsWith("/auth/reset-password")) {
+  if (
+    isAuthenticated &&
+    path.startsWith("/auth") &&
+    !path.startsWith("/auth/reset-password") &&
+    !path.startsWith("/auth/complete-profile") &&
+    !path.startsWith("/auth/callback")
+  ) {
     const dashboardUrl = request.nextUrl.clone()
     dashboardUrl.pathname = "/dashboard"
     dashboardUrl.searchParams.delete("redirect")
