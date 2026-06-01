@@ -323,9 +323,9 @@ export default function AdminShopsPage() {
 
         {/* Shop Details Dialog */}
         <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             <DialogHeader>
-              <DialogTitle>{selectedShop?.shop_name}</DialogTitle>
+              <DialogTitle className="pr-8">{selectedShop?.shop_name}</DialogTitle>
             </DialogHeader>
             {shopDetails && (
               <div className="space-y-6">
@@ -386,7 +386,7 @@ export default function AdminShopsPage() {
                     Manual Balance Adjustment
                   </h3>
                   <div className="grid gap-4">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Amount (GHS)</label>
                         <Input
@@ -405,7 +405,7 @@ export default function AdminShopsPage() {
                         />
                       </div>
                     </div>
-                    <div className="flex gap-2.5">
+                    <div className="flex flex-col sm:flex-row gap-2.5">
                       <Button
                         size="sm"
                         className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
@@ -501,7 +501,7 @@ export default function AdminShopsPage() {
 
                 {/* Actions */}
                 {!selectedShop?.is_active && (
-                  <div className="flex gap-2 border-t pt-4">
+                  <div className="flex flex-col sm:flex-row gap-2 border-t pt-4">
                     <Button
                       onClick={() => handleApprove(selectedShop!.id)}
                       className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
