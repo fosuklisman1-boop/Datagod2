@@ -420,6 +420,16 @@ export async function POST(request: NextRequest) {
       paystackFee: paystackFee,
     }
 
+    // Origin tag stamped into Paystack metadata/custom_fields. Lets us read, on
+    // the Paystack dashboard, exactly which backend path produced any txn — and
+    // flag any txn lacking the "datagod_backend" source as not ours.
+    const paymentChannel =
+      type === "dealer_upgrade" ? "dealer_upgrade"
+        : orderType === "airtime" ? "shop_airtime"
+        : orderType === "results_checker" ? "shop_results_checker"
+        : orderId ? "shop_data"
+        : "wallet_topup"
+
     // ── Direct MoMo charge path ──────────────────────────────────────────────
     // When the client requests momoDirect (used while the checkout OTP gate is
     // on), we charge a SERVER-SPECIFIED, OTP-VERIFIED MoMo number directly via
@@ -453,6 +463,7 @@ export async function POST(request: NextRequest) {
         provider,
         reference,
         metadata: paymentMetadata,
+        channel: paymentChannel,
       })
 
       const corsHeaders = getCorsHeaders(request.headers.get("origin"))
@@ -474,6 +485,7 @@ export async function POST(request: NextRequest) {
       reference,
       redirectUrl,
       metadata: paymentMetadata,
+      channel: paymentChannel,
       // Card channel can be disabled platform-wide during a card-testing attack
       // by setting PAYMENT_CARD_DISABLED=true. Ghana is mobile-money-first, so
       // dropping card barely affects legit revenue while killing card-testing.

@@ -17,6 +17,8 @@ interface InitializePaymentParams {
   redirectUrl?: string
   metadata?: Record<string, any>
   channels?: string[]
+  /** Originating backend path, e.g. "wallet_topup", "shop_data". Tags the txn. */
+  channel?: string
 }
 
 interface VerifyPaymentParams {
@@ -28,6 +30,45 @@ interface PaymentResponse {
   message: string
   data?: any
   error?: string
+}
+
+/**
+ * Stamp every Paystack transaction we create with a verifiable origin signature.
+ *
+ * WHY: Paystack's dashboard only renders `custom_fields` prominently — plain
+ * metadata keys are nearly invisible there. By emitting custom_fields we make
+ * the transaction's origin readable at a glance, and `source: "datagod_backend"`
+ * becomes a signature ONLY our server can set. Any transaction on the Paystack
+ * dashboard WITHOUT this signature was not created by our code (e.g. a popup
+ * abusing the public key); any WITH it shows exactly which path (`channel`)
+ * created it — turning "different references" into a precise audit trail.
+ */
+function buildSignedMetadata(
+  base: Record<string, any> | undefined,
+  channel?: string
+): Record<string, any> {
+  const m: Record<string, any> = { ...(base || {}) }
+  m.source = "datagod_backend"
+  if (channel) m.channel = channel
+
+  const fields: Array<{ display_name: string; variable_name: string; value: string }> = []
+  const push = (display_name: string, variable_name: string, value: any) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      fields.push({ display_name, variable_name, value: String(value) })
+    }
+  }
+  push("Source", "source", "DATAGOD Backend")
+  push("Channel", "channel", channel)
+  push("Transaction Type", "transaction_type", m.type)
+  push("Order Type", "order_type", m.orderType)
+  push("Order ID", "order_id", m.orderId)
+  push("Shop ID", "shop_id", m.shopId)
+  push("User ID", "user_id", m.userId)
+
+  // Preserve any custom_fields a caller already supplied, then append ours.
+  const existing = Array.isArray(base?.custom_fields) ? base!.custom_fields : []
+  m.custom_fields = [...existing, ...fields]
+  return m
 }
 
 /**
@@ -59,7 +100,7 @@ export async function initializePayment(
       reference: params.reference,
       currency: "GHS", // Explicitly set currency
       callback_url: params.redirectUrl || undefined,
-      metadata: params.metadata || {},
+      metadata: buildSignedMetadata(params.metadata, params.channel),
       channels: params.channels || [
         "card",
         "mobile_money",
@@ -336,6 +377,8 @@ interface ChargeMobileMoneyParams {
   provider: 'mtn' | 'vod' | 'tgo'
   reference: string
   metadata?: Record<string, any>
+  /** Originating backend path, e.g. "shop_data". Tags the txn. */
+  channel?: string
 }
 
 /**
@@ -344,7 +387,7 @@ interface ChargeMobileMoneyParams {
  * On approval the charge.success webhook fires.
  */
 export async function chargeMobileMoney(params: ChargeMobileMoneyParams): Promise<{ status: string; reference: string }> {
-  const { email, amount, phone, provider, reference, metadata } = params
+  const { email, amount, phone, provider, reference, metadata, channel } = params
 
   // Normalise to local format (0XXXXXXXXX) — Paystack Ghana expects this
   let normalizedPhone = phone
@@ -366,7 +409,7 @@ export async function chargeMobileMoney(params: ChargeMobileMoneyParams): Promis
       amount: Math.round(amount * 100), // GHS → pesewas
       reference,
       mobile_money: { phone: normalizedPhone, provider },
-      metadata: metadata ?? {},
+      metadata: buildSignedMetadata(metadata, channel),
     }),
   })
 
