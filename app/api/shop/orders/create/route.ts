@@ -8,6 +8,7 @@ import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
 import { secureTimestampedReference } from "@/lib/secure-random"
 import { checkEmailQuality } from "@/lib/email-heuristics"
+import { isStorefrontOtpRequired, isPhoneRecentlyVerified } from "@/lib/storefront-otp"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -208,6 +209,23 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
       console.log(`[SHOP-ORDER] ✓ Cookie valid for shop ${shop_id} slug=${shopForCookie.shop_slug}`)
+    }
+
+    // Checkout phone-OTP gate (admin toggle). When ON, the customer must have
+    // verified this phone via SMS OTP within the last 30 min. Converts anonymous
+    // guest checkout into "one order per verified phone" — the top-of-funnel
+    // defense against automated flood / card-testing / prompt-spam. Skipped for
+    // authenticated sub-agent stock purchases.
+    if (!isAuthenticatedDashboardCall && (await isStorefrontOtpRequired())) {
+      const verified = await isPhoneRecentlyVerified(customer_phone)
+      if (!verified) {
+        console.warn(`[SHOP-ORDER] ❌ Phone not OTP-verified for shop ${shop_id}`)
+        return NextResponse.json(
+          { error: "Please verify your phone number to continue.", code: "OTP_REQUIRED" },
+          { status: 403 }
+        )
+      }
+      console.log(`[SHOP-ORDER] ✓ Phone OTP-verified for shop ${shop_id}`)
     }
 
     console.log("[SHOP-ORDER] Creating order for:", {

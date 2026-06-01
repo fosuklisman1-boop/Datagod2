@@ -1,21 +1,24 @@
 import { NextResponse } from "next/server"
 import { isTurnstileEnabled } from "@/lib/turnstile"
+import { isStorefrontOtpRequired } from "@/lib/storefront-otp"
 
 /**
  * GET /api/public/turnstile-status
- * Public endpoint — returns { enabled: boolean } so the storefront forms
- * know whether to render the Turnstile widget. No auth required because
- * the answer is the same for every visitor.
+ * Public checkout-requirements endpoint. Returns:
+ *   - enabled:      whether to render the Turnstile widget
+ *   - otp_required: whether the storefront checkout OTP gate is on
+ * No auth required — the answer is the same for every visitor.
  *
- * Cached at the edge for 30 seconds: an admin toggle takes effect on
- * existing pages within 30s of a hard refresh. New page loads after the
- * toggle pick up the new state immediately (TTL only affects previously-
- * cached responses).
+ * Cached at the edge for 30 seconds: an admin toggle takes effect within
+ * ~30s. New page loads after a toggle pick up the new state immediately.
  */
 export async function GET() {
-  const enabled = await isTurnstileEnabled()
+  const [enabled, otpRequired] = await Promise.all([
+    isTurnstileEnabled(),
+    isStorefrontOtpRequired(),
+  ])
   return NextResponse.json(
-    { enabled },
+    { enabled, otp_required: otpRequired },
     {
       headers: {
         "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",

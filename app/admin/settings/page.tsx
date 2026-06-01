@@ -76,6 +76,10 @@ export default function AdminSettingsPage() {
   const [turnstileEnabled, setTurnstileEnabled] = useState(true)
   const [savingTurnstile, setSavingTurnstile] = useState(false)
 
+  // Storefront checkout phone-OTP gate
+  const [checkoutOtpEnabled, setCheckoutOtpEnabled] = useState(false)
+  const [savingCheckoutOtp, setSavingCheckoutOtp] = useState(false)
+
   // Guest purchase settings
   const [guestPurchaseUrl, setGuestPurchaseUrl] = useState("")
   const [guestPurchaseButtonText, setGuestPurchaseButtonText] = useState("Buy as Guest")
@@ -235,6 +239,17 @@ export default function AdminSettingsPage() {
             setTurnstileEnabled(turnstileData.enabled)
           }
         }
+
+        // Load checkout phone-OTP gate state
+        const otpResponse = await fetch("/api/admin/settings/storefront-otp", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (otpResponse.ok) {
+          const otpData = await otpResponse.json()
+          if (typeof otpData.enabled === "boolean") {
+            setCheckoutOtpEnabled(otpData.enabled)
+          }
+        }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
         const errorMessage = error instanceof Error ? error.message : "Failed to load settings"
@@ -324,6 +339,41 @@ export default function AdminSettingsPage() {
       toast.error(errorMessage)
     } finally {
       setSavingChristmasTheme(false)
+    }
+  }
+
+  const handleCheckoutOtpToggle = async (enabled: boolean) => {
+    setSavingCheckoutOtp(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        setSavingCheckoutOtp(false)
+        return
+      }
+      const response = await fetch("/api/admin/settings/storefront-otp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to update checkout OTP setting")
+      }
+      setCheckoutOtpEnabled(enabled)
+      toast.success(
+        enabled
+          ? "🔐 Checkout phone-OTP is now REQUIRED — guests must verify their phone"
+          : "Checkout phone-OTP disabled — guest checkout open"
+      )
+    } catch (error) {
+      console.error("Error updating checkout OTP:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update checkout OTP setting")
+    } finally {
+      setSavingCheckoutOtp(false)
     }
   }
 
@@ -1494,6 +1544,42 @@ export default function AdminSettingsPage() {
           </CardHeader>
           <CardContent>
             <PhoneBlacklistManager />
+          </CardContent>
+        </Card>
+
+        {/* Checkout Phone-OTP Gate */}
+        <Card className="mt-6 border-2 border-purple-500">
+          <CardHeader className="bg-gradient-to-r from-purple-50 to-fuchsia-50">
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              🔐 Checkout Phone Verification (OTP)
+            </CardTitle>
+            <CardDescription className="text-purple-800 mt-1">
+              Require guests to verify their phone via SMS code before placing a
+              shop order. Turn ON during an attack to stop automated orders / card-testing / payment-prompt abuse.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-purple-50 border-2 border-purple-300 rounded-lg">
+              <div className="flex-1">
+                <p className="font-bold text-gray-900 text-lg">Require Phone OTP at Checkout</p>
+                <p className="text-sm text-gray-700 mt-2">
+                  {checkoutOtpEnabled
+                    ? "🔒 ON — every guest must enter an SMS code sent to their phone before they can place an order. Stops automated/bulk orders cold."
+                    : "Guest checkout is open (no OTP). Enable this during an attack to force phone verification. Note: each checkout sends one SMS (cost), so keep it OFF in normal operation."}
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-4 min-w-fit">
+                <span className={`text-sm font-bold ${checkoutOtpEnabled ? "text-green-700" : "text-gray-500"}`}>
+                  {checkoutOtpEnabled ? "ON" : "OFF"}
+                </span>
+                <Switch
+                  checked={checkoutOtpEnabled}
+                  onCheckedChange={handleCheckoutOtpToggle}
+                  disabled={savingCheckoutOtp}
+                  className="data-[state=checked]:bg-green-600"
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
