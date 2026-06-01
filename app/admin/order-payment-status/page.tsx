@@ -72,6 +72,7 @@ export default function OrderPaymentStatusPage() {
   const [bulkStatus, setBulkStatus] = useState("")
   const [bulkUpdating, setBulkUpdating] = useState(false)
   const [bulkDownloading, setBulkDownloading] = useState(false)
+  const [bulkDownloadingFailed, setBulkDownloadingFailed] = useState(false)
   const [globalBulkCount, setGlobalBulkCount] = useState<number | null>(null)
   const [loadingBulkCount, setLoadingBulkCount] = useState(false)
 
@@ -546,6 +547,67 @@ export default function OrderPaymentStatusPage() {
     }
   }
 
+  const handleBulkDownloadFailed = async () => {
+    if (!bulkDate) {
+      toast.error("Please select a date")
+      return
+    }
+
+    try {
+      setBulkDownloadingFailed(true)
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("You must be logged in to perform this action")
+        return
+      }
+
+      const payload = {
+        orderType: "all",
+        isRedownload: true,
+        filters: {
+          date: bulkDate,
+          startTime: bulkStartTime,
+          endTime: bulkEndTime,
+          network: bulkNetwork,
+          failureMode: "failed"
+        }
+      }
+
+      const response = await fetch("/api/admin/orders/download", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(payload)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to download failed orders")
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      a.download = `orders-failed-${bulkNetwork || 'all'}-${bulkDate}-${timestamp}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      toast.success("Failed orders downloaded successfully")
+    } catch (error) {
+      console.error("[PAYMENT-STATUS] Failed orders download error:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to download failed orders")
+    } finally {
+      setBulkDownloadingFailed(false)
+    }
+  }
+
   if (adminLoading) {
     return (
       <DashboardLayout>
@@ -744,6 +806,25 @@ export default function OrderPaymentStatusPage() {
                       <>
                         <Download className="w-4 h-4 mr-2" />
                         Download {globalBulkCount !== null ? `${globalBulkCount} ` : ""}Orders
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={handleBulkDownloadFailed}
+                    disabled={bulkDownloadingFailed || !bulkDate}
+                    className="border-red-200 hover:bg-red-50 text-red-700 font-semibold"
+                  >
+                    {bulkDownloadingFailed ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Preparing...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Download Failed Orders
                       </>
                     )}
                   </Button>
