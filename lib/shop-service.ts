@@ -43,13 +43,18 @@ export const shopService = {
     return data
   },
 
-  // Get shop by slug (public, anon-callable). Intentionally EXCLUDES the
-  // internal id and user_id columns so the anon Supabase role never returns
-  // them — server-side APIs resolve id from slug as needed.
+  // Get shop by slug (public, anon-callable). Lists only columns that actually
+  // exist in the schema and are safe for anon to see. EXCLUDES:
+  //   - id, user_id (internal UUIDs — server-only)
+  //   - block_reason, blocked_at, tier_level, updated_at (internal admin data)
   async getShopBySlug(slug: string) {
     const { data, error } = await supabase
       .from("user_shops")
-      .select("shop_name, shop_slug, description, logo_url, banner_url, phone, location, is_active, is_blocked, parent_shop_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at, created_at")
+      .select(
+        "shop_name, shop_slug, description, logo_url, banner_url, is_active, is_blocked, parent_shop_id, " +
+        "airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at, " +
+        "results_checker_markup_waec, results_checker_markup_bece, results_checker_markup_novdec, created_at"
+      )
       .eq("shop_slug", slug)
       .eq("is_active", true)
       .single()
