@@ -64,6 +64,13 @@ export default function ShopStorefront() {
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true) // default true until status loads
   const [honeypot, setHoneypot] = useState<string>("")
+  // Checkout phone-OTP gate (admin-toggleable)
+  const [otpRequired, setOtpRequired] = useState<boolean>(false)
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState("")
+  const [otpVerified, setOtpVerified] = useState(false)
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [verifyingOtp, setVerifyingOtp] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
@@ -78,11 +85,14 @@ export default function ShopStorefront() {
     loadShopData()
     loadNetworkLogos()
 
-    // Fetch Turnstile kill-switch state — controls whether we render the widget
+    // Fetch checkout requirements — Turnstile widget + OTP gate state
     fetch("/api/public/turnstile-status")
-      .then(r => r.ok ? r.json() : { enabled: true })
-      .then(d => setTurnstileEnabled(d.enabled !== false))
-      .catch(() => setTurnstileEnabled(true))  // fail-safe: assume enabled
+      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false })
+      .then(d => {
+        setTurnstileEnabled(d.enabled !== false)  // fail-safe: assume enabled
+        setOtpRequired(d.otp_required === true)
+      })
+      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
 
     // Save storefront slug to localStorage so users are redirected here from the main site
     if (shopSlug && typeof window !== "undefined") {
@@ -200,6 +210,50 @@ export default function ShopStorefront() {
   const validatePhoneNumberField = (phone: string, network?: string): boolean => {
     const result = validatePhoneNumber(phone, network)
     return result.isValid
+  }
+
+  // ── Checkout phone-OTP (only used when otpRequired) ──────────────────────
+  const handleSendCheckoutOtp = async () => {
+    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage?.network)) {
+      toast.error("Enter a valid phone number first")
+      return
+    }
+    setSendingOtp(true)
+    try {
+      const res = await fetch("/api/auth/send-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: orderData.customer_phone }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(data?.error || "Failed to send code"); return }
+      toast.success("Verification code sent to your phone")
+      setOtpSent(true)
+    } catch {
+      toast.error("Network error. Please try again.")
+    } finally {
+      setSendingOtp(false)
+    }
+  }
+
+  const handleVerifyCheckoutOtp = async () => {
+    if (!otpCode || otpCode.length < 4) { toast.error("Enter the code from your SMS"); return }
+    setVerifyingOtp(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: orderData.customer_phone, code: otpCode.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.verified) { toast.error(data?.error || "Incorrect code"); return }
+      toast.success("Phone verified ✓")
+      setOtpVerified(true)
+    } catch {
+      toast.error("Network error. Please try again.")
+    } finally {
+      setVerifyingOtp(false)
+    }
   }
 
   const handleSubmitOrder = async () => {
@@ -901,7 +955,11 @@ export default function ShopStorefront() {
                   <Label>Phone Number (MTN, Telecel, AT) *</Label>
                   <Input
                     value={orderData.customer_phone}
-                    onChange={(e) => setOrderData({ ...orderData, customer_phone: e.target.value })}
+                    onChange={(e) => {
+                      setOrderData({ ...orderData, customer_phone: e.target.value })
+                      // changing phone invalidates any prior OTP verification
+                      if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                    }}
                     placeholder="0201234567 or 0551234567"
                     className="mt-1"
                   />
@@ -929,6 +987,56 @@ export default function ShopStorefront() {
 
                 <HoneypotField value={honeypot} onChange={setHoneypot} />
 
+                {/* Checkout phone-OTP step (only when admin gate is ON) */}
+                {otpRequired && !otpVerified && (
+                  <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
+                    <p className="text-sm font-semibold text-purple-900">
+                      Verify your phone number to continue
+                    </p>
+                    {!otpSent ? (
+                      <Button
+                        type="button"
+                        onClick={handleSendCheckoutOtp}
+                        disabled={sendingOtp}
+                        className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                      >
+                        {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
+                      </Button>
+                    ) : (
+                      <div className="space-y-2">
+                        <Input
+                          inputMode="numeric"
+                          maxLength={6}
+                          placeholder="Enter 6-digit code"
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          className="text-center text-lg tracking-[0.4em] font-mono"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            onClick={handleVerifyCheckoutOtp}
+                            disabled={verifyingOtp || otpCode.length < 4}
+                            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                          >
+                            {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                          </Button>
+                          <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp}>
+                            Resend
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {otpRequired && otpVerified && (
+                  <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    <span className="text-sm font-medium text-green-900">Phone verified</span>
+                  </div>
+                )}
+
                 {turnstileEnabled && (
                   <div className="pt-2">
                     <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
@@ -938,7 +1046,7 @@ export default function ShopStorefront() {
                 <div className="flex gap-2 pt-4">
                   <Button
                     onClick={handleSubmitOrder}
-                    disabled={submitting || (turnstileEnabled && !turnstileToken)}
+                    disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified)}
                     className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
                   >
                     {submitting ? (
