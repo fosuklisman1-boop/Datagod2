@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { sendPushToUser } from "@/lib/push-service"
+import { getInternalBaseUrl } from "@/lib/internal-url"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -650,14 +651,19 @@ export async function POST(request: NextRequest) {
               }
             }).catch(() => {})
 
-            // Auto-fulfillment trigger via unified endpoint
+            // Auto-fulfillment trigger via unified endpoint.
+            // IMPORTANT: use the INTERNAL origin (Vercel) — NOT the public
+            // Cloudflare-proxied domain. A server-to-server call to the public
+            // domain has no browser fingerprint and gets hit by Cloudflare Bot
+            // Fight Mode, which returns an HTML challenge page → JSON.parse
+            // crash → fulfillment silently fails for PAID orders.
             try {
-              const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+              const baseUrl = getInternalBaseUrl()
               const digits = shopOrderData.volume_gb?.toString().replace(/[^0-9]/g, "") || "0"
               const sizeGb = parseInt(digits) || 0
 
-              console.log(`[WEBHOOK] Triggering unified fulfillment for shop order ${paymentData.order_id}`)
-              
+              console.log(`[WEBHOOK] Triggering unified fulfillment for shop order ${paymentData.order_id} via ${baseUrl}`)
+
               const fulfillmentResponse = await fetch(`${baseUrl}/api/fulfillment/process-order`, {
                 method: "POST",
                 headers: {
@@ -672,12 +678,21 @@ export async function POST(request: NextRequest) {
                   customer_name: shopOrderData.customer_name,
                 }),
               })
-              
-              const fulfillmentResult = await fulfillmentResponse.json()
-              if (!fulfillmentResponse.ok) {
-                console.error("[WEBHOOK] Unified fulfillment error:", fulfillmentResult)
+
+              // Robust parse: a non-JSON body (e.g. a Cloudflare challenge HTML
+              // page) must NOT crash the handler. Leave the order pending so the
+              // verify-pending-payments cron retries fulfillment.
+              const ct = fulfillmentResponse.headers.get("content-type") || ""
+              if (!ct.includes("application/json")) {
+                const text = await fulfillmentResponse.text()
+                console.error(`[WEBHOOK] ⚠️ Fulfillment returned non-JSON (status ${fulfillmentResponse.status}, content-type ${ct}). First 120 chars: ${text.slice(0, 120)}. Order ${paymentData.order_id} left pending for cron retry.`)
               } else {
-                console.log("[WEBHOOK] ✓ Unified fulfillment triggered successfully")
+                const fulfillmentResult = await fulfillmentResponse.json()
+                if (!fulfillmentResponse.ok) {
+                  console.error("[WEBHOOK] Unified fulfillment error:", fulfillmentResult)
+                } else {
+                  console.log("[WEBHOOK] ✓ Unified fulfillment triggered successfully")
+                }
               }
             } catch (fError) {
               console.error("[WEBHOOK] Failed to trigger unified fulfillment:", fError)
