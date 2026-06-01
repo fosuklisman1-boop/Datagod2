@@ -26,8 +26,31 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const orderId = searchParams.get("orderId")
   const orderType = searchParams.get("orderType") || "data"
+  const reference = searchParams.get("reference")
+
+  // Order-free flows (wallet top-up, dealer upgrade) have no order row — their
+  // state lives on the wallet_payments record, keyed by the Paystack reference.
+  if (!orderId && reference) {
+    try {
+      const { data } = await supabase
+        .from("wallet_payments")
+        .select("status")
+        .eq("reference", reference)
+        .maybeSingle()
+
+      const ps = (data as any)?.status
+      let status: "pending" | "completed" | "failed" = "pending"
+      if (ps === "completed" || ps === "success") status = "completed"
+      else if (ps === "failed" || ps === "abandoned" || ps === "cancelled") status = "failed"
+
+      return NextResponse.json({ status }, { headers: { "Cache-Control": "no-store" } })
+    } catch {
+      return NextResponse.json({ status: "pending" })
+    }
+  }
+
   if (!orderId) {
-    return NextResponse.json({ error: "orderId required" }, { status: 400 })
+    return NextResponse.json({ error: "orderId or reference required" }, { status: 400 })
   }
 
   const table = orderType === "airtime" ? "airtime_orders"

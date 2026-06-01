@@ -458,7 +458,12 @@ export async function POST(request: NextRequest) {
     // existing charge.success webhook resolves `reference` → wallet_payments →
     // order exactly as the redirect flow does, so fulfillment is unchanged.
     if (momoDirect) {
-      if (!orderId) {
+      // Shop orders must reference an order; the order-free flows (wallet top-up,
+      // dealer upgrade) legitimately have no orderId — their amount is already
+      // server-verified above (bounded top-up amount / plan price) and the
+      // charge.success webhook credits the wallet / applies the upgrade via
+      // reference → wallet_payments → user, exactly like the hosted redirect.
+      if (!orderId && !isTopup && !isUpgrade) {
         return NextResponse.json({ error: "Direct MoMo charge requires an order." }, { status: 400 })
       }
       const payPhone = String(paymentPhone || "").trim()

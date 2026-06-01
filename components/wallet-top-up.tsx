@@ -26,13 +26,44 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [errorMessage, setErrorMessage] = useState("")
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
 
+  // Wallet protection gate: when ON, top-ups go through an OTP-verified direct
+  // MoMo charge (the prompt can only reach a number the user verified) instead of
+  // the open hosted checkout where any number could be typed.
+  const [walletLock, setWalletLock] = useState(false)
+  const [paymentPhone, setPaymentPhone] = useState("")
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState("")
+  const [otpVerified, setOtpVerified] = useState(false)
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [verifyingOtp, setVerifyingOtp] = useState(false)
+  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; reference?: string; summary?: any; message?: string }>(null)
+
   // Predefined amounts
   const quickAmounts = [50, 100, 200, 500]
 
   useEffect(() => {
     fetchUserInfo()
     fetchFeeSettings()
+    // Is the wallet/upgrade protection gate on?
+    fetch("/api/public/turnstile-status")
+      .then(r => r.ok ? r.json() : { wallet_lock: false })
+      .then(d => setWalletLock(d.wallet_lock === true))
+      .catch(() => setWalletLock(false))
   }, [])
+
+  // One-time OTP: auto-skip if the payment number was already verified.
+  useEffect(() => {
+    if (!walletLock || otpVerified) return
+    const digits = paymentPhone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) return
+    const t = setTimeout(() => {
+      fetch("/api/public/phone-verified", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: paymentPhone }),
+      }).then(r => r.ok ? r.json() : { verified: false }).then(d => { if (d.verified) setOtpVerified(true) }).catch(() => {})
+    }, 600)
+    return () => clearTimeout(t)
+  }, [paymentPhone, walletLock, otpVerified])
 
   const fetchFeeSettings = async () => {
     try {
@@ -64,6 +95,59 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     setAmount(value.toString())
   }
 
+  const handleSendOtp = async () => {
+    const digits = paymentPhone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) { toast.error("Enter a valid Mobile Money number first"); return }
+    setSendingOtp(true)
+    try {
+      const res = await fetch("/api/auth/send-phone-otp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: paymentPhone }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d?.error || "Failed to send code"); return }
+      toast.success("Verification code sent"); setOtpSent(true)
+    } catch { toast.error("Network error") } finally { setSendingOtp(false) }
+  }
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.length < 4) { toast.error("Enter the code from your SMS"); return }
+    setVerifyingOtp(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: paymentPhone, code: otpCode.trim() }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.verified) { toast.error(d?.error || "Incorrect code"); return }
+      toast.success("Payment number verified ✓"); setOtpVerified(true)
+    } catch { toast.error("Network error") } finally { setVerifyingOtp(false) }
+  }
+
+  // Poll wallet_payments status (by reference) while the live modal is open.
+  const pollMomoStatus = (reference: string, summary: any) => {
+    const started = Date.now()
+    const TIMEOUT_MS = 4 * 60 * 1000
+    const tick = async () => {
+      if (Date.now() - started > TIMEOUT_MS) {
+        setMomoModal({ state: "failed", message: "Payment timed out. If you approved the prompt, your wallet will still be credited — refresh in a moment, or try again." })
+        return
+      }
+      try {
+        const res = await fetch(`/api/payments/momo-status?reference=${encodeURIComponent(reference)}`)
+        const d = await res.json().catch(() => ({ status: "pending" }))
+        if (d.status === "completed") {
+          setMomoModal({ state: "success", reference, summary })
+          if (onSuccess) onSuccess(parseFloat(amount))
+          return
+        }
+        if (d.status === "failed") { setMomoModal({ state: "failed", message: "Payment was not completed. Please try again." }); return }
+      } catch { /* keep polling */ }
+      setTimeout(tick, 3000)
+    }
+    setTimeout(tick, 3000)
+  }
+
   const handleTopUp = async () => {
     // Validation
     const amountValue = parseFloat(amount)
@@ -91,6 +175,13 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       return
     }
 
+    // When the protection gate is on, require an OTP-verified payment number.
+    if (walletLock && !otpVerified) {
+      setErrorMessage("Please verify your Mobile Money number first")
+      toast.error("Verify your Mobile Money number first")
+      return
+    }
+
     try {
       setIsLoading(true)
       setPaymentStatus("processing")
@@ -98,7 +189,25 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
       console.log("[WALLET-TOPUP] Starting payment with amount:", amount)
 
-      // Initialize payment
+      // ── Direct MoMo charge path (protection gate ON) ─────────────────────
+      if (walletLock) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) { throw new Error("Your session expired. Please refresh and sign in again.") }
+        const res = await fetch("/api/payments/initialize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ amount: parseFloat(amount), email, momoDirect: true, paymentPhone }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data.success) { throw new Error(data?.error || "Could not start the Mobile Money charge. Please try again.") }
+        const summary = { amount: parseFloat(amount), paymentPhone, reference: data.reference }
+        setMomoModal({ state: "awaiting", reference: data.reference, summary })
+        pollMomoStatus(data.reference, summary)
+        setIsLoading(false)
+        return
+      }
+
+      // Initialize payment (hosted redirect — gate OFF)
       const paymentResult = await initializePayment({
         amount: parseFloat(amount),
         email,
@@ -253,10 +362,56 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           </div>
         )}
 
+        {/* Payment-number + OTP step (only when the protection gate is ON) */}
+        {walletLock && (
+          <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
+            <div>
+              <label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</label>
+              <Input
+                type="tel"
+                inputMode="numeric"
+                placeholder="0241234567"
+                value={paymentPhone}
+                onChange={(e) => {
+                  setPaymentPhone(e.target.value)
+                  if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                }}
+                disabled={otpVerified || isLoading}
+                className="mt-1 bg-white font-mono"
+              />
+              <p className="text-xs text-purple-700 mt-1">The payment prompt is sent to this number. You verify it once.</p>
+            </div>
+            {!otpVerified ? (
+              !otpSent ? (
+                <Button type="button" onClick={handleSendOtp} disabled={sendingOtp} className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                  {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="text-center text-lg tracking-[0.4em] font-mono bg-white" />
+                  <div className="flex gap-2">
+                    <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">
+                      {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp}>Resend</Button>
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Top Up Button */}
         <Button
           onClick={handleTopUp}
-          disabled={isLoading || !amount}
+          disabled={isLoading || !amount || (walletLock && !otpVerified)}
           className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-semibold py-6 text-lg"
         >
           {isLoading ? (
@@ -281,6 +436,67 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         </div>
       </CardContent>
     </Card>
+
+    {/* Live Mobile Money prompt modal (direct-charge flow) */}
+    {momoModal && (
+      <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
+        <Card className="w-full max-w-md bg-white rounded-2xl">
+          {momoModal.state === "awaiting" && (
+            <CardContent className="pt-8 pb-6 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Approve the prompt on your phone</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  We sent a Mobile Money prompt to{" "}
+                  <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the top-up of{" "}
+                  <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+                <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
+              </div>
+              <p className="text-xs text-gray-400">Keep this page open. This can take up to a minute.</p>
+            </CardContent>
+          )}
+
+          {momoModal.state === "success" && (
+            <CardContent className="pt-8 pb-6 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                <CheckCircle className="w-9 h-9 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Wallet topped up 🎉</h3>
+                <p className="text-sm text-gray-600 mt-1">Your wallet has been credited with GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}.</p>
+              </div>
+              <Button
+                onClick={() => {
+                  setMomoModal(null); setAmount(""); setPaymentPhone("")
+                  setOtpSent(false); setOtpVerified(false); setOtpCode(""); setPaymentStatus("idle")
+                }}
+                className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white"
+              >
+                Done
+              </Button>
+            </CardContent>
+          )}
+
+          {momoModal.state === "failed" && (
+            <CardContent className="pt-8 pb-6 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertCircle className="w-9 h-9 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Top-up not completed</h3>
+                <p className="text-sm text-gray-600 mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
+              </div>
+              <Button variant="outline" onClick={() => { setMomoModal(null); setPaymentStatus("idle") }} className="w-full">Close</Button>
+            </CardContent>
+          )}
+        </Card>
+      </div>
+    )}
     </div>
   )
 }
