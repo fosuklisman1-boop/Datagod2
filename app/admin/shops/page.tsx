@@ -39,6 +39,7 @@ export default function AdminShopsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [blockReason, setBlockReason] = useState("")
   const [blockLoading, setBlockLoading] = useState(false)
+  const [rotateLoading, setRotateLoading] = useState(false)
 
   useEffect(() => {
     checkAdminAccess()
@@ -162,6 +163,41 @@ export default function AdminShopsPage() {
       toast.error(error.message || "Failed to unblock shop")
     } finally {
       setBlockLoading(false)
+    }
+  }
+
+  const handleRotateSlug = async (shopId: string, customSlug?: string) => {
+    if (!confirm(
+      "Rotate this shop's URL? The current /shop link will stop working immediately and any cookies/links tied to the old slug become invalid. Use this to break an attacker's hardcoded URL. You'll need to share the new link with the merchant."
+    )) return
+
+    setRotateLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+      const res = await fetch(`/api/dashboard/shops/${shopId}/rotate-slug`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(customSlug ? { newSlug: customSlug } : {}),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data?.error || "Failed to rotate shop URL")
+        return
+      }
+      toast.success(`URL rotated: ${data.oldSlug} → ${data.newSlug}`)
+      await loadShops()
+      await handleViewDetails(selectedShop!)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to rotate shop URL")
+    } finally {
+      setRotateLoading(false)
     }
   }
 
@@ -338,8 +374,20 @@ export default function AdminShopsPage() {
                       <p className="font-semibold">{shopDetails.shop.shop_name}</p>
                     </div>
                     <div>
-                      <p className="text-gray-600">Slug</p>
-                      <p className="font-mono text-sm">{shopDetails.shop.shop_slug}</p>
+                      <p className="text-gray-600">Slug (Shop URL)</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-mono text-sm break-all">{shopDetails.shop.shop_slug}</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={rotateLoading}
+                          onClick={() => handleRotateSlug(selectedShop!.id)}
+                          className="h-7 px-2 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+                          title="Generate a new URL and break the old one (anti-attack)"
+                        >
+                          {rotateLoading ? "Rotating…" : "🔄 Rotate URL"}
+                        </Button>
+                      </div>
                     </div>
                     <div>
                       <p className="text-gray-600">Status</p>
