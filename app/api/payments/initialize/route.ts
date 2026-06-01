@@ -32,8 +32,11 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Rate limit: 10 requests/min per IP — prevents Paystack link spam
-    const rateLimit = await applyRateLimit(request, "payments_initialize", 10, 60_000)
+    // Rate limit: 6 requests/min per IP — prevents Paystack transaction spam /
+    // card-testing. Tightened from 10 now that Cloudflare provides the real
+    // client IP via cf-connecting-ip (so this caps the actual attacker, not a
+    // shared upstream).
+    const rateLimit = await applyRateLimit(request, "payments_initialize", 6, 60_000)
     if (!rateLimit.allowed) {
       return NextResponse.json(
         { error: "Too many payment requests. Please wait a moment." },
@@ -116,6 +119,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Missing required fields: email" },
         { status: 400 }
+      )
+    }
+
+    // Per-email payment-init cap: 5 per hour. Card-testers reusing an email get
+    // throttled here; rotating emails still face the per-IP cap (6/min) + Cloudflare.
+    const emailCap = await applyRateLimit(request, "payment_init_email", 5, 60 * 60 * 1000, `e:${String(email).toLowerCase()}`)
+    if (!emailCap.allowed) {
+      console.warn(`[PAYMENT-INIT] ❌ Per-email cap hit for ${String(email).slice(0, 40)}`)
+      return NextResponse.json(
+        { error: "Too many payment attempts. Please try again later." },
+        { status: 429 }
       )
     }
 
@@ -375,7 +389,12 @@ export async function POST(request: NextRequest) {
         originalAmount: finalAmount,
         paystackFee: paystackFee,
       },
-      channels: ["card", "mobile_money", "bank_transfer"],
+      // Card channel can be disabled platform-wide during a card-testing attack
+      // by setting PAYMENT_CARD_DISABLED=true. Ghana is mobile-money-first, so
+      // dropping card barely affects legit revenue while killing card-testing.
+      channels: process.env.PAYMENT_CARD_DISABLED === "true"
+        ? ["mobile_money", "bank_transfer"]
+        : ["card", "mobile_money", "bank_transfer"],
     })
 
     console.log("[PAYMENT-INIT] ✓ Success")
