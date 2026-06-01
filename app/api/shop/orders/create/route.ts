@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
       shop_slug,
       turnstileToken,
       website: honeypot,
+      paymentPhone,
     } = body
 
     // SECURITY: never trust the client's shop_id. The slug is the public identifier
@@ -211,21 +212,20 @@ export async function POST(request: NextRequest) {
       console.log(`[SHOP-ORDER] ✓ Cookie valid for shop ${shop_id} slug=${shopForCookie.shop_slug}`)
     }
 
-    // Checkout phone-OTP gate (admin toggle). When ON, the customer must have
-    // verified this phone via SMS OTP within the last 30 min. Converts anonymous
-    // guest checkout into "one order per verified phone" — the top-of-funnel
-    // defense against automated flood / card-testing / prompt-spam. Skipped for
-    // authenticated sub-agent stock purchases.
+    // Checkout phone-OTP gate (admin toggle). When ON, the MoMo PAYMENT number
+    // (the one that will be charged + receive the prompt) must be OTP-verified.
+    // This is the number that matters for prompt-spam defense — the recipient
+    // number just receives the data. Skipped for authenticated stock purchases.
     if (!isAuthenticatedDashboardCall && (await isStorefrontOtpRequired())) {
-      const verified = await isPhoneVerified(customer_phone)
+      const verified = await isPhoneVerified(paymentPhone || customer_phone)
       if (!verified) {
-        console.warn(`[SHOP-ORDER] ❌ Phone not OTP-verified for shop ${shop_id}`)
+        console.warn(`[SHOP-ORDER] ❌ Payment phone not OTP-verified for shop ${shop_id}`)
         return NextResponse.json(
-          { error: "Please verify your phone number to continue.", code: "OTP_REQUIRED" },
+          { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
           { status: 403 }
         )
       }
-      console.log(`[SHOP-ORDER] ✓ Phone OTP-verified for shop ${shop_id}`)
+      console.log(`[SHOP-ORDER] ✓ Payment phone OTP-verified for shop ${shop_id}`)
     }
 
     console.log("[SHOP-ORDER] Creating order for:", {
