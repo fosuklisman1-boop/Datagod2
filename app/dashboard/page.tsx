@@ -151,15 +151,18 @@ export default function DashboardPage() {
             .eq("id", authUser.id)
             .single()
 
-          if (profileError || !profile) {
-            // No public.users profile — new Google OAuth user, redirect to complete profile
+          // Redirect to complete-profile ONLY when the row GENUINELY doesn't exist
+          // (PGRST116 = no rows). A permission/grant error also yields null but must
+          // NOT redirect — that loops forever with complete-profile (which reads only
+          // `id`). On any other error we fall through and render with safe defaults.
+          if (!profile && profileError?.code === "PGRST116") {
             router.replace("/auth/complete-profile")
             return
           }
 
-          const name = profile.last_name || profile.first_name || authUser.email?.split("@")[0] || "User"
+          const name = profile?.last_name || profile?.first_name || authUser.email?.split("@")[0] || "User"
           setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
-          setUserRole(profile.role || "user")
+          setUserRole(profile?.role || "user")
 
           // Optional: check phone_verified (only if migration 0053 was run)
           try {
@@ -168,7 +171,7 @@ export default function DashboardPage() {
               .select("phone_verified, phone_verify_deadline")
               .eq("id", authUser.id)
               .single()
-            if (extProfile && profile.phone_number && !extProfile.phone_verified) {
+            if (extProfile && profile?.phone_number && !extProfile.phone_verified) {
               setCurrentPhone(profile.phone_number)
               setPhoneVerifyDeadline(extProfile.phone_verify_deadline ?? null)
               setShowPhoneVerify(true)
