@@ -14,6 +14,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// __shop_sess cookie enforcement is OFF unless explicitly enabled. It was causing
+// false "Invalid session" rejections for real shop visitors.
+const ENFORCE_SHOP_SESSION = process.env.SHOP_SESSION_ENFORCED === "true"
+
 export async function POST(request: NextRequest) {
   try {
     const rateLimit = await applyRateLimit(
@@ -185,10 +189,9 @@ export async function POST(request: NextRequest) {
       console.log(`[SHOP-ORDER] ⊘ Turnstile skipped (authenticated stock purchase) for shop ${shop_id}`)
     }
 
-    // Require __shop_sess cookie that was issued for THIS shop's current slug.
-    // Slug binding: a cookie harvested from /shop/A is invalid for ordering at shop B.
-    // We look up the shop's current slug from DB so slug-rotation also invalidates cookies.
-    if (!isAuthenticatedDashboardCall) {
+    // __shop_sess cookie binding — DISABLED by default (was blocking real
+    // visitors with "Invalid session"). Re-enable by setting SHOP_SESSION_ENFORCED=true.
+    if (!isAuthenticatedDashboardCall && ENFORCE_SHOP_SESSION) {
       const shopCookie = request.cookies.get("__shop_sess")?.value
       if (!shopCookie) {
         console.warn(`[SHOP-ORDER] ❌ Blocked: missing __shop_sess cookie for shop ${shop_id}`)

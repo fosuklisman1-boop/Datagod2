@@ -120,6 +120,9 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // __shop_sess cookie binding — DISABLED by default (was blocking real
+      // visitors with "Invalid session"). Re-enable via SHOP_SESSION_ENFORCED=true.
+      if (process.env.SHOP_SESSION_ENFORCED === "true") {
       const shopCookie = request.cookies.get("__shop_sess")?.value
       if (!shopCookie) {
         console.warn(`[PAYMENT-INIT] ❌ Blocked: missing __shop_sess cookie for orderId=${orderId}`)
@@ -155,6 +158,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
       console.log(`[PAYMENT-INIT] ✓ Cookie valid for orderId=${orderId} slug=${shopForCookie.shop_slug}`)
+      }
     }
 
     // Validate input
