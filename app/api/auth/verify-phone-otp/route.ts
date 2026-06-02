@@ -39,6 +39,25 @@ export async function POST(request: NextRequest) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
+    // DB-backed brute-force fallback. The Upstash caps above FAIL OPEN if Redis
+    // is unreachable, which would re-expose the 6-digit code to guessing. This
+    // Postgres counter holds regardless: bump_otp_attempts() increments `attempts`
+    // on every live code for the phone and returns the new max; we reject once it
+    // exceeds the cap. Counts expire with the codes (10-min window) — no cleanup.
+    const PHONE_ATTEMPT_CAP = 6
+    try {
+      const { data: maxAttempts, error: bumpErr } = await supabaseAdmin.rpc("bump_otp_attempts", { p_phone: phone })
+      if (!bumpErr && typeof maxAttempts === "number" && maxAttempts > PHONE_ATTEMPT_CAP) {
+        return NextResponse.json(
+          { verified: false, error: "Too many attempts. Request a new code and try again later." },
+          { status: 429 }
+        )
+      }
+    } catch {
+      // Migration not applied yet → don't block legit users; the Upstash cap still
+      // covers the healthy case. Apply migrations/otp_verify_attempts_fallback.sql.
+    }
+
     const now = new Date().toISOString()
 
     const { data: record } = await supabaseAdmin
