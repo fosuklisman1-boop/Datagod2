@@ -265,6 +265,7 @@ export async function POST(request: NextRequest) {
     }
 
     let finalAmount = amount
+    let recipient: string | undefined // product beneficiary (data/airtime recipient) for metadata
 
     // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
     if (orderId) {
@@ -275,7 +276,9 @@ export async function POST(request: NextRequest) {
       // shop_orders uses order_status; airtime/results_checker use status
       const isShopOrder = orderType !== "airtime" && orderType !== "results_checker"
       const statusField = isShopOrder ? "order_status" : "status"
-      const selectColumns = `${amountColumn}, ${statusField}, payment_status`
+      // Beneficiary column differs by table (airtime = beneficiary_phone).
+      const phoneColumn = orderType === "airtime" ? "beneficiary_phone" : "customer_phone"
+      const selectColumns = `${amountColumn}, ${statusField}, payment_status, ${phoneColumn}`
       const { data: orderData, error: orderError } = await supabase
         .from(table)
         .select(selectColumns)
@@ -304,6 +307,9 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+
+      // Beneficiary number (for the Paystack "Recipient" custom field).
+      recipient = (orderData as any)[phoneColumn] || undefined
 
       // Override client amount with server-verified amount
       // Ensure we treat it as a number
@@ -450,6 +456,21 @@ export async function POST(request: NextRequest) {
         : orderId ? "shop_data"
         : "wallet_topup"
 
+    // Human label shown on the Paystack receipt + dashboard "Purpose" field.
+    const paymentPurpose =
+      type === "dealer_upgrade" ? "Dealer Upgrade"
+        : orderType === "airtime" ? "Airtime top-up"
+        : orderType === "results_checker" ? "Results Checker voucher"
+        : orderId ? "Data bundle"
+        : "Wallet Top-up"
+
+    // Client IP — internal diagnostics (kept off the customer receipt).
+    const clientIp =
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("x-real-ip") ||
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      undefined
+
     // ── Direct MoMo charge path ──────────────────────────────────────────────
     // When the client requests momoDirect (used while the checkout OTP gate is
     // on), we charge a SERVER-SPECIFIED, OTP-VERIFIED MoMo number directly via
@@ -489,6 +510,9 @@ export async function POST(request: NextRequest) {
         reference,
         metadata: paymentMetadata,
         channel: paymentChannel,
+        purpose: paymentPurpose,
+        recipient,
+        ip: clientIp,
       })
 
       const corsHeaders = getCorsHeaders(request.headers.get("origin"))
@@ -526,6 +550,9 @@ export async function POST(request: NextRequest) {
       redirectUrl,
       metadata: paymentMetadata,
       channel: paymentChannel,
+      purpose: paymentPurpose,
+      recipient,
+      ip: clientIp,
       channels: hostedChannels,
     })
 

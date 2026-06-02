@@ -19,6 +19,12 @@ interface InitializePaymentParams {
   channels?: string[]
   /** Originating backend path, e.g. "wallet_topup", "shop_data". Tags the txn. */
   channel?: string
+  /** Human purpose shown on the receipt, e.g. "Wallet Top-up". */
+  purpose?: string
+  /** Product beneficiary (data/airtime recipient number). */
+  recipient?: string
+  /** Client IP — internal diagnostics, kept off the customer receipt. */
+  ip?: string
 }
 
 interface VerifyPaymentParams {
@@ -32,25 +38,43 @@ interface PaymentResponse {
   error?: string
 }
 
+interface SignedMetaOpts {
+  channel?: string        // exact backend path token, e.g. "wallet_topup"
+  purpose?: string        // human label shown on the receipt, e.g. "Wallet Top-up"
+  chargedPhone?: string   // the MoMo number actually charged (direct charge only)
+  recipient?: string      // beneficiary of the product (data/airtime recipient)
+  ip?: string             // client IP — internal only, kept off the receipt
+}
+
 /**
  * Stamp every Paystack transaction we create with a verifiable origin signature.
  *
- * WHY: Paystack's dashboard only renders `custom_fields` prominently — plain
- * metadata keys are nearly invisible there. By emitting custom_fields we make
- * the transaction's origin readable at a glance, and `source: "datagod_backend"`
- * becomes a signature ONLY our server can set. Any transaction on the Paystack
- * dashboard WITHOUT this signature was not created by our code (e.g. a popup
- * abusing the public key); any WITH it shows exactly which path (`channel`)
- * created it — turning "different references" into a precise audit trail.
+ * WHY: Paystack renders two surfaces differently. `metadata.custom_fields` shows
+ * as labeled rows on BOTH the dashboard transaction page AND the customer
+ * receipt — so it must stay clean/human (no raw UUIDs). Plain `metadata` keys
+ * show in the dashboard's metadata block + CSV exports but NOT on the receipt —
+ * the right home for internal diagnostics (ids, ip, exact channel).
+ *
+ * `source: "datagod_backend"` is a signature ONLY our server can set: any
+ * dashboard txn lacking it was not created by our code (e.g. a popup abusing the
+ * public key). `channel`/`purpose` show exactly which path created it.
  */
 function buildSignedMetadata(
   base: Record<string, any> | undefined,
-  channel?: string
+  opts: SignedMetaOpts = {}
 ): Record<string, any> {
   const m: Record<string, any> = { ...(base || {}) }
-  m.source = "datagod_backend"
-  if (channel) m.channel = channel
 
+  // ── Internal diagnostics (plain keys → dashboard metadata block + CSV, NOT
+  //    the customer receipt). The UUIDs already in `base` (orderId/shopId/userId)
+  //    stay here too, so they never clutter receipts.
+  m.source = "datagod_backend"
+  if (opts.channel) m.channel = opts.channel
+  if (opts.ip) m.client_ip = opts.ip
+  if (opts.chargedPhone) m.charged_phone = opts.chargedPhone
+  if (opts.recipient) m.recipient = opts.recipient
+
+  // ── Customer-visible (custom_fields → dashboard rows + receipt). Human only.
   const fields: Array<{ display_name: string; variable_name: string; value: string }> = []
   const push = (display_name: string, variable_name: string, value: any) => {
     if (value !== undefined && value !== null && String(value).trim() !== "") {
@@ -58,12 +82,9 @@ function buildSignedMetadata(
     }
   }
   push("Source", "source", "DATAGOD Backend")
-  push("Channel", "channel", channel)
-  push("Transaction Type", "transaction_type", m.type)
-  push("Order Type", "order_type", m.orderType)
-  push("Order ID", "order_id", m.orderId)
-  push("Shop ID", "shop_id", m.shopId)
-  push("User ID", "user_id", m.userId)
+  push("Purpose", "purpose", opts.purpose)
+  push("Paid from", "charged_phone", opts.chargedPhone)
+  push("Recipient", "recipient", opts.recipient)
 
   // Preserve any custom_fields a caller already supplied, then append ours.
   const existing = Array.isArray(base?.custom_fields) ? base!.custom_fields : []
@@ -100,7 +121,12 @@ export async function initializePayment(
       reference: params.reference,
       currency: "GHS", // Explicitly set currency
       callback_url: params.redirectUrl || undefined,
-      metadata: buildSignedMetadata(params.metadata, params.channel),
+      metadata: buildSignedMetadata(params.metadata, {
+        channel: params.channel,
+        purpose: params.purpose,
+        recipient: params.recipient,
+        ip: params.ip,
+      }),
       channels: params.channels || [
         "card",
         "mobile_money",
@@ -379,6 +405,12 @@ interface ChargeMobileMoneyParams {
   metadata?: Record<string, any>
   /** Originating backend path, e.g. "shop_data". Tags the txn. */
   channel?: string
+  /** Human purpose shown on the receipt, e.g. "Wallet Top-up". */
+  purpose?: string
+  /** Product beneficiary (data/airtime recipient number). */
+  recipient?: string
+  /** Client IP — internal diagnostics, kept off the customer receipt. */
+  ip?: string
 }
 
 /**
@@ -387,7 +419,7 @@ interface ChargeMobileMoneyParams {
  * On approval the charge.success webhook fires.
  */
 export async function chargeMobileMoney(params: ChargeMobileMoneyParams): Promise<{ status: string; reference: string }> {
-  const { email, amount, phone, provider, reference, metadata, channel } = params
+  const { email, amount, phone, provider, reference, metadata, channel, purpose, recipient, ip } = params
 
   // Normalise to local format (0XXXXXXXXX) — Paystack Ghana expects this
   let normalizedPhone = phone
@@ -409,7 +441,13 @@ export async function chargeMobileMoney(params: ChargeMobileMoneyParams): Promis
       amount: Math.round(amount * 100), // GHS → pesewas
       reference,
       mobile_money: { phone: normalizedPhone, provider },
-      metadata: buildSignedMetadata(metadata, channel),
+      metadata: buildSignedMetadata(metadata, {
+        channel,
+        purpose,
+        recipient,
+        ip,
+        chargedPhone: normalizedPhone, // the number we actually prompt/charge
+      }),
     }),
   })
 
