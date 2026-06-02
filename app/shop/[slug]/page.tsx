@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { redirectToPayment } from "@/lib/payment-redirect"
+import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import {
   Store,
   ShoppingCart,
@@ -69,6 +70,7 @@ export default function ShopStorefront() {
   // hosted redirect), showing a live "approve the prompt" modal.
   const [otpRequired, setOtpRequired] = useState<boolean>(false)
   const [paymentPhone, setPaymentPhone] = useState("")
+  const otpCooldown = useResendCooldown()
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
   const [otpVerified, setOtpVerified] = useState(false)
@@ -251,6 +253,7 @@ export default function ShopStorefront() {
       if (!res.ok) { toast.error(data?.error || "Failed to send code"); return }
       toast.success("Verification code sent to your phone")
       setOtpSent(true)
+      otpCooldown.start()
     } catch {
       toast.error("Network error. Please try again.")
     } finally {
@@ -1088,7 +1091,7 @@ export default function ShopStorefront() {
                         onChange={(e) => {
                           setPaymentPhone(e.target.value)
                           // changing the number invalidates any prior verification
-                          if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                          if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                         }}
                         placeholder="0241234567"
                         className="mt-1 bg-white"
@@ -1128,8 +1131,8 @@ export default function ShopStorefront() {
                             >
                               {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                             </Button>
-                            <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp}>
-                              Resend
+                            <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>
+                              {otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}
                             </Button>
                           </div>
                         </div>

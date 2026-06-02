@@ -11,6 +11,7 @@ import { validatePhoneNumber } from "@/lib/phone-validation"
 import { toast } from "sonner"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
+import { useResendCooldown } from "@/lib/use-resend-cooldown"
 
 interface AirtimeStorefrontFormProps {
   shop: any
@@ -30,6 +31,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [otpVerified, setOtpVerified] = useState(false)
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
+  const otpCooldown = useResendCooldown()
   // Live "approve the prompt" modal for the direct-charge flow
   const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; orderId?: string; summary?: any; message?: string }>(null)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
@@ -84,7 +86,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(d?.error || "Failed to send code"); return }
-      toast.success("Verification code sent"); setOtpSent(true)
+      toast.success("Verification code sent"); setOtpSent(true); otpCooldown.start()
     } catch { toast.error("Network error") } finally { setSendingOtp(false) }
   }
 
@@ -515,7 +517,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   value={paymentPhone}
                   onChange={e => {
                     setPaymentPhone(e.target.value)
-                    if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                    if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                   }}
                   disabled={otpVerified}
                   className="bg-white border-purple-200 rounded-xl font-mono"
@@ -537,7 +539,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                       <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
                         {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                       </Button>
-                      <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp}>Resend</Button>
+                      <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
                     </div>
                   </div>
                 )

@@ -12,6 +12,7 @@ import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useResendCooldown } from "@/lib/use-resend-cooldown"
 
 interface Plan {
     id: string
@@ -49,6 +50,7 @@ export default function UpgradePage() {
     const [sendingOtp, setSendingOtp] = useState(false)
     const [verifyingOtp, setVerifyingOtp] = useState(false)
     const [upgradeFlow, setUpgradeFlow] = useState<null | { state: "collect" | "awaiting" | "success" | "failed"; plan?: Plan; reference?: string; message?: string }>(null)
+    const otpCooldown = useResendCooldown()
 
     useEffect(() => {
       return () => {
@@ -262,7 +264,7 @@ export default function UpgradePage() {
             })
             const d = await res.json().catch(() => ({}))
             if (!res.ok) { toast.error(d?.error || "Failed to send code"); return }
-            toast.success("Verification code sent"); setOtpSent(true)
+            toast.success("Verification code sent"); setOtpSent(true); otpCooldown.start()
         } catch { toast.error("Network error") } finally { setSendingOtp(false) }
     }
 
@@ -709,7 +711,7 @@ export default function UpgradePage() {
                                         inputMode="numeric"
                                         placeholder="0241234567"
                                         value={paymentPhone}
-                                        onChange={(e) => { setPaymentPhone(e.target.value); if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") } }}
+                                        onChange={(e) => { setPaymentPhone(e.target.value); if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() } }}
                                         disabled={otpVerified}
                                         className="mt-1 w-full rounded-md border border-purple-200 bg-white px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
                                     />
@@ -728,7 +730,7 @@ export default function UpgradePage() {
                                                 <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">
                                                     {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                                                 </Button>
-                                                <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp}>Resend</Button>
+                                                <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
                                             </div>
                                         </div>
                                     )

@@ -10,6 +10,7 @@ import { Loader2, AlertCircle, CheckCircle, Zap } from "lucide-react"
 import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { useResendCooldown } from "@/lib/use-resend-cooldown"
 
 interface WalletTopUpProps {
   onSuccess?: (amount: number) => void
@@ -36,6 +37,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [otpVerified, setOtpVerified] = useState(false)
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
+  const otpCooldown = useResendCooldown()
   const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; reference?: string; summary?: any; message?: string }>(null)
 
   // Predefined amounts
@@ -106,7 +108,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(d?.error || "Failed to send code"); return }
-      toast.success("Verification code sent"); setOtpSent(true)
+      toast.success("Verification code sent"); setOtpSent(true); otpCooldown.start()
     } catch { toast.error("Network error") } finally { setSendingOtp(false) }
   }
 
@@ -374,7 +376,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 value={paymentPhone}
                 onChange={(e) => {
                   setPaymentPhone(e.target.value)
-                  if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                  if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                 }}
                 disabled={otpVerified || isLoading}
                 className="mt-1 bg-white font-mono"
@@ -395,7 +397,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                     <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">
                       {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                     </Button>
-                    <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp}>Resend</Button>
+                    <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
                   </div>
                 </div>
               )
