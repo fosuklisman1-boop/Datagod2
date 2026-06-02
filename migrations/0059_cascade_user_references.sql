@@ -1,64 +1,73 @@
 -- 0059_cascade_user_references.sql
 --
--- After binding public.users.id -> auth.users(id) ON DELETE CASCADE, deleting an
--- auth user cascades into public.users — but any OTHER table that references
--- public.users WITHOUT a delete action (NO ACTION / RESTRICT) blocks the whole
--- delete (transactional, all-or-nothing). e.g.:
---   ERROR 23503: ... violates FK "shop_invites_accepted_by_user_id_fkey"
+-- Make deleting a user cascade end-to-end. Two facts drive this:
+--   (a) Some of our tables reference public.users, others reference auth.users
+--       directly (e.g. shop_invites.accepted_by_user_id -> auth.users).
+--   (b) Any such FK left at NO ACTION / RESTRICT blocks the whole delete
+--       (transactional, all-or-nothing) -> ERROR 23503.
 --
--- This gives every such FK an explicit ON DELETE so the cascade runs end-to-end:
---   - nullable FK column -> SET NULL  (keep the row, just drop the departed user)
+-- So we rebind EVERY foreign key whose CHILD table is in the public schema and
+-- whose PARENT is either users table, giving each an explicit ON DELETE:
+--   - nullable FK column -> SET NULL  (keep the row, drop the departed user)
 --   - NOT NULL FK column -> CASCADE   (row is meaningless without the user)
 --
--- Only rebinds FKs that currently have NO ACTION / RESTRICT, so it leaves FKs
--- already set to CASCADE/SET NULL untouched. Idempotent (a second run finds no
--- blockers). The re-added FK re-validates existing rows, but they're already valid
--- (the FK existed), so it's fast at this app's table sizes.
+-- CRITICAL: only rebinds FKs whose CHILD lives in `public` — it must NEVER touch
+-- auth's own internal FKs (auth.identities/sessions/... -> auth.users). Only
+-- touches NO ACTION / RESTRICT, so CASCADE/SET NULL FKs are left alone. Idempotent.
 
 DO $$
 DECLARE
   r           RECORD;
   fk_cols     text;
   ref_cols    text;
-  col_notnull boolean;   -- NOT 'notnull': that collides with the SQL NOTNULL token
+  col_notnull boolean;     -- NOT 'notnull': that collides with the SQL NOTNULL token
   del_action  text;
 BEGIN
   FOR r IN
-    SELECT conname, conrelid, conrelid::regclass AS tbl, conkey, confkey
-    FROM pg_constraint
-    WHERE confrelid = 'public.users'::regclass
-      AND contype = 'f'
-      AND confdeltype IN ('a', 'r')          -- NO ACTION / RESTRICT = the blockers
+    SELECT c.conname,
+           c.conrelid              AS child_oid,
+           c.conrelid::regclass    AS child_tbl,
+           c.confrelid             AS parent_oid,
+           c.confrelid::regclass   AS parent_tbl,
+           c.conkey, c.confkey
+    FROM pg_constraint c
+    JOIN pg_class     cl ON cl.oid = c.conrelid
+    JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+    WHERE c.confrelid IN ('public.users'::regclass, 'auth.users'::regclass)
+      AND c.contype = 'f'
+      AND c.confdeltype IN ('a', 'r')     -- NO ACTION / RESTRICT = the blockers
+      AND ns.nspname = 'public'           -- our tables only; never auth-internal FKs
   LOOP
-    -- local FK column(s) + whether ANY of them is NOT NULL (=> must CASCADE)
     SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY k.ord), bool_or(a.attnotnull)
       INTO fk_cols, col_notnull
     FROM unnest(r.conkey) WITH ORDINALITY AS k(attnum, ord)
-    JOIN pg_attribute a ON a.attrelid = r.conrelid AND a.attnum = k.attnum;
+    JOIN pg_attribute a ON a.attrelid = r.child_oid AND a.attnum = k.attnum;
 
-    -- referenced column(s) on public.users (normally just id)
     SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY k.ord)
       INTO ref_cols
     FROM unnest(r.confkey) WITH ORDINALITY AS k(attnum, ord)
-    JOIN pg_attribute a ON a.attrelid = 'public.users'::regclass AND a.attnum = k.attnum;
+    JOIN pg_attribute a ON a.attrelid = r.parent_oid AND a.attnum = k.attnum;
 
     del_action := CASE WHEN col_notnull THEN 'CASCADE' ELSE 'SET NULL' END;
 
-    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', r.tbl, r.conname);
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', r.child_tbl, r.conname);
     EXECUTE format(
-      'ALTER TABLE %s ADD CONSTRAINT %I FOREIGN KEY (%s) REFERENCES public.users(%s) ON DELETE %s',
-      r.tbl, r.conname, fk_cols, ref_cols, del_action
+      'ALTER TABLE %s ADD CONSTRAINT %I FOREIGN KEY (%s) REFERENCES %s(%s) ON DELETE %s',
+      r.child_tbl, r.conname, fk_cols, r.parent_tbl, ref_cols, del_action
     );
-    RAISE NOTICE 'Rebound %.%  ->  ON DELETE %', r.tbl, r.conname, del_action;
+    RAISE NOTICE 'Rebound %.%  ->  %  ON DELETE %', r.child_tbl, r.conname, r.parent_tbl, del_action;
   END LOOP;
 END $$;
 
 -- ───────────────────────────────────────────────────────────────────────────
--- VERIFY (should show ONLY cascade / set null now — no NO ACTION / RESTRICT):
---   SELECT conrelid::regclass AS referencing_table, conname,
---          CASE confdeltype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
+-- VERIFY — every public-schema FK to either users table should be CASCADE/SET NULL:
+--   SELECT c.conrelid::regclass AS child, c.confrelid::regclass AS parent, c.conname,
+--          CASE c.confdeltype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
 --               WHEN 'c' THEN 'CASCADE' WHEN 'n' THEN 'SET NULL' END AS on_delete
---   FROM pg_constraint
---   WHERE confrelid = 'public.users'::regclass AND contype = 'f'
---   ORDER BY on_delete, referencing_table;
+--   FROM pg_constraint c
+--   JOIN pg_class cl ON cl.oid = c.conrelid
+--   JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+--   WHERE c.confrelid IN ('public.users'::regclass,'auth.users'::regclass)
+--     AND c.contype='f' AND ns.nspname='public'
+--   ORDER BY on_delete, child;
 -- ───────────────────────────────────────────────────────────────────────────
