@@ -244,8 +244,13 @@ export async function POST(request: NextRequest) {
           console.warn("[WEBHOOK] USSD recipient SMS failed:", smsErr)
         }
 
-        // SMS to payer (dialing phone) if different from recipient
-        if (ussdOrder.dialing_phone && ussdOrder.dialing_phone !== ussdOrder.recipient_phone) {
+        // SMS to payer (dialing phone) only if it's a DIFFERENT number from the
+        // recipient. Payer and recipient are often the same person stored in
+        // different formats (e.g. 233534797023 vs 0534797023), so compare by the
+        // last 9 digits — otherwise a self-purchase double-sends (and double-bills).
+        const recipLast9 = (ussdOrder.recipient_phone || "").replace(/\D/g, "").slice(-9)
+        const dialLast9 = (ussdOrder.dialing_phone || "").replace(/\D/g, "").slice(-9)
+        if (ussdOrder.dialing_phone && dialLast9 && dialLast9 !== recipLast9) {
           try {
             await sendSMS({
               phone: ussdOrder.dialing_phone,

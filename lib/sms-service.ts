@@ -354,8 +354,13 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
       throw new Error(`Moolre API Error: ${response.data.message || 'Unknown error'}`)
     }
 
-    const messageId = response.data.data?.messages?.[0]?.id || response.data.data?.id || response.data.id || 'unknown'
+    const messageId = response.data.data?.messages?.[0]?.id || response.data.data?.id || response.data.id || response.data.data?.txnid || response.data.txnid || 'unknown'
     console.log('[SMS] ✓ Moolre Success - Message ID:', messageId)
+    if (messageId === 'unknown') {
+      // We accepted the message but found no trackable ID → delivery can't be
+      // queried. Log the raw shape ONCE so we can wire the correct field + DLR.
+      console.warn('[SMS] Moolre success but no recognizable message ID. Raw response:', JSON.stringify(response.data))
+    }
 
     // Log to database
     if (payload.userId && !payload.skipLogging) {
