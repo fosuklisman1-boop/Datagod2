@@ -10,7 +10,6 @@ import {
   TrendingUp, Share2, Settings, Search, ChevronDown, Link2, Copy, Mail, Banknote, MessageCircle
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
-import StorefrontRedirector from "@/components/StorefrontRedirector"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
 import { useCommunityLink } from "@/hooks/use-community-link"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -314,7 +313,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <StorefrontRedirector />
       {/* Organization + Website Schema */}
       <script
         type="application/ld+json"

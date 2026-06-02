@@ -101,11 +101,6 @@ export default function ShopStorefront() {
         setOtpRequired(d.otp_required === true)
       })
       .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
-
-    // Save storefront slug to localStorage so users are redirected here from the main site
-    if (shopSlug && typeof window !== "undefined") {
-      localStorage.setItem("storefront_slug", shopSlug)
-    }
   }, [shopSlug])
 
   useEffect(() => {

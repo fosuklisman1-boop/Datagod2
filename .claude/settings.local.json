@@ -116,7 +116,11 @@
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__evaluate_script",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_console_messages",
       "Read(//c/Users/lenovo/AppData/Local/Temp/chrome-devtools-mcp-g4220n/**)",
-      "Bash(dir /b)"
+      "Bash(dir /b)",
+      "Bash(git push *)",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
