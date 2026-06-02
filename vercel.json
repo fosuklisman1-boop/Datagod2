@@ -48,6 +48,10 @@
     {
       "path": "/api/cron/expire-stale-airtime",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-delivery-sync",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

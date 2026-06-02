@@ -32,6 +32,7 @@ interface SMSPayload {
 interface SendSMSResponse {
   success: boolean
   messageId?: string
+  ref?: string // queryable tracking ref (Moolre delivery status)
   skipped?: boolean
   error?: string
   provider?: string
@@ -333,16 +334,18 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
   try {
     const normalizedPhone = normalizePhoneNumber(payload.phone)
 
+    // Unique tracking ref. Moolre's send response carries NO message ID
+    // (data:null), so this ref is our only handle to later query delivery status
+    // via /open/sms/query. We store it on sms_logs.moolre_message_id.
+    const trackingRef = `dg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
     const queryParams = new URLSearchParams({
       type: '1',
       senderid: MOOLRE_SENDER_ID,
       recipient: normalizedPhone,
       message: payload.message,
+      ref: trackingRef,
     })
-
-    if (payload.reference) {
-      queryParams.append('ref', payload.reference)
-    }
 
     const url = `https://api.moolre.com/open/sms/send?${queryParams.toString()}&X-API-VASKEY=${MOOLRE_API_KEY}`
 
@@ -354,24 +357,20 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
       throw new Error(`Moolre API Error: ${response.data.message || 'Unknown error'}`)
     }
 
-    const messageId = response.data.data?.messages?.[0]?.id || response.data.data?.id || response.data.id || response.data.data?.txnid || response.data.txnid || 'unknown'
-    console.log('[SMS] ✓ Moolre Success - Message ID:', messageId)
-    if (messageId === 'unknown') {
-      // We accepted the message but found no trackable ID → delivery can't be
-      // queried. Log the raw shape ONCE so we can wire the correct field + DLR.
-      console.warn('[SMS] Moolre success but no recognizable message ID. Raw response:', JSON.stringify(response.data))
-    }
+    console.log('[SMS] ✓ Moolre accepted - tracking ref:', trackingRef)
 
-    // Log to database
-    if (payload.userId && !payload.skipLogging) {
+    // Log EVERY send (user_id is nullable) so the delivery-sync cron can resolve
+    // it via /open/sms/query. moolre_message_id holds the queryable tracking ref;
+    // status starts at 'sent' (accepted) and the cron flips it to delivered/failed.
+    if (!payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
-          user_id: payload.userId,
+          user_id: payload.userId || null,
           phone_number: payload.phone,
           message: payload.message,
           message_type: payload.type,
-          reference_id: payload.reference,
-          moolre_message_id: messageId,
+          reference_id: payload.reference || null,
+          moolre_message_id: trackingRef,
           status: 'sent',
         })
       } catch (logError) {
@@ -381,7 +380,8 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
 
     return {
       success: true,
-      messageId,
+      messageId: trackingRef,
+      ref: trackingRef,
       provider: 'moolre',
     }
   } catch (error) {
@@ -392,15 +392,15 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
       errorMessage = error.response?.data?.message || error.message
     }
 
-    // Log failed SMS
-    if (payload.userId && !payload.skipLogging) {
+    // Log failed SMS (always — surfaces OTP/send rejections in sms_logs)
+    if (!payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
-          user_id: payload.userId,
+          user_id: payload.userId || null,
           phone_number: payload.phone,
           message: payload.message,
           message_type: payload.type,
-          reference_id: payload.reference,
+          reference_id: payload.reference || null,
           status: 'failed',
           error_message: errorMessage,
         })
@@ -415,6 +415,32 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
       provider: 'moolre',
     }
   }
+}
+
+/**
+ * Query Moolre for the delivery status of previously-sent messages, keyed by the
+ * tracking refs we attached at send time. POST /open/sms/query (type 5).
+ * Returns ref -> status: 0 (Unknown) | 1 (Sent/in-route) | 2 (Delivered) | 3 (Failed).
+ */
+export async function queryMoolreDeliveryStatus(refs: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {}
+  if (!MOOLRE_API_KEY || refs.length === 0) return out
+  try {
+    const response = await axios.post(
+      'https://api.moolre.com/open/sms/query',
+      { type: 5, ref: refs },
+      { headers: { 'X-API-VASKEY': MOOLRE_API_KEY, 'Content-Type': 'application/json' } }
+    )
+    const data = response.data?.data
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item && item.ref != null) out[String(item.ref)] = Number(item.status)
+      }
+    }
+  } catch (error) {
+    console.error('[SMS] Moolre status query failed:', axios.isAxiosError(error) ? error.message : error)
+  }
+  return out
 }
 
 /**
