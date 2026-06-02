@@ -37,7 +37,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [otpVerified, setOtpVerified] = useState(false)
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
-  const otpCooldown = useResendCooldown()
+  const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
   const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; reference?: string; summary?: any; message?: string }>(null)
 
   // Predefined amounts
@@ -385,8 +385,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             </div>
             {!otpVerified ? (
               !otpSent ? (
-                <Button type="button" onClick={handleSendOtp} disabled={sendingOtp} className="w-full bg-purple-600 hover:bg-purple-700 text-white">
-                  {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
+                <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                  {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                 </Button>
               ) : (
                 <div className="space-y-2">

@@ -70,7 +70,7 @@ export default function ShopStorefront() {
   // hosted redirect), showing a live "approve the prompt" modal.
   const [otpRequired, setOtpRequired] = useState<boolean>(false)
   const [paymentPhone, setPaymentPhone] = useState("")
-  const otpCooldown = useResendCooldown()
+  const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
   const [otpVerified, setOtpVerified] = useState(false)
@@ -1107,10 +1107,10 @@ export default function ShopStorefront() {
                         <Button
                           type="button"
                           onClick={handleSendCheckoutOtp}
-                          disabled={sendingOtp}
+                          disabled={sendingOtp || otpCooldown.seconds > 0}
                           className="w-full bg-purple-600 hover:bg-purple-700 text-white"
                         >
-                          {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
+                          {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                         </Button>
                       ) : (
                         <div className="space-y-2">

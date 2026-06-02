@@ -31,7 +31,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [otpVerified, setOtpVerified] = useState(false)
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
-  const otpCooldown = useResendCooldown()
+  const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
   // Live "approve the prompt" modal for the direct-charge flow
   const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; orderId?: string; summary?: any; message?: string }>(null)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
@@ -527,8 +527,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
               {!otpVerified ? (
                 !otpSent ? (
-                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp} className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
-                    {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : "Send verification code"}
+                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                    {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                   </Button>
                 ) : (
                   <div className="space-y-2">
