@@ -80,7 +80,7 @@ export const SMSTemplates = {
     `DTGOD: Withdrawal Update. Your withdrawal request of GH¢${amount} could not be processed at this time. Please contact our support team for further assistance.`,
 
   verificationCode: (code: string) =>
-    `DTGOD: Your verification code is ${code}. This code is valid for 10 minutes. Do not share it with anyone.`,
+    `DTGOD: Your code is ${code}. Valid for 10 minutes. Do not share it with anyone.`,
 
   passwordReset: (link: string) =>
     `DTGOD: A password reset was requested for your account. Use this link to proceed: ${link}. Valid for 1 hour. If you did not request this, please ignore this message.`,
