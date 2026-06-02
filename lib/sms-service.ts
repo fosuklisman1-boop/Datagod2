@@ -634,6 +634,22 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
 }
 
 /**
+ * Resend a message via the FALLBACK provider (mNotify by default, override with
+ * SMS_FALLBACK_PROVIDER). Used by the delivery-sync cron when Moolre accepted a
+ * message but the telco didn't deliver it. Returns the provider's result; the
+ * provider function logs its own sms_logs row (so the resend shows in the panel).
+ */
+export async function sendSMSViaFallback(payload: SMSPayload): Promise<SendSMSResponse> {
+  if (process.env.SMS_ENABLED !== 'true') return { success: true, skipped: true }
+  const fb = process.env.SMS_FALLBACK_PROVIDER || 'mnotify'
+  const sender = SMS_SENDERS[fb]
+  if (!sender || !isProviderConfigured(fb)) {
+    return { success: false, error: `Fallback provider '${fb}' not configured` }
+  }
+  return sender(payload)
+}
+
+/**
  * Send SMS with retry logic
  */
 export async function sendSMSWithRetry(
