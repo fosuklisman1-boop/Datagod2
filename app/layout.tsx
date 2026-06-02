@@ -12,6 +12,7 @@ import { PeriodicSyncRegister } from "@/components/periodic-sync-register";
 import { BackgroundSyncRegister } from "@/components/background-sync-register";
 import { PushNotificationRegister } from "@/components/push-notification-register";
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
+import { MaintenanceScreen } from "@/components/maintenance-screen";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -110,6 +111,12 @@ export default async function RootLayout({
   const headersList = await headers();
   const nonce = headersList.get("x-nonce") ?? "";
 
+  // Maintenance mode: a DB-free kill switch. When on, render ONLY the maintenance
+  // screen — the app providers (which call Supabase/auth) never mount, so nothing
+  // tries to reach the backend while it's down. Toggle via the MAINTENANCE_MODE
+  // env var (set to "true"); requires a redeploy to take effect on Vercel.
+  const maintenanceMode = process.env.MAINTENANCE_MODE === "true";
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -190,19 +197,23 @@ export default async function RootLayout({
         />
       </head>
       <body className={inter.className}>
-        <ThemeProvider attribute="class" forcedTheme="light" enableSystem={false}>
-          <AuthProvider>
-            <ServiceWorkerRegister />
-            <PeriodicSyncRegister />
-            <BackgroundSyncRegister />
-            <PushNotificationRegister />
-            <PushOptInBanner />
-            <ChristmasThemeProvider />
-            <InactivityLogoutProvider />
-            {children}
-            <Toaster />
-          </AuthProvider>
-        </ThemeProvider>
+        {maintenanceMode ? (
+          <MaintenanceScreen />
+        ) : (
+          <ThemeProvider attribute="class" forcedTheme="light" enableSystem={false}>
+            <AuthProvider>
+              <ServiceWorkerRegister />
+              <PeriodicSyncRegister />
+              <BackgroundSyncRegister />
+              <PushNotificationRegister />
+              <PushOptInBanner />
+              <ChristmasThemeProvider />
+              <InactivityLogoutProvider />
+              {children}
+              <Toaster />
+            </AuthProvider>
+          </ThemeProvider>
+        )}
       </body>
     </html>
   );
