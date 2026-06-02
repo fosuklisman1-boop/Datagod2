@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { phone } = await request.json()
+    const { phone, purpose = "signup" } = await request.json()
 
     if (!phone || phone.trim() === "") {
       return NextResponse.json({ error: "Phone number is required" }, { status: 400 })
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     const { error: insertError } = await supabaseAdmin
       .from("phone_otp_verifications")
-      .insert({ phone, code, expires_at: expiresAt })
+      .insert({ phone, code, expires_at: expiresAt, purpose })
 
     if (insertError) {
       console.error("[SEND-OTP] Insert error:", insertError)

@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
       .from("phone_otp_verifications")
       .select("id")
       .eq("phone", phoneNumber)
+      .eq("purpose", "signup")
       .eq("used", true)
       .gte("created_at", thirtyMinutesAgo)
       .order("created_at", { ascending: false })

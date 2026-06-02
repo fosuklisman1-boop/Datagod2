@@ -4,7 +4,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 
 export async function POST(request: NextRequest) {
   try {
-    const { phone, code } = await request.json()
+    const { phone, code, purpose = "signup" } = await request.json()
 
     if (!phone || !code) {
       return NextResponse.json({ error: "Phone and code are required" }, { status: 400 })
@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       .select("id")
       .eq("phone", phone)
       .eq("code", code)
+      .eq("purpose", purpose)
       .eq("used", false)
       .gte("expires_at", now)
       .order("created_at", { ascending: false })
