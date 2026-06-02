@@ -99,6 +99,35 @@ export function invalidateWalletOtpCache(): void {
   walletGateCache = null
 }
 
+// ── Phone-gate kill switch ──────────────────────────────────────────────────
+// The dashboard hard-blocks any logged-in user with no phone number (non-
+// dismissable modal). Its ONLY escape is OTP verification — so if SMS delivery
+// fails, users get locked out. This admin flag (admin_settings key
+// 'phone_gate_disabled') is the emergency off-switch: set it and the gate
+// vanishes within ~30s, no deploy. Default OFF (gate enforced).
+let phoneGateCache: { disabled: boolean; expiresAt: number } | null = null
+
+export async function isPhoneGateDisabled(): Promise<boolean> {
+  if (phoneGateCache && phoneGateCache.expiresAt > Date.now()) return phoneGateCache.disabled
+  if (!supabase) return false
+  try {
+    const { data } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "phone_gate_disabled")
+      .maybeSingle()
+    const disabled = data?.value?.disabled === true
+    phoneGateCache = { disabled, expiresAt: Date.now() + CACHE_TTL_MS }
+    return disabled
+  } catch {
+    return false // gate stays enforced on a DB hiccup
+  }
+}
+
+export function invalidatePhoneGateCache(): void {
+  phoneGateCache = null
+}
+
 // Phone formats vary (0XXXXXXXXX vs 233XXXXXXXXX vs +233...). Build the
 // candidate set so the verification lookup matches however it was stored.
 function phoneVariants(phone: string): string[] {

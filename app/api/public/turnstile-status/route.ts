@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { isTurnstileEnabled } from "@/lib/turnstile"
-import { isStorefrontOtpRequired, isWalletOtpRequired } from "@/lib/storefront-otp"
+import { isStorefrontOtpRequired, isWalletOtpRequired, isPhoneGateDisabled } from "@/lib/storefront-otp"
 
 /**
  * GET /api/public/turnstile-status
@@ -16,13 +16,14 @@ import { isStorefrontOtpRequired, isWalletOtpRequired } from "@/lib/storefront-o
  * ~30s. New page loads after a toggle pick up the new state immediately.
  */
 export async function GET() {
-  const [enabled, otpRequired, walletLock] = await Promise.all([
+  const [enabled, otpRequired, walletLock, phoneGateDisabled] = await Promise.all([
     isTurnstileEnabled(),
     isStorefrontOtpRequired(),
     isWalletOtpRequired(),
+    isPhoneGateDisabled(),
   ])
   return NextResponse.json(
-    { enabled, otp_required: otpRequired, wallet_lock: walletLock },
+    { enabled, otp_required: otpRequired, wallet_lock: walletLock, phone_gate_disabled: phoneGateDisabled },
     {
       headers: {
         "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",

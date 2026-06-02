@@ -28,6 +28,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     let cancelled = false
     ;(async () => {
       try {
+        // Emergency kill switch first: an admin can disable the whole gate (no
+        // deploy) if OTP delivery fails and users get locked out.
+        const cfg: any = await fetch("/api/public/turnstile-status").then(r => r.ok ? r.json() : {}).catch(() => ({}))
+        if (cancelled || cfg?.phone_gate_disabled === true) return
+
         const { data: profile } = await supabase
           .from("users")
           .select("phone_number")
