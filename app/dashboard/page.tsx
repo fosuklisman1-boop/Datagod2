@@ -152,6 +152,12 @@ export default function DashboardPage() {
             .eq("id", authUser.id)
             .single()
 
+          if (!profile) {
+            // No public.users profile — Google OAuth user who bypassed complete-profile
+            router.replace("/auth/complete-profile")
+            return
+          }
+
           if (profile) {
             const name = profile.last_name || profile.first_name || authUser.email?.split("@")[0] || "User"
             setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
