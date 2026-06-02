@@ -28,6 +28,11 @@ const RESERVED_SUBDOMAINS = new Set(["www", "app", "admin", "api"])
 // shop storefronts. Falls back to the production domain when the env var is unset.
 const ROOT_DOMAIN = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || "datagod.store").toLowerCase()
 
+// Matches a request for a static file (last path segment has an extension), e.g.
+// /favicon_custom.ico, /sw.js, /manifest.json, /robots.txt. These live in /public
+// and must NOT be rewritten into the /shop/<sub>/ tree (they'd 404).
+const PUBLIC_FILE = /\.[^/]+$/
+
 // Given a request Host header, return the shop subdomain label if the host is a
 // storefront subdomain (e.g. "my-shop.datagod.store" -> "my-shop"), else null.
 // Handles local dev too: "my-shop.localhost:3000" -> "my-shop".
@@ -65,7 +70,11 @@ export async function middleware(request: NextRequest) {
   // below so storefront pages still get the CSP nonce, security headers, and __shop_sess.
   const shopSubdomain = getShopSubdomain(request.headers.get("host"))
   const rewritePathname =
-    shopSubdomain && !path.startsWith("/shop/") && !path.startsWith("/api") && !path.startsWith("/_next")
+    shopSubdomain &&
+    !path.startsWith("/shop/") &&
+    !path.startsWith("/api") &&
+    !path.startsWith("/_next") &&
+    !PUBLIC_FILE.test(path)
       ? `/shop/${shopSubdomain}${path === "/" ? "" : path}`
       : null
 
