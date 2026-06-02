@@ -252,16 +252,17 @@ async function sendSMSViaBrevo(payload: SMSPayload): Promise<SendSMSResponse> {
     const messageId = response.data.messageId?.toString() || 'unknown'
     console.log('[SMS] ✓ Brevo Success - Message ID:', messageId)
 
-    // Log to database
-    if (payload.userId && !payload.skipLogging) {
+    // Log to database (always — user_id is nullable)
+    if (!payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
-          user_id: payload.userId,
+          user_id: payload.userId || null,
           phone_number: payload.phone,
           message: payload.message,
           message_type: payload.type,
-          reference_id: payload.reference,
+          reference_id: payload.reference || null,
           moolre_message_id: messageId, // Reuse column for Brevo message ID
+          provider: 'brevo',
           status: 'sent',
         })
       } catch (logError) {
@@ -295,15 +296,16 @@ async function sendSMSViaBrevo(payload: SMSPayload): Promise<SendSMSResponse> {
       }
     }
 
-    // Log failed SMS
-    if (payload.userId && !payload.skipLogging) {
+    // Log failed SMS (always — user_id is nullable)
+    if (!payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
-          user_id: payload.userId,
+          user_id: payload.userId || null,
           phone_number: payload.phone,
           message: payload.message,
           message_type: payload.type,
-          reference_id: payload.reference,
+          reference_id: payload.reference || null,
+          provider: 'brevo',
           status: 'failed',
           error_message: errorMessage,
         })
@@ -371,6 +373,7 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
           message_type: payload.type,
           reference_id: payload.reference || null,
           moolre_message_id: trackingRef,
+          provider: 'moolre',
           status: 'sent',
         })
       } catch (logError) {
@@ -401,6 +404,7 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
           message: payload.message,
           message_type: payload.type,
           reference_id: payload.reference || null,
+          provider: 'moolre',
           status: 'failed',
           error_message: errorMessage,
         })
@@ -501,16 +505,17 @@ async function sendSMSViaMNotify(payload: SMSPayload): Promise<SendSMSResponse> 
     const messageId = response.data.summary?._id || 'unknown'
     console.log('[SMS] ✓ mNotify Success - Campaign ID:', messageId)
 
-    // Log to database
-    if (payload.userId && !payload.skipLogging) {
+    // Log to database (always — user_id is nullable)
+    if (!payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
-          user_id: payload.userId,
+          user_id: payload.userId || null,
           phone_number: payload.phone,
           message: payload.message,
           message_type: payload.type,
-          reference_id: payload.reference,
+          reference_id: payload.reference || null,
           moolre_message_id: messageId, // Reuse column for mNotify campaign ID
+          provider: 'mnotify',
           status: 'sent',
         })
       } catch (logError) {
@@ -544,15 +549,16 @@ async function sendSMSViaMNotify(payload: SMSPayload): Promise<SendSMSResponse> 
       }
     }
 
-    // Log failed SMS
-    if (payload.userId && !payload.skipLogging) {
+    // Log failed SMS (always — user_id is nullable)
+    if (!payload.skipLogging) {
       try {
         await supabase.from('sms_logs').insert({
-          user_id: payload.userId,
+          user_id: payload.userId || null,
           phone_number: payload.phone,
           message: payload.message,
           message_type: payload.type,
-          reference_id: payload.reference,
+          reference_id: payload.reference || null,
+          provider: 'mnotify',
           status: 'failed',
           error_message: errorMessage,
         })
