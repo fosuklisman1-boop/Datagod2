@@ -1009,14 +1009,14 @@ export default function ShopStorefront() {
       {
         checkoutOpen && selectedPackage && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <Card className="w-full max-w-md bg-white">
-              <CardHeader className="border-b border-gray-200">
+            <Card className="w-full max-w-md bg-white max-h-[90vh] flex flex-col">
+              <CardHeader className="border-b border-gray-200 shrink-0">
                 <CardTitle>Checkout</CardTitle>
                 <CardDescription>
                   {selectedPackage.packages.network} - {selectedPackage.packages.size}GB
                 </CardDescription>
               </CardHeader>
-              <CardContent className="pt-6 space-y-4">
+              <CardContent className="pt-6 space-y-4 overflow-y-auto flex-1 min-h-0">
                 <div>
                   <Label>Full Name *</Label>
                   <Input
@@ -1143,13 +1143,16 @@ export default function ShopStorefront() {
                   </div>
                 )}
 
+              </CardContent>
+
+              {/* Fixed action footer — stays visible while the form above scrolls */}
+              <div className="border-t border-gray-200 p-4 space-y-3 shrink-0">
                 {turnstileEnabled && (
-                  <div className="pt-2">
+                  <div className="flex justify-center">
                     <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
                   </div>
                 )}
-
-                <div className="flex gap-2 pt-4">
+                <div className="flex gap-2">
                   <Button
                     onClick={handleSubmitOrder}
                     disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified)}
@@ -1177,7 +1180,7 @@ export default function ShopStorefront() {
                     Cancel
                   </Button>
                 </div>
-              </CardContent>
+              </div>
             </Card>
           </div>
         )
