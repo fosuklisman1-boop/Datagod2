@@ -538,8 +538,28 @@ async function sendSMSViaMNotify(payload: SMSPayload): Promise<SendSMSResponse> 
   }
 }
 
+const SMS_SENDERS: Record<string, (p: SMSPayload) => Promise<SendSMSResponse>> = {
+  moolre: sendSMSViaMoolre,
+  brevo: sendSMSViaBrevo,
+  mnotify: sendSMSViaMNotify,
+}
+
+function isProviderConfigured(name: string): boolean {
+  if (name === 'moolre') return !!MOOLRE_API_KEY
+  if (name === 'brevo') return !!BREVO_API_KEY
+  if (name === 'mnotify') return !!MNOTIFY_API_KEY
+  return false
+}
+
 /**
- * Send SMS using configured provider (Brevo, Moolre, or mNotify)
+ * Send SMS using the configured provider (Brevo, Moolre, or mNotify).
+ *
+ * OTP messages (type 'phone_otp') get special handling: they try a DEDICATED
+ * provider (SMS_OTP_PROVIDER) first, then FALL BACK through the other configured
+ * gateways until one succeeds. This is because a single gateway can refuse OTP
+ * traffic (e.g. an unregistered/unapproved alphanumeric sender ID, which Ghana's
+ * NCA requires for OTP) — and verification must not depend on that one provider.
+ * All other SMS keeps the single configured provider (no behaviour/cost change).
  */
 export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   console.log('[SMS] sendSMS called with:', { phone: payload.phone, type: payload.type, provider: SMS_PROVIDER })
@@ -549,14 +569,31 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     return { success: true, skipped: true }
   }
 
-  // Route to the appropriate provider
-  if (SMS_PROVIDER === 'brevo') {
-    return sendSMSViaBrevo(payload)
-  } else if (SMS_PROVIDER === 'mnotify') {
-    return sendSMSViaMNotify(payload)
+  const isOtp = payload.type === 'phone_otp'
+
+  // Build the provider order.
+  let order: string[]
+  if (isOtp) {
+    const preferred = process.env.SMS_OTP_PROVIDER || SMS_PROVIDER
+    order = [preferred, 'mnotify', 'brevo', 'moolre']
   } else {
-    return sendSMSViaMoolre(payload)
+    order = [SMS_PROVIDER]
   }
+  // De-dupe, keep only known + configured providers.
+  order = order.filter((p, i) => order.indexOf(p) === i && SMS_SENDERS[p] && isProviderConfigured(p))
+  if (order.length === 0) order = [SMS_PROVIDER] // last resort — let it surface its own error
+
+  let last: SendSMSResponse = { success: false, error: 'No SMS provider available' }
+  for (const name of order) {
+    const result = await (SMS_SENDERS[name] || sendSMSViaMoolre)(payload)
+    if (result.success) {
+      if (isOtp && name !== order[0]) console.warn(`[SMS] ✓ OTP delivered via fallback provider '${name}'`)
+      return result
+    }
+    last = result
+    if (isOtp) console.warn(`[SMS] OTP send via '${name}' failed (${result.error}); trying next provider`)
+  }
+  return last
 }
 
 /**
