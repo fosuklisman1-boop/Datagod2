@@ -55,16 +55,19 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabaseAdmin
     .from("users")
-    .select("id")
+    .select("phone_number")
     .eq("id", user.id)
     .maybeSingle()
 
-  if (!profile) {
-    // New Google user — redirect to profile completion
+  // "Onboarded" = has a phone number. The handle_new_user trigger (migration 0058)
+  // gives every auth user a public.users row immediately, so a missing row is no
+  // longer the signal — a row WITHOUT a phone (or no row at all) both mean "not yet
+  // onboarded" → complete-profile (which collects phone + terms + name).
+  if (!profile || !profile.phone_number) {
     return NextResponse.redirect(`${origin}/auth/complete-profile`)
   }
 
-  // Returning user — send to intended destination
+  // Onboarded user — send to intended destination
   const safeNext = next.startsWith("/") ? next : "/dashboard"
   return NextResponse.redirect(`${origin}${safeNext}`)
 }

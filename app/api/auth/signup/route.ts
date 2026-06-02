@@ -121,21 +121,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create user profile
+    // Upsert the profile. The handle_new_user trigger (migration 0058) creates a
+    // minimal row (id, email, name) at auth signup, so completing profile now FILLS
+    // that row. upsert keeps this correct whether the row pre-exists (normal) or not
+    // (defensive — e.g. the trigger somehow didn't run). created_at is left to the
+    // existing row / column default; onboarding_completed (the wallet-tour flag) is
+    // untouched.
     const { data, error } = await supabaseServiceRole
       .from("users")
-      .insert([
-        {
-          id: userId,
-          email,
-          first_name: firstName || "",
-          last_name: lastName || "",
-          phone_number: phoneNumber || "",
-          role: defaultRole,
-          phone_verified: true,
-          created_at: new Date().toISOString(),
-        },
-      ])
+      .upsert(
+        [
+          {
+            id: userId,
+            email,
+            first_name: firstName || "",
+            last_name: lastName || "",
+            phone_number: phoneNumber || "",
+            role: defaultRole,
+            phone_verified: true,
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        { onConflict: "id" }
+      )
       .select()
 
     if (error) {

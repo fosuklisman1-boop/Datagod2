@@ -102,14 +102,16 @@ export default function CompleteProfilePage() {
         return
       }
 
-      // If profile already exists, skip to dashboard
+      // Skip to dashboard only if ALREADY ONBOARDED (has a phone). The
+      // handle_new_user trigger (migration 0058) gives every auth user a row
+      // immediately, so "a row exists" no longer means "done" — check for a phone.
       const { data: existingProfile } = await supabase
         .from("users")
-        .select("id")
+        .select("phone_number")
         .eq("id", session.user.id)
         .maybeSingle()
 
-      if (existingProfile) {
+      if (existingProfile?.phone_number) {
         router.replace("/dashboard")
         return
       }
