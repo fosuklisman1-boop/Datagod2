@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
-import { isPhoneVerified, isWalletOtpRequired } from "@/lib/storefront-otp"
+import { isPhoneVerified, isWalletOtpRequired, isStorefrontOtpRequired } from "@/lib/storefront-otp"
 import { logSecurityEvent } from "@/lib/security-log"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -544,14 +544,28 @@ export async function POST(request: NextRequest) {
       : ["card", "mobile_money", "bank_transfer"]
     // Wallet/upgrade gate: the order-free paths (wallet top-up, dealer upgrade)
     // must not be able to emit a MoMo prompt to an arbitrary number. Strip
-    // mobile_money for them; storefront orders are unaffected (they use the gated,
-    // OTP-verified direct charge above, never this hosted redirect).
+    // mobile_money for them.
     if (walletGateOn && (isTopup || isUpgrade) && !isAdmin) {
       hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
       if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
       // Someone reached the hosted checkout for an order-free path while the gate
       // is on (legit users use the on-page direct charge). Worth recording.
       logSecurityEvent("wallet_hosted_momo_blocked", { channel: paymentChannel, ip: clientIp, email, userId: userId || null })
+    }
+
+    // Storefront gate: when ON, SHOP orders (data/airtime/RC) must go through the
+    // OTP-verified direct charge (momoDirect, handled above) — NOT a hosted page
+    // where any number can be typed. The legit frontend already does momoDirect
+    // when the gate is on; a HOSTED shop-order init reaching here is therefore a
+    // bypass (e.g. the AWS bot creating data orders and typing victim numbers on
+    // Paystack's page). Strip mobile_money so no prompt can be fired; card/bank
+    // remain for any genuine edge case. This is the fix for the observed
+    // `channel: shop_data` + `LOW_BALANCE_OR_PAYEE_LIMIT_REACHED` flood.
+    const storefrontGateOn = await isStorefrontOtpRequired()
+    if (storefrontGateOn && orderId && !isAdmin) {
+      hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
+      if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
+      logSecurityEvent("shop_hosted_momo_blocked", { channel: paymentChannel, ip: clientIp, email, orderId, recipient })
     }
 
     const paymentResult = await initializePayment({
