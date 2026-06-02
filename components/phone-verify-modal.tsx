@@ -4,19 +4,31 @@ import { useState, useRef } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { CheckCircle2, Loader2, Phone, ShieldCheck } from "lucide-react"
+import { CheckCircle2, Clock, Loader2, Phone, ShieldAlert, ShieldCheck } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
 interface PhoneVerifyModalProps {
   open: boolean
   currentPhone: string
+  deadline?: string
   onVerified: () => void
   onDismiss: () => void
 }
 
-export function PhoneVerifyModal({ open, currentPhone, onVerified, onDismiss }: PhoneVerifyModalProps) {
+function formatTimeLeft(deadline: string): string {
+  const msLeft = new Date(deadline).getTime() - Date.now()
+  if (msLeft <= 0) return ""
+  const hours = Math.floor(msLeft / (1000 * 60 * 60))
+  const minutes = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60))
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes} minute${minutes !== 1 ? "s" : ""}`
+}
+
+export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onDismiss }: PhoneVerifyModalProps) {
   const [mode, setMode] = useState<"verify" | "change">("verify")
+  const gracePeriodActive = deadline ? new Date(deadline) > new Date() : false
+  const timeLeft = deadline && gracePeriodActive ? formatTimeLeft(deadline) : ""
 
   // Verify existing phone state
   const [verifyOtpSent, setVerifyOtpSent] = useState(false)
@@ -186,17 +198,43 @@ export function PhoneVerifyModal({ open, currentPhone, onVerified, onDismiss }: 
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onDismiss() }}>
-      <DialogContent className="max-w-md">
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) {
+          if (gracePeriodActive) onDismiss()
+          // After deadline: block closing
+        }
+      }}
+    >
+      <DialogContent
+        className="max-w-md"
+        onPointerDownOutside={gracePeriodActive ? undefined : (e) => e.preventDefault()}
+        onEscapeKeyDown={gracePeriodActive ? undefined : (e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" />
-            Verify Your Phone Number
+            {gracePeriodActive
+              ? <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              : <ShieldAlert className="w-5 h-5 text-red-500" />
+            }
+            {gracePeriodActive ? "Verify Your Phone Number" : "Verification Required"}
           </DialogTitle>
           <DialogDescription>
-            Verify your phone to ensure you receive order updates and account notifications.
+            {gracePeriodActive
+              ? `Verify your phone to keep full access. You have ${timeLeft} remaining.`
+              : "Your access to orders and withdrawals is restricted until you verify your phone number."
+            }
           </DialogDescription>
         </DialogHeader>
+
+        {/* Grace period countdown banner */}
+        {gracePeriodActive && timeLeft && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+            <Clock className="w-4 h-4 shrink-0" />
+            <span><strong>{timeLeft}</strong> remaining before orders and withdrawals are restricted</span>
+          </div>
+        )}
 
         {/* Mode tabs */}
         <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
@@ -313,9 +351,11 @@ export function PhoneVerifyModal({ open, currentPhone, onVerified, onDismiss }: 
           </div>
         )}
 
-        <Button variant="ghost" onClick={onDismiss} className="w-full text-gray-400 text-sm">
-          Remind me later
-        </Button>
+        {gracePeriodActive && (
+          <Button variant="ghost" onClick={onDismiss} className="w-full text-gray-400 text-sm">
+            Remind me later
+          </Button>
+        )}
       </DialogContent>
     </Dialog>
   )

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { validateAccountName } from "@/lib/moolre-transfer"
 
 const supabase = createClient(
@@ -18,6 +19,11 @@ export async function POST(request: NextRequest) {
   const { data: { user }, error: userError } = await supabase.auth.getUser(token)
   if (userError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const phoneGuard = await checkPhoneVerified(supabase, user.id)
+  if (!phoneGuard.allowed) {
+    return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
   }
 
   try {

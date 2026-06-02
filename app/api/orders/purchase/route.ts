@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
@@ -111,6 +112,11 @@ export async function POST(request: NextRequest) {
 
       userId = user.id
       userEmail = user.email
+
+      const phoneGuard = await checkPhoneVerified(supabaseAdmin, userId)
+      if (!phoneGuard.allowed) {
+        return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
+      }
     }
 
     // If email still missing, fetch from users table

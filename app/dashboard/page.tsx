@@ -68,6 +68,7 @@ export default function DashboardPage() {
   const [showPhoneRequired, setShowPhoneRequired] = useState(false)
   const [showPhoneVerify, setShowPhoneVerify] = useState(false)
   const [currentPhone, setCurrentPhone] = useState("")
+  const [phoneVerifyDeadline, setPhoneVerifyDeadline] = useState<string | null>(null)
 
   // Check if user is a sub-agent and redirect immediately.
   // Timeout after 5s so a slow/hanging Supabase query never permanently
@@ -147,7 +148,7 @@ export default function DashboardPage() {
 
           const { data: profile } = await supabase
             .from("users")
-            .select("first_name, last_name, role, phone_number, phone_verified")
+            .select("first_name, last_name, role, phone_number, phone_verified, phone_verify_deadline")
             .eq("id", authUser.id)
             .single()
 
@@ -159,8 +160,8 @@ export default function DashboardPage() {
               setShowPhoneRequired(true)
             } else if (!profile.phone_verified) {
               setCurrentPhone(profile.phone_number)
-              const dismissed = sessionStorage.getItem("phone_verify_dismissed")
-              if (!dismissed) setShowPhoneVerify(true)
+              setPhoneVerifyDeadline(profile.phone_verify_deadline ?? null)
+              setShowPhoneVerify(true)
             }
           } else {
             const name = authUser.email?.split("@")[0] || "User"
@@ -263,11 +264,9 @@ export default function DashboardPage() {
       <PhoneVerifyModal
         open={showPhoneVerify}
         currentPhone={currentPhone}
+        deadline={phoneVerifyDeadline ?? undefined}
         onVerified={() => setShowPhoneVerify(false)}
-        onDismiss={() => {
-          sessionStorage.setItem("phone_verify_dismissed", "1")
-          setShowPhoneVerify(false)
-        }}
+        onDismiss={() => setShowPhoneVerify(false)}
       />
       <div className="space-y-6">
         {/* Greeting Card */}

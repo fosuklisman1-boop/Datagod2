@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
@@ -90,6 +91,11 @@ export async function POST(request: NextRequest) {
 
     const userId = user.id
     console.log(`[BULK-ORDERS] User ID: ${userId}`)
+
+    const phoneGuard = await checkPhoneVerified(supabase, userId)
+    if (!phoneGuard.allowed) {
+      return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
+    }
 
     // Fetch user role for price calculation
     const { data: userData } = await supabase

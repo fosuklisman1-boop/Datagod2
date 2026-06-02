@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notifyAdmins } from "@/lib/sms-service"
 import { secureReference } from "@/lib/secure-random"
@@ -46,6 +47,11 @@ export async function POST(request: NextRequest) {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
+    }
+
+    const phoneGuard = await checkPhoneVerified(supabase, user.id)
+    if (!phoneGuard.allowed) {
+      return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
     }
 
     // 2. Parse body
