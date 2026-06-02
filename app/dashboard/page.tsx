@@ -7,7 +7,6 @@ import { useOnboarding } from "@/hooks/use-onboarding"
 import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { WalletOnboardingModal } from "@/components/onboarding/wallet-onboarding-modal"
-import { PhoneRequiredModal } from "@/components/phone-required-modal"
 import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -65,7 +64,6 @@ export default function DashboardPage() {
     successRate: "0%"
   })
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
-  const [showPhoneRequired, setShowPhoneRequired] = useState(false)
   const [showPhoneVerify, setShowPhoneVerify] = useState(false)
   const [currentPhone, setCurrentPhone] = useState("")
   const [phoneVerifyDeadline, setPhoneVerifyDeadline] = useState<string | null>(null)
@@ -162,9 +160,9 @@ export default function DashboardPage() {
             const name = profile.last_name || profile.first_name || authUser.email?.split("@")[0] || "User"
             setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
             setUserRole(profile.role || "user")
-            if (!profile.phone_number) {
-              setShowPhoneRequired(true)
-            } else if (!profile.phone_verified) {
+            // No-phone case is handled globally by DashboardLayout's PhoneRequiredModal.
+            // Here we only handle the has-phone-but-unverified (grace-period) case.
+            if (profile.phone_number && !profile.phone_verified) {
               setCurrentPhone(profile.phone_number)
               setPhoneVerifyDeadline(profile.phone_verify_deadline ?? null)
               setShowPhoneVerify(true)
@@ -262,10 +260,6 @@ export default function DashboardPage() {
       <WalletOnboardingModal
         open={showOnboarding && !onboardingLoading}
         onComplete={completeOnboarding}
-      />
-      <PhoneRequiredModal
-        open={showPhoneRequired}
-        onPhoneSaved={() => setShowPhoneRequired(false)}
       />
       <PhoneVerifyModal
         open={showPhoneVerify}

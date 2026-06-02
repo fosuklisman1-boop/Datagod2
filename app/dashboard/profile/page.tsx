@@ -148,10 +148,9 @@ export default function ProfilePage() {
         phone,
       })
 
-      // Show phone required modal if user doesn't have a phone number
-      if (!phone || phone.trim() === '') {
-        setShowPhoneRequiredModal(true)
-      }
+      // No-phone gate is handled globally by DashboardLayout's PhoneRequiredModal
+      // (shows on every dashboard page, including this one). The profile's own
+      // phone dialog stays for the manual "add/change phone" button only.
 
       // Fetch user stats from dashboard stats
       const statsResponse = await fetch("/api/dashboard/stats", {

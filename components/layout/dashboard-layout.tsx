@@ -4,9 +4,11 @@ import { Sidebar } from "./sidebar"
 import { Header } from "./header"
 import { BottomNav } from "./bottom-nav"
 import { AnnouncementModal } from "@/components/announcement-modal"
+import { PhoneRequiredModal } from "@/components/phone-required-modal"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { useUserRole } from "@/hooks/use-user-role"
+import { supabase } from "@/lib/supabase"
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [isMobile, setIsMobile] = useState(false)
@@ -14,8 +16,28 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [showAnnouncement, setShowAnnouncement] = useState(false)
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementMessage, setAnnouncementMessage] = useState("")
+  const [showPhoneRequired, setShowPhoneRequired] = useState(false)
   const { user } = useAuth()
   const { isDealer } = useUserRole()
+
+  // Global, instant phone gate. A logged-in user with NO phone number is blocked
+  // by the non-dismissable PhoneRequiredModal on EVERY dashboard page (this layout
+  // wraps them all), so they can't navigate away to escape it.
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data: profile } = await supabase
+          .from("users")
+          .select("phone_number")
+          .eq("id", user.id)
+          .single()
+        if (!cancelled && profile && !profile.phone_number) setShowPhoneRequired(true)
+      } catch { /* don't block the app on a transient error */ }
+    })()
+    return () => { cancelled = true }
+  }, [user])
 
   useEffect(() => {
     const handleResize = () => {
@@ -137,6 +159,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     {/* Outside all overflow-hidden/transition ancestors so position:fixed
         stays viewport-relative and doesn't scroll with the page on mobile */}
     <BottomNav />
+
+    {/* Non-dismissable: a user with no phone must add one before using the app. */}
+    <PhoneRequiredModal
+      open={showPhoneRequired}
+      onPhoneSaved={() => setShowPhoneRequired(false)}
+    />
     </>
   )
 }
