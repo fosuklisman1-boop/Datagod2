@@ -88,6 +88,16 @@ export default function SmsHealthPage() {
           <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-violet-600" /></div>
         ) : data ? (
           <>
+            {/* OTP auto-failover breaker banner */}
+            {data?.otp_breaker?.open && (
+              <Card className="border-amber-400 bg-amber-50">
+                <CardContent className="pt-5 pb-4 flex items-start gap-2 text-sm text-amber-900">
+                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <span><b>OTP auto-failover active</b> — Moolre OTP delivery is failing, so OTP codes are currently routed to the fallback provider. Auto-recovers when Moolre is healthy again.</span>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Overall cards */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <StatCard label="Total" value={overall.total ?? 0} icon={<MessageSquare className="w-4 h-4 text-gray-500" />} />

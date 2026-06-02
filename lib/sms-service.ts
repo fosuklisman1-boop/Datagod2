@@ -588,6 +588,24 @@ function isProviderConfigured(name: string): boolean {
   return false
 }
 
+// OTP auto-failover breaker. The delivery-sync cron OPENS it (admin_settings key
+// 'sms_otp_breaker') when recent Moolre OTP delivery is failing; while open, OTP
+// sends LEAD with the fallback provider instead of Moolre. It auto-closes when
+// Moolre recovers. Cached 60s so we don't hit the DB on every send.
+let otpBreakerCache: { open: boolean; expiresAt: number } | null = null
+async function isOtpBreakerOpen(): Promise<boolean> {
+  if (otpBreakerCache && otpBreakerCache.expiresAt > Date.now()) return otpBreakerCache.open
+  try {
+    const { data } = await supabase.from('admin_settings').select('value').eq('key', 'sms_otp_breaker').maybeSingle()
+    const v: any = data?.value
+    const open = v?.open === true && !!v?.until && new Date(v.until).getTime() > Date.now()
+    otpBreakerCache = { open, expiresAt: Date.now() + 60_000 }
+    return open
+  } catch {
+    return false // fail safe — don't reroute on a DB hiccup
+  }
+}
+
 /**
  * Send SMS using the configured provider (Brevo, Moolre, or mNotify).
  *
@@ -613,7 +631,12 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   // (only on a hard reject), so a Moolre rejection auto-retries via mNotify/Brevo.
   let order: string[]
   if (isOtp) {
-    order = [process.env.SMS_OTP_PROVIDER || SMS_PROVIDER, fallback, 'mnotify', 'brevo', 'moolre']
+    // While the breaker is OPEN (Moolre OTP failing), lead with the fallback
+    // provider; otherwise lead with SMS_OTP_PROVIDER (or the primary).
+    const breakerOpen = await isOtpBreakerOpen()
+    const lead = breakerOpen ? fallback : (process.env.SMS_OTP_PROVIDER || SMS_PROVIDER)
+    if (breakerOpen) console.warn(`[SMS] OTP breaker open — leading with '${lead}' instead of Moolre`)
+    order = [lead, fallback, 'mnotify', 'brevo', 'moolre']
   } else {
     order = [SMS_PROVIDER, fallback, 'brevo', 'moolre']
   }

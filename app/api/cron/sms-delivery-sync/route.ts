@@ -113,16 +113,72 @@ export async function GET(request: NextRequest) {
       else failed++
     }
 
-    console.log(`[CRON-SMS-DLR] checked=${refs.length} delivered=${deliveredIds.length} resent=${resent} failed=${failed}`)
+    // Auto-failover breaker: open/close based on recent Moolre OTP health.
+    const breaker = await evaluateOtpBreaker()
+
+    console.log(`[CRON-SMS-DLR] checked=${refs.length} delivered=${deliveredIds.length} resent=${resent} failed=${failed} otp_breaker=${breaker}`)
     return NextResponse.json({
       checked: refs.length,
       delivered: deliveredIds.length,
       resent,
       failed,
       pending_fallback: Math.max(0, fallbackRows.length - MAX_FALLBACK_PER_RUN),
+      otp_breaker: breaker,
     })
   } catch (e) {
     console.error("[CRON-SMS-DLR] Error:", e)
     return NextResponse.json({ error: "Internal error" }, { status: 500 })
+  }
+}
+
+/**
+ * OTP auto-failover breaker. Looks at Moolre's OTP delivery outcomes over the
+ * last 20 min and opens the breaker (admin_settings.sms_otp_breaker) when they're
+ * failing, so sendSMS routes OTP to the fallback provider. Sticky for 30 min once
+ * opened; auto-closes when Moolre's OTP traffic is healthy (or absent) again.
+ * Returns "open" | "closed" | "unchanged".
+ */
+async function evaluateOtpBreaker(): Promise<string> {
+  try {
+    const evalSince = new Date(Date.now() - 20 * 60 * 1000).toISOString()
+    const { data: otpRows } = await supabase
+      .from("sms_logs")
+      .select("status")
+      .eq("message_type", "phone_otp")
+      .eq("provider", "moolre")
+      .in("status", ["delivered", "failed"])
+      .gte("created_at", evalSince)
+
+    const resolved = otpRows?.length ?? 0
+    const failed = (otpRows ?? []).filter((r: any) => r.status === "failed").length
+    // Need a minimum sample, then trip at >=50% failure.
+    const unhealthy = resolved >= 3 && failed / resolved >= 0.5
+
+    const { data: cur } = await supabase
+      .from("admin_settings").select("value").eq("key", "sms_otp_breaker").maybeSingle()
+    const until = (cur as any)?.value?.until ? new Date((cur as any).value.until).getTime() : 0
+    const sticky = until > Date.now()
+
+    let value: any
+    let result: string
+    if (unhealthy) {
+      value = { open: true, until: new Date(Date.now() + 30 * 60 * 1000).toISOString(), resolved, failed, evaluated_at: new Date().toISOString() }
+      result = "open"
+    } else if (!sticky) {
+      value = { open: false, until: null, resolved, failed, evaluated_at: new Date().toISOString() }
+      result = "closed"
+    } else {
+      return "unchanged" // keep the sticky-open window intact
+    }
+
+    await supabase.from("admin_settings").upsert(
+      { key: "sms_otp_breaker", value, description: "Auto-failover breaker: routes OTP to the fallback SMS provider while Moolre OTP delivery is failing.", updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    )
+    if (result === "open") console.warn(`[CRON-SMS-DLR] ⚠️ OTP breaker OPEN — Moolre OTP failing (${failed}/${resolved} failed) → routing OTP to fallback`)
+    return result
+  } catch (e) {
+    console.warn("[CRON-SMS-DLR] OTP breaker eval failed:", e)
+    return "error"
   }
 }

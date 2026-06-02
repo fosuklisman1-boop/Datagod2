@@ -45,7 +45,16 @@ export async function GET(request: NextRequest) {
         phone_number: maskPhone(f.phone_number),
       }))
     }
-    return NextResponse.json({ success: true, ...payload }, { headers: { "Cache-Control": "no-store" } })
+
+    // OTP auto-failover breaker state (set by the delivery-sync cron).
+    let otpBreaker: { open: boolean; until: string | null } = { open: false, until: null }
+    try {
+      const { data: b } = await supabase.from("admin_settings").select("value").eq("key", "sms_otp_breaker").maybeSingle()
+      const v: any = (b as any)?.value
+      otpBreaker = { open: v?.open === true && !!v?.until && new Date(v.until) > new Date(), until: v?.until ?? null }
+    } catch { /* ignore */ }
+
+    return NextResponse.json({ success: true, otp_breaker: otpBreaker, ...payload }, { headers: { "Cache-Control": "no-store" } })
   } catch (e) {
     console.error("[SMS-HEALTH] Error:", e)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
