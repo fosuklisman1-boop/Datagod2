@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { logSecurityEvent } from "./security-log"
 
 // Storefront checkout phone-OTP gate. When enabled (admin toggle), a shop order
 // can only be placed for a phone that was recently verified via SMS OTP. This
@@ -28,21 +29,27 @@ const CACHE_TTL_MS = 30_000
  */
 export async function isStorefrontOtpRequired(): Promise<boolean> {
   if (enabledCache && enabledCache.expiresAt > Date.now()) return enabledCache.enabled
-  if (!supabase) return false
+  if (!supabase) return enabledCache?.enabled ?? false
 
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("admin_settings")
       .select("value")
       .eq("key", "storefront_otp_required")
       .maybeSingle()
+    if (error) throw error
 
     const enabled = data?.value?.enabled === true // default off unless explicitly true
     enabledCache = { enabled, expiresAt: Date.now() + CACHE_TTL_MS }
     return enabled
   } catch {
-    // Fail OPEN (don't block checkout on a DB hiccup). The gate is an
-    // anti-abuse lever, not a correctness requirement.
+    // Fail to LAST-KNOWN STATE, not open: a transient DB error during an attack
+    // must not silently drop the gate. If the gate was ON 30s ago, keep it ON.
+    // Only when we've never successfully read it do we default OFF.
+    if (enabledCache) {
+      logSecurityEvent("gate_read_failed_using_cache", { gate: "storefront_otp", cached: enabledCache.enabled })
+      return enabledCache.enabled
+    }
     return false
   }
 }
@@ -64,20 +71,27 @@ let walletGateCache: { enabled: boolean; expiresAt: number } | null = null
 
 export async function isWalletOtpRequired(): Promise<boolean> {
   if (walletGateCache && walletGateCache.expiresAt > Date.now()) return walletGateCache.enabled
-  if (!supabase) return false
+  if (!supabase) return walletGateCache?.enabled ?? false
 
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("admin_settings")
       .select("value")
       .eq("key", "wallet_otp_required")
       .maybeSingle()
+    if (error) throw error
 
     const enabled = data?.value?.enabled === true // default off unless explicitly true
     walletGateCache = { enabled, expiresAt: Date.now() + CACHE_TTL_MS }
     return enabled
   } catch {
-    return false // fail open — never block payments on a DB hiccup
+    // Fail to LAST-KNOWN STATE (see isStorefrontOtpRequired) — a DB blip during
+    // an attack must not silently re-open the order-free MoMo path.
+    if (walletGateCache) {
+      logSecurityEvent("gate_read_failed_using_cache", { gate: "wallet_otp", cached: walletGateCache.enabled })
+      return walletGateCache.enabled
+    }
+    return false
   }
 }
 

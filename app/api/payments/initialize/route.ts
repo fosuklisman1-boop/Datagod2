@@ -5,6 +5,7 @@ import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
 import { isPhoneVerified, isWalletOtpRequired } from "@/lib/storefront-otp"
+import { logSecurityEvent } from "@/lib/security-log"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -92,6 +93,14 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[PAYMENT-INIT] Request received:", { userId, amount, orderType })
+
+    // Client IP — used for rate-limit identity, Paystack metadata, and security
+    // logs. Computed early so it's available throughout the handler.
+    const clientIp =
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("x-real-ip") ||
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      undefined
 
     // Cookie + slug-binding check for shop-order payments.
     // Look up the order's shop_id → shop's current slug → verify cookie matches.
@@ -207,7 +216,7 @@ export async function POST(request: NextRequest) {
     if (walletGateOn && (isTopup || isUpgrade) && !isAdmin && userId) {
       const perUser = await applyRateLimit(request, "payment_init_topup_user", 3, 60 * 60 * 1000, `tu:${userId}`)
       if (!perUser.allowed) {
-        console.warn(`[PAYMENT-INIT] ❌ Attack-mode order-free per-user cap hit for ${userId}`)
+        logSecurityEvent("wallet_topup_user_cap", { channel: type === "dealer_upgrade" ? "dealer_upgrade" : "wallet_topup", userId, email, ip: clientIp })
         return NextResponse.json(
           { error: "Too many payment attempts. Please try again later." },
           { status: 429 }
@@ -464,12 +473,6 @@ export async function POST(request: NextRequest) {
         : orderId ? "Data bundle"
         : "Wallet Top-up"
 
-    // Client IP — internal diagnostics (kept off the customer receipt).
-    const clientIp =
-      request.headers.get("cf-connecting-ip") ||
-      request.headers.get("x-real-ip") ||
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      undefined
 
     // ── Direct MoMo charge path ──────────────────────────────────────────────
     // When the client requests momoDirect (used while the checkout OTP gate is
@@ -493,9 +496,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Could not detect mobile money network from the payment number." }, { status: 400 })
       }
       // The payment number MUST be OTP-verified (server-enforced — the client
-      // can't fake this; verification lives in phone_otp_verifications).
+      // can't fake this; verification lives in phone_otp_verifications). This is
+      // the core guard: it fails CLOSED (isPhoneVerified returns false on any
+      // error) so a direct charge can never reach an unverified number.
       const payVerified = await isPhoneVerified(payPhone)
       if (!payVerified) {
+        logSecurityEvent("momodirect_unverified_payment_number", {
+          channel: paymentChannel, ip: clientIp, email, paymentPhone: payPhone, orderId: orderId || null,
+        })
         return NextResponse.json(
           { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
           { status: 403 }
@@ -541,6 +549,9 @@ export async function POST(request: NextRequest) {
     if (walletGateOn && (isTopup || isUpgrade) && !isAdmin) {
       hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
       if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
+      // Someone reached the hosted checkout for an order-free path while the gate
+      // is on (legit users use the on-page direct charge). Worth recording.
+      logSecurityEvent("wallet_hosted_momo_blocked", { channel: paymentChannel, ip: clientIp, email, userId: userId || null })
     }
 
     const paymentResult = await initializePayment({
