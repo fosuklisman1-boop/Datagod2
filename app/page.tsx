@@ -692,7 +692,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
             <div>
               <h4 className="font-semibold text-white mb-4">Legal</h4>
               <ul className="space-y-2 text-sm">
-                <li><a href="#" className="hover:text-white">Privacy</a></li>
+                <li><a href="/privacy" className="hover:text-white">Privacy</a></li>
                 <li><a href="/terms" className="hover:text-white">Terms</a></li>
                 <li><a href="#" className="hover:text-white">Cookies</a></li>
               </ul>
