@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,8 +12,14 @@ interface PhoneVerifyModalProps {
   open: boolean
   currentPhone: string
   deadline?: string
-  onVerified: () => void
+  // newPhone is passed when the user CHANGED/ADDED a number (so the caller can
+  // update its display); omitted when they merely verified the existing one.
+  onVerified: (newPhone?: string) => void
   onDismiss: () => void
+  // When true, the user opened this voluntarily (e.g. the profile page) and may
+  // close it freely. Default false keeps the dashboard ENFORCEMENT behaviour:
+  // non-dismissable unless a grace deadline is active.
+  dismissable?: boolean
 }
 
 function formatTimeLeft(deadline: string): string {
@@ -25,8 +31,16 @@ function formatTimeLeft(deadline: string): string {
   return `${minutes} minute${minutes !== 1 ? "s" : ""}`
 }
 
-export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onDismiss }: PhoneVerifyModalProps) {
-  const [mode, setMode] = useState<"verify" | "change">("verify")
+export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onDismiss, dismissable = false }: PhoneVerifyModalProps) {
+  // When there's no current phone, this modal is an ADD flow — there's nothing to
+  // "verify", so force the change/add tab and hide the "Verify Current" tab.
+  const isAdd = !currentPhone
+  const [mode, setMode] = useState<"verify" | "change">(currentPhone ? "verify" : "change")
+  // currentPhone may load after first mount (or change since the last open), so
+  // re-pick the right default each time the modal opens.
+  useEffect(() => {
+    if (open) setMode(currentPhone ? "verify" : "change")
+  }, [open, currentPhone])
   const gracePeriodActive = deadline ? new Date(deadline) > new Date() : false
   const timeLeft = deadline && gracePeriodActive ? formatTimeLeft(deadline) : ""
 
@@ -189,7 +203,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
       if (!res.ok) { toast.error(data.error || "Failed to update phone"); return }
 
       toast.success("Phone number updated and verified!")
-      onVerified()
+      onVerified(newPhone)
     } catch {
       toast.error("Failed to update phone")
     } finally {
@@ -202,28 +216,32 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
       open={open}
       onOpenChange={(isOpen) => {
         if (!isOpen) {
-          if (gracePeriodActive) onDismiss()
-          // After deadline: block closing
+          if (dismissable || gracePeriodActive) onDismiss()
+          // Enforcement mode (not dismissable, no grace): block closing.
         }
       }}
     >
       <DialogContent
         className="max-w-md"
-        onPointerDownOutside={gracePeriodActive ? undefined : (e) => e.preventDefault()}
-        onEscapeKeyDown={gracePeriodActive ? undefined : (e) => e.preventDefault()}
+        onPointerDownOutside={(dismissable || gracePeriodActive) ? undefined : (e) => e.preventDefault()}
+        onEscapeKeyDown={(dismissable || gracePeriodActive) ? undefined : (e) => e.preventDefault()}
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {gracePeriodActive
-              ? <ShieldCheck className="w-5 h-5 text-emerald-600" />
-              : <ShieldAlert className="w-5 h-5 text-red-500" />
+            {isAdd
+              ? <Phone className="w-5 h-5 text-blue-600" />
+              : gracePeriodActive
+                ? <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                : <ShieldAlert className="w-5 h-5 text-red-500" />
             }
-            {gracePeriodActive ? "Verify Your Phone Number" : "Verification Required"}
+            {isAdd ? "Add Your Phone Number" : gracePeriodActive ? "Verify Your Phone Number" : "Verification Required"}
           </DialogTitle>
           <DialogDescription>
-            {gracePeriodActive
-              ? `Verify your phone to keep full access. You have ${timeLeft} remaining.`
-              : "Your access to orders and withdrawals is restricted until you verify your phone number."
+            {isAdd
+              ? "Add and verify your phone number with a one-time code to continue."
+              : gracePeriodActive
+                ? `Verify your phone to keep full access. You have ${timeLeft} remaining.`
+                : "Your access to orders and withdrawals is restricted until you verify your phone number."
             }
           </DialogDescription>
         </DialogHeader>
@@ -236,21 +254,24 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
           </div>
         )}
 
-        {/* Mode tabs */}
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
-          <button
-            onClick={() => setMode("verify")}
-            className={`flex-1 py-2 font-medium transition-colors ${mode === "verify" ? "bg-emerald-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-          >
-            Verify Current
-          </button>
-          <button
-            onClick={() => setMode("change")}
-            className={`flex-1 py-2 font-medium transition-colors ${mode === "change" ? "bg-emerald-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-          >
-            Change Number
-          </button>
-        </div>
+        {/* Mode tabs — only when there's an existing number to verify. For an ADD
+            flow there's nothing to verify, so we go straight to the change/add UI. */}
+        {!isAdd && (
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+            <button
+              onClick={() => setMode("verify")}
+              className={`flex-1 py-2 font-medium transition-colors ${mode === "verify" ? "bg-emerald-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+            >
+              Verify Current
+            </button>
+            <button
+              onClick={() => setMode("change")}
+              className={`flex-1 py-2 font-medium transition-colors ${mode === "change" ? "bg-emerald-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+            >
+              Change Number
+            </button>
+          </div>
+        )}
 
         {mode === "verify" ? (
           <div className="space-y-4">
