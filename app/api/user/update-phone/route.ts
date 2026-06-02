@@ -54,6 +54,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Require server-side proof that phone OTP was verified within the last 30 minutes
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    const { data: otpRecord } = await supabaseServiceRole
+      .from("phone_otp_verifications")
+      .select("id")
+      .eq("phone", phoneNumber)
+      .eq("purpose", "update_phone")
+      .eq("used", true)
+      .gte("created_at", thirtyMinutesAgo)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!otpRecord) {
+      return NextResponse.json(
+        { error: "Phone number must be verified with an OTP before updating" },
+        { status: 400 }
+      )
+    }
+
     // Check if phone number already exists for a DIFFERENT user
     const { data: existingUser, error: checkError } = await supabaseServiceRole
       .from("users")
@@ -72,7 +92,7 @@ export async function POST(request: NextRequest) {
     // Update the user's phone number using service role (bypasses RLS)
     const { error: updateError } = await supabaseServiceRole
       .from("users")
-      .update({ phone_number: phoneNumber })
+      .update({ phone_number: phoneNumber, phone_verified: true })
       .eq("id", user.id)
 
     if (updateError) {

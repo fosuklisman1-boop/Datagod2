@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Phone, Loader2, MessageCircle, AlertTriangle } from "lucide-react"
+import { Phone, Loader2, MessageCircle, AlertTriangle, CheckCircle2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -13,39 +13,100 @@ interface PhoneRequiredModalProps {
   onPhoneSaved: (phone: string) => void
 }
 
-const SUPPORT_WHATSAPP = "233559717923" // Support WhatsApp number
+const SUPPORT_WHATSAPP = "233559717923"
 
 export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalProps) {
   const [phone, setPhone] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [phoneExistsError, setPhoneExistsError] = useState(false)
 
-  const handleSavePhone = async () => {
-    // Reset error state
-    setPhoneExistsError(false)
-    
-    // Validate phone
-    if (!phone || phone.trim() === '') {
-      toast.error("Phone number is required")
-      return
-    }
+  // OTP state
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState("")
+  const [phoneVerified, setPhoneVerified] = useState(false)
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [verifyLoading, setVerifyLoading] = useState(false)
+  const [resendTimer, setResendTimer] = useState(0)
+  const resendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-    const phoneDigits = phone.replace(/\D/g, '')
+  const handlePhoneChange = (value: string) => {
+    setPhone(value)
+    setPhoneExistsError(false)
+    setOtpSent(false)
+    setOtpCode("")
+    setPhoneVerified(false)
+  }
+
+  const startResendTimer = () => {
+    setResendTimer(60)
+    resendTimerRef.current = setInterval(() => {
+      setResendTimer((t) => {
+        if (t <= 1) { clearInterval(resendTimerRef.current!); return 0 }
+        return t - 1
+      })
+    }, 1000)
+  }
+
+  const handleSendOtp = async () => {
+    const phoneDigits = phone.replace(/\D/g, "")
     if (phoneDigits.length < 9 || phoneDigits.length > 10) {
-      toast.error("Phone number must be 9 or 10 digits")
+      toast.error("Enter a valid phone number (9-10 digits) first")
       return
     }
+    setOtpLoading(true)
+    try {
+      const res = await fetch("/api/auth/send-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, purpose: "update_phone" }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || "Failed to send OTP"); return }
+      setOtpSent(true)
+      setPhoneVerified(false)
+      setOtpCode("")
+      startResendTimer()
+      toast.success("OTP sent! Check your phone.")
+    } catch {
+      toast.error("Failed to send OTP")
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.length !== 6) { toast.error("Enter the 6-digit OTP"); return }
+    setVerifyLoading(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code: otpCode, purpose: "update_phone" }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.verified) { toast.error(data.error || "Invalid or expired code"); return }
+      setPhoneVerified(true)
+      toast.success("Phone number verified!")
+    } catch {
+      toast.error("Failed to verify OTP")
+    } finally {
+      setVerifyLoading(false)
+    }
+  }
+
+  const handleSavePhone = async () => {
+    setPhoneExistsError(false)
+
+    if (!phone || phone.trim() === "") { toast.error("Phone number is required"); return }
+    const phoneDigits = phone.replace(/\D/g, "")
+    if (phoneDigits.length < 9 || phoneDigits.length > 10) { toast.error("Phone number must be 9 or 10 digits"); return }
+    if (!phoneVerified) { toast.error("Please verify your phone number first"); return }
 
     setIsSaving(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Not authenticated")
-        setIsSaving(false)
-        return
-      }
+      if (!session?.access_token) { toast.error("Not authenticated"); return }
 
-      // Use the API endpoint to update phone (uses service role, bypasses RLS)
       const response = await fetch("/api/user/update-phone", {
         method: "POST",
         headers: {
@@ -58,20 +119,17 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
       const data = await response.json()
 
       if (!response.ok) {
-        // Check if it's a "phone already exists" error
         if (data.error?.toLowerCase().includes("already registered") || data.error?.toLowerCase().includes("already exists")) {
           setPhoneExistsError(true)
         } else {
           toast.error(data.error || "Failed to save phone number")
         }
-        setIsSaving(false)
         return
       }
 
       toast.success("Phone number saved successfully!")
       onPhoneSaved(phone)
-    } catch (error) {
-      console.error("Error saving phone:", error)
+    } catch {
       toast.error("Failed to save phone number")
     } finally {
       setIsSaving(false)
@@ -85,7 +143,6 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
 
   return (
     <Dialog open={open} onOpenChange={() => {
-      // Prevent closing - user must add phone
       toast.error("Please add your phone number to continue")
     }}>
       <DialogContent className="max-w-md" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
@@ -95,7 +152,7 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
             Phone Number Required
           </DialogTitle>
           <DialogDescription>
-            Please add your phone number to continue using the platform. This helps us verify your account and send important order updates.
+            Please add and verify your phone number to continue. This helps us send important order updates.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -104,18 +161,9 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                 <div className="space-y-2">
-                  <p className="text-sm text-amber-800 font-medium">
-                    This phone number is already registered
-                  </p>
-                  <p className="text-xs text-amber-700">
-                    If you believe this is your number and it's been registered by mistake, please contact our support team for assistance.
-                  </p>
-                  <Button
-                    onClick={handleContactSupport}
-                    variant="outline"
-                    size="sm"
-                    className="mt-2 border-amber-300 text-amber-800 hover:bg-amber-100"
-                  >
+                  <p className="text-sm text-amber-800 font-medium">This phone number is already registered</p>
+                  <p className="text-xs text-amber-700">If you believe this is your number, please contact support.</p>
+                  <Button onClick={handleContactSupport} variant="outline" size="sm" className="mt-2 border-amber-300 text-amber-800 hover:bg-amber-100">
                     <MessageCircle className="w-4 h-4 mr-2" />
                     Contact Support on WhatsApp
                   </Button>
@@ -123,24 +171,65 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
               </div>
             </div>
           )}
+
+          {/* Phone + Send OTP */}
           <div>
             <label className="text-sm font-medium text-gray-700">Phone Number *</label>
-            <Input
-              type="tel"
-              placeholder="Enter your phone number"
-              value={phone}
-              onChange={(e) => {
-                setPhone(e.target.value)
-                setPhoneExistsError(false) // Reset error when typing
-              }}
-              disabled={isSaving}
-              className="mt-1"
-            />
+            <div className="flex gap-2 mt-1">
+              <div className="relative flex-1">
+                <Input
+                  type="tel"
+                  placeholder="Enter your phone number"
+                  value={phone}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  disabled={isSaving}
+                  className={phoneVerified ? "pr-8 border-green-500 focus-visible:ring-green-500" : ""}
+                />
+                {phoneVerified && (
+                  <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSendOtp}
+                disabled={otpLoading || resendTimer > 0 || phoneVerified || isSaving}
+                className="shrink-0 text-xs px-3"
+              >
+                {otpLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : resendTimer > 0 ? `${resendTimer}s` : otpSent ? "Resend" : "Send OTP"}
+              </Button>
+            </div>
             <p className="text-xs text-gray-500 mt-1">Must be 9 or 10 digits</p>
           </div>
+
+          {/* OTP input */}
+          {otpSent && !phoneVerified && (
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="Enter 6-digit code"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleVerifyOtp}
+                disabled={verifyLoading || otpCode.length !== 6}
+                className="shrink-0 text-xs px-3"
+              >
+                {verifyLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Verify"}
+              </Button>
+            </div>
+          )}
+
           <Button
             onClick={handleSavePhone}
-            disabled={isSaving || !phone || phone.trim() === ''}
+            disabled={isSaving || !phone || !phoneVerified}
             className="w-full bg-blue-600 hover:bg-blue-700"
           >
             {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

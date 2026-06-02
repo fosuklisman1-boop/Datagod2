@@ -8,6 +8,7 @@ import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { WalletOnboardingModal } from "@/components/onboarding/wallet-onboarding-modal"
 import { PhoneRequiredModal } from "@/components/phone-required-modal"
+import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2, Wallet } from "lucide-react"
@@ -65,6 +66,8 @@ export default function DashboardPage() {
   })
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
   const [showPhoneRequired, setShowPhoneRequired] = useState(false)
+  const [showPhoneVerify, setShowPhoneVerify] = useState(false)
+  const [currentPhone, setCurrentPhone] = useState("")
 
   // Check if user is a sub-agent and redirect immediately.
   // Timeout after 5s so a slow/hanging Supabase query never permanently
@@ -144,7 +147,7 @@ export default function DashboardPage() {
 
           const { data: profile } = await supabase
             .from("users")
-            .select("first_name, last_name, role, phone_number")
+            .select("first_name, last_name, role, phone_number, phone_verified")
             .eq("id", authUser.id)
             .single()
 
@@ -152,7 +155,13 @@ export default function DashboardPage() {
             const name = profile.last_name || profile.first_name || authUser.email?.split("@")[0] || "User"
             setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
             setUserRole(profile.role || "user")
-            if (!profile.phone_number) setShowPhoneRequired(true)
+            if (!profile.phone_number) {
+              setShowPhoneRequired(true)
+            } else if (!profile.phone_verified) {
+              setCurrentPhone(profile.phone_number)
+              const dismissed = sessionStorage.getItem("phone_verify_dismissed")
+              if (!dismissed) setShowPhoneVerify(true)
+            }
           } else {
             const name = authUser.email?.split("@")[0] || "User"
             setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
@@ -250,6 +259,15 @@ export default function DashboardPage() {
       <PhoneRequiredModal
         open={showPhoneRequired}
         onPhoneSaved={() => setShowPhoneRequired(false)}
+      />
+      <PhoneVerifyModal
+        open={showPhoneVerify}
+        currentPhone={currentPhone}
+        onVerified={() => setShowPhoneVerify(false)}
+        onDismiss={() => {
+          sessionStorage.setItem("phone_verify_dismissed", "1")
+          setShowPhoneVerify(false)
+        }}
       />
       <div className="space-y-6">
         {/* Greeting Card */}

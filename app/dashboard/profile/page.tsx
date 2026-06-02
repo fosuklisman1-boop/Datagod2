@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2 } from "lucide-react"
+import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2, CheckCircle2, ShieldAlert } from "lucide-react"
+import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import ApiKeysManager from "@/components/developer/ApiKeysManager"
 
 import { useEffect, useState } from "react"
@@ -22,6 +23,7 @@ interface UserProfile {
   lastName: string
   email: string
   phone?: string
+  phoneVerified?: boolean
   role: string
   status: string
   memberSince: string
@@ -69,6 +71,7 @@ export default function ProfilePage() {
   })
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [showPhoneRequiredModal, setShowPhoneRequiredModal] = useState(false)
+  const [showPhoneVerifyModal, setShowPhoneVerifyModal] = useState(false)
 
   // Auth protection
   useEffect(() => {
@@ -98,7 +101,7 @@ export default function ProfilePage() {
       // Get user profile from users table
       const { data: profileData, error: profileError } = await supabase
         .from("users")
-        .select("first_name, last_name, phone_number, created_at, role")
+        .select("first_name, last_name, phone_number, phone_verified, created_at, role")
         .eq("id", user.id)
         .single()
 
@@ -109,12 +112,14 @@ export default function ProfilePage() {
       let firstName = email.split("@")[0]
       let lastName = ""
       let phone = ""
+      let phoneVerified = false
       let memberSince = new Date().toLocaleDateString()
 
       if (profileData) {
         firstName = profileData.first_name || firstName
         lastName = profileData.last_name || ""
         phone = profileData.phone_number || ""
+        phoneVerified = profileData.phone_verified ?? false
 
         if (profileData.created_at) {
           memberSince = new Date(profileData.created_at).toLocaleDateString("en-US", {
@@ -130,6 +135,7 @@ export default function ProfilePage() {
         lastName,
         email,
         phone,
+        phoneVerified,
         role: profileData?.role || "user",
         status: "ACTIVE",
         memberSince,
@@ -413,7 +419,23 @@ export default function ProfilePage() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Phone</label>
-                <Input value={profile.phone || "Not provided"} readOnly className="mt-1" />
+                <div className="flex items-center gap-2 mt-1">
+                  <Input value={profile.phone || "Not provided"} readOnly className="flex-1" />
+                  {profile.phone && (
+                    profile.phoneVerified ? (
+                      <span className="flex items-center gap-1 text-xs text-green-600 font-medium shrink-0">
+                        <CheckCircle2 className="w-4 h-4" /> Verified
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setShowPhoneVerifyModal(true)}
+                        className="flex items-center gap-1 text-xs text-amber-600 font-medium shrink-0 hover:text-amber-700"
+                      >
+                        <ShieldAlert className="w-4 h-4" /> Verify
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">WhatsApp</label>
@@ -720,6 +742,15 @@ export default function ProfilePage() {
           </div>
         </DialogContent>
       </Dialog>
+      <PhoneVerifyModal
+        open={showPhoneVerifyModal}
+        currentPhone={profile.phone || ""}
+        onVerified={() => {
+          setShowPhoneVerifyModal(false)
+          setProfile((p) => ({ ...p, phoneVerified: true }))
+        }}
+        onDismiss={() => setShowPhoneVerifyModal(false)}
+      />
     </DashboardLayout>
   )
 }

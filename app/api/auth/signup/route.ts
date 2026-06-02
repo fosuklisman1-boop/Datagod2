@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
           last_name: lastName || "",
           phone_number: phoneNumber || "",
           role: defaultRole,
+          phone_verified: true,
           created_at: new Date().toISOString(),
         },
       ])
