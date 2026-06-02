@@ -17,11 +17,11 @@
 
 DO $$
 DECLARE
-  r        RECORD;
-  fk_cols  text;
-  ref_cols text;
-  notnull  boolean;
-  action   text;
+  r           RECORD;
+  fk_cols     text;
+  ref_cols    text;
+  col_notnull boolean;   -- NOT 'notnull': that collides with the SQL NOTNULL token
+  del_action  text;
 BEGIN
   FOR r IN
     SELECT conname, conrelid, conrelid::regclass AS tbl, conkey, confkey
@@ -32,7 +32,7 @@ BEGIN
   LOOP
     -- local FK column(s) + whether ANY of them is NOT NULL (=> must CASCADE)
     SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY k.ord), bool_or(a.attnotnull)
-      INTO fk_cols, notnull
+      INTO fk_cols, col_notnull
     FROM unnest(r.conkey) WITH ORDINALITY AS k(attnum, ord)
     JOIN pg_attribute a ON a.attrelid = r.conrelid AND a.attnum = k.attnum;
 
@@ -42,14 +42,14 @@ BEGIN
     FROM unnest(r.confkey) WITH ORDINALITY AS k(attnum, ord)
     JOIN pg_attribute a ON a.attrelid = 'public.users'::regclass AND a.attnum = k.attnum;
 
-    action := CASE WHEN notnull THEN 'CASCADE' ELSE 'SET NULL' END;
+    del_action := CASE WHEN col_notnull THEN 'CASCADE' ELSE 'SET NULL' END;
 
     EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', r.tbl, r.conname);
     EXECUTE format(
       'ALTER TABLE %s ADD CONSTRAINT %I FOREIGN KEY (%s) REFERENCES public.users(%s) ON DELETE %s',
-      r.tbl, r.conname, fk_cols, ref_cols, action
+      r.tbl, r.conname, fk_cols, ref_cols, del_action
     );
-    RAISE NOTICE 'Rebound %.%  ->  ON DELETE %', r.tbl, r.conname, action;
+    RAISE NOTICE 'Rebound %.%  ->  ON DELETE %', r.tbl, r.conname, del_action;
   END LOOP;
 END $$;
 
