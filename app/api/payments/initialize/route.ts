@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
-import { isPhoneVerified, isWalletOtpRequired, isStorefrontOtpRequired } from "@/lib/storefront-otp"
+import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired } from "@/lib/storefront-otp"
 import { logSecurityEvent } from "@/lib/security-log"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -495,11 +495,11 @@ export async function POST(request: NextRequest) {
       if (!provider) {
         return NextResponse.json({ error: "Could not detect mobile money network from the payment number." }, { status: 400 })
       }
-      // The payment number MUST be OTP-verified (server-enforced — the client
-      // can't fake this; verification lives in phone_otp_verifications). This is
-      // the core guard: it fails CLOSED (isPhoneVerified returns false on any
-      // error) so a direct charge can never reach an unverified number.
-      const payVerified = await isPhoneVerified(payPhone)
+      // The payment number MUST have a REAL SMS OTP (used=true) — a past order
+      // does not count (strict, no grandfather). Server-enforced; the client
+      // can't fake it. Fails CLOSED, so a direct charge can never reach a number
+      // whose owner didn't just verify it.
+      const payVerified = await isPhoneOtpVerified(payPhone)
       if (!payVerified) {
         logSecurityEvent("momodirect_unverified_payment_number", {
           channel: paymentChannel, ip: clientIp, email, paymentPhone: payPhone, orderId: orderId || null,

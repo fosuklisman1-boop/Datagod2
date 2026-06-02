@@ -4,7 +4,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
-import { isStorefrontOtpRequired, isPhoneVerified } from "@/lib/storefront-otp"
+import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
     // Admin keeps this OFF in normal operation.
     if (await isStorefrontOtpRequired()) {
       const numberToVerify = (paymentPhone && String(paymentPhone).trim()) || beneficiaryPhone
-      const verified = await isPhoneVerified(numberToVerify)
+      const verified = await isPhoneOtpVerified(numberToVerify)
       if (!verified) {
         console.warn(`[SHOP-AIRTIME] ❌ Payment number not OTP-verified for shop ${shopId}`)
         return NextResponse.json(

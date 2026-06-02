@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
-import { isPhoneVerified } from "@/lib/storefront-otp"
+import { isPhoneOtpVerified } from "@/lib/storefront-otp"
 
 /**
  * POST /api/public/phone-verified  { phone }  →  { verified: boolean }
  *
- * Lets the storefront checkout skip the OTP step for a phone that has already
- * completed verification (one-time). Purely a UX optimization — the order
- * endpoints still enforce isPhoneVerified server-side, so a gamed client
- * response gains nothing. Rate-limited to deter phone enumeration.
+ * Lets the storefront checkout skip the OTP step for a phone that already has a
+ * REAL SMS OTP (used=true) — NOT a grandfathered past-order number, so this
+ * matches what the charge gates now require (a returning customer verifies their
+ * payment number once, then auto-skips forever after). Purely a UX optimization:
+ * the order/charge endpoints re-check server-side, so a gamed client response
+ * gains nothing. Rate-limited to deter phone enumeration.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +24,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ verified: false })
     }
 
-    const verified = await isPhoneVerified(phone)
+    const verified = await isPhoneOtpVerified(phone)
     return NextResponse.json({ verified })
   } catch {
     return NextResponse.json({ verified: false })

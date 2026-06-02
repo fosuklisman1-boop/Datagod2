@@ -109,6 +109,33 @@ function phoneVariants(phone: string): string[] {
 }
 
 /**
+ * STRICT verification — true ONLY if this exact phone completed an SMS OTP
+ * (phone_otp_verifications.used = true). Unlike isPhoneVerified, a past paid
+ * order does NOT count.
+ *
+ * Use this to authorise anything that CHARGES or PROMPTS a number: we must have
+ * fresh, explicit consent for THAT specific number, not merely "it bought once".
+ * The grandfather rule (isPhoneVerified) was being abused — an attacker reused a
+ * single previously-paid number to mint valid orders and to direct-charge other
+ * past customers. Requiring a real OTP closes both. Fails CLOSED on any error.
+ */
+export async function isPhoneOtpVerified(phone: string): Promise<boolean> {
+  if (!supabase) return false
+  if (!phone) return false
+  const variants = phoneVariants(phone)
+  try {
+    const { count } = await supabase
+      .from("phone_otp_verifications")
+      .select("id", { count: "exact", head: true })
+      .in("phone", variants)
+      .eq("used", true)
+    return (count ?? 0) > 0
+  } catch {
+    return false
+  }
+}
+
+/**
  * Is this phone trusted for checkout? True if EITHER:
  *   (a) it completed an OTP verification (phone_otp_verifications, used=true), OR
  *   (b) it has a COMPLETED, PAID order in its history (grandfathered).

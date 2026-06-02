@@ -10,7 +10,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
-import { isStorefrontOtpRequired, isPhoneVerified } from "@/lib/storefront-otp"
+import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     // the customer phone for older clients that don't send a payment number.
     if (await isStorefrontOtpRequired()) {
       const numberToVerify = (paymentPhone && String(paymentPhone).trim()) || customerPhone
-      const verified = await isPhoneVerified(numberToVerify)
+      const verified = await isPhoneOtpVerified(numberToVerify)
       if (!verified) {
         console.warn(`[RC-SHOP-INIT] ❌ Payment number not OTP-verified for shop ${shopId}`)
         return NextResponse.json(

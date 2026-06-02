@@ -8,7 +8,7 @@ import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
 import { secureTimestampedReference } from "@/lib/secure-random"
 import { checkEmailQuality } from "@/lib/email-heuristics"
-import { isStorefrontOtpRequired, isPhoneVerified } from "@/lib/storefront-otp"
+import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -213,11 +213,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Checkout phone-OTP gate (admin toggle). When ON, the MoMo PAYMENT number
-    // (the one that will be charged + receive the prompt) must be OTP-verified.
-    // This is the number that matters for prompt-spam defense — the recipient
-    // number just receives the data. Skipped for authenticated stock purchases.
+    // (the one that will be charged + receive the prompt) must have a REAL SMS
+    // OTP — a past order does NOT count (strict, no grandfather), so a single
+    // previously-paid number can't be reused to mint orders. Skipped for
+    // authenticated stock purchases.
     if (!isAuthenticatedDashboardCall && (await isStorefrontOtpRequired())) {
-      const verified = await isPhoneVerified(paymentPhone || customer_phone)
+      const verified = await isPhoneOtpVerified(paymentPhone || customer_phone)
       if (!verified) {
         console.warn(`[SHOP-ORDER] ❌ Payment phone not OTP-verified for shop ${shop_id}`)
         return NextResponse.json(
