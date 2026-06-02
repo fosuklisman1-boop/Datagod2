@@ -144,34 +144,36 @@ export default function DashboardPage() {
           if (!authUser?.id) return
           setUserEmail(authUser.email || "")
 
-          const { data: profile } = await supabase
+          // Query core columns first — always exist
+          const { data: profile, error: profileError } = await supabase
             .from("users")
-            .select("first_name, last_name, role, phone_number, phone_verified, phone_verify_deadline")
+            .select("first_name, last_name, role, phone_number")
             .eq("id", authUser.id)
             .single()
 
-          if (!profile) {
-            // No public.users profile — Google OAuth user who bypassed complete-profile
+          if (profileError || !profile) {
+            // No public.users profile — new Google OAuth user, redirect to complete profile
             router.replace("/auth/complete-profile")
             return
           }
 
-          if (profile) {
-            const name = profile.last_name || profile.first_name || authUser.email?.split("@")[0] || "User"
-            setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
-            setUserRole(profile.role || "user")
-            // No-phone case is handled globally by DashboardLayout's PhoneRequiredModal.
-            // Here we only handle the has-phone-but-unverified (grace-period) case.
-            if (profile.phone_number && !profile.phone_verified) {
+          const name = profile.last_name || profile.first_name || authUser.email?.split("@")[0] || "User"
+          setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
+          setUserRole(profile.role || "user")
+
+          // Optional: check phone_verified (only if migration 0053 was run)
+          try {
+            const { data: extProfile } = await supabase
+              .from("users")
+              .select("phone_verified, phone_verify_deadline")
+              .eq("id", authUser.id)
+              .single()
+            if (extProfile && profile.phone_number && !extProfile.phone_verified) {
               setCurrentPhone(profile.phone_number)
-              setPhoneVerifyDeadline(profile.phone_verify_deadline ?? null)
+              setPhoneVerifyDeadline(extProfile.phone_verify_deadline ?? null)
               setShowPhoneVerify(true)
             }
-          } else {
-            const name = authUser.email?.split("@")[0] || "User"
-            setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
-            setUserRole("user")
-          }
+          } catch { /* columns not yet migrated — skip */ }
 
           if (authUser.created_at) {
             const diffDays = Math.ceil(Math.abs(Date.now() - new Date(authUser.created_at).getTime()) / 86400000)
