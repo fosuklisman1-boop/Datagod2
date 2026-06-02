@@ -250,33 +250,39 @@ export default function ProfilePage() {
 
     setIsSavingProfile(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      // Update via the service_role endpoint. A direct authenticated update
+      // silently no-ops (0 rows, no error) when public.users' RLS UPDATE policy
+      // is missing — the name "saves" then reverts on refresh. The endpoint
+      // bypasses RLS and fails LOUD (42501 -> "run 0057") if service_role's GRANT
+      // is missing. Phone is NOT edited here — it goes through the OTP flow.
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
         toast.error("Not authenticated")
         return
       }
 
-      // Phone number is intentionally NOT editable here. Every phone add/change
-      // goes through PhoneVerifyModal (OTP-enforced, service_role write) so a
-      // number can't be set or swapped without proving ownership via OTP.
-      const { error } = await supabase
-        .from("users")
-        .update({
-          first_name: editForm.firstName,
-          last_name: editForm.lastName,
-        })
-        .eq("id", user.id)
+      const res = await fetch("/api/user/update-profile", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ firstName: editForm.firstName, lastName: editForm.lastName }),
+      })
+      const data = await res.json()
 
-      if (error) {
-        console.error("Profile update error:", error)
-        toast.error(error.message || "Failed to update profile")
+      if (!res.ok) {
+        console.error("Profile update error:", data)
+        toast.error(data.error || "Failed to update profile")
         return
       }
 
+      // Reflect the SERVER-CONFIRMED values, so the UI can't show a save that
+      // didn't actually persist.
       setProfile((prev) => ({
         ...prev,
-        firstName: editForm.firstName,
-        lastName: editForm.lastName,
+        firstName: data.firstName,
+        lastName: data.lastName,
       }))
 
       toast.success("Profile updated successfully")
