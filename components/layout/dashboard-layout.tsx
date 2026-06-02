@@ -31,21 +31,54 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         // Emergency kill switch first: an admin can disable the whole gate (no
         // deploy) if OTP delivery fails and users get locked out.
         const cfg: any = await fetch("/api/public/turnstile-status").then(r => r.ok ? r.json() : {}).catch(() => ({}))
-        if (cancelled || cfg?.phone_gate_disabled === true) return
+        if (cancelled) return
+        if (cfg?.phone_gate_disabled === true) {
+          console.info("[phone-gate] off — kill switch (admin_settings.phone_gate_disabled) is ON")
+          return
+        }
 
-        // Read the profile via /api/user/me (service_role) — NOT the authenticated
-        // client. public.users has RLS enabled but no own-row SELECT policy, so an
-        // authenticated read returns 0 rows and the gate would silently never fire.
-        // Going through service_role makes the gate reliable. Only EXISTING profiles
-        // with no phone are gated; brand-new users (no row) are routed to
-        // complete-profile by the auth callback, not by this modal.
+        // Decide whether this user has a phone. exists === null means we couldn't
+        // read the profile at all (don't lock someone we can't assess).
+        //  • Primary: /api/user/me (service_role) — reliable even though
+        //    public.users has no own-row SELECT policy for `authenticated`.
+        //  • Fallback: direct authenticated read — covers the case where the
+        //    endpoint isn't deployed yet but a SELECT policy IS present.
+        // Every branch logs, so the console says exactly why the gate did/didn't fire.
+        let exists: boolean | null = null
+        let hasPhone = false
+
         const { data: { session } } = await supabase.auth.getSession()
-        if (cancelled || !session?.access_token) return
-        const me: any = await fetch("/api/user/me", {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        }).then(r => r.ok ? r.json() : null).catch(() => null)
-        if (!cancelled && me?.exists && !me.hasPhone) setShowPhoneRequired(true)
-      } catch { /* don't block the app on a transient error */ }
+        if (cancelled) return
+
+        if (session?.access_token) {
+          const res = await fetch("/api/user/me", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            cache: "no-store",
+          }).catch(() => null)
+          if (res?.ok) {
+            const me: any = await res.json().catch(() => null)
+            if (me) { exists = !!me.exists; hasPhone = !!me.hasPhone }
+          } else if (res) {
+            const body: any = await res.json().catch(() => ({}))
+            console.warn(`[phone-gate] /api/user/me -> ${res.status}`, body?.code || body?.error || "", "— trying direct read. If 42501/500, apply migration 0057 (service_role GRANT).")
+          }
+        }
+
+        if (exists === null) {
+          const { data: profile, error } = await supabase
+            .from("users").select("phone_number").eq("id", user.id).maybeSingle()
+          if (error) console.warn("[phone-gate] direct read failed:", error.code, error.message)
+          else if (profile) { exists = true; hasPhone = !!profile.phone_number }
+          else exists = false // genuinely no row, OR RLS hides it (can't tell apart)
+        }
+
+        if (cancelled) return
+        if (exists && !hasPhone) {
+          setShowPhoneRequired(true)
+        } else if (exists === null) {
+          console.warn("[phone-gate] could not read profile (both paths failed) — NOT locking. Apply migration 0057, then reload.")
+        }
+      } catch (e) { console.warn("[phone-gate] error:", e) }
     })()
     return () => { cancelled = true }
   }, [user])
