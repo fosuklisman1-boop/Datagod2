@@ -81,6 +81,8 @@ export default function AdminSettingsPage() {
   const [savingCheckoutOtp, setSavingCheckoutOtp] = useState(false)
   const [walletLockEnabled, setWalletLockEnabled] = useState(false)
   const [savingWalletLock, setSavingWalletLock] = useState(false)
+  const [verifiedCount, setVerifiedCount] = useState<number | null>(null)
+  const [resettingVerifications, setResettingVerifications] = useState(false)
 
   // Guest purchase settings
   const [guestPurchaseUrl, setGuestPurchaseUrl] = useState("")
@@ -263,6 +265,17 @@ export default function AdminSettingsPage() {
             setWalletLockEnabled(wlData.enabled)
           }
         }
+
+        // Load count of currently OTP-verified numbers
+        const verifResponse = await fetch("/api/admin/phone-verifications/reset", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (verifResponse.ok) {
+          const vData = await verifResponse.json()
+          if (typeof vData.verified === "number") {
+            setVerifiedCount(vData.verified)
+          }
+        }
       } catch (error) {
         console.error("[SETTINGS] Error fetching settings:", error)
         const errorMessage = error instanceof Error ? error.message : "Failed to load settings"
@@ -422,6 +435,38 @@ export default function AdminSettingsPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update wallet protection setting")
     } finally {
       setSavingWalletLock(false)
+    }
+  }
+
+  const handleResetVerifications = async () => {
+    if (!window.confirm(
+      "Reset ALL phone verifications?\n\nEvery customer — including returning ones — will have to verify their payment number again (one SMS) on their next order. This also clears any numbers an attacker verified.\n\nContinue?"
+    )) return
+    setResettingVerifications(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        setResettingVerifications(false)
+        return
+      }
+      const response = await fetch("/api/admin/phone-verifications/reset", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({}),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || "Reset failed")
+      setVerifiedCount(0)
+      toast.success(`✓ Reset ${data.deleted ?? 0} phone verification(s) — all numbers must re-verify`)
+    } catch (error) {
+      console.error("Error resetting verifications:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to reset verifications")
+    } finally {
+      setResettingVerifications(false)
     }
   }
 
@@ -1664,6 +1709,43 @@ export default function AdminSettingsPage() {
                   disabled={savingWalletLock}
                   className="data-[state=checked]:bg-green-600"
                 />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Reset Phone Verifications */}
+        <Card className="mt-6 border-2 border-red-500">
+          <CardHeader className="bg-gradient-to-r from-red-50 to-rose-50">
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              📵 Reset Phone Verifications
+            </CardTitle>
+            <CardDescription className="text-red-800 mt-1">
+              Clears every OTP-verified number, so all customers must re-verify their
+              payment number once on their next order. Use after an attack to wipe any
+              numbers the attacker verified, or to force a clean slate.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-red-300 rounded-lg">
+              <div className="flex-1">
+                <p className="font-bold text-gray-900 text-lg">
+                  {verifiedCount === null ? "Verified numbers" : `${verifiedCount} number${verifiedCount === 1 ? "" : "s"} currently verified`}
+                </p>
+                <p className="text-sm text-gray-700 mt-2">
+                  Returning customers re-verify once (one SMS), then they're remembered again.
+                  Takes effect immediately — no deploy needed. This cannot be undone.
+                </p>
+              </div>
+              <div className="flex items-center justify-end min-w-fit">
+                <Button
+                  variant="destructive"
+                  onClick={handleResetVerifications}
+                  disabled={resettingVerifications}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  {resettingVerifications ? "Resetting…" : "Reset all verifications"}
+                </Button>
               </div>
             </div>
           </CardContent>
