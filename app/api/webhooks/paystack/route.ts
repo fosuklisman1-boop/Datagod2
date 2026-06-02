@@ -398,11 +398,13 @@ export async function POST(request: NextRequest) {
             false,
             "ussd_shop_orders"
           )
-          const newOrderStatus = fulfillResult.success ? 'processing' : 'pending'
-          await supabase
-            .from("ussd_shop_orders")
-            .update({ order_status: newOrderStatus, updated_at: new Date().toISOString() })
-            .eq("id", ussdShopOrder.id)
+          // Do NOT override order_status here. fulfillUssdOrder already set the
+          // precise status: 'processing' when actually placed with a provider,
+          // 'pending' when queued for manual (auto off / unknown network),
+          // 'failed' on blacklist. Forcing success→'processing' previously
+          // stranded auto-off orders in 'processing' (invisible to the manual
+          // queue). This matches the main-USSD path, which also trusts the
+          // internal status.
           if (fulfillResult.success) {
             console.log("[WEBHOOK] ✓ USSD shop fulfillment triggered:", fulfillResult.message)
           } else {

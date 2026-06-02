@@ -84,9 +84,12 @@ export async function fulfillUssdOrder(
       console.log("[USSD-FULFILL] ✓ MTN order placed, awaiting cron confirmation:", mtnResponse.order_id)
       return { success: true, message: "Fulfilled via MTN API" }
     } else {
-      // MTN auto-fulfillment disabled — flag for manual processing
-      await markUssdOrderStatus(orderId, 'processing', orderTable)
-      console.log("[USSD-FULFILL] MTN auto-fulfillment disabled — marked processing for manual action")
+      // MTN auto-fulfillment disabled — leave it in the MANUAL queue. 'pending'
+      // is the status the admin fulfillment list fetches; 'processing' means
+      // "placed with a provider, awaiting cron" and would hide it from both the
+      // queue and the sync cron (which only follows mtn_fulfillment_tracking rows).
+      await markUssdOrderStatus(orderId, 'pending', orderTable)
+      console.log("[USSD-FULFILL] MTN auto-fulfillment disabled — marked pending for manual action")
       return { success: true, message: "Queued for manual MTN fulfillment" }
     }
   }
@@ -137,8 +140,10 @@ export async function fulfillUssdOrder(
     }
   }
 
-  // Unknown or non-auto network — mark processing so admin can handle
-  await markUssdOrderStatus(orderId, 'processing', orderTable)
-  console.log("[USSD-FULFILL] Network not auto-fulfillable, marked processing:", network)
+  // Auto-fulfillment off (Codecraft) or unknown network — leave it in the MANUAL
+  // queue. 'pending' is what the admin fulfillment list fetches; 'processing'
+  // would strand it (invisible to the queue, untouched by the sync cron).
+  await markUssdOrderStatus(orderId, 'pending', orderTable)
+  console.log("[USSD-FULFILL] Network not auto-fulfilled, marked pending for manual action:", network)
   return { success: true, message: `${network} queued for manual fulfillment` }
 }
