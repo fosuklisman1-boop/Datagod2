@@ -37,7 +37,7 @@ export function PhoneVerifyModal({ open, currentPhone, onVerified, onDismiss }: 
   const [changeSaving, setChangeSaving] = useState(false)
   const changeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const startTimer = (setter: (n: number) => void, ref: React.MutableRefObject<ReturnType<typeof setInterval> | null>) => {
+  const startTimer = (setter: React.Dispatch<React.SetStateAction<number>>, ref: React.MutableRefObject<ReturnType<typeof setInterval> | null>) => {
     setter(60)
     ref.current = setInterval(() => {
       setter((t) => {
