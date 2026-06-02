@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
     // and (b) apply a per-user burst cap here. Admins bypass for support/testing.
     const walletGateOn = await isWalletOtpRequired()
     if (walletGateOn && (isTopup || isUpgrade) && !isAdmin && userId) {
-      const perUser = await applyRateLimit(request, "payment_init_topup_user", 3, 60 * 60 * 1000, `tu:${userId}`)
+      const perUser = await applyRateLimit(request, "payment_init_topup_user", 5, 30 * 60 * 1000, `tu:${userId}`)
       if (!perUser.allowed) {
         logSecurityEvent("wallet_topup_user_cap", { channel: type === "dealer_upgrade" ? "dealer_upgrade" : "wallet_topup", userId, email, ip: clientIp })
         return NextResponse.json(
