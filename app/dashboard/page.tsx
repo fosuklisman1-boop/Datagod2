@@ -144,21 +144,18 @@ export default function DashboardPage() {
           if (!authUser?.id) return
           setUserEmail(authUser.email || "")
 
-          // Query core columns first — always exist
-          const { data: profile, error: profileError } = await supabase
+          // The dashboard NEVER redirects to complete-profile. New users (no DB
+          // profile) are routed to /auth/complete-profile by the auth callback
+          // (service-role check) BEFORE they reach here, and their row is created
+          // there. Existing users land here; no-phone ones are handled by the global
+          // PhoneRequiredModal in DashboardLayout. Removing the old redirect kills
+          // the loop that happened when the client-side (RLS) read returned no row
+          // while the callback's service-role read saw it.
+          const { data: profile } = await supabase
             .from("users")
             .select("first_name, last_name, role, phone_number")
             .eq("id", authUser.id)
             .single()
-
-          // Redirect to complete-profile ONLY when the row GENUINELY doesn't exist
-          // (PGRST116 = no rows). A permission/grant error also yields null but must
-          // NOT redirect — that loops forever with complete-profile (which reads only
-          // `id`). On any other error we fall through and render with safe defaults.
-          if (!profile && profileError?.code === "PGRST116") {
-            router.replace("/auth/complete-profile")
-            return
-          }
 
           const name = profile?.last_name || profile?.first_name || authUser.email?.split("@")[0] || "User"
           setFirstName(name.charAt(0).toUpperCase() + name.slice(1))
