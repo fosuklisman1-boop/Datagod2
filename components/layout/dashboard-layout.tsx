@@ -6,6 +6,7 @@ import { BottomNav } from "./bottom-nav"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { PhoneRequiredModal } from "@/components/phone-required-modal"
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { useUserRole } from "@/hooks/use-user-role"
 import { supabase } from "@/lib/supabase"
@@ -19,6 +20,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [showPhoneRequired, setShowPhoneRequired] = useState(false)
   const { user } = useAuth()
   const { isDealer } = useUserRole()
+  const router = useRouter()
 
   // Global, instant phone gate. A logged-in user with NO phone number is blocked
   // by the non-dismissable PhoneRequiredModal on EVERY dashboard page (this layout
@@ -37,47 +39,50 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           return
         }
 
-        // Decide whether this user has a phone. exists === null means we couldn't
-        // read the profile at all (don't lock someone we can't assess).
-        //  • Primary: /api/user/me (service_role) — reliable even though
-        //    public.users has no own-row SELECT policy for `authenticated`.
-        //  • Fallback: direct authenticated read — covers the case where the
-        //    endpoint isn't deployed yet but a SELECT policy IS present.
-        // Every branch logs, so the console says exactly why the gate did/didn't fire.
-        let exists: boolean | null = null
-        let hasPhone = false
-
         const { data: { session } } = await supabase.auth.getSession()
+        if (cancelled || !session?.access_token) return
+
+        // AUTHORITATIVE profile read via /api/user/me (service_role). Only this
+        // source is trusted for the ROUTING decision below — a direct authenticated
+        // read can falsely report "no row" under RLS, which is what caused the old
+        // dashboard ⇄ complete-profile loop.
+        let me: { exists: boolean; hasPhone: boolean } | null = null
+        const res = await fetch("/api/user/me", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: "no-store",
+        }).catch(() => null)
+        if (res?.ok) {
+          const body: any = await res.json().catch(() => null)
+          if (body) me = { exists: !!body.exists, hasPhone: !!body.hasPhone }
+        } else if (res) {
+          const body: any = await res.json().catch(() => ({}))
+          console.warn(`[phone-gate] /api/user/me -> ${res.status}`, body?.code || body?.error || "", "— if 42501/500, apply migration 0057 (service_role GRANT).")
+        }
         if (cancelled) return
 
-        if (session?.access_token) {
-          const res = await fetch("/api/user/me", {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-            cache: "no-store",
-          }).catch(() => null)
-          if (res?.ok) {
-            const me: any = await res.json().catch(() => null)
-            if (me) { exists = !!me.exists; hasPhone = !!me.hasPhone }
-          } else if (res) {
-            const body: any = await res.json().catch(() => ({}))
-            console.warn(`[phone-gate] /api/user/me -> ${res.status}`, body?.code || body?.error || "", "— trying direct read. If 42501/500, apply migration 0057 (service_role GRANT).")
+        if (me) {
+          if (!me.exists) {
+            // Logged in but NO public.users row (an email login that skipped the
+            // OAuth callback, an abandoned signup, or a deleted row). Route to
+            // complete-profile to create it. No loop risk: this "no row" is the
+            // authoritative service_role answer, so complete-profile agrees and
+            // won't bounce back.
+            console.info("[phone-gate] no public.users row → routing to complete-profile")
+            router.replace("/auth/complete-profile")
+            return
           }
+          if (!me.hasPhone) setShowPhoneRequired(true)
+          return
         }
 
-        if (exists === null) {
-          const { data: profile, error } = await supabase
-            .from("users").select("phone_number").eq("id", user.id).maybeSingle()
-          if (error) console.warn("[phone-gate] direct read failed:", error.code, error.message)
-          else if (profile) { exists = true; hasPhone = !!profile.phone_number }
-          else exists = false // genuinely no row, OR RLS hides it (can't tell apart)
-        }
-
-        if (cancelled) return
-        if (exists && !hasPhone) {
-          setShowPhoneRequired(true)
-        } else if (exists === null) {
-          console.warn("[phone-gate] could not read profile (both paths failed) — NOT locking. Apply migration 0057, then reload.")
-        }
+        // /api/user/me unavailable — fall back to a direct read for the GATE ONLY.
+        // Never redirect on this path (an authenticated read can falsely return 0
+        // rows under RLS, and redirecting on that would loop).
+        const { data: profile, error } = await supabase
+          .from("users").select("phone_number").eq("id", user.id).maybeSingle()
+        if (error) console.warn("[phone-gate] fallback read failed:", error.code, error.message)
+        else if (profile && !profile.phone_number) setShowPhoneRequired(true)
+        else if (!profile) console.warn("[phone-gate] fallback read returned no row — NOT redirecting (could be RLS). Apply migration 0057 so /api/user/me works.")
       } catch (e) { console.warn("[phone-gate] error:", e) }
     })()
     return () => { cancelled = true }
