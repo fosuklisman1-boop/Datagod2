@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, XCircle, Clock, ChevronRight, Store, Loader2 } from "lucide-react"
 import { shopService } from "@/lib/shop-service"
+import { useShopBasePath } from "@/lib/shop-url"
 import { toast } from "sonner"
 
 export default function AirtimeConfirmationPage() {
@@ -14,6 +15,7 @@ export default function AirtimeConfirmationPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const shopSlug = params.slug as string
+  const shopHome = useShopBasePath(shopSlug) || "/"
   const reference = searchParams.get("reference")
   const orderId = searchParams.get("orderId")
 
@@ -153,7 +155,7 @@ export default function AirtimeConfirmationPage() {
             </div>
 
             <Button 
-              onClick={() => router.push(`/shop/${shopSlug}`)}
+              onClick={() => router.push(shopHome)}
               className="w-full bg-slate-900 hover:bg-slate-800 text-white"
             >
               Back to Store

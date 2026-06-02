@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { CheckCircle2, Loader2, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
+import { useShopBasePath } from '@/lib/shop-url'
 
 interface OrderData {
   id: string
@@ -47,6 +48,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
   onBackToShop,
   shopSlug,
 }) => {
+  const shopHome = useShopBasePath(shopSlug || "")
   return (
     <div className="space-y-6">
       {/* Success Banner */}
@@ -183,7 +185,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
             Back to Shop
           </Button>
           {shopSlug && (
-            <Link href={`/shop/${shopSlug}`} className="flex-1">
+            <Link href={shopHome || `/shop/${shopSlug}`} className="flex-1">
               <Button variant="outline" className="w-full">
                 View Shop
               </Button>

@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService } from "@/lib/shop-service"
+import { shopOrigin } from "@/lib/shop-url"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
 import { AlertCircle, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Megaphone, Loader2, Save, GraduationCap } from "lucide-react"
@@ -497,7 +498,11 @@ export default function MyShopPage() {
   }
 
   const copyShopLink = () => {
-    const link = `${window.location.origin}/shop/${shop.shop_slug}`
+    // Prefer the clean subdomain URL; fall back to the legacy path for any shop
+    // that predates the subdomain backfill.
+    const link = shop.subdomain
+      ? shopOrigin(shop.subdomain)
+      : `${window.location.origin}/shop/${shop.shop_slug}`
     navigator.clipboard.writeText(link)
     toast.success("Shop link copied to clipboard")
   }
@@ -738,7 +743,7 @@ export default function MyShopPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-3 bg-white/40 rounded-lg border border-white/20">
-              <code className="text-xs sm:text-sm font-mono flex-1 break-all">{`${window.location.origin}/shop/${shop.shop_slug}`}</code>
+              <code className="text-xs sm:text-sm font-mono flex-1 break-all">{shop.subdomain ? shopOrigin(shop.subdomain) : `${window.location.origin}/shop/${shop.shop_slug}`}</code>
               <div className="flex gap-2">
                 <Button
                   size="sm"
@@ -748,7 +753,7 @@ export default function MyShopPage() {
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Link href={`/shop/${shop.shop_slug}`} target="_blank">
+                <Link href={shop.subdomain ? shopOrigin(shop.subdomain) : `/shop/${shop.shop_slug}`} target="_blank">
                   <Button
                     size="sm"
                     variant="ghost"
@@ -772,8 +777,8 @@ export default function MyShopPage() {
                 </Badge>
               </div>
               <div className="p-3 bg-white/40 rounded-lg border border-white/20">
-                <p className="text-xs text-gray-600">Slug</p>
-                <p className="text-sm font-mono font-semibold">{shop.shop_slug}</p>
+                <p className="text-xs text-gray-600">Subdomain</p>
+                <p className="text-sm font-mono font-semibold">{shop.subdomain || shop.shop_slug}</p>
               </div>
             </div>
 

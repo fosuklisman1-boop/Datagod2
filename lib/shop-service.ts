@@ -1,6 +1,7 @@
 import { supabase } from "./supabase"
 import { getPriceAdjustments, getAdjustmentForNetwork, applyPriceAdjustment } from "./price-adjustment-service"
 import { checkWithdrawalCoolingOff } from "./withdrawal-policy"
+import { shopHandleOrFilter } from "./shop-handle"
 
 // Public shape of a shop returned to the anonymous storefront client. The
 // internal id and user_id columns are intentionally absent — server-side
@@ -8,6 +9,7 @@ import { checkWithdrawalCoolingOff } from "./withdrawal-policy"
 export interface PublicShop {
   shop_name: string
   shop_slug: string
+  subdomain: string
   description: string | null
   logo_url: string | null
   banner_url: string | null
@@ -65,8 +67,10 @@ export const shopService = {
     return data
   },
 
-  // Get shop by slug (public, anon-callable). Lists only columns that actually
-  // exist in the schema and are safe for anon to see. EXCLUDES:
+  // Get shop by public handle — matches EITHER the clean subdomain OR the legacy
+  // shop_slug, so both <subdomain>.datagod.store and /shop/<shop_slug> resolve the
+  // same shop. (The middleware rewrite passes the subdomain as the [slug] param.)
+  // Lists only columns that actually exist in the schema and are safe for anon. EXCLUDES:
   //   - id, user_id (internal UUIDs — server-only)
   //   - block_reason, blocked_at, tier_level, updated_at (internal admin data)
   //
@@ -75,8 +79,8 @@ export const shopService = {
   async getShopBySlug(slug: string): Promise<PublicShop | null> {
     const { data, error } = await supabase
       .from("user_shops")
-      .select("shop_name, shop_slug, description, logo_url, banner_url, is_active, is_blocked, parent_shop_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at, results_checker_markup_waec, results_checker_markup_bece, results_checker_markup_novdec, created_at")
-      .eq("shop_slug", slug)
+      .select("shop_name, shop_slug, subdomain, description, logo_url, banner_url, is_active, is_blocked, parent_shop_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at, results_checker_markup_waec, results_checker_markup_bece, results_checker_markup_novdec, created_at")
+      .or(shopHandleOrFilter(slug))
       .eq("is_active", true)
       .single()
 
@@ -140,11 +144,12 @@ export const shopPackageService = {
 
   // Get available packages for public storefront
   async getAvailableShopPackages(shopSlug: string) {
-    // First get the shop by slug
+    // Resolve the shop by handle — match either the clean subdomain or the legacy
+    // shop_slug (on a subdomain storefront this value is the subdomain).
     const { data: shopData, error: shopError } = await supabase
       .from("user_shops")
       .select("id")
-      .eq("shop_slug", shopSlug)
+      .or(shopHandleOrFilter(shopSlug))
       .eq("is_active", true)
       .single()
 

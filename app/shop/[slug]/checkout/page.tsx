@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 
 import { useOrderContext } from '@/contexts/OrderContext'
+import { useShopBasePath } from '@/lib/shop-url'
 import { ProgressIndicator } from '@/components/checkout/progress-indicator'
 import { StepReview } from '@/components/checkout/steps/step-review'
 import { StepConfirmation } from '@/components/checkout/steps/step-confirmation'
@@ -29,6 +30,10 @@ export default function CheckoutPage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
+  // Storefront link base: "" on a subdomain host (root-relative links keep the URL
+  // clean), "/shop/<slug>" on the main host. shopHome is the storefront landing link.
+  const base = useShopBasePath(slug)
+  const shopHome = base || "/"
 
   const {
     selectedNetwork,
@@ -101,7 +106,7 @@ export default function CheckoutPage() {
     return (
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-2xl mx-auto pt-8">
-          <Link href={`/shop/${slug}`}>
+          <Link href={shopHome}>
             <Button variant="ghost" className="mb-6">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Shop
@@ -118,7 +123,7 @@ export default function CheckoutPage() {
           <Card>
             <CardContent className="pt-12 pb-12 text-center">
               <p className="text-gray-600 mb-4">Unable to proceed with checkout</p>
-              <Link href={`/shop/${slug}`}>
+              <Link href={shopHome}>
                 <Button>Return to Shop</Button>
               </Link>
             </CardContent>
@@ -134,7 +139,7 @@ export default function CheckoutPage() {
       <div className="max-w-4xl mx-auto p-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <Link href={`/shop/${slug}`}>
+          <Link href={shopHome}>
             <Button variant="ghost" className="mb-4">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to {shopData.name}
@@ -178,7 +183,7 @@ export default function CheckoutPage() {
                     id: 'back-shop',
                     label: 'Back to Shop',
                     description: 'Return to the shop',
-                    action: () => router.push(`/shop/${slug}`),
+                    action: () => router.push(shopHome),
                   },
                 ]}
               />
@@ -204,8 +209,8 @@ export default function CheckoutPage() {
                   // Order should already be submitted from landing page
                   // Just proceed to confirmation
                 }}
-                onEdit={() => router.push(`/shop/${slug}`)}
-                onBack={() => router.push(`/shop/${slug}`)}
+                onEdit={() => router.push(shopHome)}
+                onBack={() => router.push(shopHome)}
                 isLoading={isProcessing}
               />
             )}
@@ -230,9 +235,9 @@ export default function CheckoutPage() {
                 }}
                 isProcessing={isProcessing}
                 onProceedToPayment={() => {
-                  router.push(`/shop/${slug}/order-confirmation/${order.id}`)
+                  router.push(`${base}/order-confirmation/${order.id}`)
                 }}
-                onBackToShop={() => router.push(`/shop/${slug}`)}
+                onBackToShop={() => router.push(shopHome)}
                 shopSlug={slug}
               />
             )}

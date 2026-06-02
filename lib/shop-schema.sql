@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS user_shops (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   shop_name VARCHAR(255) NOT NULL,
   shop_slug VARCHAR(255) UNIQUE NOT NULL,
+  subdomain VARCHAR(255) UNIQUE NOT NULL, -- clean handle for <subdomain>.datagod.store (see migration 0055)
   description TEXT,
   logo_url VARCHAR(500),
   banner_url VARCHAR(500),
@@ -23,6 +24,54 @@ CREATE TABLE IF NOT EXISTS user_shops (
   updated_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(user_id) -- One shop per user
 );
+
+-- Subdomain auto-assignment (kept in sync with migration 0055). Populates the
+-- NOT NULL `subdomain` column on insert when not supplied, so create_default_shop()
+-- and the app's createShop() don't need to compute it. Collisions get a numeric
+-- suffix: first "data", then "data-2", "data-3", ...
+CREATE OR REPLACE FUNCTION generate_unique_subdomain(base_name TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  base_slug TEXT;
+  candidate TEXT;
+  counter   INTEGER := 0;
+BEGIN
+  base_slug := lower(regexp_replace(base_name, '[^a-zA-Z0-9]+', '-', 'g'));
+  base_slug := trim(both '-' from base_slug);
+  IF length(base_slug) < 2 THEN
+    base_slug := 'shop';
+  END IF;
+  LOOP
+    candidate := CASE WHEN counter = 0 THEN base_slug ELSE base_slug || '-' || (counter + 1) END;
+    IF NOT EXISTS (SELECT 1 FROM user_shops WHERE subdomain = candidate) THEN
+      RETURN candidate;
+    END IF;
+    counter := counter + 1;
+    IF counter > 999 THEN
+      RAISE EXCEPTION 'Could not generate a unique subdomain after 999 attempts';
+    END IF;
+  END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION set_shop_subdomain()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.subdomain IS NULL THEN
+    NEW.subdomain := generate_unique_subdomain(NEW.shop_name);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_set_shop_subdomain ON user_shops;
+CREATE TRIGGER trg_set_shop_subdomain
+  BEFORE INSERT ON user_shops
+  FOR EACH ROW EXECUTE FUNCTION set_shop_subdomain();
 
 -- 2. Shop Packages Table (Products for resale)
 CREATE TABLE IF NOT EXISTS shop_packages (

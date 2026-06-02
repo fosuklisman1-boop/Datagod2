@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { initializePayment, chargeMobileMoney } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
@@ -72,10 +73,12 @@ export async function POST(request: NextRequest) {
     // public identifier; the UUID is internal. Wallet topups and dealer upgrades
     // skip this (they don't pass shopSlug).
     if (shopSlug) {
+      // Match either the clean subdomain or the legacy shop_slug — on a subdomain
+      // storefront this value is the subdomain (see middleware rewrite).
       const { data: shopRow, error: shopErr } = await supabase
         .from("user_shops")
         .select("id")
-        .eq("shop_slug", shopSlug)
+        .or(shopHandleOrFilter(shopSlug))
         .single()
       if (shopErr || !shopRow) {
         console.warn(`[PAYMENT-INIT] ❌ Shop not found for slug=${shopSlug}`)

@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { CheckCircle2, XCircle, Copy, Download, Loader2, GraduationCap, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useShopBasePath } from "@/lib/shop-url"
 import { toast } from "sonner"
 
 interface Voucher {
@@ -15,6 +16,7 @@ export default function ResultsCheckerConfirmationPage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const shopSlug = params.slug as string
+  const shopHome = useShopBasePath(shopSlug) || "/"
   const orderId = searchParams.get("orderId")
   const reference = searchParams.get("reference")
 
@@ -235,7 +237,7 @@ export default function ResultsCheckerConfirmationPage() {
         )}
 
         <Button
-          onClick={() => window.location.href = `/shop/${shopSlug}`}
+          onClick={() => window.location.href = shopHome}
           className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold h-12 rounded-xl"
         >
           Back to Store

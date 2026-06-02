@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,11 +26,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Missing required parameters" }, { status: 400 })
     }
 
-    // 1. Fetch Shop and Merchant details
+    // 1. Fetch Shop and Merchant details — match either the clean subdomain or the
+    // legacy shop_slug (on a subdomain storefront this value is the subdomain).
     const { data: shop } = await supabase
       .from("user_shops")
       .select("id, user_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at")
-      .eq("shop_slug", slug)
+      .or(shopHandleOrFilter(slug))
       .single()
 
     if (!shop) {

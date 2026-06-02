@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
@@ -67,10 +68,12 @@ export async function POST(request: NextRequest) {
     // UUID is internal. If slug is provided, resolve it server-side and overwrite
     // any client shopId so a forged value can't reach the rest of the route.
     if (shopSlug) {
+      // Match either the clean subdomain or the legacy shop_slug — on a subdomain
+      // storefront this value is the subdomain (see middleware rewrite).
       const { data: shopRow, error: shopErr } = await supabase
         .from("user_shops")
         .select("id")
-        .eq("shop_slug", shopSlug)
+        .or(shopHandleOrFilter(shopSlug))
         .single()
       if (shopErr || !shopRow) {
         console.warn(`[SHOP-AIRTIME] ❌ Shop not found for slug=${shopSlug}`)

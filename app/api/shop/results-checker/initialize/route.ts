@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 import {
   isValidExamBoard,
   isExamBoardEnabled,
@@ -50,10 +51,12 @@ export async function POST(request: NextRequest) {
 
     // SECURITY: prefer slug over client-provided shopId. Resolve server-side.
     if (shopSlug) {
+      // Match either the clean subdomain or the legacy shop_slug — on a subdomain
+      // storefront this value is the subdomain (see middleware rewrite).
       const { data: shopRow, error: shopErr } = await supabase
         .from("user_shops")
         .select("id")
-        .eq("shop_slug", shopSlug)
+        .or(shopHandleOrFilter(shopSlug))
         .single()
       if (shopErr || !shopRow) {
         console.warn(`[RC-SHOP-INIT] ❌ Shop not found for slug=${shopSlug}`)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
 import { applyRateLimit } from "@/lib/rate-limiter"
@@ -91,10 +92,13 @@ export async function POST(request: NextRequest) {
     // Sub-agent dashboard stock purchases still pass shop_id (authenticated branch
     // below); we only require shop_slug when it's a public/unauthenticated request.
     if (shop_slug) {
+      // The public handle may be the clean subdomain OR the legacy shop_slug — on a
+      // subdomain storefront the middleware rewrite makes the [slug] param (and thus
+      // this body value) the SUBDOMAIN. Resolve by either column so both flows work.
       const { data: shopRow, error: shopErr } = await supabase
         .from("user_shops")
         .select("id")
-        .eq("shop_slug", shop_slug)
+        .or(shopHandleOrFilter(shop_slug))
         .single()
       if (shopErr || !shopRow) {
         console.warn(`[SHOP-ORDER] ❌ Shop not found for slug=${shop_slug}`)
@@ -197,19 +201,24 @@ export async function POST(request: NextRequest) {
         console.warn(`[SHOP-ORDER] ❌ Blocked: missing __shop_sess cookie for shop ${shop_id}`)
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
-      // Pull the shop's current slug for cookie-binding verification
+      // Pull both handles for cookie-binding verification. The middleware binds the
+      // cookie to whichever handle was in the path: shop_slug on /shop/<slug>, or the
+      // subdomain on <subdomain>.datagod.store. Accept the cookie if it matches EITHER.
       const { data: shopForCookie } = await supabase
         .from("user_shops")
-        .select("shop_slug")
+        .select("shop_slug, subdomain")
         .eq("id", shop_id)
         .single()
       if (!shopForCookie?.shop_slug) {
         console.warn(`[SHOP-ORDER] ❌ Shop not found for cookie verification: ${shop_id}`)
         return NextResponse.json({ error: "Shop not found" }, { status: 404 })
       }
-      const cookieCheck = verifyShopSession(shopCookie, shopForCookie.shop_slug)
-      if (!cookieCheck.valid) {
-        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${cookieCheck.reason}) for shop ${shop_id} expected_slug=${shopForCookie.shop_slug} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
+      const bySlug = verifyShopSession(shopCookie, shopForCookie.shop_slug)
+      const bySubdomain = shopForCookie.subdomain
+        ? verifyShopSession(shopCookie, shopForCookie.subdomain)
+        : { valid: false as const, reason: "no_subdomain" }
+      if (!bySlug.valid && !bySubdomain.valid) {
+        console.warn(`[SHOP-ORDER] ❌ Invalid shop session cookie (${bySlug.reason}) for shop ${shop_id} expected_slug=${shopForCookie.shop_slug} subdomain=${shopForCookie.subdomain} secret_configured=${!!process.env.SHOP_TOKEN_SECRET}`)
         return NextResponse.json({ error: "Invalid session. Please refresh the page and try again." }, { status: 403 })
       }
       console.log(`[SHOP-ORDER] ✓ Cookie valid for shop ${shop_id} slug=${shopForCookie.shop_slug}`)

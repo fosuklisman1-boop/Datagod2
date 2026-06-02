@@ -21,9 +21,53 @@ const cookieIssuanceLimiter = cookieIssuanceRedis
     })
   : null
 
+// Hosts/labels that are NEVER treated as a shop subdomain (they serve the main app).
+const RESERVED_SUBDOMAINS = new Set(["www", "app", "admin", "api"])
+
+// Root domain the app runs under (e.g. "datagod.store"). Subdomains of this become
+// shop storefronts. Falls back to the production domain when the env var is unset.
+const ROOT_DOMAIN = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || "datagod.store").toLowerCase()
+
+// Given a request Host header, return the shop subdomain label if the host is a
+// storefront subdomain (e.g. "my-shop.datagod.store" -> "my-shop"), else null.
+// Handles local dev too: "my-shop.localhost:3000" -> "my-shop".
+function getShopSubdomain(host: string | null): string | null {
+  if (!host) return null
+  const hostname = host.split(":")[0].toLowerCase() // strip port
+
+  let label: string | null = null
+  if (hostname.endsWith(".localhost")) {
+    // e.g. "my-shop.localhost" -> "my-shop"; bare "localhost" has no label.
+    label = hostname.slice(0, -".localhost".length)
+  } else if (hostname.endsWith(`.${ROOT_DOMAIN}`)) {
+    label = hostname.slice(0, -(`.${ROOT_DOMAIN}`.length))
+  }
+
+  if (!label) return null
+  // Only single-label subdomains are storefronts (reject "a.b.datagod.store").
+  if (label.includes(".")) return null
+  if (RESERVED_SUBDOMAINS.has(label)) return null
+  return label
+}
+
 export async function middleware(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID())
   const path = request.nextUrl.pathname
+
+  // ── Subdomain storefront rewrite ────────────────────────────────────────────
+  // <shop>.datagod.store/* is rewritten internally to /shop/<shop>/* so the existing
+  // app/shop/[slug] routes serve it. The browser URL stays clean (rewrite, not redirect).
+  // The [slug] param then carries the SUBDOMAIN value; downstream lookups resolve a shop
+  // by EITHER subdomain OR shop_slug (see lib/shop-service.ts), keeping path URLs working.
+  //
+  // rewritePathname is the internal target (e.g. "/shop/my-shop/checkout") or null on the
+  // main host. We DON'T return early — the rewrite flows through the rest of the pipeline
+  // below so storefront pages still get the CSP nonce, security headers, and __shop_sess.
+  const shopSubdomain = getShopSubdomain(request.headers.get("host"))
+  const rewritePathname =
+    shopSubdomain && !path.startsWith("/shop/") && !path.startsWith("/api") && !path.startsWith("/_next")
+      ? `/shop/${shopSubdomain}${path === "/" ? "" : path}`
+      : null
 
   // Builds request headers that include the nonce for the layout server component.
   const buildRequestHeaders = () => {
@@ -32,10 +76,22 @@ export async function middleware(request: NextRequest) {
     return h
   }
 
+  // Produces the outgoing response: a rewrite to the storefront path on a shop
+  // subdomain (URL bar unchanged), or a normal passthrough on the main host.
+  const makeResponse = () => {
+    const init = { request: { headers: buildRequestHeaders() } }
+    if (rewritePathname) {
+      const url = request.nextUrl.clone()
+      url.pathname = rewritePathname
+      return NextResponse.rewrite(url, init)
+    }
+    return NextResponse.next(init)
+  }
+
   // Start with a base response. If Supabase needs to refresh the session cookie,
   // the setAll callback below will replace this with a new response that carries
   // the refreshed cookie — so always use the `response` variable, not this initial value.
-  let response = NextResponse.next({ request: { headers: buildRequestHeaders() } })
+  let response = makeResponse()
 
   // SSR Supabase client — reads from and writes to request/response cookies.
   const supabase = createServerClient(
@@ -50,7 +106,7 @@ export async function middleware(request: NextRequest) {
           // Propagate refreshed session cookies to both the forwarded request
           // and the outgoing response so downstream components see the new token.
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          response = NextResponse.next({ request: { headers: buildRequestHeaders() } })
+          response = makeResponse()
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
           )
@@ -124,7 +180,10 @@ export async function middleware(request: NextRequest) {
   // its embedded slug to match the order's target shop slug. This blocks both
   // (a) scripts hitting the API without loading the shop page, and (b) using one
   // harvested cookie to attack multiple shops.
-  const shopMatch = path.match(/^\/shop\/([^/]+)/)
+  // On a shop subdomain the public path is "/", "/checkout", etc., so match against
+  // the rewritten internal path ("/shop/<subdomain>/…") to bind the cookie correctly.
+  const effectivePath = rewritePathname ?? path
+  const shopMatch = effectivePath.match(/^\/shop\/([^/]+)/)
   if (shopMatch) {
     const slug = decodeURIComponent(shopMatch[1])
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 
@@ -58,11 +59,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Shop slug required" }, { status: 400 })
     }
 
-    // Get shop by slug
+    // Get shop by handle — match either the clean subdomain or the legacy shop_slug
+    // (on a subdomain storefront this value is the subdomain; see middleware rewrite).
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
       .select("id, shop_name, user_id, parent_shop_id, is_active")
-      .eq("shop_slug", shopSlug)
+      .or(shopHandleOrFilter(shopSlug))
       .eq("is_active", true)
       .single()
 

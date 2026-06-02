@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { shopHandleOrFilter } from '@/lib/shop-handle'
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -14,11 +15,13 @@ export async function GET(
   try {
     const { slug } = await params
 
-    // Get shop data from user_shops table
+    // Get shop data from user_shops table. The handle may be the clean subdomain OR
+    // the legacy shop_slug (the subdomain rewrite passes the subdomain here), so match
+    // either column — keeps both <subdomain>.datagod.store and /shop/<slug> working.
     const { data: shop, error: shopError } = await supabase
       .from('user_shops')
-      .select("id, shop_name, shop_slug, description, is_active, is_blocked, created_at")
-      .eq('shop_slug', slug)
+      .select("id, shop_name, shop_slug, subdomain, description, is_active, is_blocked, created_at")
+      .or(shopHandleOrFilter(slug))
       .eq('is_active', true)
       .single()
 

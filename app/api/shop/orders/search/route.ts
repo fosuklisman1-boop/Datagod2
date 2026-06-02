@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -30,11 +31,13 @@ export async function POST(request: NextRequest) {
     let { shopId, shopSlug } = body
 
     // SECURITY: prefer slug, resolve server-side. Slug is the public identifier.
+    // Match either the clean subdomain or the legacy shop_slug (on a subdomain
+    // storefront this value is the subdomain; see middleware rewrite).
     if (shopSlug) {
       const { data: shopRow } = await supabase
         .from("user_shops")
         .select("id")
-        .eq("shop_slug", shopSlug)
+        .or(shopHandleOrFilter(shopSlug))
         .single()
       if (shopRow) shopId = shopRow.id
     }

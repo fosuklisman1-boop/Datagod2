@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
+import { shopOrigin } from "@/lib/shop-url"
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
@@ -636,7 +637,7 @@ export default function ShopStorefront() {
                 "@type": "ListItem",
                 position: "3",
                 name: shop?.shop_name || shop?.name || "Shop",
-                item: `https://www.datagod.store/shop/${shopSlug}`,
+                item: shop?.subdomain ? shopOrigin(shop.subdomain) : `https://www.datagod.store/shop/${shopSlug}`,
               },
             ],
           }),

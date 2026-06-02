@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { NextRequest } from "next/server"
 import { AIChatContext } from "@/lib/ai-tools"
 import { applyRateLimit } from "@/lib/rate-limiter"
@@ -196,10 +197,12 @@ export async function POST(req: NextRequest) {
   // shopId is always derived from the server-side DB lookup — never from the client-supplied value
   let shopId: string | undefined
   if (shopSlug) {
+    // Match either the clean subdomain or the legacy shop_slug (on a subdomain
+    // storefront this value is the subdomain; see middleware rewrite).
     const { data: shop } = await supabaseAdmin
       .from("user_shops")
       .select("id, shop_name")
-      .eq("shop_slug", shopSlug)
+      .or(shopHandleOrFilter(shopSlug))
       .maybeSingle()
     // Strip non-printable/non-ASCII characters to prevent prompt injection via shop name
     if (shop?.shop_name) shopName = shop.shop_name.replace(/[^\x20-\x7E]/g, "").trim().slice(0, 60) || "this shop"

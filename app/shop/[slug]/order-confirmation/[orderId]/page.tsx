@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopOrderService } from "@/lib/shop-service"
+import { useShopBasePath } from "@/lib/shop-url"
 import { CheckCircle, Copy, ArrowRight } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
@@ -15,6 +16,7 @@ export default function OrderConfirmation() {
   const params = useParams()
   const router = useRouter()
   const shopSlug = params.slug as string
+  const shopHome = useShopBasePath(shopSlug) || "/"
   const orderId = params.orderId as string
 
   const [order, setOrder] = useState<any>(null)
@@ -180,7 +182,7 @@ export default function OrderConfirmation() {
 
             {/* Action Buttons */}
             <div className="flex gap-3 pt-4">
-              <Link href={`/shop/${shopSlug}`} className="flex-1">
+              <Link href={shopHome} className="flex-1">
                 <Button variant="outline" className="w-full">
                   Continue Shopping
                 </Button>

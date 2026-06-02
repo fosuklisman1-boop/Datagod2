@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createClient } from "@supabase/supabase-js"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1629,7 +1630,7 @@ export async function executeToolCall(
             .from("user_shops")
             .select("id, shop_name, shop_slug, is_active, created_at, user_id")
           if (input.shop_id) query = query.eq("id", input.shop_id as string)
-          else if (input.slug) query = query.eq("shop_slug", input.slug as string)
+          else if (input.slug) query = query.or(shopHandleOrFilter(input.slug as string))
           else return { error: "Provide shop_id or slug for get" }
           const { data, error } = await query.maybeSingle()
           if (error || !data) return { error: "Shop not found" }
@@ -2145,7 +2146,7 @@ export async function executeToolCall(
         // Fetch the user's shop
         const { data: shop, error: shopErr } = await supabaseAdmin
           .from("user_shops")
-          .select("id, shop_name, shop_slug, is_active, parent_shop_id")
+          .select("id, shop_name, shop_slug, subdomain, is_active, parent_shop_id")
           .eq("user_id", ctx.userId)
           .maybeSingle()
 
@@ -2167,10 +2168,12 @@ export async function executeToolCall(
             .limit(3),
         ])
 
+        const rootDomain = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || "datagod.store").toLowerCase()
         return {
           shop_name: shop.shop_name,
           shop_slug: shop.shop_slug,
-          storefront_url: `/shop/${shop.shop_slug}`,
+          subdomain: shop.subdomain,
+          storefront_url: shop.subdomain ? `https://${shop.subdomain}.${rootDomain}` : `/shop/${shop.shop_slug}`,
           is_active: shop.is_active,
           is_sub_agent_shop: !!shop.parent_shop_id,
           ussd_shop: ussdRes.data

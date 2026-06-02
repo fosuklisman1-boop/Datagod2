@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Store, Phone, CreditCard, ChevronLeft, Loader2, AlertCircle, Zap, ShieldCheck, CheckCircle2 } from "lucide-react"
 import { shopService, networkLogoService } from "@/lib/shop-service"
+import { useShopBasePath } from "@/lib/shop-url"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { toast } from "sonner"
 
@@ -16,6 +17,8 @@ export default function ShopAirtimePage() {
   const params = useParams()
   const router = useRouter()
   const shopSlug = params.slug as string
+  // "" on a subdomain host (keeps URL clean), "/shop/<slug>" on the main host.
+  const shopHome = useShopBasePath(shopSlug) || "/"
 
   const [shop, setShop] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -214,7 +217,7 @@ export default function ShopAirtimePage() {
       <nav className="bg-white/80 backdrop-blur-md border-b border-gray-200 shadow-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <button 
-            onClick={() => router.push(`/shop/${shopSlug}`)} 
+            onClick={() => router.push(shopHome)} 
             className="p-2 hover:bg-violet-50 text-gray-700 hover:text-violet-600 rounded-xl transition-all"
           >
             <ChevronLeft className="w-6 h-6" />
@@ -430,7 +433,7 @@ export default function ShopAirtimePage() {
           </div>
           <p className="text-xs text-slate-500 font-medium">Your connection is encrypted and payment is handled securely by Paystack.</p>
           <div className="pt-4">
-             <Button variant="link" onClick={() => router.push(`/shop/${shopSlug}`)} className="text-violet-600 hover:text-violet-700 font-bold">
+             <Button variant="link" onClick={() => router.push(shopHome)} className="text-violet-600 hover:text-violet-700 font-bold">
                 Return to Storefront
              </Button>
           </div>

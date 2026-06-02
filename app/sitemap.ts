@@ -6,6 +6,7 @@ export const revalidate = 3600 // Revalidate every hour
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.datagod.store'
+  const rootDomain = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'datagod.store').toLowerCase()
 
   // Static routes
   const staticRoutes: MetadataRoute.Sitemap = [
@@ -40,13 +41,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const { data: shops, error } = await supabase
       .from('user_shops')
-      .select('shop_slug, updated_at')
+      .select('shop_slug, subdomain, updated_at')
       .eq('is_active', true)
       .range(0, 49999) // Fetch up to 50,000 shops for sitemap
 
     if (!error && shops) {
       shopRoutes = shops.map((shop) => ({
-        url: `${baseUrl}/shop/${shop.shop_slug}`,
+        // Canonical storefront URL is the clean subdomain; fall back to the legacy
+        // path for any shop that predates the subdomain backfill.
+        url: shop.subdomain ? `https://${shop.subdomain}.${rootDomain}` : `${baseUrl}/shop/${shop.shop_slug}`,
         lastModified: new Date(shop.updated_at || new Date()),
         changeFrequency: 'weekly' as const,
         priority: 0.7,
