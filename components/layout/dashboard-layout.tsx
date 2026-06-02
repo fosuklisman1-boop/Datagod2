@@ -33,12 +33,18 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         const cfg: any = await fetch("/api/public/turnstile-status").then(r => r.ok ? r.json() : {}).catch(() => ({}))
         if (cancelled || cfg?.phone_gate_disabled === true) return
 
-        const { data: profile } = await supabase
-          .from("users")
-          .select("phone_number")
-          .eq("id", user.id)
-          .single()
-        if (!cancelled && profile && !profile.phone_number) setShowPhoneRequired(true)
+        // Read the profile via /api/user/me (service_role) — NOT the authenticated
+        // client. public.users has RLS enabled but no own-row SELECT policy, so an
+        // authenticated read returns 0 rows and the gate would silently never fire.
+        // Going through service_role makes the gate reliable. Only EXISTING profiles
+        // with no phone are gated; brand-new users (no row) are routed to
+        // complete-profile by the auth callback, not by this modal.
+        const { data: { session } } = await supabase.auth.getSession()
+        if (cancelled || !session?.access_token) return
+        const me: any = await fetch("/api/user/me", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }).then(r => r.ok ? r.json() : null).catch(() => null)
+        if (!cancelled && me?.exists && !me.hasPhone) setShowPhoneRequired(true)
       } catch { /* don't block the app on a transient error */ }
     })()
     return () => { cancelled = true }

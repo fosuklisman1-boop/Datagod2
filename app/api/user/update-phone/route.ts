@@ -96,9 +96,19 @@ export async function POST(request: NextRequest) {
       .eq("id", user.id)
 
     if (updateError) {
-      console.error("Error updating phone number:", updateError)
+      // Surface the REAL Postgres error instead of a generic message. A 42501
+      // here means service_role's table GRANT on public.users is still stripped
+      // (run migration 0057_restore_users_grants_and_policies.sql) — not a code bug.
+      console.error("Error updating phone number:", updateError.code, updateError.message)
+      const isGrantError = updateError.code === "42501"
       return NextResponse.json(
-        { error: "Failed to update phone number" },
+        {
+          error: isGrantError
+            ? "Database permission error: service_role is missing its GRANT on the users table. Run migration 0057."
+            : "Failed to update phone number",
+          code: updateError.code,
+          details: updateError.message,
+        },
         { status: 500 }
       )
     }
