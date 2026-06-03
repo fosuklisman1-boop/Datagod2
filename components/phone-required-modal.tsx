@@ -4,7 +4,7 @@ import { useState, useRef } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Phone, Loader2, MessageCircle, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { Phone, Loader2, MessageCircle, AlertTriangle, CheckCircle2, LogOut } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -18,6 +18,7 @@ const SUPPORT_WHATSAPP = "233559717923"
 export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalProps) {
   const [phone, setPhone] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
   const [phoneExistsError, setPhoneExistsError] = useState(false)
 
   // OTP state
@@ -141,6 +142,15 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
     window.open(`https://wa.me/${SUPPORT_WHATSAPP}?text=${message}`, "_blank")
   }
 
+  const handleLogout = async () => {
+    setLoggingOut(true)
+    try {
+      await supabase.auth.signOut()
+    } catch { /* best-effort — navigate away regardless */ }
+    // Full navigation so all in-memory + auth state is cleared.
+    window.location.href = "/auth/login"
+  }
+
   return (
     <Dialog open={open} onOpenChange={() => {
       toast.error("Please add your phone number to continue")
@@ -234,6 +244,19 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
           >
             {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
             {isSaving ? "Saving..." : "Save Phone Number"}
+          </Button>
+
+          {/* Escape hatch: a user who won't/can't add a phone can leave instead of
+              being trapped behind this non-dismissable modal. */}
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleLogout}
+            disabled={loggingOut || isSaving}
+            className="w-full text-gray-500 hover:text-gray-700 text-sm"
+          >
+            {loggingOut ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LogOut className="w-4 h-4 mr-2" />}
+            Log out
           </Button>
         </div>
       </DialogContent>
