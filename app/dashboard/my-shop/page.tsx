@@ -64,14 +64,21 @@ export default function MyShopPage() {
       setDbError(null)
       if (!user?.id) return
 
-      // Fetch user role
-      const { data: roleData } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .single()
-      const role = roleData?.role || null
-      setUserRole(role)
+      // Fetch the user's role via /api/user/me (service_role). A direct
+      // authenticated read of public.users can silently return null under RLS,
+      // which mis-detects a dealer as a regular owner — then the higher admin base
+      // price makes their normal selling price look like a loss and DISABLES the
+      // "Add to Shop" button. Fall back to auth metadata if the endpoint is down.
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const meRes = session?.access_token
+          ? await fetch("/api/user/me", { headers: { Authorization: `Bearer ${session.access_token}` } })
+          : null
+        const me = meRes?.ok ? await meRes.json() : null
+        setUserRole(me?.role ?? (user?.user_metadata?.role as string | undefined) ?? null)
+      } catch {
+        setUserRole((user?.user_metadata?.role as string | undefined) ?? null)
+      }
 
       const userShop = await shopService.getShop(user.id)
       setShop(userShop)
