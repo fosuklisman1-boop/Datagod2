@@ -63,6 +63,14 @@ export default function ProfilePage() {
     confirmPassword: "",
   })
   const [isChangingPassword, setIsChangingPassword] = useState(false)
+  // OAuth (Google) users have no password to verify — they set one via a phone OTP.
+  const [isOAuthUser, setIsOAuthUser] = useState(false)
+  const [showSetPasswordDialog, setShowSetPasswordDialog] = useState(false)
+  const [setPwForm, setSetPwForm] = useState({ newPassword: "", confirmPassword: "" })
+  const [setPwOtp, setSetPwOtp] = useState({ sent: false, code: "", verified: false })
+  const [setPwLoading, setSetPwLoading] = useState(false)
+  const [setPwOtpLoading, setSetPwOtpLoading] = useState(false)
+  const [setPwVerifyLoading, setSetPwVerifyLoading] = useState(false)
   const [showEditProfileDialog, setShowEditProfileDialog] = useState(false)
   const [editForm, setEditForm] = useState({
     firstName: "",
@@ -90,6 +98,11 @@ export default function ProfilePage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+
+      // Did this account sign up via Google? If so it has no password, so we offer
+      // an OTP-confirmed "Set Password" instead of the current-password change flow.
+      const providers = (user.app_metadata?.providers ?? []) as string[]
+      setIsOAuthUser(user.app_metadata?.provider === "google" || providers.includes("google"))
 
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) return
@@ -242,6 +255,86 @@ export default function ProfilePage() {
     }
   }
 
+  // ── Google users: set a password, confirmed by a phone OTP ─────────────────
+  const handleSendSetPwOtp = async () => {
+    if (!profile.phone) {
+      toast.error("Add and verify a phone number first")
+      return
+    }
+    setSetPwOtpLoading(true)
+    try {
+      const res = await fetch("/api/auth/send-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: profile.phone, purpose: "set_password" }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || "Failed to send code"); return }
+      setSetPwOtp({ sent: true, code: "", verified: false })
+      toast.success("Code sent to your phone.")
+    } catch {
+      toast.error("Failed to send code")
+    } finally {
+      setSetPwOtpLoading(false)
+    }
+  }
+
+  const handleVerifySetPwOtp = async () => {
+    if (setPwOtp.code.length !== 6) { toast.error("Enter the 6-digit code"); return }
+    setSetPwVerifyLoading(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: profile.phone, code: setPwOtp.code, purpose: "set_password" }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.verified) { toast.error(data.error || "Invalid or expired code"); return }
+      setSetPwOtp((p) => ({ ...p, verified: true }))
+      toast.success("Phone verified.")
+    } catch {
+      toast.error("Failed to verify code")
+    } finally {
+      setSetPwVerifyLoading(false)
+    }
+  }
+
+  const resetSetPwDialog = () => {
+    setSetPwForm({ newPassword: "", confirmPassword: "" })
+    setSetPwOtp({ sent: false, code: "", verified: false })
+  }
+
+  const handleSetPassword = async () => {
+    if (setPwForm.newPassword.length < 6) { toast.error("Password must be at least 6 characters"); return }
+    if (setPwForm.newPassword !== setPwForm.confirmPassword) { toast.error("Passwords do not match"); return }
+    if (!setPwOtp.verified) { toast.error("Verify the code sent to your phone first"); return }
+
+    setSetPwLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Not authenticated"); return }
+
+      const res = await fetch("/api/auth/set-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ newPassword: setPwForm.newPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || "Failed to set password"); return }
+
+      toast.success("Password set — you can now sign in with your email and password too.")
+      setShowSetPasswordDialog(false)
+      resetSetPwDialog()
+    } catch {
+      toast.error("An error occurred while setting your password")
+    } finally {
+      setSetPwLoading(false)
+    }
+  }
+
   const handleEditProfile = async () => {
     if (!editForm.firstName.trim()) {
       toast.error("First name is required")
@@ -356,9 +449,9 @@ export default function ProfilePage() {
                 <Button
                   variant="outline"
                   className="border-white text-white hover:bg-white/20"
-                  onClick={() => setShowChangePasswordDialog(true)}
+                  onClick={() => (isOAuthUser ? setShowSetPasswordDialog(true) : setShowChangePasswordDialog(true))}
                 >
-                  Change Password
+                  {isOAuthUser ? "Set Password" : "Change Password"}
                 </Button>
               </div>
             </div>
@@ -504,6 +597,23 @@ export default function ProfilePage() {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between p-4 border rounded-lg">
               <div>
+                <p className="font-semibold">Password</p>
+                <p className="text-sm text-gray-600">
+                  {isOAuthUser
+                    ? "You signed up with Google. Set a password to also sign in with email."
+                    : "Change the password you use to sign in."}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => (isOAuthUser ? setShowSetPasswordDialog(true) : setShowChangePasswordDialog(true))}
+              >
+                <Key className="w-4 h-4 mr-2" />
+                {isOAuthUser ? "Set Password" : "Change Password"}
+              </Button>
+            </div>
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div>
                 <p className="font-semibold">Active Sessions</p>
                 <p className="text-sm text-gray-600">You have 1 active session</p>
               </div>
@@ -589,6 +699,98 @@ export default function ProfilePage() {
               >
                 {isChangingPassword && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isChangingPassword ? "Changing..." : "Change Password"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Set Password Dialog (Google users — confirmed by phone OTP) */}
+      <Dialog
+        open={showSetPasswordDialog}
+        onOpenChange={(o) => { setShowSetPasswordDialog(o); if (!o) resetSetPwDialog() }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set a Password</DialogTitle>
+            <DialogDescription>
+              You signed up with Google. Verify the code we send to your phone
+              {profile.phone ? ` (${profile.phone})` : ""}, then choose a password so you
+              can also sign in with your email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* OTP */}
+            <div>
+              <label className="text-sm font-medium text-gray-700">Phone Verification</label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  placeholder="6-digit code"
+                  value={setPwOtp.code}
+                  onChange={(e) => setSetPwOtp((p) => ({ ...p, code: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                  disabled={!setPwOtp.sent || setPwOtp.verified || setPwLoading}
+                  className={setPwOtp.verified ? "border-green-500 focus-visible:ring-green-500" : ""}
+                />
+                {!setPwOtp.verified ? (
+                  setPwOtp.sent ? (
+                    <Button type="button" variant="outline" onClick={handleVerifySetPwOtp} disabled={setPwVerifyLoading || setPwOtp.code.length !== 6} className="shrink-0">
+                      {setPwVerifyLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Verify"}
+                    </Button>
+                  ) : (
+                    <Button type="button" variant="outline" onClick={handleSendSetPwOtp} disabled={setPwOtpLoading || !profile.phone} className="shrink-0">
+                      {setPwOtpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send code"}
+                    </Button>
+                  )
+                ) : (
+                  <span className="inline-flex items-center text-green-600 text-sm px-2"><CheckCircle2 className="w-4 h-4 mr-1" /> Verified</span>
+                )}
+              </div>
+              {setPwOtp.sent && !setPwOtp.verified && (
+                <button type="button" onClick={handleSendSetPwOtp} disabled={setPwOtpLoading} className="text-xs text-blue-600 hover:underline mt-1">
+                  Resend code
+                </button>
+              )}
+            </div>
+
+            {/* New password */}
+            <div>
+              <label className="text-sm font-medium text-gray-700">New Password</label>
+              <Input
+                type="password"
+                placeholder="At least 6 characters"
+                value={setPwForm.newPassword}
+                onChange={(e) => setSetPwForm((p) => ({ ...p, newPassword: e.target.value }))}
+                disabled={!setPwOtp.verified || setPwLoading}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Confirm Password</label>
+              <Input
+                type="password"
+                placeholder="Re-enter your new password"
+                value={setPwForm.confirmPassword}
+                onChange={(e) => setSetPwForm((p) => ({ ...p, confirmPassword: e.target.value }))}
+                disabled={!setPwOtp.verified || setPwLoading}
+                className="mt-1"
+              />
+            </div>
+
+            <div className="flex gap-2 justify-end pt-4">
+              <Button variant="outline" onClick={() => { setShowSetPasswordDialog(false); resetSetPwDialog() }} disabled={setPwLoading}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSetPassword}
+                disabled={setPwLoading || !setPwOtp.verified || !setPwForm.newPassword}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {setPwLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {setPwLoading ? "Saving..." : "Set Password"}
               </Button>
             </div>
           </div>
