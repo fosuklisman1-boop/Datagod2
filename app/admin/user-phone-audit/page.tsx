@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -52,8 +52,13 @@ export default function UserPhoneAuditPage() {
   const [data, setData] = useState<AuditResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [confirmTargets, setConfirmTargets] = useState<AuditUser[] | null>(null)
+  const [confirmTargets, setConfirmTargets] = useState<string[] | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [selectingAll, setSelectingAll] = useState(false)
+
+  // Remember every user object we've loaded (across pages) so a selection that
+  // spans pages still has the data for the history-safety warning.
+  const userCache = useRef<Map<string, AuditUser>>(new Map())
 
   const load = useCallback(async (b: Bucket, p: number) => {
     setLoading(true)
@@ -64,8 +69,8 @@ export default function UserPhoneAuditPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "Failed to load")
+      json.users?.forEach((u: AuditUser) => userCache.current.set(u.id, u))
       setData(json)
-      setSelected(new Set())
     } catch (e: any) {
       toast.error(e.message || "Failed to load audit")
     } finally {
@@ -77,6 +82,9 @@ export default function UserPhoneAuditPage() {
     if (isAdmin && !adminLoading) load(bucket, page)
   }, [isAdmin, adminLoading, bucket, page, load])
 
+  // Clear selection when switching buckets (selections are bucket-specific).
+  useEffect(() => { setSelected(new Set()) }, [bucket])
+
   const hasHistory = (u: AuditUser) => u.wallet_balance > 0 || u.order_count > 0
 
   const toggle = (id: string) => {
@@ -87,22 +95,38 @@ export default function UserPhoneAuditPage() {
     })
   }
 
-  const selectedUsers = (data?.users || []).filter((u) => selected.has(u.id))
+  // Select every account in the current bucket (all pages), not just this page.
+  const selectAllInBucket = async () => {
+    setSelectingAll(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`/api/admin/users/phone-audit?bucket=${bucket}&idsOnly=1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || "Failed")
+      setSelected(new Set<string>(json.ids || []))
+    } catch (e: any) {
+      toast.error(e.message || "Failed to select all")
+    } finally {
+      setSelectingAll(false)
+    }
+  }
 
-  const runDelete = async (targets: AuditUser[]) => {
+  const runDelete = async (ids: string[]) => {
     setDeleting(true)
     let ok = 0
     let fail = 0
     try {
       const token = await getToken()
-      for (const u of targets) {
+      for (const id of ids) {
         try {
           const res = await fetch("/api/admin/remove-user", {
             method: "DELETE",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ userId: u.id }),
+            body: JSON.stringify({ userId: id }),
           })
-          if (res.ok) ok++
+          if (res.ok) { ok++; userCache.current.delete(id) }
           else fail++
         } catch {
           fail++
@@ -113,13 +137,16 @@ export default function UserPhoneAuditPage() {
     } finally {
       setDeleting(false)
       setConfirmTargets(null)
+      setSelected(new Set())
       await load(bucket, page)
     }
   }
 
   if (adminLoading) return null
 
-  const withHistoryCount = (confirmTargets || []).filter(hasHistory).length
+  const withHistoryCount = (confirmTargets || [])
+    .filter((id) => { const u = userCache.current.get(id); return u && hasHistory(u) })
+    .length
 
   return (
     <DashboardLayout>
@@ -156,13 +183,34 @@ export default function UserPhoneAuditPage() {
         </div>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <CardHeader className="space-y-3">
             <CardTitle className="text-sm">{BUCKET_META[bucket].hint}</CardTitle>
-            {selected.size > 0 && (
-              <Button variant="destructive" size="sm" onClick={() => setConfirmTargets(selectedUsers)} disabled={deleting}>
+            {/* Bulk action toolbar — always visible */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={selectAllInBucket}
+                disabled={selectingAll || deleting || !data || data.total === 0}
+              >
+                {selectingAll ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                Select all {data?.total ? `(${data.total.toLocaleString()})` : ""}
+              </Button>
+              {selected.size > 0 && (
+                <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} disabled={deleting}>
+                  Clear ({selected.size})
+                </Button>
+              )}
+              <div className="flex-1" />
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setConfirmTargets(Array.from(selected))}
+                disabled={deleting || selected.size === 0}
+              >
                 <Trash2 className="w-4 h-4 mr-1" /> Delete selected ({selected.size})
               </Button>
-            )}
+            </div>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -178,9 +226,16 @@ export default function UserPhoneAuditPage() {
                         <th className="pb-2 pr-3">
                           <input
                             type="checkbox"
-                            aria-label="Select all"
-                            checked={selected.size === data.users.length && data.users.length > 0}
-                            onChange={(e) => setSelected(e.target.checked ? new Set(data.users.map((u) => u.id)) : new Set())}
+                            aria-label="Select all on this page"
+                            title="Select all on this page"
+                            checked={data.users.length > 0 && data.users.every((u) => selected.has(u.id))}
+                            onChange={(e) =>
+                              setSelected((prev) => {
+                                const next = new Set(prev)
+                                data.users.forEach((u) => (e.target.checked ? next.add(u.id) : next.delete(u.id)))
+                                return next
+                              })
+                            }
                           />
                         </th>
                         <th className="pb-2 pr-4">Email</th>
@@ -211,7 +266,7 @@ export default function UserPhoneAuditPage() {
                               : <span className="text-muted-foreground">0</span>}
                           </td>
                           <td className="py-2 text-right">
-                            <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={() => setConfirmTargets([u])} disabled={deleting}>
+                            <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={() => setConfirmTargets([u.id])} disabled={deleting}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </td>

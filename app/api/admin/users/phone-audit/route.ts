@@ -25,6 +25,9 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const bucket = (searchParams.get("bucket") || "missing") as "missing" | "invalid" | "unverified"
   const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1)
+  // idsOnly=1 returns just the IDs of every account in the bucket (all pages), so
+  // the admin UI can "select all in bucket" for a single bulk delete.
+  const idsOnly = searchParams.get("idsOnly") === "1"
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "",
@@ -75,6 +78,14 @@ export async function GET(req: NextRequest) {
     }
 
     inBucket.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+    if (idsOnly) {
+      return NextResponse.json({
+        bucket,
+        ids: inBucket.map((u) => u.id),
+        counts: { ...counts, total: counts.missing + counts.invalid + counts.unverified },
+      })
+    }
 
     const total = inBucket.length
     const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
