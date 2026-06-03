@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { logSecurityEvent } from "./security-log"
+import { phoneVariants } from "./phone-format"
 
 // Storefront checkout phone-OTP gate. When enabled (admin toggle), a shop order
 // can only be placed for a phone that was recently verified via SMS OTP. This
@@ -128,14 +129,8 @@ export function invalidatePhoneGateCache(): void {
   phoneGateCache = null
 }
 
-// Phone formats vary (0XXXXXXXXX vs 233XXXXXXXXX vs +233...). Build the
-// candidate set so the verification lookup matches however it was stored.
-function phoneVariants(phone: string): string[] {
-  const digits = phone.replace(/\D/g, "")
-  const local = digits.startsWith("233") ? "0" + digits.slice(3) : (digits.startsWith("0") ? digits : "0" + digits)
-  const noZero = local.replace(/^0/, "")
-  return Array.from(new Set([phone, local, noZero, "233" + noZero, "+233" + noZero]))
-}
+// Phone-format variants (0XXXXXXXXX vs 233XXXXXXXXX vs +233...) now come from the
+// shared lib/phone-format helper so every flow matches numbers identically.
 
 /**
  * STRICT verification — true ONLY if this exact phone completed an SMS OTP

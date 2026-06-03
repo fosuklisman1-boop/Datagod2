@@ -45,17 +45,32 @@ export async function POST(request: NextRequest) {
     // on every live code for the phone and returns the new max; we reject once it
     // exceeds the cap. Counts expire with the codes (10-min window) — no cleanup.
     const PHONE_ATTEMPT_CAP = 6
+    let dbFallbackOk = false
     try {
       const { data: maxAttempts, error: bumpErr } = await supabaseAdmin.rpc("bump_otp_attempts", { p_phone: phone })
-      if (!bumpErr && typeof maxAttempts === "number" && maxAttempts > PHONE_ATTEMPT_CAP) {
-        return NextResponse.json(
-          { verified: false, error: "Too many attempts. Request a new code and try again later." },
-          { status: 429 }
-        )
+      if (!bumpErr) {
+        dbFallbackOk = true
+        if (typeof maxAttempts === "number" && maxAttempts > PHONE_ATTEMPT_CAP) {
+          return NextResponse.json(
+            { verified: false, error: "Too many attempts. Request a new code and try again later." },
+            { status: 429 }
+          )
+        }
       }
     } catch {
-      // Migration not applied yet → don't block legit users; the Upstash cap still
-      // covers the healthy case. Apply migrations/otp_verify_attempts_fallback.sql.
+      // bump_otp_attempts unavailable (migration not applied / DB blip) — handled
+      // by the fail-closed check below. Apply migrations/otp_verify_attempts_fallback.sql.
+    }
+
+    // FAIL CLOSED: if BOTH brute-force defences are unavailable (Upstash degraded
+    // AND the DB counter unavailable), there is no cap left and the 6-digit code
+    // could be sprayed out. Refuse to verify rather than become an open oracle.
+    if (!dbFallbackOk && (perPhone.degraded || perIp.degraded)) {
+      console.error("[VERIFY-OTP] Both rate limiters unavailable — failing closed")
+      return NextResponse.json(
+        { verified: false, error: "Verification is temporarily unavailable. Please try again shortly." },
+        { status: 503 }
+      )
     }
 
     const now = new Date().toISOString()

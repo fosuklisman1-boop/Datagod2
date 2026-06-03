@@ -168,7 +168,12 @@ export default function DashboardPage() {
               .select("phone_verified, phone_verify_deadline")
               .eq("id", authUser.id)
               .single()
-            if (extProfile && profile?.phone_number && !extProfile.phone_verified) {
+            // Soft reminder ONLY during the grace window. After the deadline (or
+            // with no deadline) the global non-dismissable PhoneRequiredModal in
+            // the layout takes over as the hard block, so the two never overlap.
+            const inGrace = extProfile?.phone_verify_deadline
+              && new Date(extProfile.phone_verify_deadline) > new Date()
+            if (extProfile && profile?.phone_number && !extProfile.phone_verified && inGrace) {
               setCurrentPhone(profile.phone_number)
               setPhoneVerifyDeadline(extProfile.phone_verify_deadline ?? null)
               setShowPhoneVerify(true)

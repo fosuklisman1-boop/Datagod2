@@ -29,6 +29,19 @@ interface SMSPayload {
   skipLogging?: boolean // NEW: Prevent duplicate logs during retries
 }
 
+// OTP/PIN codes must never be persisted in sms_logs — that table is readable by
+// admins and (for rows with a matching user_id) by a user's own-logs RLS, so a
+// stored code is one misconfiguration or one compromised admin away from leaking.
+// Redact the body before logging for code-bearing messages; keep everything else
+// intact for audit/debugging. Matches on type AND on the code template shape so a
+// new code-bearing sender can't silently start logging plaintext codes.
+const CODE_BEARING_TYPES = new Set(["phone_otp"])
+function logSafeSmsBody(payload: SMSPayload): string {
+  if (CODE_BEARING_TYPES.has(payload.type)) return "[OTP code redacted]"
+  if (/Your code is\s*\d{4,8}/i.test(payload.message)) return "[OTP code redacted]"
+  return payload.message
+}
+
 interface SendSMSResponse {
   success: boolean
   messageId?: string
@@ -258,7 +271,7 @@ async function sendSMSViaBrevo(payload: SMSPayload): Promise<SendSMSResponse> {
         await supabase.from('sms_logs').insert({
           user_id: payload.userId || null,
           phone_number: payload.phone,
-          message: payload.message,
+          message: logSafeSmsBody(payload),
           message_type: payload.type,
           reference_id: payload.reference || null,
           moolre_message_id: messageId, // Reuse column for Brevo message ID
@@ -302,7 +315,7 @@ async function sendSMSViaBrevo(payload: SMSPayload): Promise<SendSMSResponse> {
         await supabase.from('sms_logs').insert({
           user_id: payload.userId || null,
           phone_number: payload.phone,
-          message: payload.message,
+          message: logSafeSmsBody(payload),
           message_type: payload.type,
           reference_id: payload.reference || null,
           provider: 'brevo',
@@ -369,7 +382,7 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
         await supabase.from('sms_logs').insert({
           user_id: payload.userId || null,
           phone_number: payload.phone,
-          message: payload.message,
+          message: logSafeSmsBody(payload),
           message_type: payload.type,
           reference_id: payload.reference || null,
           moolre_message_id: trackingRef,
@@ -401,7 +414,7 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
         await supabase.from('sms_logs').insert({
           user_id: payload.userId || null,
           phone_number: payload.phone,
-          message: payload.message,
+          message: logSafeSmsBody(payload),
           message_type: payload.type,
           reference_id: payload.reference || null,
           provider: 'moolre',
@@ -511,7 +524,7 @@ async function sendSMSViaMNotify(payload: SMSPayload): Promise<SendSMSResponse> 
         await supabase.from('sms_logs').insert({
           user_id: payload.userId || null,
           phone_number: payload.phone,
-          message: payload.message,
+          message: logSafeSmsBody(payload),
           message_type: payload.type,
           reference_id: payload.reference || null,
           moolre_message_id: messageId, // Reuse column for mNotify campaign ID
@@ -555,7 +568,7 @@ async function sendSMSViaMNotify(payload: SMSPayload): Promise<SendSMSResponse> 
         await supabase.from('sms_logs').insert({
           user_id: payload.userId || null,
           phone_number: payload.phone,
-          message: payload.message,
+          message: logSafeSmsBody(payload),
           message_type: payload.type,
           reference_id: payload.reference || null,
           provider: 'mnotify',

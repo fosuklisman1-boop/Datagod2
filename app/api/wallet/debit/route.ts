@@ -4,6 +4,7 @@ import { sendSMS } from "@/lib/sms-service"
 import { sendPushToUser } from "@/lib/push-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
   createMTNOrder,
@@ -58,6 +59,12 @@ export async function POST(request: NextRequest) {
         { error: "Unauthorized" },
         { status: 401 }
       )
+    }
+
+    // Phone gate — a debit moves the user's wallet money to buy data.
+    const phoneGuard = await checkPhoneVerified(supabase, user.id)
+    if (!phoneGuard.allowed) {
+      return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
     }
 
     const { amount, orderId, description } = await request.json()

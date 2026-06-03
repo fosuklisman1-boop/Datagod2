@@ -8,6 +8,7 @@ import {
   purchaseResultsCheckerVouchers,
 } from "@/lib/results-checker-service"
 import { deliverVouchers } from "@/lib/results-checker-notification-service"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,6 +26,12 @@ export async function POST(request: NextRequest) {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
+    }
+
+    // Phone gate — voucher purchase spends the user's money.
+    const phoneGuard = await checkPhoneVerified(supabase, user.id)
+    if (!phoneGuard.allowed) {
+      return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
     }
 
     // 2. Parse and validate body

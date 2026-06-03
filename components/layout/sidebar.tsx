@@ -39,6 +39,7 @@ import {
   Shield,
   GraduationCap,
   Phone,
+  PhoneOff,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -717,6 +718,29 @@ export function Sidebar() {
                     <Phone className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Phone Verification"}
+                </Button>
+              </Link>
+
+              <Link href="/admin/user-phone-audit" onClick={() => handleNavigation("/admin/user-phone-audit")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/user-phone-audit" ? "bg-black text-amber-500 shadow-lg dark:bg-amber-500/20 dark:text-amber-400" : "text-black hover:bg-black/10 dark:text-amber-200 dark:hover:bg-amber-500/10")
+                      : (pathname === "/admin/user-phone-audit" ? "bg-blue-500 text-white dark:bg-teal-500/15 dark:text-teal-400" : "text-white hover:bg-blue-500 dark:text-slate-400 dark:hover:bg-white/5"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/user-phone-audit" && "opacity-70"
+                  )}
+                  title={!isOpen ? "User Phone Audit" : undefined}
+                  disabled={loadingPath === "/admin/user-phone-audit"}
+                >
+                  {loadingPath === "/admin/user-phone-audit" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <PhoneOff className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "User Phone Audit"}
                 </Button>
               </Link>
 

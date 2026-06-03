@@ -47,10 +47,31 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  // Best-effort verification status (columns added by migrations 0053/0054).
+  // Kept as a separate read so a pre-migration DB still returns the core fields
+  // instead of 500-ing; the gate falls back to phone presence when these are null.
+  let phoneVerified: boolean | null = null
+  let phoneVerifyDeadline: string | null = null
+  try {
+    const { data: v } = await supabaseServiceRole
+      .from("users")
+      .select("phone_verified, phone_verify_deadline")
+      .eq("id", user.id)
+      .maybeSingle()
+    if (v) {
+      phoneVerified = v.phone_verified ?? null
+      phoneVerifyDeadline = v.phone_verify_deadline ?? null
+    }
+  } catch {
+    /* phone_verified columns not migrated — leave null so the client falls back */
+  }
+
   return NextResponse.json(
     {
       exists: !!profile,
       hasPhone: !!profile?.phone_number,
+      phoneVerified,
+      phoneVerifyDeadline,
       role: profile?.role ?? "user",
       firstName: profile?.first_name ?? null,
       lastName: profile?.last_name ?? null,

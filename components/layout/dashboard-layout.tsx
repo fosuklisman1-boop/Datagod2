@@ -46,14 +46,19 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         // source is trusted for the ROUTING decision below — a direct authenticated
         // read can falsely report "no row" under RLS, which is what caused the old
         // dashboard ⇄ complete-profile loop.
-        let me: { exists: boolean; hasPhone: boolean } | null = null
+        let me: { exists: boolean; hasPhone: boolean; phoneVerified: boolean | null; phoneVerifyDeadline: string | null } | null = null
         const res = await fetch("/api/user/me", {
           headers: { Authorization: `Bearer ${session.access_token}` },
           cache: "no-store",
         }).catch(() => null)
         if (res?.ok) {
           const body: any = await res.json().catch(() => null)
-          if (body) me = { exists: !!body.exists, hasPhone: !!body.hasPhone }
+          if (body) me = {
+            exists: !!body.exists,
+            hasPhone: !!body.hasPhone,
+            phoneVerified: body.phoneVerified ?? null,
+            phoneVerifyDeadline: body.phoneVerifyDeadline ?? null,
+          }
         } else if (res) {
           const body: any = await res.json().catch(() => ({}))
           console.warn(`[phone-gate] /api/user/me -> ${res.status}`, body?.code || body?.error || "", "— if 42501/500, apply migration 0057 (service_role GRANT).")
@@ -71,7 +76,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             router.replace("/auth/complete-profile")
             return
           }
-          if (!me.hasPhone) setShowPhoneRequired(true)
+          // Gate signal — match the server guard (lib/phone-verify-guard) and the
+          // DB trigger: block when NOT phone_verified AND the grace deadline has
+          // passed. If the phone_verified columns aren't available (older DB),
+          // fall back to the phone-number presence check.
+          if (me.phoneVerified === null) {
+            if (!me.hasPhone) setShowPhoneRequired(true)
+          } else {
+            const inGrace = me.phoneVerifyDeadline && new Date(me.phoneVerifyDeadline) > new Date()
+            if (me.phoneVerified !== true && !inGrace) setShowPhoneRequired(true)
+          }
           return
         }
 

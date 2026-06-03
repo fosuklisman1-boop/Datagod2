@@ -7,6 +7,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
 import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired } from "@/lib/storefront-otp"
 import { logSecurityEvent } from "@/lib/security-log"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -210,6 +211,17 @@ export async function POST(request: NextRequest) {
 
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
+
+    // Phone gate (account holder's own money paths only). Wallet top-up and dealer
+    // upgrade move the LOGGED-IN user's money — block them for an unverified account.
+    // Storefront customer payments (orderId / shopSlug) are gated by the separate
+    // storefront OTP, not this account gate, so they're excluded here. Admins bypass.
+    if ((isTopup || isUpgrade) && userId && !isAdmin) {
+      const phoneGuard = await checkPhoneVerified(supabase, userId)
+      if (!phoneGuard.allowed) {
+        return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
+      }
+    }
 
     // Dedicated wallet/upgrade gate (its own admin toggle, independent of the
     // storefront OTP gate). The ORDER-FREE paths (wallet top-up, dealer upgrade)

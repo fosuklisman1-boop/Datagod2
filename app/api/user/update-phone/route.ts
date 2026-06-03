@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { isValidGhanaMobile, normalizeGhanaPhone, phoneVariants } from "@/lib/phone-format"
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,21 +46,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate phone number (9-10 digits)
-    const phoneDigits = (phoneNumber || '').replace(/\D/g, '')
-    if (phoneDigits.length < 9 || phoneDigits.length > 10) {
+    // Validate as a Ghana mobile number (shared validator — same rule the gate
+    // and withdrawal validation use).
+    if (!isValidGhanaMobile(phoneNumber)) {
       return NextResponse.json(
-        { error: "Phone number must be 9 or 10 digits" },
+        { error: "Enter a valid Ghana phone number" },
         { status: 400 }
       )
     }
 
-    // Require server-side proof that phone OTP was verified within the last 30 minutes
+    // Canonical form to store, plus every format the number might appear as so
+    // OTP/uniqueness lookups match regardless of how it was originally saved.
+    const canonicalPhone = normalizeGhanaPhone(phoneNumber)!
+    const variants = phoneVariants(phoneNumber)
+
+    // Require server-side proof that phone OTP was verified within the last 30
+    // minutes (match across format variants, not just the exact typed string).
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
     const { data: otpRecord } = await supabaseServiceRole
       .from("phone_otp_verifications")
       .select("id")
-      .eq("phone", phoneNumber)
+      .in("phone", variants)
       .eq("purpose", "update_phone")
       .eq("used", true)
       .gte("created_at", thirtyMinutesAgo)
@@ -74,11 +81,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if phone number already exists for a DIFFERENT user
-    const { data: existingUser, error: checkError } = await supabaseServiceRole
+    // Check if this number (in ANY stored format) already belongs to a DIFFERENT
+    // user — prevents the same human number registering twice via format tricks.
+    const { data: existingUser } = await supabaseServiceRole
       .from("users")
       .select("id")
-      .eq("phone_number", phoneNumber)
+      .in("phone_number", variants)
       .neq("id", user.id) // Exclude current user
       .maybeSingle()
 
@@ -89,10 +97,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update the user's phone number using service role (bypasses RLS)
+    // Update the user's phone number using service role (bypasses RLS). Store the
+    // canonical form so future lookups are exact.
     const { error: updateError } = await supabaseServiceRole
       .from("users")
-      .update({ phone_number: phoneNumber, phone_verified: true })
+      .update({ phone_number: canonicalPhone, phone_verified: true })
       .eq("id", user.id)
 
     if (updateError) {

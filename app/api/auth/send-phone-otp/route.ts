@@ -19,6 +19,17 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Short-window burst cap per IP on top of the hourly cap. This endpoint is
+  // unauthenticated and triggers a billable SMS to any number the caller types,
+  // so block rapid bursts (mass minting / SMS-cost abuse) from a single host.
+  const burst = await applyRateLimit(request, "phone_otp_burst", 2, 60_000)
+  if (!burst.allowed) {
+    return NextResponse.json(
+      { error: "Please wait a moment before requesting another code." },
+      { status: 429 }
+    )
+  }
+
   try {
     const { phone, purpose = "signup" } = await request.json()
 

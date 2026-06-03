@@ -72,10 +72,12 @@ export async function applyRateLimit(
   maxRequests: number,
   windowMs: number,
   userId?: string
-): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
-  // No Redis configured — fail open
+): Promise<{ allowed: boolean; remaining: number; resetAt: number; degraded?: boolean }> {
+  // No Redis configured — fail open. `degraded` lets security-critical callers
+  // (e.g. OTP verify) detect that this limiter provided no real protection and
+  // fall back to a different cap instead of trusting the allow.
   if (!redis) {
-    return { allowed: true, remaining: maxRequests, resetAt: Date.now() + windowMs }
+    return { allowed: true, remaining: maxRequests, resetAt: Date.now() + windowMs, degraded: true }
   }
 
   try {
@@ -107,10 +109,10 @@ export async function applyRateLimit(
         })
     }
 
-    return { allowed: success, remaining, resetAt: reset }
+    return { allowed: success, remaining, resetAt: reset, degraded: false }
   } catch (error) {
     // Fail open — Upstash down should never block legitimate traffic
     console.error("[RATE-LIMIT] Upstash error, failing open:", error)
-    return { allowed: true, remaining: 1, resetAt: Date.now() + windowMs }
+    return { allowed: true, remaining: 1, resetAt: Date.now() + windowMs, degraded: true }
   }
 }

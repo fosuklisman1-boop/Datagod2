@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { fulfillAfaOrder, isAfaAutoFulfillmentEnabled } from "@/lib/afa-fulfillment"
 import { secureString } from "@/lib/secure-random"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -31,6 +32,12 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[AFA-SUBMIT] User verified:", user.id)
+
+    // Phone gate — AFA registration debits the user's wallet.
+    const phoneGuard = await checkPhoneVerified(supabase, user.id)
+    if (!phoneGuard.allowed) {
+      return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
+    }
 
     // Parse request body
     const body = await request.json()
