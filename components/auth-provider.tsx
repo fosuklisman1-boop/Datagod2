@@ -18,8 +18,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // so we derive the user directly from the session.
         const session = await authService.getSession()
         const user = session?.user ?? null
+        // EXEMPT the auth pages that REQUIRE an active session — otherwise we bounce
+        // a just-authenticated user off them to the dashboard. Must mirror the same
+        // exemptions in middleware.ts:
+        //  - complete-profile: a new user finishing onboarding (logged in, no phone yet)
+        //  - callback:         mid OAuth code-exchange
+        //  - reset-password:   the magic link signs them in BEFORE they set a password
         const isAuthPage = pathname?.startsWith("/auth")
-        
+          && !pathname.startsWith("/auth/complete-profile")
+          && !pathname.startsWith("/auth/callback")
+          && !pathname.startsWith("/auth/reset-password")
+
         if (user && isAuthPage) {
           // User is logged in and trying to access auth pages
           // Check if user is a sub-agent
