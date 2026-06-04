@@ -311,6 +311,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
                   {verifyOtpLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                   Confirm Verification
                 </Button>
+                <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
               </div>
             )}
           </div>
@@ -361,6 +362,10 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
                   {changeVerifyLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Verify"}
                 </Button>
               </div>
+            )}
+
+            {changeOtpSent && !changePhoneVerified && (
+              <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
             )}
 
             {changePhoneVerified && (

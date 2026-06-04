@@ -214,6 +214,7 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
 
           {/* OTP input */}
           {otpSent && !phoneVerified && (
+            <>
             <div className="flex gap-2">
               <Input
                 type="text"
@@ -235,6 +236,8 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
                 {verifyLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Verify"}
               </Button>
             </div>
+            <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+            </>
           )}
 
           <Button

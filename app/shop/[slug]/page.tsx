@@ -1138,6 +1138,7 @@ export default function ShopStorefront() {
                               {otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}
                             </Button>
                           </div>
+                          <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
                         </div>
                       )
                     ) : (
