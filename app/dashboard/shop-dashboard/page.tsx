@@ -336,15 +336,30 @@ export default function ShopDashboardPage() {
         accountDetails.account_name = withdrawalForm.accountName
       }
 
-      await withdrawalService.createWithdrawalRequest(
-        user.id,
-        shop.id,
-        {
+      // Create via the server route (service_role) so the withdrawal fee is read
+      // reliably from the locked app_settings table. The old direct client call
+      // intermittently ran the fee read as `anon` (42501) and silently set a 0 fee.
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error("Your session has expired. Please sign in again.")
+      }
+      const res = await fetch("/api/user/withdrawals/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          shopId: shop.id,
           amount,
           withdrawal_method: withdrawalForm.method,
           account_details: accountDetails,
-        }
-      )
+        }),
+      })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(result?.error || "Failed to create withdrawal request")
+      }
 
       toast.success("Withdrawal request submitted successfully")
       setWithdrawalForm({ amount: "", method: "mobile_money", phone: "", accountName: "", bankName: "", bankSublistId: "", accountNumber: "", network: "MTN" })

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import type { SupabaseClient } from "@supabase/supabase-js"
 import { getPriceAdjustments, getAdjustmentForNetwork, applyPriceAdjustment } from "./price-adjustment-service"
 import { checkWithdrawalCoolingOff } from "./withdrawal-policy"
 import { shopHandleOrFilter } from "./shop-handle"
@@ -525,10 +526,10 @@ export const shopProfitService = {
   },
 
   // Sync available balance to shop_available_balance table - OPTIMIZED
-  async syncAvailableBalance(shopId: string) {
+  async syncAvailableBalance(shopId: string, db: SupabaseClient = supabase) {
     try {
       // Get aggregated breakdown from SQL RPC (Avoids fetching thousands of rows into JS)
-      const { data: breakdown, error: rpcError } = await supabase.rpc("get_shop_balance_breakdown", {
+      const { data: breakdown, error: rpcError } = await db.rpc("get_shop_balance_breakdown", {
         p_shop_id: shopId
       })
 
@@ -540,7 +541,7 @@ export const shopProfitService = {
       // Available balance = credited profit - approved/completed withdrawals
       const availableBalance = Number(breakdown.credited_p) - Number(breakdown.total_w)
 
-      const { error: upsertError } = await supabase
+      const { error: upsertError } = await db
         .from("shop_available_balance")
         .upsert(
           {
@@ -593,7 +594,7 @@ export const withdrawalService = {
     amount: number
     withdrawal_method: string
     account_details: any
-  }) {
+  }, db: SupabaseClient = supabase) {
     // Validate withdrawal amount is positive
     if (!withdrawalData.amount || withdrawalData.amount <= 0) {
       throw new Error("Invalid withdrawal amount")
@@ -607,14 +608,14 @@ export const withdrawalService = {
     // Cooling-off period: 7 days after first payment for first withdrawal,
     // 24h between subsequent withdrawals. Defends against chargeback fraud
     // (most card chargebacks land 7-30 days post-payment).
-    const cooldown = await checkWithdrawalCoolingOff(supabase, shopId)
+    const cooldown = await checkWithdrawalCoolingOff(db, shopId)
     if (!cooldown.allowed) {
       throw new Error(cooldown.reason || "Withdrawal currently not allowed.")
     }
 
     // Block new withdrawals if any are pending OR approved (in-flight)
     try {
-      const { data: inflightRequests, error: pendingError } = await supabase
+      const { data: inflightRequests, error: pendingError } = await db
         .from("withdrawal_requests")
         .select("id, amount, status")
         .eq("shop_id", shopId)
@@ -642,7 +643,7 @@ export const withdrawalService = {
     // Check current available balance before creating withdrawal
     try {
       // Use optimized RPC for balance check to avoid heavy loops
-      const { data: balanceData, error: balanceError } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: shopId })
+      const { data: balanceData, error: balanceError } = await db.rpc("get_shop_balance_breakdown", { p_shop_id: shopId })
       
       if (balanceError) throw balanceError
 
@@ -668,20 +669,24 @@ export const withdrawalService = {
       console.warn(`[WITHDRAWAL-CREATE] Warning checking balance:`, error)
     }
 
-    // Fetch withdrawal fee percentage from settings
+    // Fetch withdrawal fee percentage from settings. app_settings is locked to
+    // service_role (it mixes in sensitive keys), so a BROWSER read returns 42501
+    // as `anon` — when that happened the old code silently fell back to 0% and
+    // shipped fee-free withdrawals. This now FAILS CLOSED: callers must pass a
+    // service-role `db` (the create API route does), and any read error aborts
+    // the request instead of waiving the fee.
     let withdrawalFeePercentage = 0
-    try {
-      const { data: settings, error: settingsError } = await supabase
-        .from("app_settings")
-        .select("withdrawal_fee_percentage")
-        .single()
-
-      if (!settingsError && settings?.withdrawal_fee_percentage) {
-        withdrawalFeePercentage = settings.withdrawal_fee_percentage / 100
-      }
-    } catch (settingsError) {
-      console.warn(`[WITHDRAWAL-CREATE] Warning fetching fee settings:`, settingsError)
-      // Continue with default 0 fee if settings fetch fails
+    const { data: settings, error: settingsError } = await db
+      .from("app_settings")
+      .select("withdrawal_fee_percentage")
+      .limit(1)
+      .maybeSingle()
+    if (settingsError) {
+      console.error(`[WITHDRAWAL-CREATE] Fee settings read failed (${settingsError.code}): ${settingsError.message}`)
+      throw new Error("Could not determine the withdrawal fee right now. Please try again in a moment.")
+    }
+    if (settings?.withdrawal_fee_percentage) {
+      withdrawalFeePercentage = settings.withdrawal_fee_percentage / 100
     }
 
     // Calculate fee and net amount
@@ -696,7 +701,7 @@ export const withdrawalService = {
     const balanceBefore = (withdrawalData as any)._balanceBefore
     const { _balanceBefore, ...cleanWithdrawalData } = withdrawalData as any
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("withdrawal_requests")
       .insert([{
         user_id: userId,
@@ -715,7 +720,7 @@ export const withdrawalService = {
     // Sync available balance after creating withdrawal request
     // This reduces available balance by the withdrawal amount
     try {
-      await shopProfitService.syncAvailableBalance(shopId)
+      await shopProfitService.syncAvailableBalance(shopId, db)
       console.log(`[WITHDRAWAL-CREATE] Balance synced for shop ${shopId} after withdrawal request of GHS ${withdrawalData.amount}`)
     } catch (syncError) {
       console.warn(`[WITHDRAWAL-CREATE] Warning syncing balance:`, syncError)
