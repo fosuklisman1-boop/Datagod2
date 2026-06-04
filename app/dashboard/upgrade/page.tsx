@@ -41,8 +41,9 @@ export default function UpgradePage() {
     const [priceListNetwork, setPriceListNetwork] = useState<string | null>(null)
     const verifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    // Wallet/upgrade protection gate → OTP-verified direct charge for upgrades.
-    const [walletLock, setWalletLock] = useState(false)
+    // Wallet/upgrade gates — OTP and direct charge are now INDEPENDENT toggles.
+    const [walletOtp, setWalletOtp] = useState(false)
+    const [walletDirect, setWalletDirect] = useState(false)
     const [paymentPhone, setPaymentPhone] = useState("")
     const [otpSent, setOtpSent] = useState(false)
     const [otpCode, setOtpCode] = useState("")
@@ -78,11 +79,11 @@ export default function UpgradePage() {
             })
             .catch((err) => console.error("Failed to load toggles", err))
 
-        // Wallet/upgrade protection gate
+        // Wallet/upgrade OTP + direct-charge gates (independent)
         fetch("/api/public/turnstile-status")
-            .then((r) => r.ok ? r.json() : { wallet_lock: false })
-            .then((d) => setWalletLock(d.wallet_lock === true))
-            .catch(() => setWalletLock(false))
+            .then((r) => r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false })
+            .then((d) => { setWalletOtp(d.wallet_lock === true); setWalletDirect(d.wallet_direct_charge === true) })
+            .catch(() => { setWalletOtp(false); setWalletDirect(false) })
     }, [])
 
     // One-time OTP: auto-skip if the payment number was already verified.
@@ -223,8 +224,9 @@ export default function UpgradePage() {
             return
         }
 
-        // Protection gate ON → collect + verify a payment number, then direct charge.
-        if (walletLock) {
+        // OTP or direct charge on → collect a payment number on-page first
+        // (verify it when OTP is required), then charge directly or redirect.
+        if (walletOtp || walletDirect) {
             setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
             setUpgradeFlow({ state: "collect", plan })
             return
@@ -305,25 +307,41 @@ export default function UpgradePage() {
         setTimeout(tick, 3000)
     }
 
-    const confirmUpgradeDirectCharge = async () => {
+    const confirmUpgrade = async () => {
         const plan = upgradeFlow?.plan
-        if (!plan || !userEmail) return
-        if (!otpVerified) { toast.error("Verify your Mobile Money number first"); return }
+        if (!plan || !userId || !userEmail) return
+        // OTP gate on → number must be verified. Direct charge without OTP → just
+        // needs a valid number (charged as typed, rate-capped server-side).
+        if (walletOtp && !otpVerified) { toast.error("Verify your Mobile Money number first"); return }
+        if (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, ""))) {
+            toast.error("Enter a valid Mobile Money number"); return
+        }
         setProcessingId(plan.id)
         try {
-            const { data: { session } } = await supabase.auth.getSession()
-            if (!session?.access_token) { throw new Error("Your session expired. Please refresh and sign in again.") }
-            const res = await fetch("/api/payments/initialize", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-                body: JSON.stringify({ email: userEmail, amount: plan.price, type: "dealer_upgrade", planId: plan.id, momoDirect: true, paymentPhone }),
-            })
-            const data = await res.json().catch(() => ({}))
-            if (!res.ok || !data.success) { throw new Error(data?.error || "Could not start the Mobile Money charge. Please try again.") }
-            setUpgradeFlow({ state: "awaiting", plan, reference: data.reference })
-            pollUpgradeStatus(data.reference, plan)
+            if (walletDirect) {
+                // On-page direct MoMo charge.
+                const { data: { session } } = await supabase.auth.getSession()
+                if (!session?.access_token) { throw new Error("Your session expired. Please refresh and sign in again.") }
+                const res = await fetch("/api/payments/initialize", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+                    body: JSON.stringify({ email: userEmail, amount: plan.price, type: "dealer_upgrade", planId: plan.id, momoDirect: true, paymentPhone }),
+                })
+                const data = await res.json().catch(() => ({}))
+                if (!res.ok || !data.success) { throw new Error(data?.error || "Could not start the Mobile Money charge. Please try again.") }
+                setUpgradeFlow({ state: "awaiting", plan, reference: data.reference })
+                pollUpgradeStatus(data.reference, plan)
+            } else {
+                // OTP verified, direct charge off → hosted Paystack redirect.
+                const result = await initializePayment({ userId, email: userEmail, amount: plan.price, type: "dealer_upgrade", planId: plan.id })
+                if (result.authorizationUrl) {
+                    window.location.href = result.authorizationUrl
+                } else {
+                    throw new Error("Missing authorization URL")
+                }
+            }
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Failed to start upgrade charge")
+            toast.error(error instanceof Error ? error.message : "Failed to start upgrade payment")
         } finally {
             setProcessingId(null)
         }
@@ -693,16 +711,19 @@ export default function UpgradePage() {
                     </DialogContent>
                 </Dialog>
 
-                {/* Direct-charge upgrade flow (protection gate ON) */}
+                {/* Upgrade payment flow (OTP and/or direct charge ON) */}
                 <Dialog open={!!upgradeFlow} onOpenChange={(o) => { if (!o) setUpgradeFlow(null) }}>
                     <DialogContent className="max-w-md">
                         {upgradeFlow?.state === "collect" && (
                             <div className="space-y-4">
                                 <DialogHeader>
-                                    <DialogTitle>Verify your Mobile Money number</DialogTitle>
+                                    <DialogTitle>{walletOtp ? "Verify your Mobile Money number" : "Enter your Mobile Money number"}</DialogTitle>
                                 </DialogHeader>
                                 <p className="text-sm text-gray-600">
-                                    Upgrade to <span className="font-semibold">{upgradeFlow.plan?.name}</span> — GHS {Number(upgradeFlow.plan?.price || 0).toFixed(2)}. The payment prompt is sent to the number you verify below.
+                                    Upgrade to <span className="font-semibold">{upgradeFlow.plan?.name}</span> — GHS {Number(upgradeFlow.plan?.price || 0).toFixed(2)}.{" "}
+                                    {walletDirect
+                                        ? `The payment prompt is sent to the number ${walletOtp ? "you verify" : "you enter"} below.`
+                                        : "Verify the number below, then continue to Paystack to complete payment."}
                                 </p>
                                 <div>
                                     <label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</label>
@@ -712,11 +733,11 @@ export default function UpgradePage() {
                                         placeholder="0241234567"
                                         value={paymentPhone}
                                         onChange={(e) => { setPaymentPhone(e.target.value); if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() } }}
-                                        disabled={otpVerified}
+                                        disabled={walletOtp && otpVerified}
                                         className="mt-1 w-full rounded-md border border-purple-200 bg-white px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
                                     />
                                 </div>
-                                {!otpVerified ? (
+                                {walletOtp && (!otpVerified ? (
                                     !otpSent ? (
                                         <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white">
                                             {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
@@ -739,10 +760,10 @@ export default function UpgradePage() {
                                         <ShieldCheck className="w-5 h-5 text-green-600" />
                                         <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                                     </div>
-                                )}
+                                ))}
                                 <Button
-                                    onClick={confirmUpgradeDirectCharge}
-                                    disabled={!otpVerified || processingId === upgradeFlow.plan?.id}
+                                    onClick={confirmUpgrade}
+                                    disabled={(walletOtp && !otpVerified) || (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, ""))) || processingId === upgradeFlow.plan?.id}
                                     className="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white"
                                 >
                                     {processingId === upgradeFlow.plan?.id ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting…</>) : `Pay GHS ${Number(upgradeFlow.plan?.price || 0).toFixed(2)}`}

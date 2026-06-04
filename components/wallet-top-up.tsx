@@ -27,10 +27,11 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [errorMessage, setErrorMessage] = useState("")
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
 
-  // Wallet protection gate: when ON, top-ups go through an OTP-verified direct
-  // MoMo charge (the prompt can only reach a number the user verified) instead of
-  // the open hosted checkout where any number could be typed.
-  const [walletLock, setWalletLock] = useState(false)
+  // Wallet payment gates — OTP and direct charge are now INDEPENDENT toggles.
+  //   • walletOtp    → the MoMo number must be SMS-OTP verified.
+  //   • walletDirect → pay via the on-page direct MoMo charge (vs hosted redirect).
+  const [walletOtp, setWalletOtp] = useState(false)
+  const [walletDirect, setWalletDirect] = useState(false)
   const [paymentPhone, setPaymentPhone] = useState("")
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
@@ -46,16 +47,16 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   useEffect(() => {
     fetchUserInfo()
     fetchFeeSettings()
-    // Is the wallet/upgrade protection gate on?
+    // Wallet OTP + direct-charge gates (independent).
     fetch("/api/public/turnstile-status")
-      .then(r => r.ok ? r.json() : { wallet_lock: false })
-      .then(d => setWalletLock(d.wallet_lock === true))
-      .catch(() => setWalletLock(false))
+      .then(r => r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false })
+      .then(d => { setWalletOtp(d.wallet_lock === true); setWalletDirect(d.wallet_direct_charge === true) })
+      .catch(() => { setWalletOtp(false); setWalletDirect(false) })
   }, [])
 
   // One-time OTP: auto-skip if the payment number was already verified.
   useEffect(() => {
-    if (!walletLock || otpVerified) return
+    if (!walletOtp || otpVerified) return
     const digits = paymentPhone.replace(/\D/g, "")
     if (!/^0?\d{9}$/.test(digits)) return
     const t = setTimeout(() => {
@@ -65,7 +66,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       }).then(r => r.ok ? r.json() : { verified: false }).then(d => { if (d.verified) setOtpVerified(true) }).catch(() => {})
     }, 600)
     return () => clearTimeout(t)
-  }, [paymentPhone, walletLock, otpVerified])
+  }, [paymentPhone, walletOtp, otpVerified])
 
   const fetchFeeSettings = async () => {
     try {
@@ -177,10 +178,16 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       return
     }
 
-    // When the protection gate is on, require an OTP-verified payment number.
-    if (walletLock && !otpVerified) {
+    // When OTP is required, the payment number must be verified first.
+    if (walletOtp && !otpVerified) {
       setErrorMessage("Please verify your Mobile Money number first")
       toast.error("Verify your Mobile Money number first")
+      return
+    }
+    // Direct charge (without OTP) still needs a valid number to charge on-page.
+    if (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, ""))) {
+      setErrorMessage("Enter a valid Mobile Money number to pay from")
+      toast.error("Enter a valid Mobile Money number")
       return
     }
 
@@ -191,8 +198,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
       console.log("[WALLET-TOPUP] Starting payment with amount:", amount)
 
-      // ── Direct MoMo charge path (protection gate ON) ─────────────────────
-      if (walletLock) {
+      // ── Direct MoMo charge path (direct-charge gate ON) ──────────────────
+      if (walletDirect) {
         const { data: { session } } = await supabase.auth.getSession()
         if (!session?.access_token) { throw new Error("Your session expired. Please refresh and sign in again.") }
         const res = await fetch("/api/payments/initialize", {
@@ -364,8 +371,10 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           </div>
         )}
 
-        {/* Payment-number + OTP step (only when the protection gate is ON) */}
-        {walletLock && (
+        {/* Payment-number step. Shown when OTP verification OR direct charge is
+            on — both need the on-page MoMo number. OTP controls render only when
+            OTP is required; with direct charge alone the number is charged as typed. */}
+        {(walletOtp || walletDirect) && (
           <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
             <div>
               <label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</label>
@@ -378,12 +387,14 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                   setPaymentPhone(e.target.value)
                   if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                 }}
-                disabled={otpVerified || isLoading}
+                disabled={(walletOtp && otpVerified) || isLoading}
                 className="mt-1 bg-white font-mono"
               />
-              <p className="text-xs text-purple-700 mt-1">The payment prompt is sent to this number. You verify it once.</p>
+              <p className="text-xs text-purple-700 mt-1">
+                {walletOtp ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
+              </p>
             </div>
-            {!otpVerified ? (
+            {walletOtp && (!otpVerified ? (
               !otpSent ? (
                 <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white">
                   {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
@@ -406,14 +417,14 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <CheckCircle className="w-5 h-5 text-green-600" />
                 <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
               </div>
-            )}
+            ))}
           </div>
         )}
 
         {/* Top Up Button */}
         <Button
           onClick={handleTopUp}
-          disabled={isLoading || !amount || (walletLock && !otpVerified)}
+          disabled={isLoading || !amount || (walletOtp && !otpVerified) || (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
           className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-semibold py-6 text-lg"
         >
           {isLoading ? (

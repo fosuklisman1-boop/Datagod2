@@ -70,6 +70,10 @@ export default function ShopStorefront() {
   // MoMo PAYMENT number, verifies it via OTP, and we charge it directly (no
   // hosted redirect), showing a live "approve the prompt" modal.
   const [otpRequired, setOtpRequired] = useState<boolean>(false)
+  // Direct MoMo charge is now an INDEPENDENT toggle from the OTP gate. When ON,
+  // we collect payment via the on-page direct charge (momoDirect) instead of the
+  // hosted Paystack redirect — regardless of whether OTP is required.
+  const [directCharge, setDirectCharge] = useState<boolean>(false)
   const [paymentPhone, setPaymentPhone] = useState("")
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
   const [otpSent, setOtpSent] = useState(false)
@@ -95,12 +99,13 @@ export default function ShopStorefront() {
 
     // Fetch checkout requirements — Turnstile widget + OTP gate state
     fetch("/api/public/turnstile-status")
-      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false })
+      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false, direct_charge: false })
       .then(d => {
         setTurnstileEnabled(d.enabled !== false)  // fail-safe: assume enabled
         setOtpRequired(d.otp_required === true)
+        setDirectCharge(d.direct_charge === true)
       })
-      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
+      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false); setDirectCharge(false) })
   }, [shopSlug])
 
   useEffect(() => {
@@ -359,8 +364,8 @@ export default function ShopStorefront() {
           customer_name: orderData.customer_name,
           customer_email: orderData.customer_email,
           customer_phone: normalizedPhone,
-          // When the gate is on, this is the OTP-verified number we charge.
-          paymentPhone: otpRequired ? paymentPhone : undefined,
+          // The MoMo number we charge on-page (direct charge) and/or OTP-verify.
+          paymentPhone: (otpRequired || directCharge) ? paymentPhone : undefined,
           shop_package_id: selectedPackage.id,
           package_id: pkg.id,
           network: pkg.network,
@@ -404,15 +409,14 @@ export default function ShopStorefront() {
         console.log("[CHECKOUT] Order data saved to localStorage")
       }
 
-      // ── Direct MoMo charge path (checkout OTP gate ON) ───────────────────
-      // When the gate is on, the customer has OTP-verified a Mobile Money number.
-      // Instead of the hosted Paystack redirect (which lets anyone trigger a prompt
-      // to ANY number), we charge that verified number directly via Paystack /charge.
-      // The prompt can therefore only ever reach a number the customer proved they
-      // control. We then keep them on-page with a live modal that polls order
-      // status until the charge.success webhook confirms the approved prompt.
-      if (otpRequired) {
-        if (!otpVerified) {
+      // ── Direct MoMo charge path (direct-charge toggle ON) ────────────────
+      // We charge the on-page Mobile Money number directly via Paystack /charge
+      // instead of the hosted redirect, then keep the customer on-page with a live
+      // modal that polls order status until charge.success confirms the prompt.
+      // When the OTP gate is also on, the number must be verified first (the
+      // prompt can then only reach a number the customer proved they control).
+      if (directCharge) {
+        if (otpRequired && !otpVerified) {
           toast.error("Please verify your Mobile Money number first")
           return
         }
@@ -1067,18 +1071,19 @@ export default function ShopStorefront() {
                 <Alert className="border-blue-300 bg-blue-50">
                   <AlertCircle className="h-4 w-4 text-blue-600" />
                   <AlertDescription className="text-xs text-blue-700">
-                    {otpRequired
-                      ? "A Mobile Money prompt will be sent to your verified number. Approve it with your PIN to complete the order."
+                    {directCharge
+                      ? "A Mobile Money prompt will be sent to the number you enter below. Approve it with your PIN to complete the order."
                       : "You will be redirected to Paystack to complete your payment."}
                   </AlertDescription>
                 </Alert>
 
                 <HoneypotField value={honeypot} onChange={setHoneypot} />
 
-                {/* Payment-number + OTP step (only when admin gate is ON).
-                    The number entered here is the one Paystack charges directly,
-                    so the prompt can only ever go to a number the buyer verified. */}
-                {otpRequired && (
+                {/* Payment-number step. Shown whenever OTP verification OR direct
+                    charge is on — both need the on-page MoMo number. The OTP
+                    send/verify controls render only when OTP is required; with
+                    direct charge alone the number is simply charged as typed. */}
+                {(otpRequired || directCharge) && (
                   <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
                     <div>
                       <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</Label>
@@ -1091,14 +1096,16 @@ export default function ShopStorefront() {
                         }}
                         placeholder="0241234567"
                         className="mt-1 bg-white"
-                        disabled={otpVerified}
+                        disabled={otpRequired && otpVerified}
                       />
                       <p className="text-xs text-purple-700 mt-1">
-                        The payment prompt is sent to this number. You verify it once.
+                        {otpRequired
+                          ? "The payment prompt is sent to this number. You verify it once."
+                          : "The payment prompt is sent to this number."}
                       </p>
                     </div>
 
-                    {!otpVerified ? (
+                    {otpRequired && (!otpVerified ? (
                       !otpSent ? (
                         <Button
                           type="button"
@@ -1138,7 +1145,7 @@ export default function ShopStorefront() {
                         <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                         <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
 
@@ -1154,7 +1161,7 @@ export default function ShopStorefront() {
                 <div className="flex gap-2">
                   <Button
                     onClick={handleSubmitOrder}
-                    disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified)}
+                    disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
                     className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
                   >
                     {submitting ? (

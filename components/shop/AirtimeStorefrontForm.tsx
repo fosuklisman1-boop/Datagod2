@@ -23,8 +23,11 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true)
   const [honeypot, setHoneypot] = useState<string>("")
-  // Checkout phone-OTP gate (verifies the PAYMENT number that gets charged)
+  // Checkout phone-OTP gate (verifies the PAYMENT number that gets charged).
+  // Direct charge is an INDEPENDENT toggle: pay on-page via momoDirect vs the
+  // hosted Paystack redirect, regardless of whether OTP is required.
   const [otpRequired, setOtpRequired] = useState<boolean>(false)
+  const [directCharge, setDirectCharge] = useState<boolean>(false)
   const [paymentPhone, setPaymentPhone] = useState("")
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
@@ -56,9 +59,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     checkAllAvailability()
     // Fetch checkout requirements (Turnstile + OTP gate)
     fetch("/api/public/turnstile-status")
-      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false })
-      .then(d => { setTurnstileEnabled(d.enabled !== false); setOtpRequired(d.otp_required === true) })
-      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
+      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false, direct_charge: false })
+      .then(d => { setTurnstileEnabled(d.enabled !== false); setOtpRequired(d.otp_required === true); setDirectCharge(d.direct_charge === true) })
+      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false); setDirectCharge(false) })
   }, [])
 
   // One-time OTP: auto-skip the step if the PAYMENT number was already verified.
@@ -224,6 +227,10 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       toast.error("Please verify your Mobile Money number first")
       return
     }
+    if (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, ""))) {
+      toast.error("Enter a valid Mobile Money number to pay from")
+      return
+    }
 
     try {
       setSubmitting(true)
@@ -238,8 +245,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           customerName: formData.customerName,
           customerEmail: formData.customerEmail,
           beneficiaryPhone: phoneVal.normalized,
-          // When the gate is on, this is the OTP-verified number we charge.
-          paymentPhone: otpRequired ? paymentPhone : undefined,
+          // The MoMo number we charge on-page (direct charge) and/or OTP-verify.
+          paymentPhone: (otpRequired || directCharge) ? paymentPhone : undefined,
           network: selectedNetwork,
           amount: formData.amount,
           paySeparately: paySeparately,
@@ -252,10 +259,10 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Failed to initialize order")
 
-      // ── Direct MoMo charge path (checkout OTP gate ON) ───────────────────
-      // Charge the verified payment number directly and keep the buyer on-page
+      // ── Direct MoMo charge path (direct-charge toggle ON) ────────────────
+      // Charge the on-page payment number directly and keep the buyer on-page
       // with a live modal that polls until the webhook confirms the prompt.
-      if (otpRequired) {
+      if (directCharge) {
         const summary = {
           packageLabel: `${selectedNetwork} airtime`,
           beneficiary: phoneVal.normalized,
@@ -503,10 +510,10 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           <HoneypotField value={honeypot} onChange={setHoneypot} />
 
-          {/* Payment-number + OTP step (only when admin gate is ON). The number
-              entered here is the one Paystack charges directly, so the prompt can
-              only ever reach a number the buyer verified. */}
-          {otpRequired && (
+          {/* Payment-number step. Shown when OTP verification OR direct charge is
+              on — both need the on-page MoMo number. OTP controls render only when
+              OTP is required; with direct charge alone the number is charged as typed. */}
+          {(otpRequired || directCharge) && (
             <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 space-y-3">
               <div className="space-y-2">
                 <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</Label>
@@ -519,13 +526,15 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                     setPaymentPhone(e.target.value)
                     if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                   }}
-                  disabled={otpVerified}
+                  disabled={otpRequired && otpVerified}
                   className="bg-white border-purple-200 rounded-xl font-mono"
                 />
-                <p className="text-xs text-purple-700">The payment prompt is sent to this number. You verify it once.</p>
+                <p className="text-xs text-purple-700">
+                  {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
+                </p>
               </div>
 
-              {!otpVerified ? (
+              {otpRequired && (!otpVerified ? (
                 !otpSent ? (
                   <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
                     {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
@@ -548,7 +557,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   <CheckCircle2 className="w-5 h-5 text-green-600" />
                   <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
@@ -560,7 +569,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           <Button
             type="submit"
-            disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified)}
+            disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
             className="w-full h-16 bg-gradient-to-r from-violet-600 via-indigo-700 to-purple-600 hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-violet-200 transition-all duration-300 disabled:opacity-50 disabled:grayscale"
           >
             {submitting ? (

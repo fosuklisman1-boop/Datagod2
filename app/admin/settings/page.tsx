@@ -81,6 +81,11 @@ export default function AdminSettingsPage() {
   const [savingCheckoutOtp, setSavingCheckoutOtp] = useState(false)
   const [walletLockEnabled, setWalletLockEnabled] = useState(false)
   const [savingWalletLock, setSavingWalletLock] = useState(false)
+  // Direct MoMo charge toggles (independent of the OTP gates above)
+  const [storefrontDirectCharge, setStorefrontDirectCharge] = useState(false)
+  const [savingStorefrontDirect, setSavingStorefrontDirect] = useState(false)
+  const [walletDirectCharge, setWalletDirectCharge] = useState(false)
+  const [savingWalletDirect, setSavingWalletDirect] = useState(false)
   const [verifiedCount, setVerifiedCount] = useState<number | null>(null)
   const [resettingVerifications, setResettingVerifications] = useState(false)
 
@@ -266,6 +271,26 @@ export default function AdminSettingsPage() {
           }
         }
 
+        // Load direct MoMo charge states (independent of the OTP gates)
+        const storefrontDirectResponse = await fetch("/api/admin/settings/storefront-direct-charge", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (storefrontDirectResponse.ok) {
+          const sdData = await storefrontDirectResponse.json()
+          if (typeof sdData.enabled === "boolean") {
+            setStorefrontDirectCharge(sdData.enabled)
+          }
+        }
+        const walletDirectResponse = await fetch("/api/admin/settings/wallet-direct-charge", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (walletDirectResponse.ok) {
+          const wdData = await walletDirectResponse.json()
+          if (typeof wdData.enabled === "boolean") {
+            setWalletDirectCharge(wdData.enabled)
+          }
+        }
+
         // Load count of currently OTP-verified numbers
         const verifResponse = await fetch("/api/admin/phone-verifications/reset", {
           headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
@@ -435,6 +460,76 @@ export default function AdminSettingsPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update wallet protection setting")
     } finally {
       setSavingWalletLock(false)
+    }
+  }
+
+  const handleStorefrontDirectToggle = async (enabled: boolean) => {
+    setSavingStorefrontDirect(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        setSavingStorefrontDirect(false)
+        return
+      }
+      const response = await fetch("/api/admin/settings/storefront-direct-charge", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to update storefront direct charge setting")
+      }
+      setStorefrontDirectCharge(enabled)
+      toast.success(
+        enabled
+          ? "💸 Storefront direct MoMo charge ON — customers pay on-page; hosted MoMo is disabled"
+          : "Storefront direct charge OFF — checkout uses the hosted Paystack page"
+      )
+    } catch (error) {
+      console.error("Error updating storefront direct charge:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update storefront direct charge setting")
+    } finally {
+      setSavingStorefrontDirect(false)
+    }
+  }
+
+  const handleWalletDirectToggle = async (enabled: boolean) => {
+    setSavingWalletDirect(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        setSavingWalletDirect(false)
+        return
+      }
+      const response = await fetch("/api/admin/settings/wallet-direct-charge", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to update wallet direct charge setting")
+      }
+      setWalletDirectCharge(enabled)
+      toast.success(
+        enabled
+          ? "💸 Wallet/upgrade direct MoMo charge ON — paid on-page; hosted MoMo is disabled"
+          : "Wallet/upgrade direct charge OFF — uses the hosted Paystack page"
+      )
+    } catch (error) {
+      console.error("Error updating wallet direct charge:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update wallet direct charge setting")
+    } finally {
+      setSavingWalletDirect(false)
     }
   }
 
@@ -1673,6 +1768,32 @@ export default function AdminSettingsPage() {
                 />
               </div>
             </div>
+
+            {/* Storefront Direct MoMo Charge — independent of the OTP toggle */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-fuchsia-50 border-2 border-fuchsia-300 rounded-lg">
+              <div className="flex-1">
+                <p className="font-bold text-gray-900 text-lg">Direct MoMo Charge at Checkout</p>
+                <p className="text-sm text-gray-700 mt-2">
+                  {storefrontDirectCharge
+                    ? "💸 ON — customers pay via an on-page Mobile Money prompt (no Paystack redirect), and the hosted MoMo channel is disabled so prompts can only reach the number entered on-page."
+                    : "OFF — checkout sends customers to the hosted Paystack page (card/MoMo/bank). Turn ON for the on-page direct-charge experience."}
+                </p>
+                <p className="text-xs text-gray-500 mt-2">
+                  Independent of the OTP toggle. With OTP ON the on-page number must be SMS-verified; with OTP OFF it's charged as typed (rate-capped).
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-4 min-w-fit">
+                <span className={`text-sm font-bold ${storefrontDirectCharge ? "text-green-700" : "text-gray-500"}`}>
+                  {storefrontDirectCharge ? "ON" : "OFF"}
+                </span>
+                <Switch
+                  checked={storefrontDirectCharge}
+                  onCheckedChange={handleStorefrontDirectToggle}
+                  disabled={savingStorefrontDirect}
+                  className="data-[state=checked]:bg-green-600"
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -1695,8 +1816,8 @@ export default function AdminSettingsPage() {
                 <p className="font-bold text-gray-900 text-lg">Protect Top-ups &amp; Upgrades</p>
                 <p className="text-sm text-gray-700 mt-2">
                   {walletLockEnabled
-                    ? "🔒 ON — top-ups/upgrades require an OTP-verified payment number (direct charge), and the unverified hosted MoMo path is disabled. Prompt-spam via these paths is blocked."
-                    : "OFF — top-ups/upgrades use the open hosted checkout (the path the attacker used: WALLET- references). Enable to require a verified payment number + direct charge."}
+                    ? "🔒 ON — top-ups/upgrades require an OTP-verified payment number. Prompt-spam via these paths is blocked."
+                    : "OFF — no OTP required for top-ups/upgrades. Enable to require a verified payment number during an attack."}
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
@@ -1707,6 +1828,32 @@ export default function AdminSettingsPage() {
                   checked={walletLockEnabled}
                   onCheckedChange={handleWalletLockToggle}
                   disabled={savingWalletLock}
+                  className="data-[state=checked]:bg-green-600"
+                />
+              </div>
+            </div>
+
+            {/* Wallet/Upgrade Direct MoMo Charge — independent of the OTP toggle */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-cyan-50 border-2 border-cyan-300 rounded-lg">
+              <div className="flex-1">
+                <p className="font-bold text-gray-900 text-lg">Direct MoMo Charge for Top-ups &amp; Upgrades</p>
+                <p className="text-sm text-gray-700 mt-2">
+                  {walletDirectCharge
+                    ? "💸 ON — top-ups/upgrades are paid via an on-page Mobile Money prompt, and the hosted MoMo channel is disabled (the WALLET- prompt-spam path)."
+                    : "OFF — top-ups/upgrades use the hosted Paystack page (card/MoMo/bank). Turn ON for the on-page direct-charge experience."}
+                </p>
+                <p className="text-xs text-gray-500 mt-2">
+                  Independent of the OTP toggle. With OTP ON the on-page number must be SMS-verified; with OTP OFF it's charged as typed (rate-capped).
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-4 min-w-fit">
+                <span className={`text-sm font-bold ${walletDirectCharge ? "text-green-700" : "text-gray-500"}`}>
+                  {walletDirectCharge ? "ON" : "OFF"}
+                </span>
+                <Switch
+                  checked={walletDirectCharge}
+                  onCheckedChange={handleWalletDirectToggle}
+                  disabled={savingWalletDirect}
                   className="data-[state=checked]:bg-green-600"
                 />
               </div>

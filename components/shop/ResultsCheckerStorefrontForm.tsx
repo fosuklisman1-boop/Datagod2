@@ -43,8 +43,11 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true)
   const [honeypot, setHoneypot] = useState<string>("")
-  // Checkout phone-OTP gate (verifies the PAYMENT number that gets charged)
+  // Checkout phone-OTP gate (verifies the PAYMENT number that gets charged).
+  // Direct charge is an INDEPENDENT toggle: pay on-page via momoDirect vs the
+  // hosted Paystack redirect, regardless of whether OTP is required.
   const [otpRequired, setOtpRequired] = useState<boolean>(false)
+  const [directCharge, setDirectCharge] = useState<boolean>(false)
   const [paymentPhone, setPaymentPhone] = useState("")
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
@@ -67,9 +70,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   useEffect(() => {
     // Fetch checkout requirements (Turnstile + OTP gate)
     fetch("/api/public/turnstile-status")
-      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false })
-      .then(d => { setTurnstileEnabled(d.enabled !== false); setOtpRequired(d.otp_required === true) })
-      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false) })
+      .then(r => r.ok ? r.json() : { enabled: true, otp_required: false, direct_charge: false })
+      .then(d => { setTurnstileEnabled(d.enabled !== false); setOtpRequired(d.otp_required === true); setDirectCharge(d.direct_charge === true) })
+      .catch(() => { setTurnstileEnabled(true); setOtpRequired(false); setDirectCharge(false) })
   }, [])
 
   // One-time OTP: auto-skip the step if the PAYMENT number was already verified.
@@ -208,6 +211,10 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       toast.error("Please verify your Mobile Money number first")
       return
     }
+    if (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, ""))) {
+      toast.error("Enter a valid Mobile Money number to pay from")
+      return
+    }
     setSubmitting(true)
     try {
       // Step 1: Initialize order
@@ -221,8 +228,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           customerName: formData.customerName,
           customerEmail: formData.customerEmail,
           customerPhone: formData.customerPhone.replace(/\s/g, ""),
-          // When the gate is on, this is the OTP-verified number we charge.
-          paymentPhone: otpRequired ? paymentPhone.replace(/\s/g, "") : undefined,
+          // The MoMo number we charge on-page (direct charge) and/or OTP-verify.
+          paymentPhone: (otpRequired || directCharge) ? paymentPhone.replace(/\s/g, "") : undefined,
           turnstileToken,
           website: honeypot,
         }),
@@ -233,10 +240,10 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         return
       }
 
-      // ── Direct MoMo charge path (checkout OTP gate ON) ───────────────────
-      // Charge the verified payment number directly, then keep the buyer on-page
+      // ── Direct MoMo charge path (direct-charge toggle ON) ────────────────
+      // Charge the on-page payment number directly, then keep the buyer on-page
       // with a live modal that polls until the webhook confirms the prompt.
-      if (otpRequired) {
+      if (directCharge) {
         const summary = {
           packageLabel: `${selectedBoard} voucher × ${quantity}`,
           paymentPhone: paymentPhone.replace(/\s/g, ""),
@@ -491,10 +498,10 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
           <HoneypotField value={honeypot} onChange={setHoneypot} />
 
-          {/* Payment-number + OTP step (only when admin gate is ON). The number
-              entered here is the one Paystack charges directly, so the prompt can
-              only ever reach a number the buyer verified. */}
-          {otpRequired && (
+          {/* Payment-number step. Shown when OTP verification OR direct charge is
+              on — both need the on-page MoMo number. OTP controls render only when
+              OTP is required; with direct charge alone the number is charged as typed. */}
+          {(otpRequired || directCharge) && (
             <div className="p-4 rounded-xl bg-purple-50 border border-purple-200 space-y-3">
               <div>
                 <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from</Label>
@@ -506,13 +513,15 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                     setPaymentPhone(e.target.value)
                     if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                   }}
-                  disabled={otpVerified}
+                  disabled={otpRequired && otpVerified}
                   className="mt-1 bg-white font-mono"
                 />
-                <p className="text-xs text-purple-700 mt-1">The payment prompt is sent to this number. You verify it once.</p>
+                <p className="text-xs text-purple-700 mt-1">
+                  {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
+                </p>
               </div>
 
-              {!otpVerified ? (
+              {otpRequired && (!otpVerified ? (
                 !otpSent ? (
                   <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
                     {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
@@ -535,7 +544,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   <CheckCircle2 className="w-5 h-5 text-green-600" />
                   <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
@@ -547,12 +556,12 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
           <Button
             onClick={handleSubmit}
-            disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified)}
+            disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
             className="w-full h-14 bg-slate-900 hover:bg-violet-700 text-white font-black rounded-xl shadow-xl transition-all duration-300 text-base"
           >
             {submitting
               ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Processing…</>
-              : otpRequired
+              : directCharge
                 ? `Pay GHS ${totalPrice.toFixed(2)}`
                 : `Pay GHS ${totalPrice.toFixed(2)} with Paystack`
             }

@@ -5,7 +5,7 @@ import { shopHandleOrFilter } from "@/lib/shop-handle"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
-import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired } from "@/lib/storefront-otp"
+import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired, isStorefrontDirectChargeEnabled, isWalletDirectChargeEnabled } from "@/lib/storefront-otp"
 import { logSecurityEvent } from "@/lib/security-log"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 
@@ -223,16 +223,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Dedicated wallet/upgrade gate (its own admin toggle, independent of the
-    // storefront OTP gate). The ORDER-FREE paths (wallet top-up, dealer upgrade)
-    // reach a hosted Paystack checkout that, via the mobile_money channel, lets
-    // any signed-in account type ANY number and fire a MoMo prompt at it — the
-    // exact prompt-spam vector, with no order/beneficiary to bind it. (Confirmed
-    // live: attacker refs are WALLET-… from this very path.) When the gate is ON
-    // we (a) drop the mobile_money channel for these paths (see channels below)
-    // and (b) apply a per-user burst cap here. Admins bypass for support/testing.
-    const walletGateOn = await isWalletOtpRequired()
-    if (walletGateOn && (isTopup || isUpgrade) && !isAdmin && userId) {
+    // Gate state — OTP and direct-charge are now INDEPENDENT toggles per surface.
+    //   • OTP gate         → must the MoMo number be SMS-OTP verified?
+    //   • direct-charge gate → is payment collected via the on-page direct MoMo
+    //                          charge (momoDirect) vs the hosted Paystack redirect?
+    // Surfaces: storefront shop orders (orderId/shopSlug) vs the order-free paths
+    // (wallet top-up / dealer upgrade). The hosted mobile_money strip below now
+    // keys off the DIRECT-CHARGE gate (a hosted init when direct charge is the
+    // legit path = a bypass), not the OTP gate.
+    const isShopOrderSurface = !!orderId
+    const isWalletSurface = isTopup || isUpgrade
+    const [walletGateOn, walletDirectOn, storefrontGateOn, storefrontDirectOn] = await Promise.all([
+      isWalletOtpRequired(),
+      isWalletDirectChargeEnabled(),
+      isStorefrontOtpRequired(),
+      isStorefrontDirectChargeEnabled(),
+    ])
+
+    // Per-surface flags for the request in hand.
+    const surfaceOtpOn = isShopOrderSurface ? storefrontGateOn : isWalletSurface ? walletGateOn : false
+    const surfaceDirectOn = isShopOrderSurface ? storefrontDirectOn : isWalletSurface ? walletDirectOn : false
+
+    // Order-free per-user burst cap: keep it active when EITHER wallet gate (OTP
+    // or direct charge) is on. Admins bypass for support/testing.
+    if ((walletGateOn || walletDirectOn) && (isTopup || isUpgrade) && !isAdmin && userId) {
       const perUser = await applyRateLimit(request, "payment_init_topup_user", 5, 30 * 60 * 1000, `tu:${userId}`)
       if (!perUser.allowed) {
         logSecurityEvent("wallet_topup_user_cap", { channel: type === "dealer_upgrade" ? "dealer_upgrade" : "wallet_topup", userId, email, ip: clientIp })
@@ -494,13 +508,24 @@ export async function POST(request: NextRequest) {
 
 
     // ── Direct MoMo charge path ──────────────────────────────────────────────
-    // When the client requests momoDirect (used while the checkout OTP gate is
-    // on), we charge a SERVER-SPECIFIED, OTP-VERIFIED MoMo number directly via
-    // Paystack /charge — no hosted redirect page where a random victim number
-    // could be typed. The prompt can ONLY go to the verified number. The
+    // We charge a SERVER-SPECIFIED MoMo number directly via Paystack /charge — no
+    // hosted redirect page where a random victim number could be typed. The
     // existing charge.success webhook resolves `reference` → wallet_payments →
     // order exactly as the redirect flow does, so fulfillment is unchanged.
+    //
+    // OTP and direct charge are independent: when the surface's OTP gate is ON the
+    // number must be SMS-verified (the prompt can ONLY reach a verified number);
+    // when OTP is OFF the number is charged as typed, guarded by rate caps below.
     if (momoDirect) {
+      // Only honor momoDirect when the surface's direct-charge gate is ON (admins
+      // bypass for support/testing). Blocks a client invoking direct charge when
+      // the admin hasn't enabled it for this surface.
+      if (!surfaceDirectOn && !isAdmin) {
+        logSecurityEvent("momodirect_gate_off", {
+          channel: paymentChannel, ip: clientIp, email, orderId: orderId || null,
+        })
+        return NextResponse.json({ error: "Direct charge is not available right now." }, { status: 400 })
+      }
       // Shop orders must reference an order; the order-free flows (wallet top-up,
       // dealer upgrade) legitimately have no orderId — their amount is already
       // server-verified above (bounded top-up amount / plan price) and the
@@ -514,19 +539,36 @@ export async function POST(request: NextRequest) {
       if (!provider) {
         return NextResponse.json({ error: "Could not detect mobile money network from the payment number." }, { status: 400 })
       }
-      // The payment number MUST have a REAL SMS OTP (used=true) — a past order
-      // does not count (strict, no grandfather). Server-enforced; the client
-      // can't fake it. Fails CLOSED, so a direct charge can never reach a number
-      // whose owner didn't just verify it.
-      const payVerified = await isPhoneOtpVerified(payPhone)
-      if (!payVerified) {
-        logSecurityEvent("momodirect_unverified_payment_number", {
-          channel: paymentChannel, ip: clientIp, email, paymentPhone: payPhone, orderId: orderId || null,
-        })
-        return NextResponse.json(
-          { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
-          { status: 403 }
-        )
+      if (surfaceOtpOn && !isAdmin) {
+        // OTP gate ON: the payment number MUST have a REAL SMS OTP (used=true) — a
+        // past order does not count (strict, no grandfather). Server-enforced; the
+        // client can't fake it. Fails CLOSED, so a direct charge can never reach a
+        // number whose owner didn't just verify it.
+        const payVerified = await isPhoneOtpVerified(payPhone)
+        if (!payVerified) {
+          logSecurityEvent("momodirect_unverified_payment_number", {
+            channel: paymentChannel, ip: clientIp, email, paymentPhone: payPhone, orderId: orderId || null,
+          })
+          return NextResponse.json(
+            { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
+            { status: 403 }
+          )
+        }
+      } else if (!isAdmin) {
+        // OTP gate OFF (direct charge only): no SMS verification, so the typed
+        // number is the sole guardrail target. Apply a tight per-phone cap on top
+        // of the existing per-IP (3/min, 30/hr) and per-email (5/hr) limits to
+        // bound prompt-spam to any single number.
+        const phoneCap = await applyRateLimit(request, "momodirect_phone", 3, 60 * 60 * 1000, `mp:${payPhone.replace(/\D/g, "")}`)
+        if (!phoneCap.allowed) {
+          logSecurityEvent("momodirect_phone_cap", {
+            channel: paymentChannel, ip: clientIp, email, paymentPhone: payPhone, orderId: orderId || null,
+          })
+          return NextResponse.json(
+            { error: "Too many payment attempts for this number. Please try again later." },
+            { status: 429, headers: { "X-RateLimit-Reset": new Date(phoneCap.resetAt).toISOString() } }
+          )
+        }
       }
 
       const charge = await chargeMobileMoney({
@@ -561,27 +603,25 @@ export async function POST(request: NextRequest) {
     let hostedChannels = process.env.PAYMENT_CARD_DISABLED === "true"
       ? ["mobile_money", "bank_transfer"]
       : ["card", "mobile_money", "bank_transfer"]
-    // Wallet/upgrade gate: the order-free paths (wallet top-up, dealer upgrade)
-    // must not be able to emit a MoMo prompt to an arbitrary number. Strip
-    // mobile_money for them.
-    if (walletGateOn && (isTopup || isUpgrade) && !isAdmin) {
+    // Hosted mobile_money strip keys off the DIRECT-CHARGE gate (not the OTP gate).
+    // When direct charge is the legit path, the on-page momoDirect flow (handled
+    // above) is how MoMo is meant to be paid — so a HOSTED init reaching here is a
+    // bypass (e.g. a bot typing victim numbers on Paystack's page). Strip
+    // mobile_money so no prompt can fire; card/bank remain for genuine edge cases.
+    // When direct charge is OFF the hosted redirect IS the intended MoMo path
+    // (even if OTP is on — order creation already gated the number), so momo stays.
+    //
+    // Wallet/upgrade (order-free) paths.
+    if (walletDirectOn && (isTopup || isUpgrade) && !isAdmin) {
       hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
       if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
-      // Someone reached the hosted checkout for an order-free path while the gate
-      // is on (legit users use the on-page direct charge). Worth recording.
+      // Someone reached the hosted checkout for an order-free path while direct
+      // charge is on (legit users use the on-page direct charge). Worth recording.
       logSecurityEvent("wallet_hosted_momo_blocked", { channel: paymentChannel, ip: clientIp, email, userId: userId || null })
     }
 
-    // Storefront gate: when ON, SHOP orders (data/airtime/RC) must go through the
-    // OTP-verified direct charge (momoDirect, handled above) — NOT a hosted page
-    // where any number can be typed. The legit frontend already does momoDirect
-    // when the gate is on; a HOSTED shop-order init reaching here is therefore a
-    // bypass (e.g. the AWS bot creating data orders and typing victim numbers on
-    // Paystack's page). Strip mobile_money so no prompt can be fired; card/bank
-    // remain for any genuine edge case. This is the fix for the observed
-    // `channel: shop_data` + `LOW_BALANCE_OR_PAYEE_LIMIT_REACHED` flood.
-    const storefrontGateOn = await isStorefrontOtpRequired()
-    if (storefrontGateOn && orderId && !isAdmin) {
+    // Storefront SHOP orders (data/airtime/RC).
+    if (storefrontDirectOn && orderId && !isAdmin) {
       hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
       if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
       logSecurityEvent("shop_hosted_momo_blocked", { channel: paymentChannel, ip: clientIp, email, orderId, recipient })

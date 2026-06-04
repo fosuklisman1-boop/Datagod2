@@ -100,6 +100,82 @@ export function invalidateWalletOtpCache(): void {
   walletGateCache = null
 }
 
+// ── Direct MoMo charge toggles ──────────────────────────────────────────────
+// Independent of the OTP gates above. "Direct charge" means the payment is
+// collected via an on-page Paystack /charge to a server-specified MoMo number
+// (the live "approve the prompt" modal) instead of the hosted Paystack redirect
+// page. Splitting it from the OTP gate lets an admin, per surface:
+//   • require OTP without forcing direct charge (verify → hosted redirect), or
+//   • use direct charge without forcing OTP (on-page charge, rate-cap guarded).
+//
+// Backward-compat: when a surface's own direct-charge row is ABSENT we inherit
+// its OTP gate's value. Installs that today rely on the coupled gate (OTP on ⇒
+// direct charge on) keep that exact behavior until an admin sets the new toggle.
+let storefrontDirectCache: { enabled: boolean; expiresAt: number } | null = null
+let walletDirectCache: { enabled: boolean; expiresAt: number } | null = null
+
+async function readDirectChargeGate(
+  key: "storefront_direct_charge" | "wallet_direct_charge",
+  cache: { enabled: boolean; expiresAt: number } | null,
+  setCache: (c: { enabled: boolean; expiresAt: number }) => void,
+  otpFallback: () => Promise<boolean>,
+  gateLabel: string,
+): Promise<boolean> {
+  if (cache && cache.expiresAt > Date.now()) return cache.enabled
+  if (!supabase) return cache?.enabled ?? (await otpFallback())
+
+  try {
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", key)
+      .maybeSingle()
+    if (error) throw error
+
+    // Row absent → inherit the OTP gate value (preserves the legacy coupled
+    // behavior). Row present → use its explicit boolean.
+    const enabled = data ? data.value?.enabled === true : await otpFallback()
+    const next = { enabled, expiresAt: Date.now() + CACHE_TTL_MS }
+    setCache(next)
+    return enabled
+  } catch {
+    // Fail to LAST-KNOWN STATE (see isStorefrontOtpRequired).
+    if (cache) {
+      logSecurityEvent("gate_read_failed_using_cache", { gate: gateLabel, cached: cache.enabled })
+      return cache.enabled
+    }
+    return otpFallback()
+  }
+}
+
+export async function isStorefrontDirectChargeEnabled(): Promise<boolean> {
+  return readDirectChargeGate(
+    "storefront_direct_charge",
+    storefrontDirectCache,
+    (c) => { storefrontDirectCache = c },
+    isStorefrontOtpRequired,
+    "storefront_direct_charge",
+  )
+}
+
+export function invalidateStorefrontDirectChargeCache(): void {
+  storefrontDirectCache = null
+}
+
+export async function isWalletDirectChargeEnabled(): Promise<boolean> {
+  return readDirectChargeGate(
+    "wallet_direct_charge",
+    walletDirectCache,
+    (c) => { walletDirectCache = c },
+    isWalletOtpRequired,
+    "wallet_direct_charge",
+  )
+}
+
+export function invalidateWalletDirectChargeCache(): void {
+  walletDirectCache = null
+}
+
 // ── Phone-gate kill switch ──────────────────────────────────────────────────
 // The dashboard hard-blocks any logged-in user with no phone number (non-
 // dismissable modal). Its ONLY escape is OTP verification — so if SMS delivery
