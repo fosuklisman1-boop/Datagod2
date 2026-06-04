@@ -651,57 +651,42 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
         return { success: false, message: `Failed to update tracking: ${trackingUpdateError.message}` }
       }
 
-      // Update shop_orders if completed or failed
-      if (tracking.shop_order_id && (newStatus === "completed" || newStatus === "failed")) {
-        console.log(`[MTN-SYNC] Updating shop_order ${tracking.shop_order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
-        const { error: shopOrderError } = await supabase
-          .from("shop_orders")
-          .update({
-            order_status: orderTableStatus,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", tracking.shop_order_id)
-
-        if (shopOrderError) {
-          console.error(`[MTN-SYNC] Failed to update shop_order:`, shopOrderError)
-        } else {
-          console.log(`[MTN-SYNC] ✅ Updated shop_order ${tracking.shop_order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
+      // Mirror status to the originating order table (only on terminal states).
+      // order_type-aware: USSD/USSD-shop ids live in order_id, so branch on
+      // order_type first to avoid mis-routing a USSD id into the bulk orders table.
+      if (newStatus === "completed" || newStatus === "failed") {
+        let orderTableError: any = null
+        if (tracking.order_type === "bulk" && tracking.order_id) {
+          ({ error: orderTableError } = await supabase
+            .from("orders")
+            .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
+            .eq("id", tracking.order_id))
+        } else if (tracking.order_type === "api" && (tracking.api_order_id || tracking.order_id)) {
+          ({ error: orderTableError } = await supabase
+            .from("api_orders")
+            .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
+            .eq("id", tracking.api_order_id || tracking.order_id))
+        } else if (tracking.order_type === "ussd" && tracking.order_id) {
+          ({ error: orderTableError } = await supabase
+            .from("ussd_orders")
+            .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+            .eq("id", tracking.order_id))
+        } else if (tracking.order_type === "ussd_shop" && tracking.order_id) {
+          ({ error: orderTableError } = await supabase
+            .from("ussd_shop_orders")
+            .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+            .eq("id", tracking.order_id))
+        } else if (tracking.shop_order_id) {
+          ({ error: orderTableError } = await supabase
+            .from("shop_orders")
+            .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+            .eq("id", tracking.shop_order_id))
         }
-      }
 
-      // Update orders table if bulk order
-      if (tracking.order_id && (newStatus === "completed" || newStatus === "failed")) {
-        console.log(`[MTN-SYNC] Updating bulk order ${tracking.order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
-        const { error: orderError } = await supabase
-          .from("orders")
-          .update({
-            status: orderTableStatus,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", tracking.order_id)
-
-        if (orderError) {
-          console.error(`[MTN-SYNC] Failed to update order:`, orderError)
+        if (orderTableError) {
+          console.error(`[MTN-SYNC] Failed to update originating order table:`, orderTableError)
         } else {
-          console.log(`[MTN-SYNC] ✅ Updated order ${tracking.order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
-        }
-      }
-
-      // Update api_orders table if programmatic order
-      if (tracking.api_order_id && (newStatus === "completed" || newStatus === "failed")) {
-        console.log(`[MTN-SYNC] Updating API order ${tracking.api_order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
-        const { error: apiOrderError } = await supabase
-          .from("api_orders")
-          .update({
-            status: orderTableStatus,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", tracking.api_order_id)
-
-        if (apiOrderError) {
-          console.error(`[MTN-SYNC] Failed to update api_order:`, apiOrderError)
-        } else {
-          console.log(`[MTN-SYNC] ✅ Updated api_order ${tracking.api_order_id} to ${orderTableStatus} (tracking: ${newStatus})`)
+          console.log(`[MTN-SYNC] ✅ Mirrored ${newStatus} -> ${orderTableStatus} to ${tracking.order_type || "shop"} order`)
         }
       }
 
@@ -855,6 +840,36 @@ export async function updateMTNOrderFromWebhook(
         console.error("[MTN] Error updating API order:", apiError)
       } else {
         console.log(`[MTN] Updated API order ${tracking.api_order_id} status to ${orderTableStatus}`)
+      }
+    } else if (tracking.order_type === "ussd" && tracking.order_id) {
+      // Update USSD orders table
+      const { error: ussdError } = await supabase
+        .from("ussd_orders")
+        .update({
+          order_status: orderTableStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tracking.order_id)
+
+      if (ussdError) {
+        console.error("[MTN] Error updating USSD order:", ussdError)
+      } else {
+        console.log(`[MTN] Updated USSD order ${tracking.order_id} status to ${orderTableStatus}`)
+      }
+    } else if (tracking.order_type === "ussd_shop" && tracking.order_id) {
+      // Update USSD shop orders table
+      const { error: ussdShopError } = await supabase
+        .from("ussd_shop_orders")
+        .update({
+          order_status: orderTableStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tracking.order_id)
+
+      if (ussdShopError) {
+        console.error("[MTN] Error updating USSD shop order:", ussdShopError)
+      } else {
+        console.log(`[MTN] Updated USSD shop order ${tracking.order_id} status to ${orderTableStatus}`)
       }
     } else if (tracking.shop_order_id) {
       // Update shop_orders table
@@ -1144,11 +1159,22 @@ export async function retryMTNOrder(
 
       if (error) throw error
 
-      // If it's the final failure, also update the master order back to pending
+      // If it's the final failure, also revert the originating order to pending.
+      // order_type-aware so USSD/USSD-shop ids (stored in order_id) aren't
+      // mis-routed into the bulk orders table.
       if (isFinalFailure) {
-        if (tracking.shop_order_id) {
+        if (tracking.order_type === "bulk" && tracking.order_id) {
+          await supabase.from("orders").update({ status: "pending" }).eq("id", tracking.order_id)
+        } else if (tracking.order_type === "api" && (tracking.api_order_id || tracking.order_id)) {
+          await supabase.from("api_orders").update({ status: "pending" }).eq("id", tracking.api_order_id || tracking.order_id)
+        } else if (tracking.order_type === "ussd" && tracking.order_id) {
+          await supabase.from("ussd_orders").update({ order_status: "pending" }).eq("id", tracking.order_id)
+        } else if (tracking.order_type === "ussd_shop" && tracking.order_id) {
+          await supabase.from("ussd_shop_orders").update({ order_status: "pending" }).eq("id", tracking.order_id)
+        } else if (tracking.shop_order_id) {
           await supabase.from("shop_orders").update({ order_status: "pending" }).eq("id", tracking.shop_order_id)
         } else if (tracking.order_id) {
+          // Legacy rows without order_type — assume bulk (preserves prior behavior)
           await supabase.from("orders").update({ status: "pending" }).eq("id", tracking.order_id)
         } else if (tracking.api_order_id) {
           await supabase.from("api_orders").update({ status: "pending" }).eq("id", tracking.api_order_id)
