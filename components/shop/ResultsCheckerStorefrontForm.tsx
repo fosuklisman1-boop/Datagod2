@@ -139,7 +139,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   }
 
   const loadBoardPricing = async () => {
-    if (!shop?.id) return
+    // NB: shop comes from getShopBySlug, which does not select the `id` column,
+    // so guard on `shop` itself — keying on shop?.id left the spinner stuck.
+    if (!shop) { setLoadingPrices(false); return }
     setLoadingPrices(true)
     try {
       // Fetch admin settings for base prices + max markups
