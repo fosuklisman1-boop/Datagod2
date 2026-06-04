@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import GoogleAuthButton from "@/components/GoogleAuthButton"
 import { useCommunityLink } from "@/hooks/use-community-link"
-import { MessageCircle } from "lucide-react"
+import { MessageCircle, Mail, Lock, Eye, EyeOff, Check } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export default function LoginForm() {
@@ -27,6 +27,7 @@ export default function LoginForm() {
     email: "",
     password: "",
   })
+  const [showPassword, setShowPassword] = useState(false)
 
   // Get redirect URL from query params (default to /dashboard)
   useEffect(() => {

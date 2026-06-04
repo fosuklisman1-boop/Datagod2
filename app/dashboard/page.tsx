@@ -10,7 +10,7 @@ import { WalletOnboardingModal } from "@/components/onboarding/wallet-onboarding
 import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Moon, Clock, Loader2, Wallet } from "lucide-react"
+import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2, type LucideIcon } from "lucide-react"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
 
@@ -25,6 +25,36 @@ const formatCount = (num: number | string): string => {
     return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
   }
   return n.toLocaleString()
+}
+
+// Clean Fintech stat card: neutral surface, one accent chip, flat number.
+const STAT_TONES: Record<string, string> = {
+  primary: "bg-primary/10 text-primary",
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/15 text-warning",
+  danger: "bg-destructive/10 text-destructive",
+}
+function StatCard({
+  label, value, hint, tone = "primary", icon: Icon, ...rest
+}: {
+  label: string
+  value: string
+  hint?: string
+  tone?: keyof typeof STAT_TONES
+  icon: LucideIcon
+} & React.ComponentProps<typeof Card>) {
+  return (
+    <Card className="transition-shadow hover:shadow-md" {...rest}>
+      <CardContent className="p-4 sm:p-5">
+        <div className={`w-9 h-9 rounded-xl grid place-items-center ${STAT_TONES[tone]}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <p className="text-xs font-medium text-muted-foreground mt-3">{label}</p>
+        <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">{value}</p>
+        {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
+      </CardContent>
+    </Card>
+  )
 }
 
 interface DashboardStats {
@@ -245,7 +275,7 @@ export default function DashboardPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin" />
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     )
@@ -256,7 +286,7 @@ export default function DashboardPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin" />
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     )
@@ -275,184 +305,103 @@ export default function DashboardPage() {
         onVerified={() => setShowPhoneVerify(false)}
         onDismiss={() => setShowPhoneVerify(false)}
       />
-      <div className="space-y-6">
-        {/* Greeting Card */}
-        <Card className={`border-0 hover:shadow-2xl transition-all duration-300 text-white ${isDealer
-          ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500"
-          : "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600"
-          }`}>
-          <CardContent className="pt-6">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h2 className="text-3xl font-bold mb-1">{getGreeting()}, {firstName}! {getGreetingEmoji()}</h2>
-                <p className={isDealer ? "text-amber-100" : "text-indigo-100"}>
-                  {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
-                </p>
-              </div>
-              <div className="w-16 h-16 bg-card/20 rounded-full flex items-center justify-center backdrop-blur border border-white/30">
-                <TrendingUp className="h-8 w-8 text-white" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-              <div className="bg-card/10 backdrop-blur rounded-lg p-3 border border-white/20">
-                <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Role</p>
-                <p className="text-white font-semibold mt-1">{isDealer ? "Authorized Dealer" : "Premium Agent"}</p>
-              </div>
-              <div className="bg-card/10 backdrop-blur rounded-lg p-3 border border-white/20">
-                <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Status</p>
-                <p className="text-white font-semibold mt-1">Active</p>
-              </div>
-              <div className="bg-card/10 backdrop-blur rounded-lg p-3 border border-white/20">
-                <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Member Since</p>
-                <p className="text-white font-semibold mt-1">{joinDate || "Recently"}</p>
-              </div>
-            </div>
-
-            <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} mt-4`}>Here's what's happening with your data packages today.</p>
-          </CardContent>
-        </Card>
-
-        {/* Page Header */}
-        <div>
-          <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold bg-clip-text text-transparent ${isDealer
-            ? "bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600"
-            : "bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600"
-            }`}>
-            Dashboard
-          </h1>
-          <p className="text-muted-foreground mt-1 font-medium">Welcome back! Here's your account overview.</p>
+      <div className="space-y-5">
+        {/* Greeting */}
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+              {getGreeting()}, {firstName}! {getGreetingEmoji()}
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+            </p>
+          </div>
+          <Button onClick={() => router.push("/dashboard/data-packages")} className="font-semibold">
+            + Buy Data
+          </Button>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
-          {/* Total Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-foreground">Total Orders</CardTitle>
-              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-cyan-300/60 shadow-lg">
-                <ShoppingCart className="h-4 w-4 text-cyan-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-primary/80 bg-clip-text text-transparent">{formatCount(stats.totalOrders)}</div>
-              <p className="text-xs text-muted-foreground">All time orders</p>
-            </CardContent>
-          </Card>
-
-          {/* Completed Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40 hover:border-emerald-300/60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-foreground">Completed</CardTitle>
-              <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-emerald-300/60 shadow-lg">
-                <CheckCircle className="h-4 w-4 text-emerald-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{formatCount(stats.completed)}</div>
-              <p className="text-xs text-muted-foreground">{stats.successRate} success rate</p>
-            </CardContent>
-          </Card>
-
-          {/* Processing Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/60 to-orange-50/40 backdrop-blur-xl border border-amber-200/40 hover:border-amber-300/60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-foreground">Processing</CardTitle>
-              <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-amber-300/60 shadow-lg">
-                <TrendingUp className="h-4 w-4 text-amber-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">{formatCount(stats.processing)}</div>
-              <p className="text-xs text-muted-foreground">In progress</p>
-            </CardContent>
-          </Card>
-
-          {/* Failed Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/60 to-pink-50/40 backdrop-blur-xl border border-rose-200/40 hover:border-rose-300/60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-foreground">Failed</CardTitle>
-              <div className="bg-gradient-to-br from-rose-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-rose-300/60 shadow-lg">
-                <AlertCircle className="h-4 w-4 text-rose-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">{formatCount(stats.failed)}</div>
-              <p className="text-xs text-muted-foreground">No failures</p>
-            </CardContent>
-          </Card>
-
-          {/* Pending Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-primary/5 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-foreground">Pending</CardTitle>
-              <div className="bg-gradient-to-br from-indigo-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-indigo-300/60 shadow-lg">
-                <Clock className="h-4 w-4 text-indigo-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{formatCount(stats.pending)}</div>
-              <p className="text-xs text-muted-foreground">Awaiting processing</p>
-            </CardContent>
-          </Card>
-
-          {/* Wallet Balance */}
+        {/* Wallet hero + account meta */}
+        <div className="grid gap-4 lg:grid-cols-3">
           <Card
-            className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40 hover:border-green-300/60"
             data-tour="wallet-balance"
+            className={`lg:col-span-2 border-0 text-white relative overflow-hidden ${isDealer
+              ? "bg-gradient-to-br from-[#37146b] to-[#7c1bd6]"
+              : "bg-gradient-to-br from-primary to-violet-600"
+              }`}
           >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-foreground">Wallet Balance</CardTitle>
-              <div className="bg-gradient-to-br from-green-400/30 to-emerald-400/20 backdrop-blur p-2 rounded-lg border border-green-300/60 shadow-lg">
-                <Wallet className="h-4 w-4 text-green-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+            <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-white/10" />
+            <CardContent className="p-6 relative">
+              <p className="text-sm font-medium text-white/85">Wallet Balance</p>
+              <p className="text-4xl font-extrabold tracking-tight tabular-nums mt-2">
                 GHS {Math.max(0, walletBalance || 0).toFixed(2)}
+              </p>
+              <p className="text-xs text-white/75 mt-1">Available funds</p>
+              <div className="flex flex-wrap gap-2 mt-5">
+                <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white text-violet-700 hover:bg-white/90 font-semibold">
+                  ＋ Top Up
+                </Button>
+                <Button onClick={() => router.push("/dashboard/data-packages")} className="bg-white/15 text-white hover:bg-white/25 border-0">
+                  Buy Data
+                </Button>
+                <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0">
+                  My Orders
+                </Button>
               </div>
-              <p className="text-xs text-muted-foreground">Available funds</p>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Role</span>
+                <span className="text-sm font-semibold text-foreground">{isDealer ? "Authorized Dealer" : "Premium Agent"}</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Status</span>
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
+                  <span className="w-2 h-2 rounded-full bg-success" />Active
+                </span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Member Since</span>
+                <span className="text-sm font-semibold text-foreground">{joinDate || "Recently"}</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Stats strip */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <StatCard label="Total Orders" value={formatCount(stats.totalOrders)} hint="All time" tone="primary" icon={ShoppingCart} />
+          <StatCard label="Completed" value={formatCount(stats.completed)} hint={`${stats.successRate} success rate`} tone="success" icon={CheckCircle} />
+          <StatCard label="Processing" value={formatCount(stats.processing)} hint="In progress" tone="warning" icon={TrendingUp} />
+          <StatCard label="Pending" value={formatCount(stats.pending)} hint="Awaiting processing" tone="warning" icon={Clock} />
+          <StatCard label="Failed" value={formatCount(stats.failed)} hint="Refunded if charged" tone="danger" icon={AlertCircle} />
         </div>
 
         {/* Quick Actions */}
-        <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl hover:shadow-2xl transition-all duration-300 border border-violet-200/40 hover:border-violet-300/60">
+        <Card>
           <CardHeader>
             <CardTitle className="text-foreground">Quick Actions</CardTitle>
             <CardDescription>Get started with common tasks</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <Button
-              onClick={() => router.push("/dashboard/my-shop")}
-              className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 font-semibold text-white"
-            >
-              Create Shop
-            </Button>
-            <Button
-              onClick={() => router.push("/dashboard/data-packages")}
-              className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 font-semibold text-white"
-            >
+          <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <Button onClick={() => router.push("/dashboard/data-packages")} className="font-semibold">
               Buy Data Package
             </Button>
-            <Button
-              onClick={() => router.push("/dashboard/airtime")}
-              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 font-semibold text-white"
-            >
+            <Button variant="outline" onClick={() => router.push("/dashboard/airtime")} className="font-semibold">
               Buy Airtime
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => router.push("/dashboard/my-orders")}
-              className="hover:bg-cyan-50/80 hover:backdrop-blur hover:border-cyan-400 hover:text-cyan-700 transition-all duration-300 hover:shadow-md font-semibold bg-cyan-50/30 backdrop-blur border-cyan-300/40 text-cyan-700"
-            >
+            <Button variant="outline" onClick={() => router.push("/dashboard/my-shop")} className="font-semibold">
+              Create Shop
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/dashboard/my-orders")} className="font-semibold">
               View My Orders
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => router.push("/dashboard/wallet")}
-              className="hover:bg-emerald-50/80 hover:backdrop-blur hover:border-emerald-400 hover:text-emerald-700 transition-all duration-300 hover:shadow-md font-semibold bg-emerald-50/30 backdrop-blur border-emerald-300/40 text-emerald-700"
-            >
+            <Button variant="outline" onClick={() => router.push("/dashboard/wallet")} className="font-semibold">
               Top Up Wallet
             </Button>
           </CardContent>
@@ -462,29 +411,31 @@ export default function DashboardPage() {
         <BulkOrdersForm />
 
         {/* Recent Activity */}
-        <Card className="hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
+        <Card>
           <CardHeader>
             <CardTitle>Recent Activity</CardTitle>
             <CardDescription>Your latest transactions</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {recentActivity.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No recent activity</p>
-              ) : (
-                recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex items-center justify-between pb-4 border-b hover:bg-card/40 backdrop-blur -mx-4 px-4 py-2 rounded transition-colors duration-200">
-                    <div>
-                      <p className="font-medium">{activity.description}</p>
-                      <p className="text-sm text-muted-foreground">{new Date(activity.timestamp).toLocaleDateString()} at {new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+            {recentActivity.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No recent activity</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {recentActivity.map((activity) => (
+                  <div key={activity.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground text-sm truncate">{activity.description}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(activity.timestamp).toLocaleDateString()} at {new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
                     </div>
-                    <p className={`font-semibold ${activity.type === "credit" ? "text-green-600" : "text-red-600"}`}>
+                    <p className={`font-semibold tabular-nums whitespace-nowrap ${activity.type === "credit" ? "text-success" : "text-destructive"}`}>
                       {activity.type === "credit" ? "+" : "-"}GHS {(activity.amount || 0).toFixed(2)}
                     </p>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
