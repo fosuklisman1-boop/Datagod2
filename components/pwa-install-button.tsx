@@ -69,22 +69,22 @@ export function PwaInstallButton() {
                 </Button>
 
                 {showIOSGuide && (
-                    <div className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-4 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+                    <div className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-900">
                         <button
-                            className="absolute right-2 top-2 text-muted-foreground hover:text-muted-foreground"
+                            className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
                             onClick={() => setShowIOSGuide(false)}
                         >
                             <X className="h-4 w-4" />
                         </button>
-                        <p className="mb-2 text-sm font-semibold text-foreground dark:text-gray-100">
+                        <p className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-100">
                             Install DATAGOD
                         </p>
-                        <ol className="space-y-2 text-xs text-muted-foreground dark:text-muted-foreground">
+                        <ol className="space-y-2 text-xs text-gray-600 dark:text-gray-400">
                             <li className="flex items-start gap-2">
                                 <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 font-bold text-[10px]">1</span>
                                 <span>
                                     Tap the{" "}
-                                    <Share className="inline h-3.5 w-3.5 text-primary" />{" "}
+                                    <Share className="inline h-3.5 w-3.5 text-blue-500" />{" "}
                                     <strong>Share</strong> button in Safari&apos;s toolbar
                                 </span>
                             </li>

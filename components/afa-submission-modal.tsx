@@ -196,9 +196,9 @@ export function AFASubmissionModal({
 
         <div className="space-y-6 overflow-y-auto flex-1 px-4 sm:px-6">
           {/* Package Info */}
-          <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="font-semibold text-blue-900 mb-2">Exclusive Member Package</h3>
-            <p className="text-sm text-primary">
+            <p className="text-sm text-blue-700">
               Amount: <span className="font-bold">GHS {(afaPrice || 0).toFixed(2)}</span>
             </p>
           </div>
@@ -243,7 +243,7 @@ export function AFASubmissionModal({
           {!submitted && (
             <form id="afa-form" onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Full Name <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -253,13 +253,13 @@ export function AFASubmissionModal({
                   disabled={loading}
                   className="w-full"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-gray-600 mt-1">
                   Full name must be provided for verification
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Phone Number <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -269,13 +269,13 @@ export function AFASubmissionModal({
                   disabled={loading}
                   className="w-full"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-gray-600 mt-1">
                   Must be a valid Ghanaian phone number
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   GH Card Number <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -285,14 +285,14 @@ export function AFASubmissionModal({
                   disabled={loading}
                   className="w-full"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-gray-600 mt-1">
                   Your Ghana Card identification number
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Location <span className="text-red-500">*</span>
                   </label>
                   <Input
@@ -305,14 +305,14 @@ export function AFASubmissionModal({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Region <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={region}
                     onChange={(e) => setRegion(e.target.value)}
                     disabled={loading}
-                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select Region</option>
                     <option value="Greater Accra">Greater Accra</option>
@@ -333,15 +333,15 @@ export function AFASubmissionModal({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Occupation
                 </label>
                 <Input
                   value={occupation}
                   disabled={true}
-                  className="w-full bg-muted cursor-not-allowed"
+                  className="w-full bg-gray-100 cursor-not-allowed"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-gray-600 mt-1">
                   Occupation is prefilled and cannot be changed
                 </p>
               </div>
@@ -367,8 +367,8 @@ export function AFASubmissionModal({
           {submitted && (
             <div className="py-8 text-center">
               <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
-              <h3 className="font-semibold text-lg text-foreground mb-2">Application Submitted!</h3>
-              <p className="text-sm text-muted-foreground">
+              <h3 className="font-semibold text-lg text-gray-900 mb-2">Application Submitted!</h3>
+              <p className="text-sm text-gray-600">
                 Your AFA registration has been submitted successfully.
                 We will process it shortly.
               </p>
@@ -378,7 +378,7 @@ export function AFASubmissionModal({
 
         {/* Fixed Buttons at Bottom */}
         {!submitted && (
-          <div className="border-t border-border px-4 sm:px-6 py-3 sm:py-4 flex gap-3 flex-shrink-0 bg-card">
+          <div className="border-t border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex gap-3 flex-shrink-0 bg-white">
             <Button
               type="button"
               variant="outline"

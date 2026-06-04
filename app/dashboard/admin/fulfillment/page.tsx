@@ -199,9 +199,9 @@ export default function AdminFulfillmentPage() {
       case "failed":
         return <XCircle className="w-4 h-4 text-red-600" />
       case "processing":
-        return <Clock className="w-4 h-4 text-primary" />
+        return <Clock className="w-4 h-4 text-blue-600" />
       default:
-        return <Clock className="w-4 h-4 text-muted-foreground" />
+        return <Clock className="w-4 h-4 text-gray-400" />
     }
   }
 
@@ -212,9 +212,9 @@ export default function AdminFulfillmentPage() {
       case "failed":
         return "bg-red-100 text-red-800"
       case "processing":
-        return "bg-primary/10 text-primary"
+        return "bg-blue-100 text-blue-800"
       default:
-        return "bg-muted text-foreground"
+        return "bg-gray-100 text-gray-800"
     }
   }
 
@@ -285,7 +285,7 @@ export default function AdminFulfillmentPage() {
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold">Data Bundle Fulfillment Manager</h1>
-          <p className="text-muted-foreground mt-1">Monitor and manage data bundle order fulfillments (MTN, TELECEL, AT)</p>
+          <p className="text-gray-600 mt-1">Monitor and manage data bundle order fulfillments (MTN, TELECEL, AT)</p>
         </div>
 
         {/* Stats */}
@@ -294,7 +294,7 @@ export default function AdminFulfillmentPage() {
             <CardContent className="pt-6">
               <div className="text-center">
                 <p className="text-3xl font-bold">{formatCount(stats.total)}</p>
-                <p className="text-sm text-muted-foreground">Total Orders</p>
+                <p className="text-sm text-gray-600">Total Orders</p>
               </div>
             </CardContent>
           </Card>
@@ -302,7 +302,7 @@ export default function AdminFulfillmentPage() {
             <CardContent className="pt-6">
               <div className="text-center">
                 <p className="text-3xl font-bold text-green-600">{formatCount(stats.success)}</p>
-                <p className="text-sm text-muted-foreground">Success</p>
+                <p className="text-sm text-gray-600">Success</p>
               </div>
             </CardContent>
           </Card>
@@ -310,23 +310,23 @@ export default function AdminFulfillmentPage() {
             <CardContent className="pt-6">
               <div className="text-center">
                 <p className="text-3xl font-bold text-red-600">{formatCount(stats.failed)}</p>
-                <p className="text-sm text-muted-foreground">Failed</p>
+                <p className="text-sm text-gray-600">Failed</p>
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-primary/5">
+          <Card className="bg-blue-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-primary">{formatCount(stats.processing)}</p>
-                <p className="text-sm text-muted-foreground">Processing</p>
+                <p className="text-3xl font-bold text-blue-600">{formatCount(stats.processing)}</p>
+                <p className="text-sm text-gray-600">Processing</p>
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-muted/40">
+          <Card className="bg-gray-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-muted-foreground">{formatCount(stats.pending)}</p>
-                <p className="text-sm text-muted-foreground">Pending</p>
+                <p className="text-3xl font-bold text-gray-600">{formatCount(stats.pending)}</p>
+                <p className="text-sm text-gray-600">Pending</p>
               </div>
             </CardContent>
           </Card>
@@ -410,7 +410,7 @@ export default function AdminFulfillmentPage() {
           <CardContent>
             {loading ? (
               <div className="text-center py-8">
-                <p className="text-muted-foreground">Loading...</p>
+                <p className="text-gray-600">Loading...</p>
               </div>
             ) : fulfillments.length === 0 ? (
               <Alert>
@@ -433,7 +433,7 @@ export default function AdminFulfillmentPage() {
                   </thead>
                   <tbody>
                     {fulfillments.map((fulfillment) => (
-                      <tr key={fulfillment.id} className="border-b hover:bg-accent">
+                      <tr key={fulfillment.id} className="border-b hover:bg-gray-50">
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
                             {getStatusIcon(fulfillment.status)}
@@ -443,7 +443,7 @@ export default function AdminFulfillmentPage() {
                           </div>
                         </td>
                         <td className="py-3 px-4">
-                          <code className="text-xs bg-muted px-2 py-1 rounded">
+                          <code className="text-xs bg-gray-100 px-2 py-1 rounded">
                             {fulfillment.order_id.substring(0, 8)}...
                           </code>
                         </td>
@@ -483,7 +483,7 @@ export default function AdminFulfillmentPage() {
                 </table>
                 {pagination && pagination.totalPages > 1 && (
                   <div className="flex items-center justify-between pt-4 border-t mt-2">
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs text-gray-500">
                       Page {page} of {pagination.totalPages} &mdash; {formatCount(pagination.total)} total
                     </span>
                     <div className="flex gap-2">

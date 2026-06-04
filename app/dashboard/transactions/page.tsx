@@ -117,7 +117,7 @@ export default function TransactionsPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         </div>
       </DashboardLayout>
     )
@@ -128,8 +128,8 @@ export default function TransactionsPage() {
       <div className="space-y-6 px-2 sm:px-4">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">My Transactions</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">Track and manage your financial activities</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Transactions</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">Track and manage your financial activities</p>
         </div>
 
         {/* Stats Cards */}
@@ -137,11 +137,11 @@ export default function TransactionsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
-              <DollarSign className="h-4 w-4 text-primary" />
+              <DollarSign className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.totalTransactions.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
+              <p className="text-xs text-gray-600">All time</p>
             </CardContent>
           </Card>
 
@@ -152,7 +152,7 @@ export default function TransactionsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {formatAmount(stats.todayIncome)}</div>
-              <p className="text-xs text-muted-foreground">Credits</p>
+              <p className="text-xs text-gray-600">Credits</p>
             </CardContent>
           </Card>
 
@@ -163,7 +163,7 @@ export default function TransactionsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {formatAmount(stats.todayExpenses)}</div>
-              <p className="text-xs text-muted-foreground">Debits</p>
+              <p className="text-xs text-gray-600">Debits</p>
             </CardContent>
           </Card>
 
@@ -174,7 +174,7 @@ export default function TransactionsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {formatAmount(stats.todayRefunds)}</div>
-              <p className="text-xs text-muted-foreground">Refunded</p>
+              <p className="text-xs text-gray-600">Refunded</p>
             </CardContent>
           </Card>
         </div>
@@ -187,12 +187,12 @@ export default function TransactionsPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label htmlFor="type" className="text-sm font-medium text-foreground">Transaction Type</label>
+                <label htmlFor="type" className="text-sm font-medium text-gray-700">Transaction Type</label>
                 <select 
                   id="type"
                   value={filters.type}
                   onChange={(e) => { setFilters({ ...filters, type: e.target.value }); setPage(1); }}
-                  className="w-full mt-1 px-3 py-2 border border-border rounded-md"
+                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="all">All Types</option>
                   <option value="credit">Credit</option>
@@ -201,12 +201,12 @@ export default function TransactionsPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="dateRange" className="text-sm font-medium text-foreground">Date Range</label>
+                <label htmlFor="dateRange" className="text-sm font-medium text-gray-700">Date Range</label>
                 <select 
                   id="dateRange"
                   value={filters.dateRange}
                   onChange={(e) => { setFilters({ ...filters, dateRange: e.target.value }); setPage(1); }}
-                  className="w-full mt-1 px-3 py-2 border border-border rounded-md"
+                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="all">All Time</option>
                   <option value="today">Today</option>
@@ -236,7 +236,7 @@ export default function TransactionsPage() {
           </CardHeader>
           <CardContent>
             {transactions.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
+              <div className="text-center py-8 text-gray-500">
                 No transactions found
               </div>
             ) : (
@@ -244,14 +244,14 @@ export default function TransactionsPage() {
                 {/* Mobile Card View */}
                 <div className="md:hidden space-y-3">
                   {transactions.map((txn) => (
-                    <div key={txn.id} className="border rounded-lg p-4 bg-card shadow-sm">
+                    <div key={txn.id} className="border rounded-lg p-4 bg-white shadow-sm">
                       {/* Header: Date + Status */}
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-xs text-gray-500">
                             {new Date(txn.created_at).toLocaleDateString()}
                           </p>
-                          <p className="text-sm text-foreground mt-1 line-clamp-1">{txn.description}</p>
+                          <p className="text-sm text-gray-700 mt-1 line-clamp-1">{txn.description}</p>
                         </div>
                         <Badge className={
                           txn.status === "completed" ? "bg-green-100 text-green-800" :
@@ -281,18 +281,18 @@ export default function TransactionsPage() {
                       {/* Balance Info */}
                       <div className="grid grid-cols-2 gap-2 text-xs border-t pt-3">
                         <div>
-                          <span className="text-muted-foreground">Before:</span>
+                          <span className="text-gray-500">Before:</span>
                           <span className="ml-1 font-medium">GHS {formatAmount(Math.max(0, txn.balance_before))}</span>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">After:</span>
+                          <span className="text-gray-500">After:</span>
                           <span className="ml-1 font-semibold">GHS {formatAmount(Math.max(0, txn.balance_after))}</span>
                         </div>
                       </div>
                       
                       {/* Order ID + Action */}
                       <div className="flex justify-between items-center mt-3 pt-3 border-t">
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-gray-500">
                           {txn.order_id ? `#${txn.order_id.slice(0, 8)}...` : "No order"}
                         </span>
                         <Button size="sm" variant="outline">View</Button>
@@ -302,24 +302,24 @@ export default function TransactionsPage() {
                 </div>
 
                 {/* Desktop Table View */}
-                <div className="hidden md:block overflow-x-auto rounded-md border border-border">
+                <div className="hidden md:block overflow-x-auto rounded-md border border-gray-100">
                   <table className="w-full text-sm">
-                    <thead className="bg-muted/40 border-b">
+                    <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Date</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Type</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Source</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Amount</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Balance Before</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Balance After</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Status</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Order ID</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Actions</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Type</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Source</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Balance Before</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Balance After</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Status</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Order ID</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {transactions.map((txn) => (
-                        <tr key={txn.id} className="hover:bg-accent">
+                        <tr key={txn.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">{new Date(txn.created_at).toLocaleDateString()}</td>
                           <td className="px-4 py-3">
                             <Badge className={
@@ -361,7 +361,7 @@ export default function TransactionsPage() {
             
             {/* Pagination */}
             <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-3">
-              <p className="text-sm text-muted-foreground">Showing {transactions.length} transaction(s)</p>
+              <p className="text-sm text-gray-600">Showing {transactions.length} transaction(s)</p>
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 

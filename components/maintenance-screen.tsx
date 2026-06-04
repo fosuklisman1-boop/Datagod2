@@ -17,15 +17,15 @@ export function MaintenanceScreen() {
           We&apos;ll be right back
         </h1>
 
-        <p className="mb-2 text-base text-foreground">
+        <p className="mb-2 text-base text-gray-700">
           DATAGOD is undergoing scheduled maintenance.
         </p>
-        <p className="mb-8 text-sm text-muted-foreground">
+        <p className="mb-8 text-sm text-gray-500">
           We&apos;re working to get everything back up and running. Please check
           back again in a little while — thank you for your patience.
         </p>
 
-        <div className="rounded-xl border border-violet-100 bg-card/60 p-4 text-sm text-muted-foreground">
+        <div className="rounded-xl border border-violet-100 bg-white/60 p-4 text-sm text-gray-600">
           Need urgent help? Reach us at{" "}
           <a
             href="mailto:support@datagod.com"

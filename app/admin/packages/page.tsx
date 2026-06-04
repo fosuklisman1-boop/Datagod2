@@ -190,12 +190,12 @@ export default function AdminPackagesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">Package Management</h1>
-            <p className="text-muted-foreground mt-1">Create, edit, and delete data packages</p>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">Package Management</h1>
+            <p className="text-gray-500 mt-1">Create, edit, and delete data packages</p>
           </div>
           <Button
             onClick={() => !showForm ? setShowForm(true) : resetForm()}
-            className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700"
+            className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
           >
             <Plus className="w-4 h-4 mr-2" />
             {showForm ? "Cancel" : "Add Package"}
@@ -204,7 +204,7 @@ export default function AdminPackagesPage() {
 
         {/* Add/Edit Form */}
         {showForm && (
-          <Card className="border-2 border-blue-300/50 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl">
+          <Card className="border-2 border-blue-300/50 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl">
             <CardHeader>
               <CardTitle>{editingId ? "Edit Package" : "Add New Package"}</CardTitle>
             </CardHeader>
@@ -217,7 +217,7 @@ export default function AdminPackagesPage() {
                     aria-label="Select network"
                     value={formData.network}
                     onChange={(e) => setFormData({ ...formData, network: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring bg-card"
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   >
                     <option value="">Choose a network...</option>
                     {AVAILABLE_NETWORKS.map((network) => (
@@ -308,32 +308,32 @@ export default function AdminPackagesPage() {
         )}
 
         {/* Packages Table */}
-        <Card className="bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
+        <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
           <CardHeader>
             <CardTitle>All Packages ({formatCount(packages.length)})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gradient-to-r from-primary/10 to-cyan-100/60 backdrop-blur border-b border-primary/20">
+                <thead className="bg-gradient-to-r from-blue-100/60 to-cyan-100/60 backdrop-blur border-b border-blue-200/40">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Network</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Size</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Price</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Dealer Price</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Description</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Available</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Actions</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Network</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Size</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Price</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Dealer Price</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Description</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Available</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-blue-100/40">
                   {packages.map((pkg) => (
-                    <tr key={pkg.id} className="hover:bg-primary/10 backdrop-blur transition-colors">
-                      <td className="px-6 py-4 font-medium text-foreground">{pkg.network}</td>
-                      <td className="px-6 py-4 text-foreground">{pkg.size}</td>
-                      <td className="px-6 py-4 font-semibold text-primary">GHS {(pkg.price || 0).toFixed(2)}</td>
+                    <tr key={pkg.id} className="hover:bg-blue-100/30 backdrop-blur transition-colors">
+                      <td className="px-6 py-4 font-medium text-gray-900">{pkg.network}</td>
+                      <td className="px-6 py-4 text-gray-900">{pkg.size}</td>
+                      <td className="px-6 py-4 font-semibold text-blue-600">GHS {(pkg.price || 0).toFixed(2)}</td>
                       <td className="px-6 py-4 font-semibold text-purple-600">{pkg.dealer_price ? `GHS ${pkg.dealer_price.toFixed(2)}` : "-"}</td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">{pkg.description || "-"}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{pkg.description || "-"}</td>
                       <td className="px-6 py-4">
                         <Button
                           size="sm"
@@ -352,7 +352,7 @@ export default function AdminPackagesPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleEdit(pkg)}
-                          className="text-primary hover:text-primary hover:bg-primary/5"
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                         >
                           <Edit className="w-4 h-4" />
                         </Button>

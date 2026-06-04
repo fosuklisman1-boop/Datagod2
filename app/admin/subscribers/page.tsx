@@ -180,14 +180,14 @@ export default function AdminSubscribersPage() {
                             <p className="text-xs text-muted-foreground mt-1 text-red-500">Accounts reverted to 'user'</p>
                         </CardContent>
                     </Card>
-                    <Card className="bg-gradient-to-br from-primary/5 to-primary/5 border-primary/20">
+                    <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-100">
                         <CardHeader className="flex flex-row items-center justify-between pb-2">
                             <CardTitle className="text-sm font-medium text-blue-900">Total Subscription Revenue</CardTitle>
-                            <ArrowUpDown className="h-4 w-4 text-primary" />
+                            <ArrowUpDown className="h-4 w-4 text-blue-600" />
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-blue-950">GHS {stats.totalRevenue.toFixed(2)}</div>
-                            <p className="text-xs text-primary/70 mt-1">Lifetime membership fees</p>
+                            <p className="text-xs text-blue-700/70 mt-1">Lifetime membership fees</p>
                         </CardContent>
                     </Card>
                 </div>
@@ -235,11 +235,11 @@ export default function AdminSubscribersPage() {
                                     {loading ? (
                                         Array(5).fill(0).map((_, i) => (
                                             <tr key={i} className="border-b animate-pulse text-transparent select-none">
-                                                <td className="p-4"><div className="h-4 bg-muted rounded w-32"></div></td>
-                                                <td className="p-4"><div className="h-4 bg-muted rounded w-24"></div></td>
-                                                <td className="p-4"><div className="h-4 bg-muted rounded w-40"></div></td>
-                                                <td className="p-4"><div className="h-4 bg-muted rounded w-20"></div></td>
-                                                <td className="p-4 text-right"><div className="h-4 bg-muted rounded w-16 ml-auto"></div></td>
+                                                <td className="p-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
+                                                <td className="p-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+                                                <td className="p-4"><div className="h-4 bg-gray-200 rounded w-40"></div></td>
+                                                <td className="p-4"><div className="h-4 bg-gray-200 rounded w-20"></div></td>
+                                                <td className="p-4 text-right"><div className="h-4 bg-gray-200 rounded w-16 ml-auto"></div></td>
                                             </tr>
                                         ))
                                     ) : filteredSubscriptions.length === 0 ? (
@@ -259,7 +259,7 @@ export default function AdminSubscribersPage() {
                                                         <div className="text-xs text-muted-foreground">{sub.user?.phone_number}</div>
                                                     </td>
                                                     <td className="p-4">
-                                                        <Badge variant="secondary" className="bg-primary/5 text-primary hover:bg-primary/5 border-primary/20">
+                                                        <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-100">
                                                             {sub.plan?.name || "Premium Plan"}
                                                         </Badge>
                                                     </td>

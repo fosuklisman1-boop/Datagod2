@@ -360,7 +360,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         <div className="text-center">
           <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
           <h2 className="text-xl font-bold text-green-700">Vouchers Delivered!</h2>
-          <p className="text-sm text-muted-foreground">Ref: {orderRef}</p>
+          <p className="text-sm text-gray-500">Ref: {orderRef}</p>
         </div>
         <div className="flex justify-end">
           <button
@@ -373,23 +373,23 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         </div>
         <div className="space-y-2">
           {vouchers.map((v, i) => (
-            <div key={i} className="flex items-center justify-between bg-muted/40 rounded-lg px-4 py-3 border">
+            <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 border">
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-muted-foreground mb-1">Voucher {i + 1}</p>
-                <p className="text-xs text-muted-foreground">Serial Number</p>
-                <p className="font-mono font-semibold text-foreground text-sm">{v.serial_number ?? "N/A"}</p>
-                <p className="text-xs text-muted-foreground mt-1">PIN</p>
-                <p className="font-mono font-bold tracking-widest text-foreground text-lg">{v.pin}</p>
+                <p className="text-xs text-gray-400 mb-1">Voucher {i + 1}</p>
+                <p className="text-xs text-gray-500">Serial Number</p>
+                <p className="font-mono font-semibold text-gray-700 text-sm">{v.serial_number ?? "N/A"}</p>
+                <p className="text-xs text-gray-500 mt-1">PIN</p>
+                <p className="font-mono font-bold tracking-widest text-gray-900 text-lg">{v.pin}</p>
               </div>
-              <button onClick={() => handleCopyVoucher(v, i)} className="p-2 border border-border hover:bg-muted rounded-lg flex-shrink-0 ml-3">
+              <button onClick={() => handleCopyVoucher(v, i)} className="p-2 border border-gray-200 hover:bg-gray-200 rounded-lg flex-shrink-0 ml-3">
                 {copiedIdx === i
                   ? <CheckCircle2 className="w-4 h-4 text-green-600" />
-                  : <Copy className="w-4 h-4 text-muted-foreground" />}
+                  : <Copy className="w-4 h-4 text-gray-500" />}
               </button>
             </div>
           ))}
         </div>
-        <p className="text-xs text-center text-muted-foreground">Vouchers also sent to your email and phone.</p>
+        <p className="text-xs text-center text-gray-400">Vouchers also sent to your email and phone.</p>
       </div>
     )
   }
@@ -397,8 +397,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
-        <h2 className="text-2xl font-black mb-2 text-foreground border-l-4 border-violet-600 pl-4">Results Checker Vouchers</h2>
-        <p className="text-muted-foreground text-sm pl-5">WAEC · BECE · NOVDEC — instant serial &amp; PIN delivery</p>
+        <h2 className="text-2xl font-black mb-2 text-gray-900 border-l-4 border-violet-600 pl-4">Results Checker Vouchers</h2>
+        <p className="text-gray-500 text-sm pl-5">WAEC · BECE · NOVDEC — instant serial &amp; PIN delivery</p>
       </div>
 
       {/* Board selection */}
@@ -418,12 +418,12 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   : "shadow-md hover:shadow-xl hover:-translate-y-1"
               }`}
             >
-              <div className={`h-2 ${selectedBoard === board ? "bg-violet-600" : "bg-muted group-hover:bg-violet-300"} transition-colors`} />
+              <div className={`h-2 ${selectedBoard === board ? "bg-violet-600" : "bg-gray-200 group-hover:bg-violet-300"} transition-colors`} />
               <CardContent className="pt-4 pb-4 text-center">
-                <GraduationCap className={`w-8 h-8 mx-auto mb-2 ${selectedBoard === board ? "text-violet-600" : "text-muted-foreground"}`} />
-                <p className={`font-black text-lg ${selectedBoard === board ? "text-violet-700" : "text-foreground"}`}>{board}</p>
-                <p className="text-2xl font-black text-foreground mt-1">GHS {info.customerPrice.toFixed(2)}</p>
-                <p className="text-xs text-muted-foreground mt-1">per voucher</p>
+                <GraduationCap className={`w-8 h-8 mx-auto mb-2 ${selectedBoard === board ? "text-violet-600" : "text-gray-400"}`} />
+                <p className={`font-black text-lg ${selectedBoard === board ? "text-violet-700" : "text-gray-800"}`}>{board}</p>
+                <p className="text-2xl font-black text-gray-900 mt-1">GHS {info.customerPrice.toFixed(2)}</p>
+                <p className="text-xs text-gray-400 mt-1">per voucher</p>
                 {!info.enabled
                   ? <p className="text-xs text-red-500 mt-1 font-medium">Unavailable</p>
                   : info.availableCount === 0
@@ -444,22 +444,22 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         <div className="space-y-6 animate-in fade-in duration-300">
           {/* Quantity */}
           <div>
-            <Label className="text-sm font-semibold text-foreground">Quantity</Label>
+            <Label className="text-sm font-semibold text-gray-700">Quantity</Label>
             <div className="flex items-center gap-3 mt-2">
               <button onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                className="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-foreground hover:bg-accent transition-colors">−</button>
+                className="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50 transition-colors">−</button>
               <Input type="number" min="1" max="50" value={quantity}
                 onChange={e => setQuantity(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
                 className="w-20 text-center font-bold text-lg h-10 rounded-xl" />
               <button onClick={() => setQuantity(q => Math.min(50, q + 1))}
-                className="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-foreground hover:bg-accent transition-colors">+</button>
-              <span className="text-sm text-muted-foreground ml-2">max 50</span>
+                className="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50 transition-colors">+</button>
+              <span className="text-sm text-gray-500 ml-2">max 50</span>
             </div>
           </div>
 
           {/* Customer details */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-foreground">Your Details</h3>
+            <h3 className="font-semibold text-gray-800">Your Details</h3>
             <div>
               <Label className="text-sm">Full Name</Label>
               <Input value={formData.customerName} onChange={e => setFormData(p => ({ ...p, customerName: e.target.value }))}
@@ -480,17 +480,17 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                 }}
                 placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.customerPhone ? "border-red-400" : ""}`} />
               {formErrors.customerPhone && <p className="text-xs text-red-500 mt-1">{formErrors.customerPhone}</p>}
-              <p className="text-xs text-muted-foreground mt-1">Voucher serial numbers &amp; PINs will be sent to this number via SMS</p>
+              <p className="text-xs text-gray-400 mt-1">Voucher serial numbers &amp; PINs will be sent to this number via SMS</p>
             </div>
           </div>
 
           {/* Price summary */}
           <div className="bg-violet-50 rounded-xl p-4 space-y-2 text-sm border border-violet-100">
-            <div className="flex justify-between text-muted-foreground">
+            <div className="flex justify-between text-gray-600">
               <span>{selectedBoard} voucher × {quantity}</span>
               <span>GHS {(boardInfo[selectedBoard]?.customerPrice ?? 0).toFixed(2)} × {quantity}</span>
             </div>
-            <div className="flex justify-between font-bold text-foreground text-lg border-t border-violet-200 pt-2">
+            <div className="flex justify-between font-bold text-gray-900 text-lg border-t border-violet-200 pt-2">
               <span>Total</span>
               <span>GHS {totalPrice.toFixed(2)}</span>
             </div>
@@ -514,7 +514,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                     if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                   }}
                   disabled={otpRequired && otpVerified}
-                  className="mt-1 bg-card font-mono"
+                  className="mt-1 bg-white font-mono"
                 />
                 <p className="text-xs text-purple-700 mt-1">
                   {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
@@ -530,14 +530,14 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   <div className="space-y-2">
                     <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
                       onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
+                      className="text-center text-lg tracking-[0.4em] font-mono bg-white" />
                     <div className="flex gap-2">
                       <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
                         {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                       </Button>
                       <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
                     </div>
-                    <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                    <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
                   </div>
                 )
               ) : (
@@ -568,7 +568,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
             }
           </Button>
 
-          <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
+          <p className="text-xs text-center text-gray-400 flex items-center justify-center gap-1">
             <AlertCircle className="w-3 h-3" />
             Serial numbers &amp; PINs delivered instantly by SMS &amp; email after payment
           </p>
@@ -578,24 +578,24 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       {/* Live Mobile Money prompt modal (direct-charge flow). */}
       {momoModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
-          <Card className="w-full max-w-md bg-card rounded-2xl">
+          <Card className="w-full max-w-md bg-white rounded-2xl">
             {momoModal.state === "awaiting" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
                 <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
                   <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
+                  <h3 className="text-lg font-bold text-gray-900">Approve the prompt on your phone</h3>
+                  <p className="text-sm text-gray-600 mt-1">
                     We sent a Mobile Money prompt to{" "}
                     <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
                     <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
                   </p>
                 </div>
-                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
                   <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
                 </div>
-                <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
+                <p className="text-xs text-gray-400">Keep this page open. This can take up to a minute.</p>
               </CardContent>
             )}
 
@@ -605,15 +605,15 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   <CheckCircle2 className="w-9 h-9 text-green-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Your vouchers are ready. View them now, or check your SMS &amp; email.</p>
+                  <h3 className="text-lg font-bold text-gray-900">Payment successful 🎉</h3>
+                  <p className="text-sm text-gray-600 mt-1">Your vouchers are ready. View them now, or check your SMS &amp; email.</p>
                 </div>
-                <div className="text-left p-4 rounded-lg bg-muted/40 border border-border space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Item</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
+                <div className="text-left p-4 rounded-lg bg-gray-50 border border-gray-200 space-y-1.5 text-sm">
+                  <div className="flex justify-between"><span className="text-gray-500">Item</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
                   {momoModal.reference && (
-                    <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{momoModal.reference}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Reference</span><span className="font-mono text-xs">{momoModal.reference}</span></div>
                   )}
                 </div>
                 <Button
@@ -634,8 +634,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   <AlertCircle className="w-9 h-9 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
+                  <h3 className="text-lg font-bold text-gray-900">Payment not completed</h3>
+                  <p className="text-sm text-gray-600 mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
                 </div>
                 <Button variant="outline" onClick={() => setMomoModal(null)} className="w-full rounded-xl">Close</Button>
               </CardContent>

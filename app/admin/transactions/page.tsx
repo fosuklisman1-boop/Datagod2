@@ -466,7 +466,7 @@ export default function AdminTransactionsPage() {
                 {/* Mobile Card View */}
                 <div className="lg:hidden space-y-3">
                   {transactions.map((transaction) => (
-                    <div key={transaction.id} className="border rounded-lg p-4 bg-card shadow-sm">
+                    <div key={transaction.id} className="border rounded-lg p-4 bg-white shadow-sm">
                       {/* Header: Date + Status */}
                       <div className="flex justify-between items-start mb-3">
                         <div>

@@ -71,7 +71,7 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold mb-2">Your Details</h2>
-        <p className="text-sm text-muted-foreground">Enter your information to complete the order</p>
+        <p className="text-sm text-gray-600">Enter your information to complete the order</p>
       </div>
 
       {hasErrors && (
@@ -156,7 +156,7 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
             )}
           </Label>
           <div className="relative">
-            <div className="absolute left-3 top-3 text-muted-foreground text-sm font-medium">🇬🇭</div>
+            <div className="absolute left-3 top-3 text-gray-500 text-sm font-medium">🇬🇭</div>
             <Input
               id="phone"
               type="tel"
@@ -176,17 +176,17 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
             <p className="text-xs text-red-600">{phoneError}</p>
           )}
           {!phoneError && touched.has('phone') && (
-            <p className="text-xs text-muted-foreground">Ghana phone format (10 digits)</p>
+            <p className="text-xs text-gray-500">Ghana phone format (10 digits)</p>
           )}
         </div>
       </div>
 
       {/* Helpful Info */}
-      <Card className="bg-primary/5 border-primary/20">
+      <Card className="bg-blue-50 border-blue-200">
         <CardContent className="pt-4">
           <div className="space-y-2 text-sm">
             <p className="font-medium text-blue-900">💡 Tips for entering your details:</p>
-            <ul className="list-disc list-inside space-y-1 text-primary">
+            <ul className="list-disc list-inside space-y-1 text-blue-800">
               <li>Full name as it appears on your ID</li>
               <li>Active email for order confirmation</li>
               <li>Ghana phone number (02 or 05 prefix)</li>

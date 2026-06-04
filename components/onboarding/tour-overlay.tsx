@@ -109,7 +109,7 @@ export function TourOverlay({ spotlight, message, direction = "bottom", onElemen
 
       {/* Tooltip */}
       <div
-        className="absolute bg-card rounded-lg shadow-2xl border border-primary p-4 max-w-xs z-[1002] pointer-events-auto transform -translate-x-1/2"
+        className="absolute bg-white rounded-lg shadow-2xl border border-blue-500 p-4 max-w-xs z-[1002] pointer-events-auto transform -translate-x-1/2"
         style={{
           top: `${tooltipTop}px`,
           left: `${tooltipLeft}px`,
@@ -118,7 +118,7 @@ export function TourOverlay({ spotlight, message, direction = "bottom", onElemen
         <div className="flex gap-3">
           <div className="text-2xl flex-shrink-0">👆</div>
           <div>
-            <p className="text-sm font-medium text-foreground leading-relaxed">
+            <p className="text-sm font-medium text-gray-900 leading-relaxed">
               {message}
             </p>
           </div>
@@ -127,8 +127,8 @@ export function TourOverlay({ spotlight, message, direction = "bottom", onElemen
         {/* Animated pulse dot */}
         <div className="absolute top-1 right-1">
           <div className="relative w-3 h-3">
-            <div className="absolute inset-0 bg-primary rounded-full animate-ping"></div>
-            <div className="absolute inset-0 bg-primary rounded-full"></div>
+            <div className="absolute inset-0 bg-blue-500 rounded-full animate-ping"></div>
+            <div className="absolute inset-0 bg-blue-500 rounded-full"></div>
           </div>
         </div>
       </div>

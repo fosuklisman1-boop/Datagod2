@@ -125,13 +125,13 @@ export function OnboardingModal({ open, onComplete, onSkip }: OnboardingModalPro
       return (
         <div className="space-y-4 text-center py-8">
           <div className="text-5xl">👆</div>
-          <h3 className="text-xl font-bold text-foreground">
+          <h3 className="text-xl font-bold text-gray-900">
             Interactive Wallet Guide
           </h3>
-          <p className="text-muted-foreground">
+          <p className="text-gray-600">
             {walletTourSteps[tourStep]?.message || "Tour complete!"}
           </p>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-gray-500">
             Step {tourStep + 1} of {walletTourSteps.length}
           </p>
         </div>
@@ -187,12 +187,12 @@ export function OnboardingModal({ open, onComplete, onSkip }: OnboardingModalPro
             {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex-1">
-                <h2 className="text-2xl font-bold text-foreground">
+                <h2 className="text-2xl font-bold text-gray-900">
                   {interactiveMode
                     ? "Wallet Interactive Guide"
                     : STEPS[currentStep - 1].title}
                 </h2>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-sm text-gray-500 mt-1">
                   {interactiveMode
                     ? `Step ${tourStep + 1} of ${walletTourSteps.length}`
                     : `Step ${currentStep} of ${totalSteps}`}
@@ -200,7 +200,7 @@ export function OnboardingModal({ open, onComplete, onSkip }: OnboardingModalPro
               </div>
               <button
                 onClick={handleSkip}
-                className="text-muted-foreground hover:text-muted-foreground transition"
+                className="text-gray-400 hover:text-gray-600 transition"
                 aria-label="Close onboarding"
               >
                 <X className="w-6 h-6" />
@@ -216,7 +216,7 @@ export function OnboardingModal({ open, onComplete, onSkip }: OnboardingModalPro
             </div>
 
             {/* Footer Navigation */}
-            <div className="flex items-center justify-between pt-6 border-t border-border">
+            <div className="flex items-center justify-between pt-6 border-t border-gray-200">
               <Button
                 variant="outline"
                 onClick={handlePrevious}
@@ -235,7 +235,7 @@ export function OnboardingModal({ open, onComplete, onSkip }: OnboardingModalPro
                 </Button>
                 <Button
                   onClick={handleNext}
-                  className="gap-2 bg-gradient-to-r from-primary to-purple-600"
+                  className="gap-2 bg-gradient-to-r from-blue-600 to-purple-600"
                 >
                   {interactiveMode
                     ? tourStep === walletTourSteps.length - 1

@@ -252,16 +252,16 @@ export default function ResultsCheckerPage() {
       <div className="p-6 space-y-6 max-w-4xl mx-auto">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <GraduationCap className="w-6 h-6 text-violet-600" />
               Results Checker Vouchers
             </h1>
-            <p className="text-muted-foreground text-sm mt-1">Purchase WAEC, BECE &amp; NOVDEC scratch card vouchers</p>
+            <p className="text-gray-500 text-sm mt-1">Purchase WAEC, BECE &amp; NOVDEC scratch card vouchers</p>
           </div>
           {walletBalance !== null && (
             <div className="text-right">
-              <p className="text-xs text-muted-foreground">Wallet Balance</p>
-              <p className="text-xl font-bold text-foreground">GHS {walletBalance.toFixed(2)}</p>
+              <p className="text-xs text-gray-500">Wallet Balance</p>
+              <p className="text-xl font-bold text-gray-900">GHS {walletBalance.toFixed(2)}</p>
             </div>
           )}
         </div>
@@ -273,7 +273,7 @@ export default function ResultsCheckerPage() {
               <CardTitle className="text-base flex items-center gap-2">
                 <ShoppingCart className="w-4 h-4" />Buy Vouchers
               </CardTitle>
-              {purchaseOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+              {purchaseOpen ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
             </div>
           </CardHeader>
 
@@ -291,13 +291,13 @@ export default function ResultsCheckerPage() {
                       className={`flex flex-col items-center p-4 rounded-xl border-2 transition-all font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
                         examBoard === board
                           ? "border-violet-600 bg-violet-50 text-violet-700"
-                          : "border-border hover:border-border text-foreground"
+                          : "border-gray-200 hover:border-gray-300 text-gray-700"
                       }`}
                     >
                       <GraduationCap className="w-6 h-6 mb-1" />
                       {board}
                       {boardSettings[board] && (
-                        <span className="text-xs font-normal text-muted-foreground mt-1">
+                        <span className="text-xs font-normal text-gray-500 mt-1">
                           GHS {boardSettings[board].basePrice.toFixed(2)}
                         </span>
                       )}
@@ -311,27 +311,27 @@ export default function ResultsCheckerPage() {
                 <Label className="text-sm font-medium">Quantity</Label>
                 <div className="flex items-center gap-3 mt-2">
                   <button onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                    className="w-9 h-9 rounded-lg border border-border flex items-center justify-center font-bold text-foreground hover:bg-accent">−</button>
+                    className="w-9 h-9 rounded-lg border border-gray-300 flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50">−</button>
                   <Input type="number" min="1" max="50" value={quantity}
                     onChange={e => setQuantity(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
                     className="w-20 text-center font-bold text-lg" />
                   <button onClick={() => setQuantity(q => Math.min(50, q + 1))}
-                    className="w-9 h-9 rounded-lg border border-border flex items-center justify-center font-bold text-foreground hover:bg-accent">+</button>
+                    className="w-9 h-9 rounded-lg border border-gray-300 flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50">+</button>
                 </div>
               </div>
 
               {/* Price summary */}
               {pricing && (
-                <div className="bg-muted/40 rounded-lg p-4 space-y-2 text-sm">
-                  <div className="flex justify-between text-muted-foreground">
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                  <div className="flex justify-between text-gray-600">
                     <span>Price per voucher</span>
                     <span>GHS {pricing.unitPrice.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-muted-foreground">
+                  <div className="flex justify-between text-gray-600">
                     <span>Quantity</span>
                     <span>× {quantity}</span>
                   </div>
-                  <div className="flex justify-between font-bold text-foreground text-base border-t pt-2">
+                  <div className="flex justify-between font-bold text-gray-900 text-base border-t pt-2">
                     <span>Total</span>
                     <span>GHS {pricing.totalPaid.toFixed(2)}</span>
                   </div>
@@ -360,12 +360,12 @@ export default function ResultsCheckerPage() {
         {/* Success Modal */}
         {successOrder && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <div className="w-full sm:max-w-md bg-card rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
+            <div className="w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
               {/* Header */}
               <div className="text-center px-6 pt-6 pb-3 flex-shrink-0">
                 <div className="text-4xl mb-2">🎓</div>
                 <h2 className="text-lg font-bold text-green-700">Vouchers Delivered!</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">Ref: {successOrder.reference_code}</p>
+                <p className="text-sm text-gray-500 mt-0.5">Ref: {successOrder.reference_code}</p>
               </div>
 
               {/* Scrollable content */}
@@ -380,24 +380,24 @@ export default function ResultsCheckerPage() {
                 </div>
                 <div className="space-y-2">
                   {successVouchers.map((v, i) => (
-                    <div key={i} className="flex items-start justify-between bg-muted/40 rounded-xl px-4 py-3 gap-3">
+                    <div key={i} className="flex items-start justify-between bg-gray-50 rounded-xl px-4 py-3 gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs text-muted-foreground font-medium mb-1">Voucher {i + 1}</p>
-                        <p className="text-xs text-muted-foreground">Serial Number</p>
-                        <p className="font-mono font-semibold text-foreground text-sm break-all">{v.serial_number ?? "N/A"}</p>
-                        <p className="text-xs text-muted-foreground mt-1">PIN</p>
-                        <p className="font-mono font-bold text-foreground tracking-widest text-lg break-all">{v.pin}</p>
+                        <p className="text-xs text-gray-500 font-medium mb-1">Voucher {i + 1}</p>
+                        <p className="text-xs text-gray-400">Serial Number</p>
+                        <p className="font-mono font-semibold text-gray-700 text-sm break-all">{v.serial_number ?? "N/A"}</p>
+                        <p className="text-xs text-gray-400 mt-1">PIN</p>
+                        <p className="font-mono font-bold text-gray-900 tracking-widest text-lg break-all">{v.pin}</p>
                       </div>
                       <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
-                        className="flex-shrink-0 p-2 border border-border hover:bg-muted rounded-lg transition-colors mt-1">
+                        className="flex-shrink-0 p-2 border border-gray-200 hover:bg-gray-200 rounded-lg transition-colors mt-1">
                         {copiedKey === `success-${i}`
                           ? <CheckCircle className="w-4 h-4 text-green-600" />
-                          : <Copy className="w-4 h-4 text-muted-foreground" />}
+                          : <Copy className="w-4 h-4 text-gray-500" />}
                       </button>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground text-center">These vouchers have also been sent to your phone &amp; email.</p>
+                <p className="text-xs text-gray-400 text-center">These vouchers have also been sent to your phone &amp; email.</p>
               </div>
 
               {/* Sticky footer */}
@@ -411,7 +411,7 @@ export default function ResultsCheckerPage() {
         {/* Order History */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-foreground">Order History</h2>
+            <h2 className="text-lg font-bold text-gray-900">Order History</h2>
             <Button variant="outline" size="sm" onClick={loadOrders}>
               <RefreshCw className="w-4 h-4 mr-1" />Refresh
             </Button>
@@ -423,7 +423,7 @@ export default function ResultsCheckerPage() {
             <Card>
               <CardContent className="py-12 text-center">
                 <GraduationCap className="w-10 h-10 mx-auto text-gray-300 mb-3" />
-                <p className="text-muted-foreground">No vouchers purchased yet</p>
+                <p className="text-gray-500">No vouchers purchased yet</p>
               </CardContent>
             </Card>
           ) : (
@@ -431,24 +431,24 @@ export default function ResultsCheckerPage() {
               {orders.map(order => (
                 <Card key={order.id} className="overflow-hidden">
                   <div
-                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent"
+                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50"
                     onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
                   >
                     <div className="flex items-center gap-3">
                       <Badge variant="outline" className="font-semibold">{order.exam_board}</Badge>
-                      <span className="font-mono text-sm text-muted-foreground">{order.reference_code}</span>
-                      <span className="text-sm text-muted-foreground">× {order.quantity}</span>
+                      <span className="font-mono text-sm text-gray-600">{order.reference_code}</span>
+                      <span className="text-sm text-gray-500">× {order.quantity}</span>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-semibold">GHS {Number(order.total_paid).toFixed(2)}</span>
                       <Badge className={STATUS_CLASSES[order.status] ?? ""}>{order.status}</Badge>
-                      <span className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleDateString()}</span>
-                      {expandedOrder === order.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                      <span className="text-xs text-gray-400">{new Date(order.created_at).toLocaleDateString()}</span>
+                      {expandedOrder === order.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                     </div>
                   </div>
 
                   {expandedOrder === order.id && (
-                    <div className="border-t px-4 py-3 bg-muted/40 space-y-3">
+                    <div className="border-t px-4 py-3 bg-gray-50 space-y-3">
                       {order.status === "completed" && order.vouchers && order.vouchers.length > 0 ? (
                         <>
                           <div className="flex justify-end">
@@ -461,18 +461,18 @@ export default function ResultsCheckerPage() {
                           </div>
                           <div className="space-y-2">
                             {order.vouchers.map((v, i) => (
-                              <div key={i} className="flex items-start justify-between bg-card rounded-lg px-3 py-2 border gap-3">
+                              <div key={i} className="flex items-start justify-between bg-white rounded-lg px-3 py-2 border gap-3">
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-xs text-muted-foreground mb-1">Voucher {i + 1}</p>
-                                  <p className="text-xs text-muted-foreground">Serial Number</p>
-                                  <p className="font-mono font-semibold text-foreground text-sm">{v.serial_number ?? "N/A"}</p>
-                                  <p className="text-xs text-muted-foreground mt-1">PIN</p>
+                                  <p className="text-xs text-gray-400 mb-1">Voucher {i + 1}</p>
+                                  <p className="text-xs text-gray-400">Serial Number</p>
+                                  <p className="font-mono font-semibold text-gray-700 text-sm">{v.serial_number ?? "N/A"}</p>
+                                  <p className="text-xs text-gray-400 mt-1">PIN</p>
                                   <p className="font-mono font-bold tracking-widest text-base">{v.pin}</p>
                                 </div>
-                                <button onClick={() => handleCopyVoucher(v, `${order.id}-${i}`)} className="flex-shrink-0 p-2 border border-border hover:bg-accent rounded-lg mt-1">
+                                <button onClick={() => handleCopyVoucher(v, `${order.id}-${i}`)} className="flex-shrink-0 p-2 border border-gray-200 hover:bg-gray-100 rounded-lg mt-1">
                                   {copiedKey === `${order.id}-${i}`
                                     ? <CheckCircle className="w-4 h-4 text-green-600" />
-                                    : <Copy className="w-4 h-4 text-muted-foreground" />}
+                                    : <Copy className="w-4 h-4 text-gray-500" />}
                                 </button>
                               </div>
                             ))}
@@ -493,7 +493,7 @@ export default function ResultsCheckerPage() {
                           </div>
                         </>
                       ) : (
-                        <p className="text-sm text-muted-foreground italic">
+                        <p className="text-sm text-gray-500 italic">
                           {order.status === "pending_payment" ? "Awaiting payment…" : "Voucher details not available"}
                         </p>
                       )}

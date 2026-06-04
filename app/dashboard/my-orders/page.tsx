@@ -158,9 +158,9 @@ export default function MyOrdersPage() {
       case "failed":
         return "bg-red-100 text-red-800"
       case "placed":
-        return "bg-primary/10 text-primary"
+        return "bg-blue-100 text-blue-800"
       default:
-        return "bg-muted text-foreground"
+        return "bg-gray-100 text-gray-800"
     }
   }
 
@@ -175,8 +175,8 @@ export default function MyOrdersPage() {
       <div className="space-y-6 px-2 sm:px-4">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">My Orders</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">Track and manage your data package orders</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Orders</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">Track and manage your data package orders</p>
         </div>
 
         {/* Stats Cards */}
@@ -184,11 +184,11 @@ export default function MyOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-              <ShoppingCart className="h-4 w-4 text-primary" />
+              <ShoppingCart className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCount(stats.totalOrders)}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
+              <p className="text-xs text-gray-600">All time</p>
             </CardContent>
           </Card>
 
@@ -199,7 +199,7 @@ export default function MyOrdersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCount(stats.completed)}</div>
-              <p className="text-xs text-muted-foreground">{stats.successRate.toFixed(1)}% success</p>
+              <p className="text-xs text-gray-600">{stats.successRate.toFixed(1)}% success</p>
             </CardContent>
           </Card>
 
@@ -210,7 +210,7 @@ export default function MyOrdersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCount(stats.processing)}</div>
-              <p className="text-xs text-muted-foreground">In progress</p>
+              <p className="text-xs text-gray-600">In progress</p>
             </CardContent>
           </Card>
 
@@ -221,7 +221,7 @@ export default function MyOrdersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCount(stats.failed)}</div>
-              <p className="text-xs text-muted-foreground">No failures</p>
+              <p className="text-xs text-gray-600">No failures</p>
             </CardContent>
           </Card>
 
@@ -232,7 +232,7 @@ export default function MyOrdersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCount(stats.pending)}</div>
-              <p className="text-xs text-muted-foreground">Awaiting processing</p>
+              <p className="text-xs text-gray-600">Awaiting processing</p>
             </CardContent>
           </Card>
         </div>
@@ -245,9 +245,9 @@ export default function MyOrdersPage() {
           <CardContent className="space-y-4">
             {/* Search by Phone Number */}
             <div>
-              <label htmlFor="searchPhone" className="text-sm font-medium text-foreground">Search by Phone Number</label>
+              <label htmlFor="searchPhone" className="text-sm font-medium text-gray-700">Search by Phone Number</label>
               <div className="relative mt-1">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <Input
                   id="searchPhone"
                   type="text"
@@ -261,12 +261,12 @@ export default function MyOrdersPage() {
 
             <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
               <div>
-                <label htmlFor="network" className="text-sm font-medium text-foreground">Network</label>
+                <label htmlFor="network" className="text-sm font-medium text-gray-700">Network</label>
                 <select 
                   id="network"
                   value={filters.network}
                   onChange={(e) => { setFilters({ ...filters, network: e.target.value }); setPage(1); }}
-                  className="w-full mt-1 px-3 py-2 border border-border rounded-md"
+                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="all">All Networks</option>
                   <option value="MTN">MTN</option>
@@ -276,12 +276,12 @@ export default function MyOrdersPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="status" className="text-sm font-medium text-foreground">Status</label>
+                <label htmlFor="status" className="text-sm font-medium text-gray-700">Status</label>
                 <select 
                   id="status"
                   value={filters.status}
                   onChange={(e) => { setFilters({ ...filters, status: e.target.value }); setPage(1); }}
-                  className="w-full mt-1 px-3 py-2 border border-border rounded-md"
+                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="all">All Status</option>
                   <option value="placed">Placed</option>
@@ -291,12 +291,12 @@ export default function MyOrdersPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="dateRange" className="text-sm font-medium text-foreground">Date Range</label>
+                <label htmlFor="dateRange" className="text-sm font-medium text-gray-700">Date Range</label>
                 <select 
                   id="dateRange"
                   value={filters.dateRange}
                   onChange={(e) => { setFilters({ ...filters, dateRange: e.target.value }); setPage(1); }}
-                  className="w-full mt-1 px-3 py-2 border border-border rounded-md"
+                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="all">All Time</option>
                   <option value="today">Today</option>
@@ -316,39 +316,39 @@ export default function MyOrdersPage() {
             <CardDescription>{filteredOrders.length === 0 ? "No orders found" : `Showing ${filteredOrders.length} order(s)`}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md border border-border">
+            <div className="overflow-x-auto rounded-md border border-gray-100">
               <table className="min-w-[700px] w-full text-xs sm:text-sm">
-                <thead className="bg-muted/40 border-b">
+                <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground">Order Details</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground">Phone Number</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground">Amount</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground">Date</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground">Status</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground">Actions</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Order Details</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Phone Number</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Status</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-900">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                         {searchPhone.trim() ? "No orders found matching your search." : "No orders found. Start by purchasing a data package!"}
                       </td>
                     </tr>
                   ) : (
                     filteredOrders.map((order) => (
-                      <tr key={order.id} className="hover:bg-accent border-b">
+                      <tr key={order.id} className="hover:bg-gray-50 border-b">
                         <td className="px-4 py-3">
                           <div>
                             <p className="font-medium">{order.package_name}</p>
-                            <p className="text-xs text-muted-foreground">{order.network_name}</p>
+                            <p className="text-xs text-gray-600">{order.network_name}</p>
                           </div>
                         </td>
                         <td className="px-4 py-3 font-mono">{order.phone_number}</td>
                         <td className="px-4 py-3 font-semibold">GHS {(order.total_price || 0).toFixed(2)}</td>
                         <td className="px-4 py-3">
                           <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                          <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
+                          <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
                         </td>
                         <td className="px-4 py-3">
                           <Badge className={getStatusBadgeColor(order.order_status)}>
@@ -380,7 +380,7 @@ export default function MyOrdersPage() {
               </table>
             </div>
             <div className="mt-4 flex justify-between items-center">
-              <p className="text-sm text-muted-foreground">Showing {filteredOrders.length} result(s)</p>
+              <p className="text-sm text-gray-600">Showing {filteredOrders.length} result(s)</p>
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 

@@ -178,7 +178,7 @@ export default function AdminSubscriptionsPage() {
                 <div className="flex justify-between items-center mb-6">
                     <div>
                         <h1 className="text-2xl font-bold">Dealer Subscriptions</h1>
-                        <p className="text-muted-foreground text-sm">Manage dealer role subscription plans</p>
+                        <p className="text-gray-500 text-sm">Manage dealer role subscription plans</p>
                     </div>
                     {!showForm && (
                         <Button onClick={() => setShowForm(true)} className="gap-2">
@@ -271,11 +271,11 @@ export default function AdminSubscriptionsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {loading ? (
                         <div className="col-span-3 text-center py-12">
-                            <p className="text-muted-foreground">Loading plans...</p>
+                            <p className="text-gray-500">Loading plans...</p>
                         </div>
                     ) : plans.length === 0 ? (
-                        <div className="col-span-3 text-center py-12 bg-muted/40 rounded-lg border-2 border-dashed">
-                            <p className="text-muted-foreground">No subscription plans created yet.</p>
+                        <div className="col-span-3 text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed">
+                            <p className="text-gray-500">No subscription plans created yet.</p>
                         </div>
                     ) : (
                         plans.map(plan => (
@@ -289,9 +289,9 @@ export default function AdminSubscriptionsPage() {
                                 <CardContent>
                                     <div className="mb-4">
                                         <p className="text-3xl font-bold">GHS {plan.price.toFixed(2)}</p>
-                                        <p className="text-sm text-muted-foreground">{plan.duration_days} Days Access</p>
+                                        <p className="text-sm text-gray-500">{plan.duration_days} Days Access</p>
                                     </div>
-                                    <p className="text-sm text-muted-foreground mb-6 min-h-[40px]">
+                                    <p className="text-sm text-gray-600 mb-6 min-h-[40px]">
                                         {plan.description || "Become a dealer and unlock wholesale rates."}
                                     </p>
                                     <div className="flex justify-end gap-2">

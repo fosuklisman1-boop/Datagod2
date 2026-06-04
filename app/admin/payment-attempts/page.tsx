@@ -171,7 +171,7 @@ export default function PaymentAttemptsPage() {
 
   const getTypeBadge = (type: string) => {
     return type === "wallet_topup"
-      ? <Badge variant="outline" className="border-primary text-primary"><Wallet className="w-3 h-3 mr-1" />Wallet</Badge>
+      ? <Badge variant="outline" className="border-blue-500 text-blue-600"><Wallet className="w-3 h-3 mr-1" />Wallet</Badge>
       : <Badge variant="outline" className="border-purple-500 text-purple-600"><ShoppingCart className="w-3 h-3 mr-1" />Shop Order</Badge>
   }
 
@@ -330,10 +330,10 @@ export default function PaymentAttemptsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Abandoned</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+              <AlertTriangle className="h-4 w-4 text-gray-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-muted-foreground">{stats.abandoned}</div>
+              <div className="text-2xl font-bold text-gray-600">{stats.abandoned}</div>
               <p className="text-xs text-muted-foreground">Never completed</p>
             </CardContent>
           </Card>
@@ -341,10 +341,10 @@ export default function PaymentAttemptsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Conversion</CardTitle>
-              <TrendingUp className="h-4 w-4 text-primary" />
+              <TrendingUp className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-primary">{conversionRate}%</div>
+              <div className="text-2xl font-bold text-blue-600">{conversionRate}%</div>
               <p className="text-xs text-muted-foreground">Success rate</p>
             </CardContent>
           </Card>

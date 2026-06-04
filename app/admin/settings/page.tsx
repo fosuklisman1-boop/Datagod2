@@ -783,11 +783,11 @@ export default function AdminSettingsPage() {
 
   return (
     <DashboardLayout>
-      <div className="bg-muted/40 p-4 md:p-8">
+      <div className="bg-gray-50 p-4 md:p-8">
         <div className="max-w-2xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">App Settings</h1>
-          <p className="text-muted-foreground mt-2">
+          <h1 className="text-3xl font-bold text-gray-900">App Settings</h1>
+          <p className="text-gray-600 mt-2">
             Configure application-wide settings and community links
           </p>
         </div>
@@ -803,10 +803,10 @@ export default function AdminSettingsPage() {
           <CardContent>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-foreground">
+                <p className="font-medium text-gray-900">
                   {orderingEnabled ? "Ordering is ENABLED" : "Ordering is DISABLED"}
                 </p>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-sm text-gray-600 mt-1">
                   {orderingEnabled
                     ? "Users can place orders normally."
                     : "ALL NEW ORDER PLACEMENT IS BLOCKED. Existing orders will continue to process."}
@@ -822,9 +822,9 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Feature Availability Toggles */}
-        <Card className="mb-6 border-primary/20 bg-primary/5">
+        <Card className="mb-6 border-blue-200 bg-blue-50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-primary">
+            <CardTitle className="flex items-center gap-2 text-blue-800">
               <Power className="w-5 h-5" />
               Feature Availability Controls
             </CardTitle>
@@ -832,8 +832,8 @@ export default function AdminSettingsPage() {
           <CardContent className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-foreground">Sign Ups</p>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="font-medium text-gray-900">Sign Ups</p>
+                <p className="text-sm text-gray-600 mt-1">
                   Allow new users to register. If disabled, the sign-up form will block new registrations entirely.
                 </p>
               </div>
@@ -846,8 +846,8 @@ export default function AdminSettingsPage() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-foreground">Default Sign-Up Role</p>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="font-medium text-gray-900">Default Sign-Up Role</p>
+                <p className="text-sm text-gray-600 mt-1">
                   Role automatically assigned to every new user at registration.
                 </p>
               </div>
@@ -856,7 +856,7 @@ export default function AdminSettingsPage() {
                 onValueChange={(v) => setSignupDefaultRole(v as 'user' | 'dealer')}
                 disabled={!signupsEnabled}
               >
-                <SelectTrigger className="w-36 bg-card">
+                <SelectTrigger className="w-36 bg-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -868,10 +868,10 @@ export default function AdminSettingsPage() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-foreground">Wallet Top Ups</p>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="font-medium text-gray-900">Wallet Top Ups</p>
+                <p className="text-sm text-gray-600 mt-1">
                   Allow users to add funds to their wallet. <br/>
-                  <span className="text-primary font-semibold text-xs">Admins bypass this restriction.</span>
+                  <span className="text-blue-700 font-semibold text-xs">Admins bypass this restriction.</span>
                 </p>
               </div>
               <Switch
@@ -883,10 +883,10 @@ export default function AdminSettingsPage() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-foreground">Rank Upgrades</p>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="font-medium text-gray-900">Rank Upgrades</p>
+                <p className="text-sm text-gray-600 mt-1">
                   Allow users to upgrade their subscription plans. <br/>
-                  <span className="text-primary font-semibold text-xs">Admins bypass this restriction.</span>
+                  <span className="text-blue-700 font-semibold text-xs">Admins bypass this restriction.</span>
                 </p>
               </div>
               <Switch
@@ -900,7 +900,7 @@ export default function AdminSettingsPage() {
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 bg-primary hover:bg-primary/90"
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
               >
                 {saving ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
@@ -921,13 +921,13 @@ export default function AdminSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-violet-900 font-medium bg-card/60 p-3 rounded-lg border border-violet-100">
+            <p className="text-sm text-violet-900 font-medium bg-white/60 p-3 rounded-lg border border-violet-100">
               ⚠️ Toggling this ON will force an override announcement to appear on ALL storefronts across the entire platform. This takes priority over individual shop announcements.
             </p>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-card border border-violet-200 rounded-lg shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-white border border-violet-200 rounded-lg shadow-sm">
               <div className="flex-1">
-                <p className="font-bold text-foreground">Enable Global Storefront Override</p>
-                <p className="text-sm text-muted-foreground">Force this notice to ALL shop customers</p>
+                <p className="font-bold text-gray-900">Enable Global Storefront Override</p>
+                <p className="text-sm text-gray-600">Force this notice to ALL shop customers</p>
               </div>
               <Switch
                 checked={storefrontAnnouncementEnabled}
@@ -947,7 +947,7 @@ export default function AdminSettingsPage() {
                   placeholder="e.g. Platform-wide Alert"
                   value={storefrontAnnouncementTitle}
                   onChange={(e) => setStorefrontAnnouncementTitle(e.target.value)}
-                  className="w-full bg-card border-violet-200 focus:ring-violet-500"
+                  className="w-full bg-white border-violet-200 focus:ring-violet-500"
                   disabled={!storefrontAnnouncementEnabled}
                 />
               </div>
@@ -961,7 +961,7 @@ export default function AdminSettingsPage() {
                   placeholder="Enter the message customers will see on ALL shops..."
                   value={storefrontAnnouncementMessage}
                   onChange={(e) => setStorefrontAnnouncementMessage(e.target.value)}
-                  className="w-full min-h-[100px] resize-y bg-card border-violet-200 focus:ring-violet-500"
+                  className="w-full min-h-[100px] resize-y bg-white border-violet-200 focus:ring-violet-500"
                   disabled={!storefrontAnnouncementEnabled}
                 />
               </div>
@@ -1004,8 +1004,8 @@ export default function AdminSettingsPage() {
               Configure pricing for the USSD self-service storefront (*code#).
             </p>
             <div className="space-y-2">
-              <p className="font-medium text-foreground text-sm">Price Tier</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="font-medium text-gray-900 text-sm">Price Tier</p>
+              <p className="text-xs text-gray-600">
                 Dealer pricing uses <code>dealer_price</code> from each package. Falls back to regular price if dealer price is not set.
               </p>
               <div className="flex gap-3 mt-2">
@@ -1015,7 +1015,7 @@ export default function AdminSettingsPage() {
                   className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-medium transition-colors ${
                     ussdPriceTier === "regular"
                       ? "border-green-600 bg-green-600 text-white"
-                      : "border-border bg-card text-foreground hover:border-green-400"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-green-400"
                   }`}
                 >
                   Regular Price
@@ -1026,7 +1026,7 @@ export default function AdminSettingsPage() {
                   className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-medium transition-colors ${
                     ussdPriceTier === "dealer"
                       ? "border-green-600 bg-green-600 text-white"
-                      : "border-border bg-card text-foreground hover:border-green-400"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-green-400"
                   }`}
                 >
                   Dealer Price
@@ -1053,7 +1053,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="joinLink" className="text-sm font-medium">
                 Community Join Link
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 This link will be displayed to users who want to join your community
               </p>
               <Input
@@ -1067,14 +1067,14 @@ export default function AdminSettingsPage() {
             </div>
 
             {joinCommunityLink && (
-              <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
-                <p className="text-sm text-primary">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-700">
                   <span className="font-semibold">Preview:</span>{" "}
                   <a
                     href={joinCommunityLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary hover:underline break-all"
+                    className="text-blue-600 hover:underline break-all"
                   >
                     {joinCommunityLink}
                   </a>
@@ -1116,7 +1116,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="whatsapp" className="text-sm font-medium">
                 WhatsApp Number (Required)
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 Used for password reset requests. Format: international without + (e.g., 233501234567)
               </p>
               <Input
@@ -1147,7 +1147,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="supportEmail" className="text-sm font-medium">
                 Support Email (Optional)
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 Shown as alternative contact method
               </p>
               <Input
@@ -1164,7 +1164,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="supportPhone" className="text-sm font-medium">
                 Support Phone (Optional)
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 Local phone number format
               </p>
               <Input
@@ -1183,12 +1183,12 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <LinkIcon className="w-5 h-5 text-primary" />
+              <LinkIcon className="w-5 h-5 text-blue-600" />
               Guest Purchase Button
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-gray-600">
               Configure the "Buy as Guest" button that appears on landing and login pages
             </p>
 
@@ -1196,7 +1196,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="guestPurchaseUrl" className="text-sm font-medium">
                 Guest Purchase URL (Optional)
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 URL where guests can purchase without logging in. Leave empty to hide the button.
               </p>
               <Input
@@ -1213,7 +1213,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="guestPurchaseButtonText" className="text-sm font-medium">
                 Button Text
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 Text displayed on the guest purchase button
               </p>
               <Input
@@ -1227,12 +1227,12 @@ export default function AdminSettingsPage() {
             </div>
 
             {guestPurchaseUrl && (
-              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm font-medium text-blue-900 mb-2">Preview:</p>
                 <Button variant="outline" type="button" className="pointer-events-none">
                   {guestPurchaseButtonText || "Buy as Guest"}
                 </Button>
-                <p className="text-xs text-primary mt-2">
+                <p className="text-xs text-blue-700 mt-2">
                   This button will appear on the landing page and login page, opening in a new window.
                 </p>
               </div>
@@ -1252,7 +1252,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="paystackFee" className="text-sm font-medium">
                 Paystack Fee Percentage
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 Fee charged for Paystack payments (e.g., 3 for 3%)
               </p>
               <div className="flex items-center gap-2">
@@ -1267,7 +1267,7 @@ export default function AdminSettingsPage() {
                   className="flex-1"
                   placeholder="3.0"
                 />
-                <span className="text-sm font-medium text-muted-foreground">%</span>
+                <span className="text-sm font-medium text-gray-600">%</span>
               </div>
             </div>
 
@@ -1275,7 +1275,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="walletTopupFee" className="text-sm font-medium">
                 Wallet Top-up Fee Percentage
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 Additional fee charged on top-ups (e.g., 2 for 2%)
               </p>
               <div className="flex items-center gap-2">
@@ -1290,7 +1290,7 @@ export default function AdminSettingsPage() {
                   className="flex-1"
                   placeholder="0"
                 />
-                <span className="text-sm font-medium text-muted-foreground">%</span>
+                <span className="text-sm font-medium text-gray-600">%</span>
               </div>
             </div>
 
@@ -1298,7 +1298,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="withdrawalFee" className="text-sm font-medium">
                 Withdrawal Fee Percentage
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 Fee deducted from withdrawal requests (e.g., 5 for 5%)
               </p>
               <div className="flex items-center gap-2">
@@ -1313,20 +1313,20 @@ export default function AdminSettingsPage() {
                   className="flex-1"
                   placeholder="0"
                 />
-                <span className="text-sm font-medium text-muted-foreground">%</span>
+                <span className="text-sm font-medium text-gray-600">%</span>
               </div>
             </div>
 
-            <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-3">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
               <div>
                 <h4 className="font-semibold text-sm text-blue-900 mb-2">Top-up Preview (GHS 100)</h4>
                 <div className="text-sm space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-primary">Amount to top up:</span>
+                    <span className="text-blue-700">Amount to top up:</span>
                     <span className="font-medium text-blue-900">GHS 100.00</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-primary">
+                    <span className="text-blue-700">
                       Paystack fee ({paystackFeePercentage}%):
                     </span>
                     <span className="font-medium text-blue-900">
@@ -1334,14 +1334,14 @@ export default function AdminSettingsPage() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-primary">
+                    <span className="text-blue-700">
                       Wallet topup fee ({walletTopupFeePercentage}%):
                     </span>
                     <span className="font-medium text-blue-900">
                       GHS {(100 * walletTopupFeePercentage / 100).toFixed(2)}
                     </span>
                   </div>
-                  <div className="border-t border-primary/20 pt-1 flex justify-between">
+                  <div className="border-t border-blue-200 pt-1 flex justify-between">
                     <span className="text-blue-900 font-semibold">Total charge:</span>
                     <span className="font-bold text-blue-900">
                       GHS {(100 + (100 * paystackFeePercentage / 100) + (100 * walletTopupFeePercentage / 100)).toFixed(2)}
@@ -1350,22 +1350,22 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
 
-              <div className="border-t border-primary/20 pt-3">
+              <div className="border-t border-blue-200 pt-3">
                 <h4 className="font-semibold text-sm text-blue-900 mb-2">Withdrawal Preview (GHS 100 Requested)</h4>
                 <div className="text-sm space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-primary">Requested amount:</span>
+                    <span className="text-blue-700">Requested amount:</span>
                     <span className="font-medium text-blue-900">GHS 100.00</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-primary">
+                    <span className="text-blue-700">
                       Withdrawal fee ({withdrawalFeePercentage}%):
                     </span>
                     <span className="font-medium text-orange-600">
                       -GHS {(100 * withdrawalFeePercentage / 100).toFixed(2)}
                     </span>
                   </div>
-                  <div className="border-t border-primary/20 pt-1 flex justify-between">
+                  <div className="border-t border-blue-200 pt-1 flex justify-between">
                     <span className="text-blue-900 font-semibold">Shop receives:</span>
                     <span className="font-bold text-green-600">
                       GHS {(100 - (100 * withdrawalFeePercentage / 100)).toFixed(2)}
@@ -1406,7 +1406,7 @@ export default function AdminSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-gray-600">
               Adjust package prices by percentage for each network. Positive values increase prices (markup),
               negative values decrease prices (discount). Applied at display time without changing base prices.
             </p>
@@ -1426,7 +1426,7 @@ export default function AdminSettingsPage() {
                     step="0.01"
                     value={priceAdjustmentMtn}
                     onChange={(e) => setPriceAdjustmentMtn(parseFloat(e.target.value) || 0)}
-                    className="flex-1 bg-card"
+                    className="flex-1 bg-white"
                     placeholder="0"
                   />
                   <span className="text-sm font-medium text-yellow-800">%</span>
@@ -1450,7 +1450,7 @@ export default function AdminSettingsPage() {
                     step="0.01"
                     value={priceAdjustmentTelecel}
                     onChange={(e) => setPriceAdjustmentTelecel(parseFloat(e.target.value) || 0)}
-                    className="flex-1 bg-card"
+                    className="flex-1 bg-white"
                     placeholder="0"
                   />
                   <span className="text-sm font-medium text-red-800">%</span>
@@ -1461,7 +1461,7 @@ export default function AdminSettingsPage() {
               </div>
 
               {/* AT - iShare */}
-              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <Label htmlFor="priceAdjAtIshare" className="text-sm font-medium text-blue-900">
                   AT - iShare Price Adjustment
                 </Label>
@@ -1474,12 +1474,12 @@ export default function AdminSettingsPage() {
                     step="0.01"
                     value={priceAdjustmentAtIshare}
                     onChange={(e) => setPriceAdjustmentAtIshare(parseFloat(e.target.value) || 0)}
-                    className="flex-1 bg-card"
+                    className="flex-1 bg-white"
                     placeholder="0"
                   />
-                  <span className="text-sm font-medium text-primary">%</span>
+                  <span className="text-sm font-medium text-blue-800">%</span>
                 </div>
-                <p className="text-xs text-primary mt-1">
+                <p className="text-xs text-blue-700 mt-1">
                   {priceAdjustmentAtIshare > 0 ? `+${priceAdjustmentAtIshare}% markup` : priceAdjustmentAtIshare < 0 ? `${priceAdjustmentAtIshare}% discount` : 'No adjustment'}
                 </p>
               </div>
@@ -1498,7 +1498,7 @@ export default function AdminSettingsPage() {
                     step="0.01"
                     value={priceAdjustmentAtBigtime}
                     onChange={(e) => setPriceAdjustmentAtBigtime(parseFloat(e.target.value) || 0)}
-                    className="flex-1 bg-card"
+                    className="flex-1 bg-white"
                     placeholder="0"
                   />
                   <span className="text-sm font-medium text-purple-800">%</span>
@@ -1510,8 +1510,8 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* Preview */}
-            <div className="bg-muted/40 border border-border rounded-lg p-4 mt-4">
-              <h4 className="font-semibold text-sm text-foreground mb-3">Price Preview (GHS 10.00 base price)</h4>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+              <h4 className="font-semibold text-sm text-gray-900 mb-3">Price Preview (GHS 10.00 base price)</h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <div className="text-center p-2 bg-yellow-100 rounded">
                   <p className="text-yellow-800 font-medium">MTN</p>
@@ -1525,8 +1525,8 @@ export default function AdminSettingsPage() {
                     GHS {(10 * (1 + priceAdjustmentTelecel / 100)).toFixed(2)}
                   </p>
                 </div>
-                <div className="text-center p-2 bg-primary/10 rounded">
-                  <p className="text-primary font-medium">AT-iShare</p>
+                <div className="text-center p-2 bg-blue-100 rounded">
+                  <p className="text-blue-800 font-medium">AT-iShare</p>
                   <p className="text-blue-900 font-bold">
                     GHS {(10 * (1 + priceAdjustmentAtIshare / 100)).toFixed(2)}
                   </p>
@@ -1570,18 +1570,18 @@ export default function AdminSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-gray-600">
               Quick access to important application URLs. Click to copy any URL to clipboard.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {domainUrls.map((item) => (
                 <div
                   key={item.url}
-                  className="flex items-center justify-between gap-2 p-3 bg-muted/40 border border-border rounded-lg hover:bg-accent transition-colors"
+                  className="flex items-center justify-between gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">{item.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{item.url}</p>
+                    <p className="text-sm font-medium text-gray-900">{item.name}</p>
+                    <p className="text-xs text-gray-500 truncate">{item.url}</p>
                   </div>
                   <Button
                     size="sm"
@@ -1609,15 +1609,15 @@ export default function AdminSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-gray-600">
               Configure these webhook URLs in your payment provider settings for real-time transaction updates.
             </p>
             <div className="space-y-3">
               <div className="p-4 border border-purple-200 bg-purple-50 rounded-lg space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-foreground">Paystack Webhook</p>
-                    <p className="text-xs text-muted-foreground mt-1">Configure this in Paystack Dashboard → Settings → Webhooks</p>
+                    <p className="text-sm font-semibold text-gray-900">Paystack Webhook</p>
+                    <p className="text-xs text-gray-600 mt-1">Configure this in Paystack Dashboard → Settings → Webhooks</p>
                   </div>
                   <Button
                     size="sm"
@@ -1631,8 +1631,8 @@ export default function AdminSettingsPage() {
                     )}
                   </Button>
                 </div>
-                <div className="p-2 bg-card rounded border border-purple-200">
-                  <p className="text-xs text-foreground font-mono break-all">{`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`}</p>
+                <div className="p-2 bg-white rounded border border-purple-200">
+                  <p className="text-xs text-gray-700 font-mono break-all">{`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`}</p>
                 </div>
               </div>
             </div>
@@ -1643,19 +1643,19 @@ export default function AdminSettingsPage() {
 
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-primary">
+            <CardTitle className="flex items-center gap-2 text-blue-600">
               <Bell className="w-5 h-5" />
               Login Announcement
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-gray-600">
               This announcement is shown only to users when they log into their dashboard.
             </p>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-primary/5 border border-primary/20 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="flex-1">
-                <p className="font-medium text-foreground">Enable Login Announcement</p>
-                <p className="text-sm text-muted-foreground">Show modal upon sign in</p>
+                <p className="font-medium text-gray-900">Enable Login Announcement</p>
+                <p className="text-sm text-gray-600">Show modal upon sign in</p>
               </div>
               <Switch
                 checked={announcementEnabled}
@@ -1704,7 +1704,7 @@ export default function AdminSettingsPage() {
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-primary hover:bg-primary/90"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700"
               >
                 {saving ? (
                   <>
@@ -1749,15 +1749,15 @@ export default function AdminSettingsPage() {
           <CardContent className="space-y-4 pt-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-purple-50 border-2 border-purple-300 rounded-lg">
               <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Require Phone OTP at Checkout</p>
-                <p className="text-sm text-foreground mt-2">
+                <p className="font-bold text-gray-900 text-lg">Require Phone OTP at Checkout</p>
+                <p className="text-sm text-gray-700 mt-2">
                   {checkoutOtpEnabled
                     ? "🔒 ON — every guest must enter an SMS code sent to their phone before they can place an order. Stops automated/bulk orders cold."
                     : "Guest checkout is open (no OTP). Enable this during an attack to force phone verification. Note: each checkout sends one SMS (cost), so keep it OFF in normal operation."}
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${checkoutOtpEnabled ? "text-green-700" : "text-muted-foreground"}`}>
+                <span className={`text-sm font-bold ${checkoutOtpEnabled ? "text-green-700" : "text-gray-500"}`}>
                   {checkoutOtpEnabled ? "ON" : "OFF"}
                 </span>
                 <Switch
@@ -1772,18 +1772,18 @@ export default function AdminSettingsPage() {
             {/* Storefront Direct MoMo Charge — independent of the OTP toggle */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-fuchsia-50 border-2 border-fuchsia-300 rounded-lg">
               <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Direct MoMo Charge at Checkout</p>
-                <p className="text-sm text-foreground mt-2">
+                <p className="font-bold text-gray-900 text-lg">Direct MoMo Charge at Checkout</p>
+                <p className="text-sm text-gray-700 mt-2">
                   {storefrontDirectCharge
                     ? "💸 ON — customers pay via an on-page Mobile Money prompt (no Paystack redirect), and the hosted MoMo channel is disabled so prompts can only reach the number entered on-page."
                     : "OFF — checkout sends customers to the hosted Paystack page (card/MoMo/bank). Turn ON for the on-page direct-charge experience."}
                 </p>
-                <p className="text-xs text-muted-foreground mt-2">
+                <p className="text-xs text-gray-500 mt-2">
                   Independent of the OTP toggle. With OTP ON the on-page number must be SMS-verified; with OTP OFF it's charged as typed (rate-capped).
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${storefrontDirectCharge ? "text-green-700" : "text-muted-foreground"}`}>
+                <span className={`text-sm font-bold ${storefrontDirectCharge ? "text-green-700" : "text-gray-500"}`}>
                   {storefrontDirectCharge ? "ON" : "OFF"}
                 </span>
                 <Switch
@@ -1798,12 +1798,12 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Wallet & Upgrade Payment Protection */}
-        <Card className="mt-6 border-2 border-primary">
-          <CardHeader className="bg-gradient-to-r from-primary/5 to-cyan-50">
+        <Card className="mt-6 border-2 border-blue-500">
+          <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50">
             <CardTitle className="flex items-center gap-2 text-2xl">
               💳 Wallet &amp; Upgrade Payment Protection
             </CardTitle>
-            <CardDescription className="text-primary mt-1">
+            <CardDescription className="text-blue-800 mt-1">
               Locks down the <b>order-free</b> payment paths — wallet top-ups &amp; dealer
               upgrades — which otherwise let any signed-in account open a hosted
               checkout and fire Mobile Money prompts at any number. Independent of
@@ -1811,17 +1811,17 @@ export default function AdminSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/5 border-2 border-blue-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-blue-50 border-2 border-blue-300 rounded-lg">
               <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Protect Top-ups &amp; Upgrades</p>
-                <p className="text-sm text-foreground mt-2">
+                <p className="font-bold text-gray-900 text-lg">Protect Top-ups &amp; Upgrades</p>
+                <p className="text-sm text-gray-700 mt-2">
                   {walletLockEnabled
                     ? "🔒 ON — top-ups/upgrades require an OTP-verified payment number. Prompt-spam via these paths is blocked."
                     : "OFF — no OTP required for top-ups/upgrades. Enable to require a verified payment number during an attack."}
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${walletLockEnabled ? "text-green-700" : "text-muted-foreground"}`}>
+                <span className={`text-sm font-bold ${walletLockEnabled ? "text-green-700" : "text-gray-500"}`}>
                   {walletLockEnabled ? "ON" : "OFF"}
                 </span>
                 <Switch
@@ -1836,18 +1836,18 @@ export default function AdminSettingsPage() {
             {/* Wallet/Upgrade Direct MoMo Charge — independent of the OTP toggle */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-cyan-50 border-2 border-cyan-300 rounded-lg">
               <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Direct MoMo Charge for Top-ups &amp; Upgrades</p>
-                <p className="text-sm text-foreground mt-2">
+                <p className="font-bold text-gray-900 text-lg">Direct MoMo Charge for Top-ups &amp; Upgrades</p>
+                <p className="text-sm text-gray-700 mt-2">
                   {walletDirectCharge
                     ? "💸 ON — top-ups/upgrades are paid via an on-page Mobile Money prompt, and the hosted MoMo channel is disabled (the WALLET- prompt-spam path)."
                     : "OFF — top-ups/upgrades use the hosted Paystack page (card/MoMo/bank). Turn ON for the on-page direct-charge experience."}
                 </p>
-                <p className="text-xs text-muted-foreground mt-2">
+                <p className="text-xs text-gray-500 mt-2">
                   Independent of the OTP toggle. With OTP ON the on-page number must be SMS-verified; with OTP OFF it's charged as typed (rate-capped).
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${walletDirectCharge ? "text-green-700" : "text-muted-foreground"}`}>
+                <span className={`text-sm font-bold ${walletDirectCharge ? "text-green-700" : "text-gray-500"}`}>
                   {walletDirectCharge ? "ON" : "OFF"}
                 </span>
                 <Switch
@@ -1876,10 +1876,10 @@ export default function AdminSettingsPage() {
           <CardContent className="space-y-4 pt-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-red-300 rounded-lg">
               <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">
+                <p className="font-bold text-gray-900 text-lg">
                   {verifiedCount === null ? "Verified numbers" : `${verifiedCount} number${verifiedCount === 1 ? "" : "s"} currently verified`}
                 </p>
-                <p className="text-sm text-foreground mt-2">
+                <p className="text-sm text-gray-700 mt-2">
                   Returning customers re-verify once (one SMS), then they're remembered again.
                   Takes effect immediately — no deploy needed. This cannot be undone.
                 </p>
@@ -1912,8 +1912,8 @@ export default function AdminSettingsPage() {
           <CardContent className="space-y-4 pt-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-orange-50 border-2 border-orange-300 rounded-lg">
               <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Turnstile Verification</p>
-                <p className="text-sm text-foreground mt-2">
+                <p className="font-bold text-gray-900 text-lg">Turnstile Verification</p>
+                <p className="text-sm text-gray-700 mt-2">
                   {turnstileEnabled
                     ? "✅ Turnstile is ACTIVE — every shop order POST must include a valid Cloudflare token. Bots get blocked at this layer."
                     : "⚠️ Turnstile is DISABLED — shop orders bypass CAPTCHA verification. Cookie + honeypot + atomic caps still apply, but bot-resistance is significantly weakened. Re-enable as soon as the incident is resolved."}
@@ -1949,15 +1949,15 @@ export default function AdminSettingsPage() {
           <CardContent className="space-y-4 pt-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-red-300 rounded-lg">
               <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Enable Christmas Theme</p>
-                <p className="text-sm text-foreground mt-2">
+                <p className="font-bold text-gray-900 text-lg">Enable Christmas Theme</p>
+                <p className="text-sm text-gray-700 mt-2">
                   {christmasThemeEnabled
                     ? "✨ Christmas theme is currently ACTIVE! The app features festive colors, snowfall effects, and holiday decorations."
                     : "Add festive holiday spirit to the app with Christmas-themed colors, animations, and decorations."}
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className="text-sm font-medium text-foreground">
+                <span className="text-sm font-medium text-gray-700">
                   {christmasThemeEnabled ? "ON" : "OFF"}
                 </span>
                 <Switch
@@ -1988,12 +1988,12 @@ export default function AdminSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-gray-600">
               This content appears on the public <strong>/terms</strong> page and inside shop "About" tabs.
             </p>
 
             {termsLastUpdated && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-gray-400">
                 Last updated: {new Date(termsLastUpdated).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
               </p>
             )}
@@ -2002,7 +2002,7 @@ export default function AdminSettingsPage() {
               <Label htmlFor="termsContent" className="text-sm font-medium">
                 Terms Content
               </Label>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-gray-500">
                 Format: Start with an intro paragraph. Number sections like "1. Section Title" on their own line, followed by the section body.
               </p>
               <Textarea
@@ -2043,7 +2043,7 @@ export default function AdminSettingsPage() {
           <CardHeader>
             <CardTitle>Settings Information</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-foreground">
+          <CardContent className="space-y-3 text-sm text-gray-700">
             <p>
               The join community link will be available to:
             </p>
@@ -2052,7 +2052,7 @@ export default function AdminSettingsPage() {
               <li>Users in the sidebar or header</li>
               <li>Public pages (if configured)</li>
             </ul>
-            <p className="text-muted-foreground mt-4">
+            <p className="text-gray-600 mt-4">
               Changes are saved immediately and reflected across the application.
             </p>
           </CardContent>

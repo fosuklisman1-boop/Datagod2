@@ -29,9 +29,9 @@ const getNetworkColor = (slug: string): string => {
     'mtn-ghana': 'border-yellow-400 hover:border-yellow-500 bg-yellow-50/30',
     'vodafone-ghana': 'border-red-400 hover:border-red-500 bg-red-50/30',
     'airtel-tigo': 'border-green-400 hover:border-green-500 bg-green-50/30',
-    'at-mobile': 'border-blue-400 hover:border-primary bg-primary/5',
+    'at-mobile': 'border-blue-400 hover:border-blue-500 bg-blue-50/30',
   }
-  return colors[slug] || 'border-border hover:border-gray-400 bg-muted/40'
+  return colors[slug] || 'border-gray-300 hover:border-gray-400 bg-gray-50/30'
 }
 
 export const StepSelector: React.FC<StepSelectorProps> = ({
@@ -55,7 +55,7 @@ export const StepSelector: React.FC<StepSelectorProps> = ({
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold mb-2">Select Mobile Network</h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-gray-600">
           Choose the mobile network you want to purchase airtime or data from
         </p>
       </div>
@@ -97,7 +97,7 @@ export const StepSelector: React.FC<StepSelectorProps> = ({
                       <div>
                         <h3 className="font-semibold text-sm">{network.name}</h3>
                         {network.description && (
-                          <p className="text-xs text-muted-foreground mt-1">{network.description}</p>
+                          <p className="text-xs text-gray-600 mt-1">{network.description}</p>
                         )}
                       </div>
                       {selectedNetworkId === network.id && (
@@ -119,7 +119,7 @@ export const StepSelector: React.FC<StepSelectorProps> = ({
         <Card className="border-dashed">
           <CardContent className="pt-12 pb-12 text-center">
             <Network className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-sm text-muted-foreground">No networks available</p>
+            <p className="text-sm text-gray-500">No networks available</p>
           </CardContent>
         </Card>
       )}

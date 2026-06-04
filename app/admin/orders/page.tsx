@@ -733,7 +733,7 @@ export default function AdminOrdersPage() {
       "AT - iShare": "bg-indigo-100 text-indigo-800 border-indigo-200",
       "AT - BigTime": "bg-purple-100 text-purple-800 border-purple-200",
     }
-    return colors[network] || "bg-muted text-foreground border-border"
+    return colors[network] || "bg-gray-100 text-gray-800 border-gray-200"
   }
 
   const getFilteredDownloadedOrders = () => {
@@ -832,7 +832,7 @@ export default function AdminOrdersPage() {
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
             Order Management
           </h1>
-          <p className="text-muted-foreground mt-1 font-medium">Download and manage pending orders</p>
+          <p className="text-gray-500 mt-1 font-medium">Download and manage pending orders</p>
         </div>
 
         {/* Tabs */}
@@ -875,7 +875,7 @@ export default function AdminOrdersPage() {
                   <Button
                     onClick={handleDownloadOrders}
                     disabled={downloading || pendingOrders.length === 0}
-                    className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white font-semibold"
+                    className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold"
                   >
                     {downloading ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -897,20 +897,20 @@ export default function AdminOrdersPage() {
                   <CardContent>
                     <div className="overflow-x-auto">
                       <table className="min-w-[600px] w-full text-xs sm:text-sm">
-                        <thead className="bg-muted/40 border-b">
+                        <thead className="bg-gray-50 border-b">
                           <tr>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Order ID</th>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Type</th>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Network</th>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Package</th>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Phone</th>
-                            <th className="px-2 sm:px-4 py-2 text-right font-semibold text-foreground whitespace-nowrap">Price (GHS)</th>
-                            <th className="px-2 sm:px-4 py-2 text-center font-semibold text-foreground whitespace-nowrap">Date</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Order ID</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Type</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Network</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Package</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Phone</th>
+                            <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 whitespace-nowrap">Price (GHS)</th>
+                            <th className="px-2 sm:px-4 py-2 text-center font-semibold text-gray-700 whitespace-nowrap">Date</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
                           {pendingOrders.map((order) => (
-                            <tr key={order.id} className="hover:bg-accent">
+                            <tr key={order.id} className="hover:bg-gray-50">
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold break-all max-w-[120px]">{order.id}</td>
                               <td className="px-2 sm:px-4 py-3">
                                 <Badge variant="outline" className={`text-xs capitalize ${
@@ -927,9 +927,9 @@ export default function AdminOrdersPage() {
                               <td className="px-2 sm:px-4 py-3">{order.size}GB</td>
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs break-all max-w-[120px]">{order.phone_number}</td>
                               <td className="px-2 sm:px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
-                              <td className="px-2 sm:px-4 py-3 text-center text-xs text-muted-foreground">
+                              <td className="px-2 sm:px-4 py-3 text-center text-xs text-gray-500">
                                 <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                                <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
+                                <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
                               </td>
                             </tr>
                           ))}
@@ -955,13 +955,13 @@ export default function AdminOrdersPage() {
                   <CardContent>
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                         <input
                           type="text"
                           placeholder="Search by phone, admin email, or network..."
                           value={downloadedBatchSearch}
                           onChange={(e) => setDownloadedBatchSearch(e.target.value)}
-                          className="w-full pl-10 pr-4 py-2 border border-border rounded-md focus:ring-2 focus:ring-ring focus:border-transparent"
+                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -1091,12 +1091,12 @@ export default function AdminOrdersPage() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex flex-col sm:flex-row gap-2 items-end">
                       <div className="flex-1">
-                        <label className="block text-xs font-medium text-foreground mb-1">Delete batches before date</label>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Delete batches before date</label>
                         <input
                           type="date"
                           value={deleteBatchesEndDate}
                           onChange={(e) => setDeleteBatchesEndDate(e.target.value)}
-                          className="w-full px-3 py-2 border border-border rounded-md text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
                         />
                       </div>
                       <Button
@@ -1150,17 +1150,17 @@ export default function AdminOrdersPage() {
                               <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">
                                 {batch.network}
                               </Badge>
-                              <span className="text-muted-foreground">Batch</span>
+                              <span className="text-gray-600">Batch</span>
                             </CardTitle>
                             <CardDescription>
                               Downloaded: {new Date(batch.downloadedAt).toLocaleString()}
                               {batch.downloadedByEmail && (
-                                <span className="ml-2 text-primary">by {batch.downloadedByEmail}</span>
+                                <span className="ml-2 text-blue-600">by {batch.downloadedByEmail}</span>
                               )}
                             </CardDescription>
                           </div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-                            <Badge className="bg-primary/10 text-primary border border-primary/20 text-lg px-3 py-1 w-full sm:w-auto text-center">
+                            <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1 w-full sm:w-auto text-center">
                               {formatCount(batch.orders.length)} orders
                             </Badge>
                             <Button
@@ -1193,20 +1193,20 @@ export default function AdminOrdersPage() {
                       <CardContent>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
-                            <thead className="bg-muted/40 border-b">
+                            <thead className="bg-gray-50 border-b">
                               <tr>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Order ID</th>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Type</th>
-                                 <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Network</th>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Package</th>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Phone</th>
-                                <th className="px-2 sm:px-4 py-2 text-right font-semibold text-foreground text-xs sm:text-sm">Price (GHS)</th>
-                                <th className="px-2 sm:px-4 py-2 text-center font-semibold text-foreground text-xs sm:text-sm">Status</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Order ID</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Type</th>
+                                 <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Network</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Package</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Phone</th>
+                                <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 text-xs sm:text-sm">Price (GHS)</th>
+                                <th className="px-2 sm:px-4 py-2 text-center font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y">
                               {batch.orders.map((order: any) => (
-                                <tr key={order.id} className="hover:bg-accent">
+                                <tr key={order.id} className="hover:bg-gray-50">
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
                                   <td className="px-2 sm:px-4 py-3">
                                     <Badge variant="outline" className={`text-xs capitalize ${
@@ -1228,8 +1228,8 @@ export default function AdminOrdersPage() {
                                   <td className="px-2 sm:px-4 py-3 text-center">
                                     <Badge className={`border text-xs ${order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
                                       order.status === "failed" ? "bg-red-100 text-red-800 border-red-200" :
-                                        order.status === "processing" ? "bg-primary/10 text-primary border-primary/20" :
-                                          order.status ? "bg-muted text-foreground border-border" :
+                                        order.status === "processing" ? "bg-blue-100 text-blue-800 border-blue-200" :
+                                          order.status ? "bg-gray-100 text-gray-800 border-gray-200" :
                                             "bg-yellow-100 text-yellow-800 border-yellow-200"
                                       }`}>
                                       {order.status ? (order.status.charAt(0).toUpperCase() + order.status.slice(1)) : "Unknown"}
@@ -1258,7 +1258,7 @@ export default function AdminOrdersPage() {
                       {autoFulfillmentEnabled ? (
                         <ToggleRight className="h-5 w-5 text-green-600" />
                       ) : (
-                        <ToggleLeft className="h-5 w-5 text-muted-foreground" />
+                        <ToggleLeft className="h-5 w-5 text-gray-400" />
                       )}
                       Auto-Fulfillment
                     </CardTitle>
@@ -1268,13 +1268,13 @@ export default function AdminOrdersPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     {loadingAutoFulfillment ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
                     ) : (
                       <>
                         {togglingAutoFulfillment && (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
                         )}
-                        <span className={`text-sm font-medium ${autoFulfillmentEnabled ? 'text-green-600' : 'text-muted-foreground'}`}>
+                        <span className={`text-sm font-medium ${autoFulfillmentEnabled ? 'text-green-600' : 'text-gray-500'}`}>
                           {autoFulfillmentEnabled ? 'Enabled' : 'Disabled'}
                         </span>
                         <Switch
@@ -1291,7 +1291,7 @@ export default function AdminOrdersPage() {
                 <div className="space-y-4">
                   {/* Affected Networks */}
                   <div className="flex flex-wrap gap-2">
-                    <span className="text-sm text-muted-foreground">Affected networks:</span>
+                    <span className="text-sm text-gray-600">Affected networks:</span>
                     <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200">AT - iShare</Badge>
                     <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
                     <Badge className="bg-purple-100 text-purple-800 border border-purple-200">AT - BigTime</Badge>
@@ -1332,7 +1332,7 @@ export default function AdminOrdersPage() {
                   <Zap className="h-12 w-12 text-yellow-500" />
                   <div className="text-center">
                     <h3 className="text-lg font-semibold mb-2">Fulfillment Dashboard</h3>
-                    <p className="text-muted-foreground mb-6">
+                    <p className="text-gray-600 mb-6">
                       View real-time fulfillment status for auto-fulfilled orders
                     </p>
                     <div className="flex flex-wrap gap-3 justify-center">
@@ -1346,7 +1346,7 @@ export default function AdminOrdersPage() {
                         variant="outline"
                         onClick={syncWithCodeCraft}
                         disabled={syncingWithCodeCraft}
-                        className="border-primary text-primary hover:bg-primary/5"
+                        className="border-blue-500 text-blue-600 hover:bg-blue-50"
                       >
                         {syncingWithCodeCraft ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1356,7 +1356,7 @@ export default function AdminOrdersPage() {
                         {syncingWithCodeCraft ? "Syncing..." : "Sync Processing Orders"}
                       </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-4">
+                    <p className="text-xs text-gray-500 mt-4">
                       Use "Sync Processing Orders" to check all orders stuck at "processing" status with CodeCraft
                     </p>
                   </div>
@@ -1380,7 +1380,7 @@ export default function AdminOrdersPage() {
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge className="bg-primary/10 text-primary border border-primary/20 text-lg px-3 py-1">
+                    <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1">
                       {formatCount(pendingMTNOrders.length)}
                     </Badge>
                     {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
@@ -1398,14 +1398,14 @@ export default function AdminOrdersPage() {
                         Fulfill All Pending ({pendingMTNOrders.length})
                       </Button>
                     )}
-                    {loadingMTNOrders && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    {loadingMTNOrders && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
                 {loadingMTNOrders ? (
                   <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
                   </div>
                 ) : pendingMTNOrders.length === 0 ? (
                   <Alert>
@@ -1417,12 +1417,12 @@ export default function AdminOrdersPage() {
                 ) : (
                   <div className="space-y-3">
                     {pendingMTNOrders.map((order) => (
-                      <div key={order.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded border border-border hover:bg-accent transition">
+                      <div key={order.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded border border-gray-200 hover:bg-gray-50 transition">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <div>
-                              <p className="font-mono text-sm font-semibold text-foreground">{order.id}</p>
-                              <p className="text-sm text-muted-foreground">
+                              <p className="font-mono text-sm font-semibold text-gray-900">{order.id}</p>
+                              <p className="text-sm text-gray-600">
                                 {order.phone_number} • {order.size}GB
                               </p>
                             </div>
@@ -1444,15 +1444,15 @@ export default function AdminOrdersPage() {
                                 : order.status === "pending"
                                   ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                                   : order.status === "processing"
-                                    ? "bg-primary/10 text-primary border-primary/20"
+                                    ? "bg-blue-100 text-blue-800 border-blue-200"
                                     : order.status === "failed"
                                       ? "bg-red-100 text-red-800 border-red-200"
-                                      : "bg-muted text-foreground border-border"
+                                      : "bg-gray-100 text-gray-800 border-gray-200"
                                 }`}
                             >
                               {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
                             </Badge>
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-xs text-gray-500">
                               Created: {new Date(order.created_at).toLocaleString()}
                             </span>
                             {mtnFulfillmentStatus[order.id] === "fulfilled" && (
@@ -1485,7 +1485,7 @@ export default function AdminOrdersPage() {
                                   </SelectContent>
                                 </Select>
                               ) : (
-                                <Badge variant="outline" className="w-full h-8 flex items-center justify-center text-xs font-medium text-muted-foreground bg-muted/40 border-border">
+                                <Badge variant="outline" className="w-full h-8 flex items-center justify-center text-xs font-medium text-gray-500 bg-gray-50 border-gray-200">
                                   Default
                                 </Badge>
                               )}
@@ -1562,19 +1562,19 @@ export default function AdminOrdersPage() {
                     }}
                     disabled={isDisabled}
                     className={`w-full flex items-center gap-3 p-3 rounded border-2 transition-all ${isSelected
-                      ? 'bg-primary/5 border-primary'
-                      : 'bg-card border-border hover:border-border'
+                      ? 'bg-blue-50 border-blue-500'
+                      : 'bg-white border-gray-200 hover:border-gray-300'
                       } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <div className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${isSelected
-                      ? 'bg-primary border-primary'
-                      : 'border-border bg-card'
+                      ? 'bg-blue-500 border-blue-500'
+                      : 'border-gray-300 bg-white'
                       }`}>
                       {isSelected && <Check className="w-4 h-4 text-white" />}
                     </div>
                     <div className="flex-1 text-left">
-                      <span className="font-medium text-foreground">{network}</span>
-                      <span className="text-sm text-muted-foreground ml-2">
+                      <span className="font-medium text-gray-900">{network}</span>
+                      <span className="text-sm text-gray-500 ml-2">
                         ({formatCount(networkOrderCount)} order{networkOrderCount !== 1 ? 's' : ''})
                       </span>
                     </div>
@@ -1594,7 +1594,7 @@ export default function AdminOrdersPage() {
               <Button
                 onClick={handleConfirmDownload}
                 disabled={downloading || selectedNetworks.length === 0}
-                className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white"
+                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
               >
                 {downloading ? (
                   <>

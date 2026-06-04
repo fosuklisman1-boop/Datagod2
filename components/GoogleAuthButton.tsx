@@ -39,10 +39,10 @@ export default function GoogleAuthButton({
       type="button"
       onClick={handleClick}
       disabled={isLoading}
-      className={`w-full flex items-center justify-center gap-3 bg-card hover:bg-accent text-[#3C4043] border border-[#DADCE0] shadow-sm font-medium ${className ?? ""}`}
+      className={`w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 text-[#3C4043] border border-[#DADCE0] shadow-sm font-medium ${className ?? ""}`}
     >
       {isLoading ? (
-        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
       ) : (
         <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M17.64 9.2045c0-.638-.0573-1.2518-.1636-1.8409H9v3.4814h4.8436c-.2086 1.125-.8427 2.0782-1.7959 2.7164v2.2581h2.9086c1.7018-1.5668 2.6836-3.874 2.6836-6.6151z" fill="#4285F4" />

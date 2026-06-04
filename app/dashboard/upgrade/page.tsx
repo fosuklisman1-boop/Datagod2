@@ -362,7 +362,7 @@ export default function UpgradePage() {
 
     const successBenefits = [
         { icon: <Crown className="w-5 h-5 text-amber-500" />, text: "Wholesale pricing on all data packages" },
-        { icon: <Users className="w-5 h-5 text-primary" />, text: "Create & manage sub-agents" },
+        { icon: <Users className="w-5 h-5 text-blue-500" />, text: "Create & manage sub-agents" },
         { icon: <StoreIcon className="w-5 h-5 text-green-500" />, text: "Custom shop branding" },
         { icon: <ShieldCheck className="w-5 h-5 text-purple-500" />, text: "Priority customer support" },
     ]
@@ -377,7 +377,7 @@ export default function UpgradePage() {
                     <h1 className="text-4xl md:text-5xl font-extrabold mb-4 bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600 bg-clip-text text-transparent">
                         Become a DATAGOD Dealer
                     </h1>
-                    <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+                    <p className="text-gray-600 text-lg max-w-2xl mx-auto">
                         Unlock wholesale rates, sub-agent management, and exclusive features to grow your business.
                     </p>
                 </div>
@@ -423,25 +423,25 @@ export default function UpgradePage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
                     {loading ? (
                         Array(3).fill(0).map((_, i) => (
-                            <Card key={i} className="animate-pulse border-border h-[450px]">
+                            <Card key={i} className="animate-pulse border-gray-100 h-[450px]">
                                 <CardHeader className="space-y-4">
-                                    <div className="h-6 bg-muted rounded w-1/2"></div>
-                                    <div className="h-4 bg-muted rounded w-full"></div>
+                                    <div className="h-6 bg-gray-200 rounded w-1/2"></div>
+                                    <div className="h-4 bg-gray-100 rounded w-full"></div>
                                 </CardHeader>
                                 <CardContent className="space-y-6">
-                                    <div className="h-10 bg-muted rounded w-3/4 mx-auto"></div>
+                                    <div className="h-10 bg-gray-200 rounded w-3/4 mx-auto"></div>
                                     <div className="space-y-2">
                                         {Array(4).fill(0).map((_, j) => (
-                                            <div key={j} className="h-3 bg-muted rounded w-full"></div>
+                                            <div key={j} className="h-3 bg-gray-100 rounded w-full"></div>
                                         ))}
                                     </div>
                                 </CardContent>
                             </Card>
                         ))
                     ) : plans.length === 0 ? (
-                        <div className="col-span-3 text-center py-20 bg-muted/40 rounded-3xl border-2 border-dashed border-border">
+                        <div className="col-span-3 text-center py-20 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
                             <Star className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                            <p className="text-muted-foreground text-xl font-medium">New dealer plans coming soon!</p>
+                            <p className="text-gray-500 text-xl font-medium">New dealer plans coming soon!</p>
                         </div>
                     ) : (
                         plans.map((plan, index) => (
@@ -449,7 +449,7 @@ export default function UpgradePage() {
                                 key={plan.id}
                                 className={cn(
                                     "relative flex flex-col transition-all duration-300 hover:scale-105 hover:shadow-2xl border-2",
-                                    index === 1 ? "border-amber-400 shadow-xl" : "border-border"
+                                    index === 1 ? "border-amber-400 shadow-xl" : "border-gray-100"
                                 )}
                             >
                                 {index === 1 && (
@@ -459,13 +459,13 @@ export default function UpgradePage() {
                                 )}
                                 <CardHeader className="text-center pt-8">
                                     <CardTitle className="text-2xl font-bold">{plan.name}</CardTitle>
-                                    <CardDescription className="text-muted-foreground mt-2">{plan.duration_days} Days Access</CardDescription>
+                                    <CardDescription className="text-gray-500 mt-2">{plan.duration_days} Days Access</CardDescription>
                                 </CardHeader>
                                 <CardContent className="flex-grow flex flex-col">
                                     <div className="text-center mb-8">
                                         <div className="flex items-baseline justify-center gap-1">
-                                            <span className="text-muted-foreground text-lg">GHS</span>
-                                            <span className="text-5xl font-black text-foreground">{plan.price.toFixed(2)}</span>
+                                            <span className="text-gray-500 text-lg">GHS</span>
+                                            <span className="text-5xl font-black text-gray-900">{plan.price.toFixed(2)}</span>
                                         </div>
                                     </div>
                                     <ul className="space-y-4 mb-8">
@@ -474,7 +474,7 @@ export default function UpgradePage() {
                                                 <div className="mt-1 p-0.5 bg-green-100 rounded-full flex-shrink-0">
                                                     <Check className="w-3 h-3 text-green-600" />
                                                 </div>
-                                                <span className="text-sm text-muted-foreground">{feature}</span>
+                                                <span className="text-sm text-gray-600">{feature}</span>
                                             </li>
                                         ))}
                                     </ul>
@@ -496,7 +496,7 @@ export default function UpgradePage() {
                                         className={cn(
                                             "w-full h-12 text-lg font-bold transition-all duration-300",
                                             !upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin'
-                                                ? "bg-gray-300 text-muted-foreground cursor-not-allowed"
+                                                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                                                 : index === 1
                                                     ? "bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-700 hover:to-yellow-600 text-white shadow-lg"
                                                     : "bg-gray-900 hover:bg-black text-white"
@@ -520,17 +520,17 @@ export default function UpgradePage() {
                     )}
                 </div>
 
-                <div className="bg-muted/40 rounded-3xl p-8 text-center border border-border mb-16">
+                <div className="bg-gray-50 rounded-3xl p-8 text-center border border-gray-100 mb-16">
                     <h2 className="text-2xl font-bold mb-4 flex items-center justify-center gap-2">
                         <Zap className="w-6 h-6 text-amber-500 fill-amber-500" /> Fast & Secure
                     </h2>
-                    <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
+                    <p className="text-gray-600 mb-8 max-w-xl mx-auto">
                         Upgrade your account in seconds using card, mobile money or bank transfer via Paystack. Your benefits start immediately.
                     </p>
                     <div className="flex flex-wrap justify-center gap-8 opacity-50 grayscale hover:grayscale-0 transition-all duration-500">
                         <img src="/paystack-badge.png" alt="Paystack" className="h-8 object-contain" />
                         {/* Fallback text if image not found */}
-                        <span className="text-sm font-bold text-muted-foreground">SECURE PAYMENTS BY PAYSTACK</span>
+                        <span className="text-sm font-bold text-gray-400">SECURE PAYMENTS BY PAYSTACK</span>
                     </div>
                 </div>
             </div>
@@ -543,7 +543,7 @@ export default function UpgradePage() {
                                 <Tag className="w-5 h-5 text-amber-500" />
                                 Dealer Price List
                             </DialogTitle>
-                            <p className="text-sm text-muted-foreground mt-1">Exclusive wholesale pricing available to all DATAGOD dealers</p>
+                            <p className="text-sm text-gray-500 mt-1">Exclusive wholesale pricing available to all DATAGOD dealers</p>
                         </DialogHeader>
 
                         {priceListLoading ? (
@@ -566,7 +566,7 @@ export default function UpgradePage() {
                                                             "px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all",
                                                             priceListNetwork === net
                                                                 ? "bg-amber-500 text-white shadow"
-                                                                : "bg-muted text-muted-foreground hover:bg-amber-50 hover:text-amber-700"
+                                                                : "bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-700"
                                                         )}
                                                     >
                                                         {net}
@@ -579,13 +579,13 @@ export default function UpgradePage() {
                                                     <table className="w-full text-sm">
                                                         <thead>
                                                             <tr className="text-left">
-                                                                <th className="pb-3 font-semibold text-muted-foreground uppercase text-xs tracking-wide">Package</th>
-                                                                <th className="pb-3 font-semibold text-muted-foreground uppercase text-xs tracking-wide text-right">Regular</th>
+                                                                <th className="pb-3 font-semibold text-gray-500 uppercase text-xs tracking-wide">Package</th>
+                                                                <th className="pb-3 font-semibold text-gray-500 uppercase text-xs tracking-wide text-right">Regular</th>
                                                                 <th className="pb-3 font-semibold text-amber-600 uppercase text-xs tracking-wide text-right">Dealer Price</th>
                                                                 <th className="pb-3 font-semibold text-green-600 uppercase text-xs tracking-wide text-right">Savings</th>
                                                             </tr>
                                                         </thead>
-                                                        <tbody className="divide-y divide-border">
+                                                        <tbody className="divide-y divide-gray-100">
                                                             {priceListPackages
                                                                 .filter((p) => p.network === priceListNetwork)
                                                                 .sort((a, b) => {
@@ -604,12 +604,12 @@ export default function UpgradePage() {
                                                                     return (
                                                                         <tr key={pkg.id} className="hover:bg-amber-50/50 transition-colors">
                                                                             <td className="py-3 pr-4">
-                                                                                <div className="font-bold text-foreground">{pkg.size}GB</div>
+                                                                                <div className="font-bold text-gray-900">{pkg.size}GB</div>
                                                                                 {pkg.description && (
-                                                                                    <div className="text-xs text-muted-foreground mt-0.5 truncate max-w-[160px]">{pkg.description}</div>
+                                                                                    <div className="text-xs text-gray-400 mt-0.5 truncate max-w-[160px]">{pkg.description}</div>
                                                                                 )}
                                                                             </td>
-                                                                            <td className="py-3 text-right text-muted-foreground line-through">
+                                                                            <td className="py-3 text-right text-gray-400 line-through">
                                                                                 GHS {pkg.regular_price.toFixed(2)}
                                                                             </td>
                                                                             <td className="py-3 text-right font-black text-amber-600 text-base">
@@ -652,14 +652,14 @@ export default function UpgradePage() {
                         {/* Header Gradient */}
                         <div className="bg-gradient-to-br from-amber-500 via-yellow-400 to-amber-600 px-6 pt-10 pb-8 text-center relative overflow-hidden">
                             {/* Decorative circles */}
-                            <div className="absolute top-0 left-0 w-32 h-32 bg-card/10 rounded-full -translate-x-1/2 -translate-y-1/2" />
-                            <div className="absolute bottom-0 right-0 w-24 h-24 bg-card/10 rounded-full translate-x-1/3 translate-y-1/3" />
-                            <div className="absolute top-4 right-8 w-3 h-3 bg-card/30 rounded-full animate-pulse" />
-                            <div className="absolute top-12 left-10 w-2 h-2 bg-card/40 rounded-full animate-pulse" style={{ animationDelay: '0.5s' }} />
-                            <div className="absolute bottom-6 left-1/4 w-2 h-2 bg-card/30 rounded-full animate-pulse" style={{ animationDelay: '1s' }} />
+                            <div className="absolute top-0 left-0 w-32 h-32 bg-white/10 rounded-full -translate-x-1/2 -translate-y-1/2" />
+                            <div className="absolute bottom-0 right-0 w-24 h-24 bg-white/10 rounded-full translate-x-1/3 translate-y-1/3" />
+                            <div className="absolute top-4 right-8 w-3 h-3 bg-white/30 rounded-full animate-pulse" />
+                            <div className="absolute top-12 left-10 w-2 h-2 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '0.5s' }} />
+                            <div className="absolute bottom-6 left-1/4 w-2 h-2 bg-white/30 rounded-full animate-pulse" style={{ animationDelay: '1s' }} />
 
                             <div className="relative">
-                                <div className="mx-auto w-20 h-20 bg-card/20 backdrop-blur-sm rounded-full flex items-center justify-center mb-4 ring-4 ring-white/30 shadow-xl">
+                                <div className="mx-auto w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mb-4 ring-4 ring-white/30 shadow-xl">
                                     <Crown className="w-10 h-10 text-white drop-shadow-lg" />
                                 </div>
                                 <div className="flex items-center justify-center gap-2 mb-2">
@@ -673,17 +673,17 @@ export default function UpgradePage() {
 
                         {/* Body */}
                         <div className="px-6 py-6 space-y-5">
-                            <p className="text-center text-muted-foreground text-sm">
+                            <p className="text-center text-gray-600 text-sm">
                                 Your account has been upgraded. Here&apos;s what you&apos;ve unlocked:
                             </p>
 
                             <div className="space-y-3">
                                 {successBenefits.map((benefit, i) => (
-                                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border hover:bg-accent transition-colors">
-                                        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-card shadow-sm flex items-center justify-center border border-border">
+                                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100 transition-colors">
+                                        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center border border-gray-100">
                                             {benefit.icon}
                                         </div>
-                                        <span className="text-sm font-medium text-foreground">{benefit.text}</span>
+                                        <span className="text-sm font-medium text-gray-700">{benefit.text}</span>
                                     </div>
                                 ))}
                             </div>
@@ -701,7 +701,7 @@ export default function UpgradePage() {
                                 </Button>
                                 <Button
                                     variant="ghost"
-                                    className="w-full text-sm text-muted-foreground hover:text-foreground"
+                                    className="w-full text-sm text-gray-500 hover:text-gray-700"
                                     onClick={() => setShowSuccessModal(false)}
                                 >
                                     Stay on this page
@@ -719,7 +719,7 @@ export default function UpgradePage() {
                                 <DialogHeader>
                                     <DialogTitle>{walletOtp ? "Verify your Mobile Money number" : "Enter your Mobile Money number"}</DialogTitle>
                                 </DialogHeader>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="text-sm text-gray-600">
                                     Upgrade to <span className="font-semibold">{upgradeFlow.plan?.name}</span> — GHS {Number(upgradeFlow.plan?.price || 0).toFixed(2)}.{" "}
                                     {walletDirect
                                         ? `The payment prompt is sent to the number ${walletOtp ? "you verify" : "you enter"} below.`
@@ -734,7 +734,7 @@ export default function UpgradePage() {
                                         value={paymentPhone}
                                         onChange={(e) => { setPaymentPhone(e.target.value); if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() } }}
                                         disabled={walletOtp && otpVerified}
-                                        className="mt-1 w-full rounded-md border border-purple-200 bg-card px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                        className="mt-1 w-full rounded-md border border-purple-200 bg-white px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
                                     />
                                 </div>
                                 {walletOtp && (!otpVerified ? (
@@ -746,14 +746,14 @@ export default function UpgradePage() {
                                         <div className="space-y-2">
                                             <input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
                                                 onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                                                className="w-full rounded-md border bg-card px-3 py-2 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                                                className="w-full rounded-md border bg-white px-3 py-2 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-purple-400" />
                                             <div className="flex gap-2">
                                                 <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">
                                                     {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                                                 </Button>
                                                 <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
                                             </div>
-                                            <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                                            <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
                                         </div>
                                     )
                                 ) : (
@@ -778,10 +778,10 @@ export default function UpgradePage() {
                                     <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Approve the prompt on your phone</DialogTitle></DialogHeader>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="text-sm text-gray-600">
                                     We sent a Mobile Money prompt to <span className="font-semibold">{paymentPhone}</span>. Enter your PIN to approve GHS {Number(upgradeFlow.plan?.price || 0).toFixed(2)}.
                                 </p>
-                                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…</div>
+                                <div className="flex items-center justify-center gap-2 text-xs text-gray-500"><Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…</div>
                             </div>
                         )}
 
@@ -791,7 +791,7 @@ export default function UpgradePage() {
                                     <PartyPopper className="w-9 h-9 text-green-600" />
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Welcome to the Dealer Club 🎉</DialogTitle></DialogHeader>
-                                <p className="text-sm text-muted-foreground">Your upgrade is active. Enjoy wholesale pricing and dealer tools.</p>
+                                <p className="text-sm text-gray-600">Your upgrade is active. Enjoy wholesale pricing and dealer tools.</p>
                                 <Button onClick={() => { setUpgradeFlow(null); router.refresh() }} className="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white">Done</Button>
                             </div>
                         )}
@@ -802,7 +802,7 @@ export default function UpgradePage() {
                                     <AlertCircle className="w-9 h-9 text-red-600" />
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Payment not completed</DialogTitle></DialogHeader>
-                                <p className="text-sm text-muted-foreground">{upgradeFlow.message || "The prompt was not approved. Please try again."}</p>
+                                <p className="text-sm text-gray-600">{upgradeFlow.message || "The prompt was not approved. Please try again."}</p>
                                 <Button variant="outline" onClick={() => setUpgradeFlow(null)} className="w-full">Close</Button>
                             </div>
                         )}

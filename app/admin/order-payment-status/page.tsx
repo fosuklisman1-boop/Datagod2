@@ -33,11 +33,11 @@ function getNetworkColor(network: string): string {
   const colorMap: { [key: string]: string } = {
     "MTN": "bg-yellow-100 text-yellow-800",
     "Telecel": "bg-purple-100 text-purple-800",
-    "AT - iShare": "bg-primary/10 text-primary",
+    "AT - iShare": "bg-blue-100 text-blue-800",
     "AT - BigTime": "bg-green-100 text-green-800",
-    "iShare": "bg-primary/10 text-primary",
+    "iShare": "bg-blue-100 text-blue-800",
   }
-  return colorMap[network] || "bg-muted text-foreground"
+  return colorMap[network] || "bg-gray-100 text-gray-800"
 }
 
 export default function OrderPaymentStatusPage() {
@@ -629,10 +629,10 @@ export default function OrderPaymentStatusPage() {
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-purple-600 to-pink-600 bg-clip-text text-transparent">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
                 Order Payment Status
               </h1>
-              <p className="text-muted-foreground mt-1 font-medium">View and search all orders by payment reference or phone number</p>
+              <p className="text-gray-500 mt-1 font-medium">View and search all orders by payment reference or phone number</p>
             </div>
             {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
               <Button
@@ -662,7 +662,7 @@ export default function OrderPaymentStatusPage() {
               <div className="flex-1 min-w-64">
                 <label className="text-sm font-medium mb-1 block">Search Query</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <Input
                     placeholder="Enter payment reference or phone number..."
                     value={searchQuery}
@@ -676,7 +676,7 @@ export default function OrderPaymentStatusPage() {
                 <select
                   value={searchType}
                   onChange={(e) => setSearchType(e.target.value as "all" | "reference" | "phone")}
-                  className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="all">All Fields</option>
                   <option value="reference">Payment Reference</option>
@@ -688,7 +688,7 @@ export default function OrderPaymentStatusPage() {
         </Card>
 
         {/* Bulk Status Update */}
-        <Card className="border-primary/20 bg-primary/5">
+        <Card className="border-blue-200 bg-blue-50/30">
           <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowBulkUpdate(!showBulkUpdate)}>
             <div className="flex items-center justify-between">
               <div>
@@ -744,7 +744,7 @@ export default function OrderPaymentStatusPage() {
                   <select
                     value={bulkNetwork}
                     onChange={(e) => setBulkNetwork(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">All Networks</option>
                     <option value="MTN">MTN</option>
@@ -761,7 +761,7 @@ export default function OrderPaymentStatusPage() {
                   <select
                     value={bulkStatus}
                     onChange={(e) => setBulkStatus(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   >
                     <option value="">Select status...</option>
@@ -776,7 +776,7 @@ export default function OrderPaymentStatusPage() {
                   <Button
                     onClick={handleBulkStatusUpdate}
                     disabled={bulkUpdating || !bulkDate || !bulkStatus}
-                    className="bg-primary hover:bg-primary/90 text-white min-w-[140px]"
+                    className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]"
                   >
                     {bulkUpdating ? (
                       <>
@@ -832,7 +832,7 @@ export default function OrderPaymentStatusPage() {
               </div>
 
               {globalBulkCount !== null && (
-                <p className="text-xs text-primary font-medium pt-1">
+                <p className="text-xs text-blue-600 font-medium pt-1">
                   💡 Found {globalBulkCount} pending/processing orders matching filters in the entire database.
                 </p>
               )}
@@ -852,7 +852,7 @@ export default function OrderPaymentStatusPage() {
           loadingAllOrders ? (
             <Card>
               <CardContent className="pt-6 flex justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
               </CardContent>
             </Card>
           ) : allOrders.length === 0 ? (
@@ -877,26 +877,26 @@ export default function OrderPaymentStatusPage() {
               <CardContent>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-muted/40 border-b">
+                    <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Type</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Store</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Shop Owner Email</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Reference</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Phone</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Customer Email</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Network</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Volume</th>
-                        <th className="px-4 py-2 text-right font-semibold text-foreground">Price (GHS)</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">Payment Status</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">Order Status</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">Date</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">Actions</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Type</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Store</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Shop Owner Email</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Reference</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Customer Email</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-700">Volume</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-700">Price (GHS)</th>
+                        <th className="px-4 py-2 text-center font-semibold text-gray-700">Payment Status</th>
+                        <th className="px-4 py-2 text-center font-semibold text-gray-700">Order Status</th>
+                        <th className="px-4 py-2 text-center font-semibold text-gray-700">Date</th>
+                        <th className="px-4 py-2 text-center font-semibold text-gray-700">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {allOrders.map((order) => (
-                        <tr key={order.id} className="hover:bg-accent">
+                        <tr key={order.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <Badge variant="outline" className="text-xs">
                               {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : order.type === "ussd" ? "USSD" : order.type === "ussd_shop" ? "USSD Shop" : "Wallet"}
@@ -930,7 +930,7 @@ export default function OrderPaymentStatusPage() {
                                   ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                                   : order.payment_status === "failed"
                                     ? "bg-red-100 text-red-800 border-red-200"
-                                    : "bg-muted text-foreground border-border"
+                                    : "bg-gray-100 text-gray-800 border-gray-200"
                                 }`}
                             >
                               {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1) || "Unknown"}
@@ -943,23 +943,23 @@ export default function OrderPaymentStatusPage() {
                                 : order.status === "pending"
                                   ? "bg-yellow-100 text-yellow-800 border-yellow-200"
                                   : order.status === "processing"
-                                    ? "bg-primary/10 text-primary border-primary/20"
+                                    ? "bg-blue-100 text-blue-800 border-blue-200"
                                     : order.status === "failed"
                                       ? "bg-red-100 text-red-800 border-red-200"
-                                      : "bg-muted text-foreground border-border"
+                                      : "bg-gray-100 text-gray-800 border-gray-200"
                                 }`}
                             >
                               {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3 text-center text-xs text-muted-foreground">
+                          <td className="px-4 py-3 text-center text-xs text-gray-500">
                             <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                            <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
+                            <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
                           </td>
                           <td className="px-4 py-3 text-center">
                             <div className="flex flex-col gap-2">
                               <select
-                                className="px-2 py-1 text-xs border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                                className="px-2 py-1 text-xs border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                                 onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
                                 disabled={updatingOrderId === order.id}
                                 defaultValue=""
@@ -994,7 +994,7 @@ export default function OrderPaymentStatusPage() {
                                 </Button>
                               )}
                               {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
-                                <div className="text-xs text-muted-foreground">{order.network} (no auto-fulfill)</div>
+                                <div className="text-xs text-gray-400">{order.network} (no auto-fulfill)</div>
                               )}
                               {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && order.type === "ussd" && (
                                 <Button
@@ -1038,7 +1038,7 @@ export default function OrderPaymentStatusPage() {
                                   )}
                                 </Button>
                               )}
-                              {!autoFulfillmentEnabled && <div className="text-xs text-muted-foreground">Auto-fulfill disabled</div>}
+                              {!autoFulfillmentEnabled && <div className="text-xs text-gray-400">Auto-fulfill disabled</div>}
                             </div>
                           </td>
                         </tr>
@@ -1054,7 +1054,7 @@ export default function OrderPaymentStatusPage() {
                       variant="outline"
                       onClick={handleLoadMore}
                       disabled={loadingAllOrders}
-                      className="w-full max-w-xs border-primary/20 hover:bg-primary/5 text-primary font-semibold"
+                      className="w-full max-w-xs border-blue-200 hover:bg-blue-50 text-blue-700 font-semibold"
                     >
                       {loadingAllOrders ? (
                         <>
@@ -1072,7 +1072,7 @@ export default function OrderPaymentStatusPage() {
                 )}
 
                 {!hasMore && allOrders.length > 0 && (
-                  <p className="text-center text-muted-foreground text-xs mt-6 pb-8">
+                  <p className="text-center text-gray-400 text-xs mt-6 pb-8">
                     No more orders to display
                   </p>
                 )}

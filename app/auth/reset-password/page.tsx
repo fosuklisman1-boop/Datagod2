@@ -88,8 +88,8 @@ function ResetPasswordForm() {
           <div className="flex justify-center">
             <CheckCircle2 className="h-12 w-12 text-emerald-500" />
           </div>
-          <h3 className="text-lg font-medium text-foreground">Password Reset Complete</h3>
-          <p className="text-sm text-muted-foreground">
+          <h3 className="text-lg font-medium text-gray-900">Password Reset Complete</h3>
+          <p className="text-sm text-gray-500">
             Your password has been changed successfully. You will be redirected to the login page shortly.
           </p>
           <Button 
@@ -114,7 +114,7 @@ function ResetPasswordForm() {
               />
               <button
                 type="button"
-                className="absolute right-3 top-2.5 text-muted-foreground hover:text-muted-foreground focus:outline-none"
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 focus:outline-none"
                 onClick={() => setShowPassword(!showPassword)}
                 tabIndex={-1}
               >
@@ -143,7 +143,7 @@ function ResetPasswordForm() {
 
           <Button
             type="submit"
-            className="w-full bg-gradient-to-r from-primary to-indigo-600 hover:from-primary hover:to-indigo-700 text-white"
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
             disabled={loading || !token}
           >
             {loading ? (
@@ -169,11 +169,11 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-primary/5 to-purple-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-4">
-            <div className="bg-card p-3 rounded-full">
+            <div className="bg-white p-3 rounded-full">
               <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6 rounded-lg object-cover" />
             </div>
           </div>

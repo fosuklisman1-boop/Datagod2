@@ -43,12 +43,12 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
           {/* Progress Bar */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-foreground">
+              <span className="font-semibold text-gray-700">
                 Step {currentStepIndex + 1} of {steps.length}
               </span>
-              <span className="text-muted-foreground">{Math.round(progressPercent)}%</span>
+              <span className="text-gray-600">{Math.round(progressPercent)}%</span>
             </div>
-            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
               <div
                 className="h-full bg-primary transition-all duration-300 ease-out"
                 style={{ width: `${progressPercent}%` } as React.CSSProperties}
@@ -80,8 +80,8 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
                         )}
                       </div>
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                        <span className="text-xs font-semibold text-muted-foreground">{index + 1}</span>
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                        <span className="text-xs font-semibold text-gray-600">{index + 1}</span>
                       </div>
                     )}
 
@@ -89,7 +89,7 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
                     {index < steps.length - 1 && (
                       <div
                         className={`absolute top-5 left-full w-2 h-0.5 transition-colors ${
-                          isCompleted || isCurrent ? 'bg-primary' : 'bg-muted'
+                          isCompleted || isCurrent ? 'bg-primary' : 'bg-gray-200'
                         }`}
                         style={{ width: 'calc(100% - 2.5rem)' } as React.CSSProperties}
                       ></div>
@@ -104,13 +104,13 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
                           ? 'text-primary'
                           : isCompleted
                             ? 'text-green-600'
-                            : 'text-muted-foreground'
+                            : 'text-gray-600'
                       }`}
                     >
                       {step.label}
                     </p>
                     {step.description && (
-                      <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
+                      <p className="text-xs text-gray-500 mt-0.5 hidden sm:block">
                         {step.description}
                       </p>
                     )}
@@ -122,12 +122,12 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
 
           {/* Current Step Info */}
           {steps[currentStepIndex] && (
-            <div className="pt-4 border-t bg-card rounded-lg p-3 mt-4">
-              <p className="text-xs font-semibold text-foreground">
+            <div className="pt-4 border-t bg-white rounded-lg p-3 mt-4">
+              <p className="text-xs font-semibold text-gray-700">
                 Current Step: <span className="text-primary">{steps[currentStepIndex].label}</span>
               </p>
               {steps[currentStepIndex].description && (
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-gray-600 mt-1">
                   {steps[currentStepIndex].description}
                 </p>
               )}

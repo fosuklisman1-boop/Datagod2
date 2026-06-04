@@ -133,11 +133,11 @@ export default function ShopSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/40 p-4 md:p-8">
+    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-2xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Shop Settings</h1>
-          <p className="text-muted-foreground mt-2">
+          <h1 className="text-3xl font-bold text-gray-900">Shop Settings</h1>
+          <p className="text-gray-600 mt-2">
             Configure {shopName ? `"${shopName}"` : "your shop"} settings
           </p>
         </div>
@@ -154,7 +154,7 @@ export default function ShopSettingsPage() {
               <Label htmlFor="whatsappLink" className="text-sm font-medium">
                 WhatsApp Contact Link
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
+              <p className="text-xs text-gray-500 mt-1 mb-2">
                 This link will appear on your storefront so customers can contact you on WhatsApp
               </p>
               <Input
@@ -167,7 +167,7 @@ export default function ShopSettingsPage() {
               />
             </div>
 
-            <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg text-sm text-primary">
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
               <p className="font-semibold mb-2">How to get your WhatsApp link:</p>
               <ol className="list-decimal list-inside space-y-1 text-xs">
                 <li>Open WhatsApp and go to your profile</li>
@@ -222,14 +222,14 @@ export default function ShopSettingsPage() {
           <CardHeader>
             <CardTitle>Where This Appears</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-foreground">
+          <CardContent className="space-y-3 text-sm text-gray-700">
             <p>Your WhatsApp link will be displayed:</p>
             <ul className="list-disc list-inside space-y-2 ml-2">
               <li>On your shop storefront (product pages)</li>
               <li>In the shop sidebar/header</li>
               <li>As a contact button for customers</li>
             </ul>
-            <p className="text-muted-foreground mt-4">
+            <p className="text-gray-600 mt-4">
               Changes are saved immediately and reflected on your storefront.
             </p>
           </CardContent>

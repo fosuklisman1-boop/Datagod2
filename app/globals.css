@@ -2,120 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===========================================================================
-   DESIGN TOKENS — "Modern Fintech" direction.
-   Values are raw HSL triplets ("H S% L%") consumed by tailwind via
-   hsl(var(--token)). Light defaults live in :root; dark overrides in .dark.
-   Brand (network) + status tokens are app-specific additions.
-   =========================================================================== */
 :root {
-  --radius: 0.9rem;
-
-  /* surfaces */
-  --background: 220 20% 97%;        /* page bg  #f6f7f9 */
-  --foreground: 222 47% 11%;        /* text     #0f172a */
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-
-  /* brand accent (indigo → violet family) */
-  --primary: 243 75% 59%;           /* #4f46e5 */
-  --primary-foreground: 0 0% 100%;
-  --accent-soft: 243 75% 59%;       /* used at low opacity for soft accent fills */
-
-  /* neutral support */
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;  /* #64748b */
-  --accent: 210 40% 96%;
-  --accent-foreground: 222 47% 11%;
-
-  /* status */
-  --destructive: 0 72% 51%;         /* #dc2626 */
-  --destructive-foreground: 0 0% 100%;
-  --success: 142 71% 40%;           /* #16a34a */
-  --success-foreground: 0 0% 100%;
-  --warning: 35 92% 44%;            /* #d97706 */
-  --warning-foreground: 0 0% 100%;
-
-  /* network brand */
-  --mtn: 48 100% 50%;               /* MTN yellow #ffcc00 */
-  --mtn-foreground: 0 0% 10%;
-  --telecel: 353 100% 44%;          /* Telecel red #e3001b */
-  --telecel-foreground: 0 0% 100%;
-  --at: 215 92% 43%;                /* AT blue #0a5bd3 */
-  --at-foreground: 0 0% 100%;
-
-  /* lines & focus */
-  --border: 214 16% 92%;            /* #e7eaee */
-  --input: 214 16% 92%;
-  --ring: 243 75% 59%;
-
-  /* charts (recharts) */
-  --chart-1: 243 75% 59%;
-  --chart-2: 173 58% 39%;
-  --chart-3: 197 37% 24%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
-
-  /* sidebar tokens (shadcn sidebar primitive) */
-  --sidebar: 0 0% 100%;
-  --sidebar-foreground: 222 47% 11%;
-  --sidebar-primary: 243 75% 59%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 210 40% 96%;
-  --sidebar-accent-foreground: 222 47% 11%;
-  --sidebar-border: 214 16% 92%;
-  --sidebar-ring: 243 75% 59%;
-}
-
-.dark {
-  --background: 222 38% 6%;         /* #0b0f17 */
-  --foreground: 218 33% 94%;        /* #e9edf5 */
-  --card: 222 33% 11%;             /* #121826 */
-  --card-foreground: 218 33% 94%;
-  --popover: 222 33% 11%;
-  --popover-foreground: 218 33% 94%;
-
-  --primary: 239 84% 67%;           /* indigo-500 #6366f1 */
-  --primary-foreground: 0 0% 100%;
-  --accent-soft: 245 100% 80%;
-
-  --secondary: 217 33% 17%;
-  --secondary-foreground: 218 33% 94%;
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 65%;
-  --accent: 217 33% 17%;
-  --accent-foreground: 218 33% 94%;
-
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --success: 142 69% 45%;
-  --success-foreground: 0 0% 100%;
-  --warning: 38 92% 50%;
-  --warning-foreground: 0 0% 10%;
-
-  --mtn: 48 100% 50%;
-  --mtn-foreground: 0 0% 10%;
-  --telecel: 353 90% 58%;
-  --telecel-foreground: 0 0% 100%;
-  --at: 215 90% 60%;
-  --at-foreground: 0 0% 100%;
-
-  --border: 220 28% 19%;            /* #222b3d */
-  --input: 220 28% 19%;
-  --ring: 239 84% 67%;
-
-  --sidebar: 222 33% 8%;
-  --sidebar-foreground: 218 33% 94%;
-  --sidebar-primary: 239 84% 67%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 217 33% 17%;
-  --sidebar-accent-foreground: 218 33% 94%;
-  --sidebar-border: 220 28% 19%;
-  --sidebar-ring: 239 84% 67%;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 @layer base {

@@ -185,19 +185,19 @@ export function PaystackInlineModal({
 
         <div className="space-y-6">
           {/* Payment Details */}
-          <div className="space-y-3 p-4 bg-muted/40 rounded-lg">
+          <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Amount</span>
+              <span className="text-sm text-gray-600">Amount</span>
               <span className="font-semibold text-lg">GHS {(amount || 0).toFixed(2)}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Email</span>
+              <span className="text-sm text-gray-600">Email</span>
               <span className="font-mono text-xs truncate">{email}</span>
             </div>
             <div className="flex justify-between items-center gap-2">
-              <span className="text-sm text-muted-foreground">Reference</span>
+              <span className="text-sm text-gray-600">Reference</span>
               <div className="flex items-center gap-1">
-                <span className="font-mono text-xs bg-card px-2 py-1 rounded border truncate">
+                <span className="font-mono text-xs bg-white px-2 py-1 rounded border truncate">
                   {reference}
                 </span>
                 <Button
@@ -223,9 +223,9 @@ export function PaystackInlineModal({
           )}
 
           {status === "loading" && (
-            <Alert className="border-primary/20 bg-primary/5">
+            <Alert className="border-blue-200 bg-blue-50">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <AlertDescription className="text-primary">
+              <AlertDescription className="text-blue-800">
                 Opening payment modal...
               </AlertDescription>
             </Alert>
@@ -253,7 +253,7 @@ export function PaystackInlineModal({
               <Button
                 onClick={handlePayment}
                 disabled={loading}
-                className="flex-1 bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary"
+                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
               >
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {loading ? "Processing..." : "Pay Now"}
@@ -271,7 +271,7 @@ export function PaystackInlineModal({
           </div>
 
           {/* Info Text */}
-          <p className="text-xs text-muted-foreground text-center">
+          <p className="text-xs text-gray-500 text-center">
             Secure payment powered by Paystack. Your payment information is encrypted.
           </p>
         </div>

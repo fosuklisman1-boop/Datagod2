@@ -582,7 +582,7 @@ export default function ShopStorefront() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
         <div className="text-center">
           <img src="/favicon_custom.ico" alt="DATAGOD Logo" className="w-16 h-16 rounded-lg object-cover" />
-          <p className="text-muted-foreground">Loading store...</p>
+          <p className="text-gray-600">Loading store...</p>
         </div>
       </div>
     )
@@ -643,13 +643,13 @@ export default function ShopStorefront() {
         }}
       />
       {/* Navigation Bar */}
-      <nav className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
+      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
             {/* 3-Line Hamburger Button */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-violet-50 text-foreground hover:text-violet-600 rounded-lg transition-all duration-200 hover:shadow-md"
+              className="p-2 hover:bg-violet-50 text-gray-700 hover:text-violet-600 rounded-lg transition-all duration-200 hover:shadow-md"
               aria-label="Toggle navigation menu"
               aria-expanded={sidebarOpen}
             >
@@ -659,7 +659,7 @@ export default function ShopStorefront() {
             {/* Shop Info */}
             <div className="flex items-center gap-3">
               <Store className="w-6 h-6 text-violet-600 hidden sm:block" />
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">
                 {shop.shop_name || shop.name || "Store"}
               </h1>
             </div>
@@ -670,7 +670,7 @@ export default function ShopStorefront() {
             <img
               src={shop.logo_url}
               alt={shop.shop_name || "Shop"}
-              className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover border-2 border-border flex-shrink-0"
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover border-2 border-gray-200 flex-shrink-0"
             />
           )}
         </div>
@@ -687,7 +687,7 @@ export default function ShopStorefront() {
 
       {/* Collapsible Sidebar */}
       <aside
-        className={`fixed left-0 top-16 h-[calc(100vh-64px)] bg-card border-r border-border w-64 transform transition-all duration-300 ease-in-out z-30 shadow-lg ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed left-0 top-16 h-[calc(100vh-64px)] bg-white border-r border-gray-200 w-64 transform transition-all duration-300 ease-in-out z-30 shadow-lg ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
         <div className="sticky top-0 overflow-y-auto h-full">
@@ -703,7 +703,7 @@ export default function ShopStorefront() {
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === tab.id
                       ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600 shadow-sm"
-                      : "text-foreground hover:bg-accent border-l-4 border-l-transparent"
+                      : "text-gray-700 hover:bg-gray-50 border-l-4 border-l-transparent"
                       }`}
                   >
                     {tab.icon}
@@ -729,7 +729,7 @@ export default function ShopStorefront() {
       <div className="max-w-7xl mx-auto px-4">
         {/* Shop Description Section */}
         <div className="py-8 mb-8 text-center px-2">
-          <p className="text-muted-foreground break-words text-sm sm:text-base md:text-lg">{shop.description || "Welcome to our store"}</p>
+          <p className="text-gray-600 break-words text-sm sm:text-base md:text-lg">{shop.description || "Welcome to our store"}</p>
           <div className="flex flex-wrap gap-3 mt-4 justify-center">
             {shopSettings?.whatsapp_link && (
               <a
@@ -764,12 +764,12 @@ export default function ShopStorefront() {
             {(activeTab === "products" || activeTab === "airtime" || activeTab === "vouchers") && (
               <div className="space-y-8">
                 {/* Sub-tab Switcher */}
-                <div className="flex p-1.5 bg-muted rounded-2xl w-full sm:w-fit mx-auto sm:mx-0 shadow-inner">
+                <div className="flex p-1.5 bg-gray-100 rounded-2xl w-full sm:w-fit mx-auto sm:mx-0 shadow-inner">
                   <button
                     onClick={() => setActiveTab("products")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "products"
-                        ? "bg-card text-violet-700 shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                        ? "bg-white text-violet-700 shadow-md scale-[1.02]"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
                       }`}
                   >
                     <ShoppingCart className="w-5 h-5" />
@@ -778,8 +778,8 @@ export default function ShopStorefront() {
                   <button
                     onClick={() => setActiveTab("airtime")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "airtime"
-                        ? "bg-card text-violet-700 shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                        ? "bg-white text-violet-700 shadow-md scale-[1.02]"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
                       }`}
                   >
                     <Zap className="w-5 h-5" />
@@ -788,8 +788,8 @@ export default function ShopStorefront() {
                   <button
                     onClick={() => setActiveTab("vouchers")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
-                        ? "bg-card text-violet-700 shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                        ? "bg-white text-violet-700 shadow-md scale-[1.02]"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
                       }`}
                   >
                     <GraduationCap className="w-5 h-5" />
@@ -801,13 +801,13 @@ export default function ShopStorefront() {
                   /* Data Packages Section */
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div>
-                      <h2 className="text-2xl font-black mb-6 text-foreground border-l-4 border-violet-600 pl-4">Fast Data Packages</h2>
+                      <h2 className="text-2xl font-black mb-6 text-gray-900 border-l-4 border-violet-600 pl-4">Fast Data Packages</h2>
 
                       {packages.length === 0 ? (
-                        <Card className="bg-card/50 border-2 border-dashed border-border backdrop-blur-sm">
+                        <Card className="bg-white/50 border-2 border-dashed border-gray-200 backdrop-blur-sm">
                           <CardContent className="pt-12 pb-12 text-center">
                             <Store className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                            <p className="text-muted-foreground font-medium">No packages available at the moment</p>
+                            <p className="text-gray-500 font-medium">No packages available at the moment</p>
                           </CardContent>
                         </Card>
                       ) : (
@@ -823,7 +823,7 @@ export default function ShopStorefront() {
                                   onClick={() => setSelectedNetwork(network as string)}
                                   className={`group cursor-pointer hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 overflow-hidden border-0 ${selectedNetwork === network
                                       ? "ring-4 ring-violet-600 shadow-xl"
-                                      : "shadow-md bg-card/80"
+                                      : "shadow-md bg-white/80"
                                     }`}
                                 >
                                   <div className="flex flex-col h-full relative">
@@ -836,8 +836,8 @@ export default function ShopStorefront() {
                                     </div>
 
                                     <div className="flex-1 p-3 text-center">
-                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-violet-700' : 'text-foreground'}`}>{network}</h3>
-                                      <p className="text-[10px] sm:text-xs text-muted-foreground font-bold mt-1 uppercase opacity-60">{availableCount} plans</p>
+                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-violet-700' : 'text-gray-900'}`}>{network}</h3>
+                                      <p className="text-[10px] sm:text-xs text-gray-500 font-bold mt-1 uppercase opacity-60">{availableCount} plans</p>
                                     </div>
                                     
                                     {selectedNetwork === network && (
@@ -853,14 +853,14 @@ export default function ShopStorefront() {
 
                           {/* Packages Grid */}
                           {selectedNetwork && (
-                            <div ref={packagesRef} className="py-10 border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-700">
+                            <div ref={packagesRef} className="py-10 border-t border-gray-100 animate-in fade-in slide-in-from-bottom-8 duration-700">
                               <div className="flex items-center gap-4 mb-8">
                                 <div className="p-3 bg-violet-100 rounded-2xl">
                                   <img src={getNetworkLogo(selectedNetwork)} className="w-8 h-8 object-contain" alt={selectedNetwork} />
                                 </div>
                                 <div>
-                                  <h2 className="text-2xl font-black text-foreground uppercase tracking-tight">{selectedNetwork} Offers</h2>
-                                  <p className="text-sm font-medium text-muted-foreground">Pick the perfect plan for your needs</p>
+                                  <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">{selectedNetwork} Offers</h2>
+                                  <p className="text-sm font-medium text-gray-500">Pick the perfect plan for your needs</p>
                                 </div>
                               </div>
 
@@ -883,15 +883,15 @@ export default function ShopStorefront() {
                                     const totalPrice = pkg.price + shopPkg.profit_margin
 
                                     return (
-                                      <Card key={shopPkg.id} className="group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 border-0 shadow-lg bg-card overflow-hidden rounded-2xl">
+                                      <Card key={shopPkg.id} className="group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 border-0 shadow-lg bg-white overflow-hidden rounded-2xl">
                                         <div className="h-2 bg-gradient-to-r from-violet-600 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                                         <CardHeader className="pb-2">
                                           <div className="flex items-start justify-between">
                                             <div className="flex-1">
-                                              <CardTitle className="text-2xl font-black text-foreground group-hover:text-violet-700 transition-colors">
+                                              <CardTitle className="text-2xl font-black text-gray-900 group-hover:text-violet-700 transition-colors">
                                                 {pkg.size}GB
                                               </CardTitle>
-                                              <CardDescription className="text-sm font-medium text-muted-foreground mt-1">{pkg.description}</CardDescription>
+                                              <CardDescription className="text-sm font-medium text-gray-500 mt-1">{pkg.description}</CardDescription>
                                             </div>
                                             <Badge className={shopPkg.is_available ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200"}>
                                               {shopPkg.is_available ? "Active" : "OOS"}
@@ -901,13 +901,13 @@ export default function ShopStorefront() {
                                         <CardContent className="space-y-6 pt-0">
                                           <div className="flex justify-between items-end pt-4">
                                             <div className="flex flex-col">
-                                              <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Price</span>
-                                              <span className="text-3xl font-black text-foreground">
+                                              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Price</span>
+                                              <span className="text-3xl font-black text-gray-900">
                                                 GHS {totalPrice.toFixed(2)}
                                               </span>
                                             </div>
                                             <div className="flex flex-col items-end">
-                                              <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Status</span>
+                                              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Status</span>
                                               <div className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-50 text-violet-700 rounded-lg text-xs font-bold ring-1 ring-violet-200/50">
                                                 <Zap className="w-3 h-3 fill-violet-700" />
                                                 Instant
@@ -958,27 +958,27 @@ export default function ShopStorefront() {
                   <CardContent className="space-y-4">
                     {shop.phone && (
                       <div className="flex items-start gap-2">
-                        <MessageCircle className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <MessageCircle className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
                         <div>
-                          <p className="font-semibold text-foreground">Phone</p>
-                          <span className="text-foreground">{shop.phone}</span>
+                          <p className="font-semibold text-gray-900">Phone</p>
+                          <span className="text-gray-700">{shop.phone}</span>
                         </div>
                       </div>
                     )}
                     {shop.location && (
                       <div className="flex items-start gap-2">
-                        <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <MapPin className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
                         <div>
-                          <p className="font-semibold text-foreground">Location</p>
-                          <span className="text-foreground">{shop.location}</span>
+                          <p className="font-semibold text-gray-900">Location</p>
+                          <span className="text-gray-700">{shop.location}</span>
                         </div>
                       </div>
                     )}
                     <div className="flex items-start gap-2 pt-2 border-t">
-                      <Clock className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <Clock className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <p className="font-semibold text-foreground">Support</p>
-                        <p className="text-foreground">24/7 Support Available</p>
+                        <p className="font-semibold text-gray-900">Support</p>
+                        <p className="text-gray-700">24/7 Support Available</p>
                       </div>
                     </div>
                   </CardContent>
@@ -1012,8 +1012,8 @@ export default function ShopStorefront() {
       {
         checkoutOpen && selectedPackage && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <Card className="w-full max-w-md bg-card max-h-[90vh] flex flex-col">
-              <CardHeader className="border-b border-border shrink-0">
+            <Card className="w-full max-w-md bg-white max-h-[90vh] flex flex-col">
+              <CardHeader className="border-b border-gray-200 shrink-0">
                 <CardTitle>Checkout</CardTitle>
                 <CardDescription>
                   {selectedPackage.packages.network} - {selectedPackage.packages.size}GB
@@ -1053,7 +1053,7 @@ export default function ShopStorefront() {
                     placeholder="0201234567 or 0551234567"
                     className="mt-1"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-gray-600 mt-1">
                     Format: 10 digits starting with 02 or 05 (e.g., 0201234567)
                   </p>
                 </div>
@@ -1061,16 +1061,16 @@ export default function ShopStorefront() {
                 {/* Order Summary */}
                 <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
                   <div className="flex justify-between items-end mb-3">
-                    <span className="font-semibold text-foreground">Total Amount:</span>
+                    <span className="font-semibold text-gray-700">Total Amount:</span>
                     <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
                       GHS {(selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)).toFixed(2)}
                     </span>
                   </div>
                 </div>
 
-                <Alert className="border-blue-300 bg-primary/5">
-                  <AlertCircle className="h-4 w-4 text-primary" />
-                  <AlertDescription className="text-xs text-primary">
+                <Alert className="border-blue-300 bg-blue-50">
+                  <AlertCircle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-xs text-blue-700">
                     {directCharge
                       ? "A Mobile Money prompt will be sent to the number you enter below. Approve it with your PIN to complete the order."
                       : "You will be redirected to Paystack to complete your payment."}
@@ -1095,7 +1095,7 @@ export default function ShopStorefront() {
                           if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                         }}
                         placeholder="0241234567"
-                        className="mt-1 bg-card"
+                        className="mt-1 bg-white"
                         disabled={otpRequired && otpVerified}
                       />
                       <p className="text-xs text-purple-700 mt-1">
@@ -1123,7 +1123,7 @@ export default function ShopStorefront() {
                             placeholder="Enter 6-digit code"
                             value={otpCode}
                             onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                            className="text-center text-lg tracking-[0.4em] font-mono bg-card"
+                            className="text-center text-lg tracking-[0.4em] font-mono bg-white"
                           />
                           <div className="flex gap-2">
                             <Button
@@ -1138,7 +1138,7 @@ export default function ShopStorefront() {
                               {otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}
                             </Button>
                           </div>
-                          <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                          <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
                         </div>
                       )
                     ) : (
@@ -1153,7 +1153,7 @@ export default function ShopStorefront() {
               </CardContent>
 
               {/* Fixed action footer — stays visible while the form above scrolls */}
-              <div className="border-t border-border p-4 space-y-3 shrink-0">
+              <div className="border-t border-gray-200 p-4 space-y-3 shrink-0">
                 {turnstileEnabled && (
                   <div className="flex justify-center">
                     <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
@@ -1198,24 +1198,24 @@ export default function ShopStorefront() {
           flips it to completed, then shows the order summary. */}
       {momoModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
-          <Card className="w-full max-w-md bg-card">
+          <Card className="w-full max-w-md bg-white">
             {momoModal.state === "awaiting" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
                 <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
                   <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
+                  <h3 className="text-lg font-bold text-gray-900">Approve the prompt on your phone</h3>
+                  <p className="text-sm text-gray-600 mt-1">
                     We sent a Mobile Money prompt to{" "}
                     <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
                     <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
                   </p>
                 </div>
-                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
                   <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
                 </div>
-                <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
+                <p className="text-xs text-gray-400">Keep this page open. This can take up to a minute.</p>
               </CardContent>
             )}
 
@@ -1225,16 +1225,16 @@ export default function ShopStorefront() {
                   <svg className="w-9 h-9 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Your order is confirmed and is being processed.</p>
+                  <h3 className="text-lg font-bold text-gray-900">Payment successful 🎉</h3>
+                  <p className="text-sm text-gray-600 mt-1">Your order is confirmed and is being processed.</p>
                 </div>
-                <div className="text-left p-4 rounded-lg bg-muted/40 border border-border space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Package</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Beneficiary</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
+                <div className="text-left p-4 rounded-lg bg-gray-50 border border-gray-200 space-y-1.5 text-sm">
+                  <div className="flex justify-between"><span className="text-gray-500">Package</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Beneficiary</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
                   {momoModal.summary?.reference && (
-                    <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{momoModal.summary.reference}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Reference</span><span className="font-mono text-xs">{momoModal.summary.reference}</span></div>
                   )}
                 </div>
                 <Button
@@ -1257,8 +1257,8 @@ export default function ShopStorefront() {
                   <AlertCircle className="w-9 h-9 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
+                  <h3 className="text-lg font-bold text-gray-900">Payment not completed</h3>
+                  <p className="text-sm text-gray-600 mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={() => setMomoModal(null)} className="flex-1">Close</Button>
@@ -1355,7 +1355,7 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
             {expanded ? "Hide" : "Read Terms"}
           </button>
         </div>
-        {intro && <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{intro}</p>}
+        {intro && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{intro}</p>}
       </CardHeader>
 
       {expanded && (
@@ -1363,10 +1363,10 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
           {sections.map((s, i) => (
             <div key={i} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
               <p className="text-xs font-bold text-violet-700 mb-1">{s.title}</p>
-              <p className="text-xs text-foreground leading-relaxed">{s.body}</p>
+              <p className="text-xs text-gray-700 leading-relaxed">{s.body}</p>
             </div>
           ))}
-          <p className="text-xs text-muted-foreground pt-1">Last updated: {formattedDate}</p>
+          <p className="text-xs text-gray-400 pt-1">Last updated: {formattedDate}</p>
         </CardContent>
       )}
     </Card>
@@ -1456,14 +1456,14 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
       case "completed":
         return "bg-green-100 text-green-800 border-green-200"
       case "processing":
-        return "bg-primary/10 text-primary border-primary/20"
+        return "bg-blue-100 text-blue-800 border-blue-200"
       case "pending":
         return "bg-yellow-100 text-yellow-800 border-yellow-200"
       case "failed":
       case "cancelled":
         return "bg-red-100 text-red-800 border-red-200"
       default:
-        return "bg-muted text-foreground border-border"
+        return "bg-gray-100 text-gray-800 border-gray-200"
     }
   }
 
@@ -1514,10 +1514,10 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
             <Card>
               <CardContent className="pt-8 pb-8">
                 <div className="text-center space-y-4">
-                  <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto" />
+                  <AlertCircle className="w-12 h-12 text-gray-400 mx-auto" />
                   <div>
-                    <h3 className="text-lg font-semibold text-foreground">No orders found</h3>
-                    <p className="text-muted-foreground">
+                    <h3 className="text-lg font-semibold text-gray-900">No orders found</h3>
+                    <p className="text-gray-600">
                       We couldn't find any orders with phone number: <span className="font-mono font-semibold">{phoneNumber}</span>
                     </p>
                   </div>
@@ -1527,7 +1527,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base sm:text-lg font-bold text-foreground">
+                <h3 className="text-base sm:text-lg font-bold text-gray-900">
                   Found {orders.length} Order{orders.length !== 1 ? "s" : ""}
                 </h3>
                 <Badge variant="outline">{orders.length}</Badge>
@@ -1539,7 +1539,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                     <div className="flex items-start justify-between">
                       <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2">
-                          <Package className="w-4 h-4 text-primary" />
+                          <Package className="w-4 h-4 text-blue-600" />
                           <CardTitle className="text-base">{order.network} {order.type === 'airtime' ? 'Airtime' : 'Data'}</CardTitle>
                           <Badge className="text-xs" variant="outline">
                             {order.type === 'airtime' ? `GHS ${order.volume_gb}` : `${order.volume_gb}GB`}
@@ -1558,32 +1558,32 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                   <CardContent className="space-y-3">
                     <div className="grid grid-cols-4 gap-4">
                       <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Total</p>
-                        <p className="font-semibold text-foreground">₵ {order.total_price.toFixed(2)}</p>
+                        <p className="text-xs text-gray-600">Total</p>
+                        <p className="font-semibold text-gray-900">₵ {order.total_price.toFixed(2)}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Customer</p>
-                        <p className="font-semibold text-foreground">{order.customer_name}</p>
+                        <p className="text-xs text-gray-600">Customer</p>
+                        <p className="font-semibold text-gray-900">{order.customer_name}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Date</p>
-                        <p className="text-sm text-foreground">{new Date(order.created_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-gray-600">Date</p>
+                        <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleDateString()}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Time</p>
-                        <p className="text-sm text-foreground">{new Date(order.created_at).toLocaleTimeString()}</p>
+                        <p className="text-xs text-gray-600">Time</p>
+                        <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleTimeString()}</p>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 pt-2 border-t">
                       <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Order Status</p>
+                        <p className="text-xs text-gray-600">Order Status</p>
                         <Badge className={`text-xs border ${getStatusColor(order.order_status)}`}>
                           {order.order_status?.charAt(0).toUpperCase() + order.order_status?.slice(1)}
                         </Badge>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Payment Status</p>
+                        <p className="text-xs text-gray-600">Payment Status</p>
                         <Badge className={`text-xs border ${getStatusColor(order.payment_status)}`}>
                           {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1)}
                         </Badge>

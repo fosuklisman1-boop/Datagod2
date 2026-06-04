@@ -88,7 +88,7 @@ export default function RateLimitsPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
         </div>
       </DashboardLayout>
     )
@@ -103,7 +103,7 @@ export default function RateLimitsPage() {
               <Shield className="w-6 h-6 text-red-500" />
               Rate Limit Blocks
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-sm text-gray-500 mt-1">
               Recent requests blocked by rate limiting. Reset a limit to immediately unblock a user or IP.
             </p>
           </div>
@@ -118,7 +118,7 @@ export default function RateLimitsPage() {
           <CardContent className="pt-4 pb-4">
             <div className="flex gap-3">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <Input
                   placeholder="Filter by endpoint..."
                   className="pl-9"
@@ -128,7 +128,7 @@ export default function RateLimitsPage() {
                 />
               </div>
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <Input
                   placeholder="Filter by identifier (user:ID or ip:x.x.x.x)..."
                   className="pl-9"
@@ -146,19 +146,19 @@ export default function RateLimitsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-4">
-              <p className="text-sm text-muted-foreground">Total blocks logged</p>
+              <p className="text-sm text-gray-500">Total blocks logged</p>
               <p className="text-2xl font-bold">{total.toLocaleString()}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4">
-              <p className="text-sm text-muted-foreground">Unique endpoints hit</p>
+              <p className="text-sm text-gray-500">Unique endpoints hit</p>
               <p className="text-2xl font-bold">{new Set(blocks.map(b => b.endpoint)).size}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4">
-              <p className="text-sm text-muted-foreground">Unique identifiers blocked</p>
+              <p className="text-sm text-gray-500">Unique identifiers blocked</p>
               <p className="text-2xl font-bold">{new Set(blocks.map(b => b.identifier)).size}</p>
             </CardContent>
           </Card>
@@ -175,10 +175,10 @@ export default function RateLimitsPage() {
           <CardContent>
             {loading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
               </div>
             ) : blocks.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
+              <div className="text-center py-12 text-gray-500">
                 <Shield className="w-10 h-10 mx-auto mb-3 text-gray-300" />
                 <p>No rate limit blocks found.</p>
               </div>
@@ -187,11 +187,11 @@ export default function RateLimitsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left">
-                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Endpoint</th>
-                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Identifier</th>
-                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Limit</th>
-                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Blocked At</th>
-                      <th className="pb-3 font-medium text-muted-foreground">Action</th>
+                      <th className="pb-3 pr-4 font-medium text-gray-600">Endpoint</th>
+                      <th className="pb-3 pr-4 font-medium text-gray-600">Identifier</th>
+                      <th className="pb-3 pr-4 font-medium text-gray-600">Limit</th>
+                      <th className="pb-3 pr-4 font-medium text-gray-600">Blocked At</th>
+                      <th className="pb-3 font-medium text-gray-600">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -199,9 +199,9 @@ export default function RateLimitsPage() {
                       const key = `${block.endpoint}:${block.identifier}`
                       const isUser = block.identifier.startsWith("user:")
                       return (
-                        <tr key={block.id} className="hover:bg-accent">
+                        <tr key={block.id} className="hover:bg-gray-50">
                           <td className="py-3 pr-4">
-                            <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                            <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">
                               {block.endpoint}
                             </code>
                           </td>
@@ -210,15 +210,15 @@ export default function RateLimitsPage() {
                               <Badge variant={isUser ? "default" : "secondary"} className="text-xs">
                                 {isUser ? "user" : "ip"}
                               </Badge>
-                              <span className="font-mono text-xs text-foreground">
+                              <span className="font-mono text-xs text-gray-700">
                                 {block.identifier.replace(/^(user:|ip:)/, "")}
                               </span>
                             </span>
                           </td>
-                          <td className="py-3 pr-4 text-muted-foreground">
+                          <td className="py-3 pr-4 text-gray-600">
                             {block.request_limit} / {block.window_seconds}s
                           </td>
-                          <td className="py-3 pr-4 text-muted-foreground text-xs">
+                          <td className="py-3 pr-4 text-gray-500 text-xs">
                             {new Date(block.blocked_at).toLocaleString()}
                           </td>
                           <td className="py-3">

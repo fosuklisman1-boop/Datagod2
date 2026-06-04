@@ -49,14 +49,14 @@ export function SuccessModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">
         {/* Close Button */}
         <div className="flex justify-end p-3 pb-0">
           <button
             onClick={onClose}
-            className="p-1 rounded-full hover:bg-accent transition-colors"
+            className="p-1 rounded-full hover:bg-gray-100 transition-colors"
           >
-            <X className="w-5 h-5 text-muted-foreground" />
+            <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
@@ -67,17 +67,17 @@ export function SuccessModal({
               <CheckCircle className="w-10 h-10 text-white" />
             </div>
           </div>
-          <h2 className="text-xl font-bold text-foreground mb-2">{title}</h2>
-          <p className="text-muted-foreground text-sm">{message}</p>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">{title}</h2>
+          <p className="text-gray-600 text-sm">{message}</p>
         </div>
 
         {/* Details */}
         {details && details.length > 0 && (
-          <div className="mx-6 mb-4 p-4 bg-muted/40 rounded-xl space-y-2">
+          <div className="mx-6 mb-4 p-4 bg-gray-50 rounded-xl space-y-2">
             {details.map((detail, index) => (
               <div key={index} className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">{detail.label}</span>
-                <span className="text-sm font-semibold text-foreground">{detail.value}</span>
+                <span className="text-sm text-gray-500">{detail.label}</span>
+                <span className="text-sm font-semibold text-gray-900">{detail.value}</span>
               </div>
             ))}
           </div>
@@ -101,7 +101,7 @@ export function SuccessModal({
             <span className="relative z-10">Close ({timeLeft}s)</span>
             {/* Progress bar background */}
             <div 
-              className="absolute inset-0 bg-muted origin-left transition-transform duration-1000 ease-linear"
+              className="absolute inset-0 bg-gray-100 origin-left transition-transform duration-1000 ease-linear"
               style={{ transform: `scaleX(${timeLeft / autoCloseSeconds})` }}
             />
           </Button>

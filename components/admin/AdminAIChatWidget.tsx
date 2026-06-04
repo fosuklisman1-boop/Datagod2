@@ -35,7 +35,7 @@ const mdComponents = {
   ol: ({ children }: any) => <ol className="list-decimal pl-4 mb-1 space-y-0.5">{children}</ol>,
   li: ({ children }: any) => <li>{children}</li>,
   strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
-  code: ({ children }: any) => <code className="bg-muted rounded px-1 text-xs font-mono">{children}</code>,
+  code: ({ children }: any) => <code className="bg-gray-200 rounded px-1 text-xs font-mono">{children}</code>,
 }
 
 export function AdminAIChatWidget() {
@@ -234,7 +234,7 @@ export function AdminAIChatWidget() {
 
   function buttonClass(style?: string) {
     if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
-    if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
+    if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-600 bg-gray-800 text-gray-100 hover:bg-gray-700 transition-colors"
   }
 
@@ -245,7 +245,7 @@ export function AdminAIChatWidget() {
           <div className="bg-black/30 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/10">
             <div>
               <p className="font-semibold text-sm">Admin AI Assistant</p>
-              <p className="text-muted-foreground text-xs">Full platform access</p>
+              <p className="text-gray-400 text-xs">Full platform access</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -255,12 +255,12 @@ export function AdminAIChatWidget() {
                   setActionButtons(null)
                   if (userId) { try { localStorage.removeItem(STORAGE_KEY(userId)) } catch {} }
                 }}
-                className="text-muted-foreground hover:text-white transition-colors"
+                className="text-gray-400 hover:text-white transition-colors"
                 title="Clear chat"
               >
                 <Trash2 size={15} />
               </button>
-              <button onClick={() => setIsOpen(false)} className="text-muted-foreground hover:text-white transition-colors">
+              <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-white transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -274,7 +274,7 @@ export function AdminAIChatWidget() {
 
               {isStreaming && (
                 <div className="flex justify-start">
-                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-muted text-foreground">
+                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
                     {streamingContent ? (
                       <ReactMarkdown components={mdComponents}>
                         {streamingContent + "▋"}
@@ -316,7 +316,7 @@ export function AdminAIChatWidget() {
             {showScrollBtn && (
               <button
                 onClick={scrollToBottom}
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-card/20 backdrop-blur-sm border border-white/30 text-white shadow-lg hover:bg-card/30 transition-all hover:scale-110 active:scale-95"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/20 backdrop-blur-sm border border-white/30 text-white shadow-lg hover:bg-white/30 transition-all hover:scale-110 active:scale-95"
                 aria-label="Scroll to bottom"
               >
                 <ChevronDown size={16} />
@@ -332,7 +332,7 @@ export function AdminAIChatWidget() {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Ask anything..."
-              className="flex-1 text-sm bg-card/10 border border-white/18 text-white rounded-xl px-3 py-2 outline-none focus:border-white/35 focus:bg-card/15 disabled:opacity-50 transition-all placeholder:text-muted-foreground"
+              className="flex-1 text-sm bg-white/10 border border-white/18 text-white rounded-xl px-3 py-2 outline-none focus:border-white/35 focus:bg-white/15 disabled:opacity-50 transition-all placeholder:text-gray-400"
             />
             <button
               onClick={() => sendMessage()}
@@ -348,7 +348,7 @@ export function AdminAIChatWidget() {
       {!isOpen && (
         <button
           onClick={() => window.location.reload()}
-          className="flex items-center gap-1.5 bg-card/90 backdrop-blur-sm border border-border text-muted-foreground rounded-full px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent hover:text-foreground transition-all active:scale-95"
+          className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 text-gray-500 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-gray-50 hover:text-gray-700 transition-all active:scale-95"
           aria-label="Hard refresh page"
           title="Hard refresh"
         >
@@ -359,8 +359,8 @@ export function AdminAIChatWidget() {
 
       {!isOpen && (
         <div className={`transition-opacity duration-300 ${hintVisible ? "opacity-100" : "opacity-0"}`}>
-          <div className="bg-card/95 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg border border-border">
-            <p className="text-xs font-semibold text-foreground whitespace-nowrap">{hints[hintIndex]}</p>
+          <div className="bg-white/95 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg border border-gray-200">
+            <p className="text-xs font-semibold text-gray-700 whitespace-nowrap">{hints[hintIndex]}</p>
           </div>
         </div>
       )}

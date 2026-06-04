@@ -304,7 +304,7 @@ export default function AddToCatalogPage() {
           </Button>
           <div>
             <h1 className="text-2xl font-bold">Add Packages to Catalog</h1>
-            <p className="text-muted-foreground">
+            <p className="text-gray-500">
               Select packages and set your wholesale margin for sub-agents
             </p>
           </div>
@@ -316,7 +316,7 @@ export default function AddToCatalogPage() {
             <div className="flex flex-col sm:flex-row gap-4">
               {/* Search */}
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
                   placeholder="Search packages..."
                   value={searchQuery}
@@ -350,9 +350,9 @@ export default function AddToCatalogPage() {
         </Card>
 
         {/* Info */}
-        <Alert className="bg-primary/5 border-primary/20">
-          <Package className="h-4 w-4 text-primary" />
-          <AlertDescription className="text-primary">
+        <Alert className="bg-blue-50 border-blue-200">
+          <Package className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-blue-800">
             <strong>How it works:</strong> Enter the selling price for each package. Your sub-agents will pay
             this price as their wholesale cost.
           </AlertDescription>
@@ -361,7 +361,7 @@ export default function AddToCatalogPage() {
         {/* Packages by Network */}
         {Object.keys(packagesByNetwork).length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
+            <CardContent className="py-12 text-center text-gray-500">
               <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No packages found matching your search.</p>
             </CardContent>
@@ -374,7 +374,7 @@ export default function AddToCatalogPage() {
                   <Badge variant="outline" className="text-lg px-3 py-1">
                     {network}
                   </Badge>
-                  <span className="text-sm text-muted-foreground font-normal">
+                  <span className="text-sm text-gray-500 font-normal">
                     {packages.length} package{packages.length !== 1 ? "s" : ""}
                   </span>
                 </CardTitle>
@@ -396,7 +396,7 @@ export default function AddToCatalogPage() {
                         key={pkg.id}
                         className={`p-4 rounded-lg border transition-colors ${inCatalog
                           ? "bg-green-50 border-green-200"
-                          : "bg-card border-border hover:border-border"
+                          : "bg-white border-gray-200 hover:border-gray-300"
                           }`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -411,7 +411,7 @@ export default function AddToCatalogPage() {
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-sm text-muted-foreground mt-1">
+                            <p className="text-sm text-gray-500 mt-1">
                               Your Cost: <span className="font-medium">GHS {typeof basePrice === 'number' && !isNaN(basePrice) ? basePrice.toFixed(2) : '0.00'}</span>
                             </p>
                           </div>
@@ -419,7 +419,7 @@ export default function AddToCatalogPage() {
                           {/* Selling Price Input */}
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1">
-                              <span className="text-sm text-muted-foreground">Sell at:</span>
+                              <span className="text-sm text-gray-500">Sell at:</span>
                               <Input
                                 type="number"
                                 step="0.01"
@@ -436,7 +436,7 @@ export default function AddToCatalogPage() {
 
                             {margin !== null && !isNaN(margin) && margin >= 0 && (
                               <div className="text-sm">
-                                <span className="text-muted-foreground">Profit: </span>
+                                <span className="text-gray-500">Profit: </span>
                                 <span className="font-bold text-green-600">
                                   GHS {typeof margin === 'number' && !isNaN(margin) ? margin.toFixed(2) : '0.00'}
                                 </span>

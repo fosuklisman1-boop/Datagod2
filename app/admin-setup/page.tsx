@@ -142,7 +142,7 @@ export default function AdminSetupPage() {
             <Button
               onClick={() => makeUserAdmin(userEmail)}
               disabled={loading || !userEmail}
-              className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white"
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white"
             >
               {loading ? "Processing..." : "Grant Admin Access"}
             </Button>

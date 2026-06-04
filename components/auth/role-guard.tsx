@@ -34,7 +34,7 @@ export function RoleGuard({
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
       </div>
     )
   }
@@ -42,7 +42,7 @@ export function RoleGuard({
   if (!role || !allowedRoles.includes(role)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
       </div>
     )
   }

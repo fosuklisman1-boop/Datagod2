@@ -27,27 +27,6 @@ const config = {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
         },
-        success: {
-          DEFAULT: 'hsl(var(--success))',
-          foreground: 'hsl(var(--success-foreground))',
-        },
-        warning: {
-          DEFAULT: 'hsl(var(--warning))',
-          foreground: 'hsl(var(--warning-foreground))',
-        },
-        // Network brand colors — consistent MTN/Telecel/AT across the app
-        mtn: {
-          DEFAULT: 'hsl(var(--mtn))',
-          foreground: 'hsl(var(--mtn-foreground))',
-        },
-        telecel: {
-          DEFAULT: 'hsl(var(--telecel))',
-          foreground: 'hsl(var(--telecel-foreground))',
-        },
-        at: {
-          DEFAULT: 'hsl(var(--at))',
-          foreground: 'hsl(var(--at-foreground))',
-        },
         muted: {
           DEFAULT: 'hsl(var(--muted))',
           foreground: 'hsl(var(--muted-foreground))',

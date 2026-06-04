@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { NotificationCenter } from "@/components/notification-center"
 import { PwaInstallButton } from "@/components/pwa-install-button"
-import { ThemeToggle } from "@/components/theme-toggle"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,7 +53,7 @@ export function Header() {
 
   return (
     <div
-      className={`fixed right-0 left-0 top-0 z-30 transition-all duration-300 w-full border-b border-border ${isDealer ? "bg-amber-50/90 dark:bg-amber-950/40 backdrop-blur" : "bg-card/95 backdrop-blur"}`}
+      className={`fixed right-0 left-0 top-0 z-30 transition-all duration-300 w-full border-b border-gray-200 ${isDealer ? "bg-amber-50/90 backdrop-blur" : "bg-white"}`}
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       <div className="h-14 md:h-16 flex items-center justify-between px-2 sm:px-3 md:px-4 lg:px-6">
@@ -65,9 +64,6 @@ export function Header() {
       <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
         {/* PWA install — Android shows native prompt; iOS shows step-by-step guide */}
         <PwaInstallButton />
-
-        {/* Light/Dark theme toggle */}
-        <ThemeToggle />
 
         {/* Notification Center */}
         <NotificationCenter />
@@ -82,7 +78,7 @@ export function Header() {
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5">
               <p className="font-semibold text-sm">Customer Support</p>
-              <p className="text-xs text-muted-foreground">Get help from our team</p>
+              <p className="text-xs text-gray-500">Get help from our team</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => window.open(`mailto:${supportInfo.email}`)}>
@@ -103,7 +99,7 @@ export function Header() {
         {/* Shopping Cart - hidden on mobile */}
         <Button variant="ghost" size="icon" className="relative hidden sm:inline-flex h-8 w-8 md:h-10 md:w-10">
           <ShoppingCart className="w-4 h-4 md:w-5 md:h-5" />
-          <Badge className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs">0</Badge>
+          <Badge className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs">0</Badge>
         </Button>
 
         {/* User Profile Dropdown */}
@@ -114,7 +110,7 @@ export function Header() {
                 "w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center transition-all duration-300",
                 isDealer
                   ? "bg-gradient-to-br from-amber-400 to-amber-600 shadow-[0_0_10px_rgba(251,191,36,0.3)]"
-                  : "bg-gradient-to-br from-primary to-violet-600"
+                  : "bg-gradient-to-br from-blue-600 to-purple-600"
               )}>
                 <User className="w-3 h-3 md:w-4 md:h-4 text-white" />
               </div>
@@ -128,7 +124,7 @@ export function Header() {
           <DropdownMenuContent align="end" className="w-48 sm:w-56">
             <div className="px-2 py-1.5 text-sm">
               <p className="font-semibold text-xs sm:text-sm line-clamp-1">{user?.email}</p>
-              <p className="text-xs text-muted-foreground">Account</p>
+              <p className="text-xs text-gray-500">Account</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-xs sm:text-sm">

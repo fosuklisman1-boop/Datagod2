@@ -87,7 +87,7 @@ export function PhoneNumberModal({
               disabled={isLoading}
               type="tel"
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-gray-600">
               Format: 9 or 10 digits starting with 02 or 05
             </p>
           </div>

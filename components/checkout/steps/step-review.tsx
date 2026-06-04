@@ -68,7 +68,7 @@ export const StepReview: React.FC<StepReviewProps> = ({
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold mb-2">Review Your Order</h2>
-        <p className="text-sm text-muted-foreground">Please verify all details before confirming</p>
+        <p className="text-sm text-gray-600">Please verify all details before confirming</p>
       </div>
 
       {error && (
@@ -87,13 +87,13 @@ export const StepReview: React.FC<StepReviewProps> = ({
           <CardContent className="pt-4 pb-4">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-muted-foreground">Network</span>
+                <span className="text-sm font-medium text-gray-600">Network</span>
                 <Badge variant="default" className="text-xs">
                   {network?.name || 'Not selected'}
                 </Badge>
               </div>
               {network && (
-                <p className="text-xs text-muted-foreground">{network.slug.replace(/-/g, ' ').toUpperCase()}</p>
+                <p className="text-xs text-gray-500">{network.slug.replace(/-/g, ' ').toUpperCase()}</p>
               )}
             </div>
           </CardContent>
@@ -107,7 +107,7 @@ export const StepReview: React.FC<StepReviewProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {selectedPackage.package_type === 'data' ? (
-                      <Database className="h-4 w-4 text-primary" />
+                      <Database className="h-4 w-4 text-blue-500" />
                     ) : (
                       <Zap className="h-4 w-4 text-yellow-500" />
                     )}
@@ -122,14 +122,14 @@ export const StepReview: React.FC<StepReviewProps> = ({
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Package Cost</span>
+                  <span className="text-sm text-gray-600">Package Cost</span>
                   <span className="font-semibold text-primary">
                     {formatAmount(selectedPackage.amount)}
                   </span>
                 </div>
                 {selectedPackage.validity_days && (
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Validity</span>
+                    <span className="text-gray-600">Validity</span>
                     <span>{selectedPackage.validity_days} days</span>
                   </div>
                 )}
@@ -158,17 +158,17 @@ export const StepReview: React.FC<StepReviewProps> = ({
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Name</p>
+                  <p className="text-xs font-medium text-gray-600 mb-1">Name</p>
                   <p className="text-sm font-semibold">{customer.name}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Email</p>
-                  <p className="text-sm font-mono text-foreground">{maskEmail(customer.email)}</p>
+                  <p className="text-xs font-medium text-gray-600 mb-1">Email</p>
+                  <p className="text-sm font-mono text-gray-700">{maskEmail(customer.email)}</p>
                 </div>
               </div>
               <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Phone</p>
-                <p className="text-sm font-mono text-foreground">{maskPhone(customer.phone)}</p>
+                <p className="text-xs font-medium text-gray-600 mb-1">Phone</p>
+                <p className="text-sm font-mono text-gray-700">{maskPhone(customer.phone)}</p>
               </div>
             </div>
           </CardContent>
@@ -180,7 +180,7 @@ export const StepReview: React.FC<StepReviewProps> = ({
         <CardContent className="pt-4 pb-4">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-muted-foreground">Package Cost</span>
+              <span className="text-sm font-medium text-gray-600">Package Cost</span>
               <span className="font-semibold">
                 {selectedPackage ? formatAmount(selectedPackage.amount) : 'N/A'}
               </span>
@@ -197,9 +197,9 @@ export const StepReview: React.FC<StepReviewProps> = ({
       </Card>
 
       {/* Info Alert */}
-      <Alert className="border-primary/20 bg-primary/5">
-        <CheckCircle2 className="h-4 w-4 text-primary" />
-        <AlertDescription className="text-primary">
+      <Alert className="border-blue-200 bg-blue-50">
+        <CheckCircle2 className="h-4 w-4 text-blue-600" />
+        <AlertDescription className="text-blue-800">
           After confirming, you'll be redirected to secure payment. No charges until payment is completed.
         </AlertDescription>
       </Alert>

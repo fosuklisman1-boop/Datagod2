@@ -151,14 +151,14 @@ export default function OrderStatusPage() {
       case "completed":
         return "bg-green-100 text-green-800 border-green-200"
       case "processing":
-        return "bg-primary/10 text-primary border-primary/20"
+        return "bg-blue-100 text-blue-800 border-blue-200"
       case "pending":
         return "bg-yellow-100 text-yellow-800 border-yellow-200"
       case "failed":
       case "cancelled":
         return "bg-red-100 text-red-800 border-red-200"
       default:
-        return "bg-muted text-foreground border-border"
+        return "bg-gray-100 text-gray-800 border-gray-200"
     }
   }
 
@@ -187,7 +187,7 @@ export default function OrderStatusPage() {
       case "failed":
         return "bg-red-50 border-red-200"
       default:
-        return "bg-muted/40 border-border"
+        return "bg-gray-50 border-gray-200"
     }
   }
 
@@ -241,11 +241,11 @@ export default function OrderStatusPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary/5 via-white to-purple-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 flex flex-col items-center gap-4">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <p className="text-muted-foreground">Loading shop...</p>
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <p className="text-gray-600">Loading shop...</p>
           </CardContent>
         </Card>
       </div>
@@ -254,7 +254,7 @@ export default function OrderStatusPage() {
 
   if (error && !shop) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary/5 via-white to-purple-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <Card className="w-full max-w-md border-red-200">
           <CardContent className="pt-6">
             <Alert variant="destructive">
@@ -268,15 +268,15 @@ export default function OrderStatusPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-white to-purple-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {/* Header */}
-      <div className="bg-card border-b border-border sticky top-0 z-10">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Store className="w-6 h-6 text-primary" />
+            <Store className="w-6 h-6 text-blue-600" />
             <div>
-              <h1 className="text-2xl font-bold text-foreground">{shop?.shop_name}</h1>
-              <p className="text-sm text-muted-foreground">Check your order status</p>
+              <h1 className="text-2xl font-bold text-gray-900">{shop?.shop_name}</h1>
+              <p className="text-sm text-gray-600">Check your order status</p>
             </div>
           </div>
         </div>
@@ -338,10 +338,10 @@ export default function OrderStatusPage() {
               <Card>
                 <CardContent className="pt-8 pb-8">
                   <div className="text-center space-y-4">
-                    <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto" />
+                    <AlertCircle className="w-12 h-12 text-gray-400 mx-auto" />
                     <div>
-                      <h3 className="text-lg font-semibold text-foreground">No orders found</h3>
-                      <p className="text-muted-foreground">
+                      <h3 className="text-lg font-semibold text-gray-900">No orders found</h3>
+                      <p className="text-gray-600">
                         We couldn't find any orders with phone number: <span className="font-mono font-semibold">{phoneNumber}</span>
                       </p>
                     </div>
@@ -351,7 +351,7 @@ export default function OrderStatusPage() {
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-bold text-foreground">
+                  <h2 className="text-xl font-bold text-gray-900">
                     Found {orders.length} Order{orders.length !== 1 ? "s" : ""}
                   </h2>
                   <Badge variant="outline">{orders.length}</Badge>
@@ -363,7 +363,7 @@ export default function OrderStatusPage() {
                       <div className="flex items-start justify-between">
                         <div className="space-y-1 flex-1">
                           <div className="flex items-center gap-2">
-                            <Package className="w-4 h-4 text-primary" />
+                            <Package className="w-4 h-4 text-blue-600" />
                             <CardTitle className="text-base">{order.network}</CardTitle>
                             <Badge className="text-xs" variant="outline">{order.volume_gb}GB</Badge>
                           </div>
@@ -388,35 +388,35 @@ export default function OrderStatusPage() {
                     <CardContent className="space-y-3">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Price</p>
-                          <p className="font-semibold text-foreground">₵ {(order.base_price || 0).toFixed(2)}</p>
+                          <p className="text-xs text-gray-600">Price</p>
+                          <p className="font-semibold text-gray-900">₵ {(order.base_price || 0).toFixed(2)}</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Total</p>
-                          <p className="font-semibold text-foreground">₵ {(order.total_price || 0).toFixed(2)}</p>
+                          <p className="text-xs text-gray-600">Total</p>
+                          <p className="font-semibold text-gray-900">₵ {(order.total_price || 0).toFixed(2)}</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Customer Name</p>
-                          <p className="font-semibold text-foreground">{order.customer_name || 'N/A'}</p>
+                          <p className="text-xs text-gray-600">Customer Name</p>
+                          <p className="font-semibold text-gray-900">{order.customer_name || 'N/A'}</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Phone</p>
-                          <p className="font-mono text-sm font-semibold text-foreground">{order.customer_phone}</p>
+                          <p className="text-xs text-gray-600">Phone</p>
+                          <p className="font-mono text-sm font-semibold text-gray-900">{order.customer_phone}</p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-2 border-t">
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Email</p>
-                          <p className="text-sm text-foreground break-all">{order.customer_email || 'N/A'}</p>
+                          <p className="text-xs text-gray-600">Email</p>
+                          <p className="text-sm text-gray-900 break-all">{order.customer_email || 'N/A'}</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Ordered</p>
-                          <p className="text-sm text-foreground">{new Date(order.created_at).toLocaleString()}</p>
+                          <p className="text-xs text-gray-600">Ordered</p>
+                          <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleString()}</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Last Updated</p>
-                          <p className="text-sm text-foreground">{new Date(order.updated_at).toLocaleString()}</p>
+                          <p className="text-xs text-gray-600">Last Updated</p>
+                          <p className="text-sm text-gray-900">{new Date(order.updated_at).toLocaleString()}</p>
                         </div>
                       </div>
 
@@ -436,7 +436,7 @@ export default function OrderStatusPage() {
                               value={referenceInputs[order.id] || ""}
                               onChange={(e) => setReferenceInputs(prev => ({ ...prev, [order.id]: e.target.value }))}
                               disabled={verifyingOrder === order.id}
-                              className="flex-1 bg-card text-sm"
+                              className="flex-1 bg-white text-sm"
                               onKeyDown={(e) => { if (e.key === "Enter") verifyPaymentReference(order) }}
                             />
                             <Button
@@ -467,10 +467,10 @@ export default function OrderStatusPage() {
           <Card>
             <CardContent className="pt-16 pb-16">
               <div className="text-center space-y-4">
-                <Package className="w-16 h-16 text-muted-foreground mx-auto" />
+                <Package className="w-16 h-16 text-gray-400 mx-auto" />
                 <div>
-                  <h3 className="text-lg font-semibold text-foreground">Track Your Orders</h3>
-                  <p className="text-muted-foreground">Enter your phone number above to search for your orders</p>
+                  <h3 className="text-lg font-semibold text-gray-900">Track Your Orders</h3>
+                  <p className="text-gray-600">Enter your phone number above to search for your orders</p>
                 </div>
               </div>
             </CardContent>

@@ -35,10 +35,10 @@ export function AnnouncementModal({ isOpen, onClose, title, message }: Announcem
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl bg-card/95 backdrop-blur-xl border border-primary/20 shadow-2xl">
+      <DialogContent className="max-w-2xl bg-white/95 backdrop-blur-xl border border-blue-200/50 shadow-2xl">
         <DialogHeader>
           <div className="flex items-start justify-between">
-            <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-primary/80 bg-clip-text text-transparent">
+            <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">
               {title}
             </DialogTitle>
             <Button
@@ -52,21 +52,21 @@ export function AnnouncementModal({ isOpen, onClose, title, message }: Announcem
           </div>
         </DialogHeader>
         <div className="mt-4 max-h-64 overflow-y-auto pr-1">
-          <DialogDescription className="text-base text-foreground whitespace-pre-wrap leading-relaxed">
+          <DialogDescription className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">
             {message}
           </DialogDescription>
         </div>
         <div className="flex justify-end mt-8">
           <Button
             onClick={onClose}
-            className="relative overflow-hidden group bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 px-8 py-6 text-lg font-bold shadow-lg shadow-blue-200"
+            className="relative overflow-hidden group bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 px-8 py-6 text-lg font-bold shadow-lg shadow-blue-200"
           >
             <span className="relative z-10 flex items-center gap-2">
               Got it, thanks! <span className="opacity-70 font-normal">({timeLeft}s)</span>
             </span>
             {/* Countdown Progress Background */}
             <div 
-              className="absolute inset-0 bg-card/20 origin-left transition-transform duration-1000 ease-linear"
+              className="absolute inset-0 bg-white/20 origin-left transition-transform duration-1000 ease-linear"
               style={{ transform: `scaleX(${timeLeft / 15})` }}
             />
           </Button>

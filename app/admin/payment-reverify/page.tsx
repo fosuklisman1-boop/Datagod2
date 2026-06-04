@@ -226,7 +226,7 @@ export default function PaymentReverifyPage() {
     switch (result.paystack_status) {
       case "success":
         return result.action === "already_processed"
-          ? <Badge className="bg-primary text-xs">Already Done</Badge>
+          ? <Badge className="bg-blue-500 text-xs">Already Done</Badge>
           : <Badge className="bg-green-500 text-xs"><CheckCircle className="w-3 h-3 mr-1" />Verified</Badge>
       case "failed":
         return <Badge className="bg-red-500 text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
@@ -243,7 +243,7 @@ export default function PaymentReverifyPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
         </div>
       </DashboardLayout>
     )
@@ -270,7 +270,7 @@ export default function PaymentReverifyPage() {
               size="sm"
               onClick={() => reverifyAll("all")}
               disabled={bulkRunning || stats.total === 0}
-              className="bg-primary hover:bg-primary/90"
+              className="bg-blue-600 hover:bg-blue-700"
             >
               {bulkRunning ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -396,7 +396,7 @@ export default function PaymentReverifyPage() {
                 {loading ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-12">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-500" />
                     </TableCell>
                   </TableRow>
                 ) : orders.length === 0 ? (
@@ -418,7 +418,7 @@ export default function PaymentReverifyPage() {
                         </TableCell>
                         <TableCell>
                           {order.order_type === "data" ? (
-                            <Badge variant="outline" className="border-primary text-primary text-xs">
+                            <Badge variant="outline" className="border-blue-500 text-blue-600 text-xs">
                               <ShoppingCart className="w-3 h-3 mr-1" />Data
                             </Badge>
                           ) : (

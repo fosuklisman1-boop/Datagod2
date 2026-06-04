@@ -81,9 +81,9 @@ export default async function TermsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <nav className="bg-card border-b border-border shadow-sm sticky top-0 z-10">
+      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 font-bold text-foreground hover:text-violet-700 transition-colors">
+          <Link href="/" className="flex items-center gap-2 font-bold text-gray-900 hover:text-violet-700 transition-colors">
             <Shield className="w-5 h-5 text-violet-600" />
             DATAGOD
           </Link>
@@ -98,22 +98,22 @@ export default async function TermsPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 bg-violet-100 rounded-2xl mb-4">
             <Shield className="w-7 h-7 text-violet-600" />
           </div>
-          <h1 className="text-4xl font-black text-foreground mb-4">Terms of Service</h1>
+          <h1 className="text-4xl font-black text-gray-900 mb-4">Terms of Service</h1>
           {intro && (
-            <p className="text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">{intro}</p>
+            <p className="text-base text-gray-600 max-w-2xl mx-auto leading-relaxed">{intro}</p>
           )}
         </div>
 
         <div className="space-y-4">
           {sections.map((section, i) => (
-            <div key={i} className="bg-card rounded-2xl shadow-sm border border-border p-6 hover:shadow-md transition-shadow">
+            <div key={i} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
               <h2 className="text-base font-bold text-violet-700 mb-2">{section.title}</h2>
-              <p className="text-foreground leading-relaxed text-sm">{section.body}</p>
+              <p className="text-gray-700 leading-relaxed text-sm">{section.body}</p>
             </div>
           ))}
         </div>
 
-        <p className="text-center text-sm text-muted-foreground mt-10 pb-6">
+        <p className="text-center text-sm text-gray-400 mt-10 pb-6">
           Last updated: {lastUpdated}
         </p>
       </main>

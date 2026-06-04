@@ -214,22 +214,22 @@ export default function ShopAirtimePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 pb-20">
       {/* Header */}
-      <nav className="bg-card/80 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-40">
+      <nav className="bg-white/80 backdrop-blur-md border-b border-gray-200 shadow-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <button 
             onClick={() => router.push(shopHome)} 
-            className="p-2 hover:bg-violet-50 text-foreground hover:text-violet-600 rounded-xl transition-all"
+            className="p-2 hover:bg-violet-50 text-gray-700 hover:text-violet-600 rounded-xl transition-all"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-3">
             <Store className="w-5 h-5 text-violet-600" />
-            <h1 className="text-xl font-bold text-foreground truncate max-w-[180px] sm:max-w-none">
+            <h1 className="text-xl font-bold text-gray-900 truncate max-w-[180px] sm:max-w-none">
               {shop.shop_name}
             </h1>
           </div>
           {shop.logo_url ? (
-            <img src={shop.logo_url} className="w-10 h-10 rounded-xl object-cover border border-border shadow-sm" alt="Logo" />
+            <img src={shop.logo_url} className="w-10 h-10 rounded-xl object-cover border border-gray-100 shadow-sm" alt="Logo" />
           ) : (
             <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
               <Zap className="w-5 h-5 text-violet-600" />
@@ -241,7 +241,7 @@ export default function ShopAirtimePage() {
       <main className="max-w-xl mx-auto px-4 pt-8">
         <Card className="border-0 shadow-2xl overflow-hidden rounded-2xl">
           <div className="h-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600" />
-          <CardHeader className="bg-card border-b border-slate-50">
+          <CardHeader className="bg-white border-b border-slate-50">
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
@@ -259,7 +259,7 @@ export default function ShopAirtimePage() {
             </div>
           </CardHeader>
 
-          <CardContent className="pt-8 bg-card">
+          <CardContent className="pt-8 bg-white">
             <form onSubmit={handleSubmit} className="space-y-8">
               {/* Network Selection */}
               <div className="space-y-4">
@@ -367,7 +367,7 @@ export default function ShopAirtimePage() {
                   type="checkbox"
                   checked={paySeparately}
                   onChange={(e) => setPaySeparately(e.target.checked)}
-                  className="mt-1 h-5 w-5 text-violet-600 border-border rounded focus:ring-violet-500 cursor-pointer"
+                  className="mt-1 h-5 w-5 text-violet-600 border-gray-300 rounded focus:ring-violet-500 cursor-pointer"
                 />
                 <label htmlFor="pay-sep" className="flex-1 cursor-pointer">
                   <span className="text-violet-900 font-bold text-sm block">Pay fee separately</span>
