@@ -79,10 +79,10 @@ export function PushOptInBanner() {
       }}
       aria-live="polite"
     >
-      <div className="relative flex items-start gap-4 bg-white border border-violet-200 rounded-2xl shadow-2xl px-5 py-4">
+      <div className="relative flex items-start gap-4 bg-card border border-violet-200 rounded-2xl shadow-2xl px-5 py-4">
         <button
           onClick={() => setShow(false)}
-          className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
+          className="absolute top-3 right-3 p-1 text-muted-foreground hover:text-muted-foreground rounded-full hover:bg-accent transition-colors"
           aria-label="Dismiss"
         >
           <X className="w-4 h-4" />
@@ -94,11 +94,11 @@ export function PushOptInBanner() {
 
         {mode === 'push' ? (
           <div className="flex-1 min-w-0 pr-5">
-            <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
               Stay in the loop
               <Sparkles className="w-3.5 h-3.5 text-violet-500" />
             </p>
-            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
               Get instant alerts for order updates, withdrawals, and payments — even when the app is closed.
             </p>
             <div className="flex items-center gap-2 mt-3">
@@ -111,7 +111,7 @@ export function PushOptInBanner() {
               </button>
               <button
                 onClick={() => setShow(false)}
-                className="text-sm text-gray-400 hover:text-gray-600 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
+                className="text-sm text-muted-foreground hover:text-muted-foreground px-3 py-2 rounded-xl hover:bg-accent transition-colors"
               >
                 Not now
               </button>
@@ -120,27 +120,27 @@ export function PushOptInBanner() {
         ) : (
           // iOS Safari — prompt to install PWA first
           <div className="flex-1 min-w-0 pr-5">
-            <p className="text-sm font-semibold text-gray-900">Add to Home Screen</p>
-            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+            <p className="text-sm font-semibold text-foreground">Add to Home Screen</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
               To receive push notifications on iPhone, install this app first:
             </p>
             <ol className="mt-2 space-y-1">
-              <li className="flex items-center gap-2 text-xs text-gray-600">
-                <Share className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+              <li className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Share className="w-3.5 h-3.5 text-primary shrink-0" />
                 Tap the <span className="font-semibold">Share</span> button in Safari
               </li>
-              <li className="flex items-center gap-2 text-xs text-gray-600">
-                <Plus className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+              <li className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Plus className="w-3.5 h-3.5 text-primary shrink-0" />
                 Select <span className="font-semibold">Add to Home Screen</span>
               </li>
-              <li className="flex items-center gap-2 text-xs text-gray-600">
+              <li className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Bell className="w-3.5 h-3.5 text-violet-500 shrink-0" />
                 Open the app and enable notifications
               </li>
             </ol>
             <button
               onClick={() => setShow(false)}
-              className="mt-3 text-xs text-gray-400 hover:text-gray-600"
+              className="mt-3 text-xs text-muted-foreground hover:text-muted-foreground"
             >
               Dismiss
             </button>

@@ -204,7 +204,7 @@ export default function SubAgentsPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       </DashboardLayout>
     )
@@ -216,10 +216,10 @@ export default function SubAgentsPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent">
               Sub-Agents
             </h1>
-            <p className="text-gray-500 mt-1">Manage your reseller network</p>
+            <p className="text-muted-foreground mt-1">Manage your reseller network</p>
           </div>
           <Button
             onClick={() => {
@@ -227,7 +227,7 @@ export default function SubAgentsPage() {
               setNewInviteUrl(null);
               setInvitePhone("");
             }}
-            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white"
+            className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-white"
           >
             <Plus className="w-4 h-4 mr-2" />
             Invite Sub-Agent
@@ -238,35 +238,35 @@ export default function SubAgentsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-gray-500">Total Sub-Agents</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Total Sub-Agents</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.totalSubAgents}</div>
-              <p className="text-xs text-gray-500">{stats.activeSubAgents} active</p>
+              <p className="text-xs text-muted-foreground">{stats.activeSubAgents} active</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-gray-500">Your Earnings from Sub-Agents</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Your Earnings from Sub-Agents</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
                 GHS {(stats.totalEarningsFromSubAgents || 0).toFixed(2)}
               </div>
-              <p className="text-xs text-gray-500">From their sales</p>
+              <p className="text-xs text-muted-foreground">From their sales</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-gray-500">Pending Invites</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Pending Invites</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
                 {invites.filter(i => i.status === "pending").length}
               </div>
-              <p className="text-xs text-gray-500">Awaiting signup</p>
+              <p className="text-xs text-muted-foreground">Awaiting signup</p>
             </CardContent>
           </Card>
         </div>
@@ -300,22 +300,22 @@ export default function SubAgentsPage() {
                             {agent.is_active ? "Active" : "Inactive"}
                           </Badge>
                         </div>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-muted-foreground">
                           /shop/{agent.shop_slug} • Joined {new Date(agent.created_at).toLocaleDateString()}
                         </p>
                       </div>
                       <div className="flex items-center gap-4 text-sm">
                         <div className="text-center">
                           <div className="font-semibold">{agent.total_orders}</div>
-                          <div className="text-gray-500">Orders</div>
+                          <div className="text-muted-foreground">Orders</div>
                         </div>
                         <div className="text-center">
                           <div className="font-semibold">GHS {(agent.total_sales || 0).toFixed(2)}</div>
-                          <div className="text-gray-500">Sales</div>
+                          <div className="text-muted-foreground">Sales</div>
                         </div>
                         <div className="text-center">
                           <div className="font-semibold text-green-600">GHS {(agent.your_earnings || 0).toFixed(2)}</div>
-                          <div className="text-gray-500">Your Earnings</div>
+                          <div className="text-muted-foreground">Your Earnings</div>
                         </div>
                       </div>
                     </div>
@@ -343,13 +343,13 @@ export default function SubAgentsPage() {
                   .map((invite) => (
                     <div key={invite.id} className="flex items-center justify-between border rounded-lg p-3">
                       <div>
-                        <code className="text-sm bg-gray-100 px-2 py-1 rounded">
+                        <code className="text-sm bg-muted px-2 py-1 rounded">
                           {invite.invite_code}
                         </code>
                         {invite.email && (
-                          <span className="text-sm text-gray-500 ml-2">({invite.email})</span>
+                          <span className="text-sm text-muted-foreground ml-2">({invite.email})</span>
                         )}
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           Expires: {new Date(invite.expires_at).toLocaleDateString()}
                         </p>
                       </div>
@@ -430,7 +430,7 @@ export default function SubAgentsPage() {
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                   />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     We&apos;ll send the invite link via SMS or Email if provided.
                   </p>
                 </div>
@@ -444,7 +444,7 @@ export default function SubAgentsPage() {
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                   />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     We&apos;ll send the invite link via SMS or Email if provided.
                   </p>
                 </div>

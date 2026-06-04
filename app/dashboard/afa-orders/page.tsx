@@ -105,12 +105,12 @@ export default function AFAOrdersPage() {
         {/* Page Header */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">My AFA Orders</h1>
-            <p className="text-gray-600 mt-1">Manage and track your MTN AFA registrations</p>
+            <h1 className="text-3xl font-bold text-foreground">My AFA Orders</h1>
+            <p className="text-muted-foreground mt-1">Manage and track your MTN AFA registrations</p>
           </div>
           <Button
             onClick={() => setShowSubmissionModal(true)}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-primary hover:bg-primary/90"
             size="lg"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -123,11 +123,11 @@ export default function AFAOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-              <Star className="h-4 w-4 text-blue-600" />
+              <Star className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.total}</div>
-              <p className="text-xs text-gray-600">All time</p>
+              <p className="text-xs text-muted-foreground">All time</p>
             </CardContent>
           </Card>
 
@@ -138,7 +138,7 @@ export default function AFAOrdersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.pending}</div>
-              <p className="text-xs text-gray-600">Waiting</p>
+              <p className="text-xs text-muted-foreground">Waiting</p>
             </CardContent>
           </Card>
 
@@ -149,7 +149,7 @@ export default function AFAOrdersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.processing}</div>
-              <p className="text-xs text-gray-600">In progress</p>
+              <p className="text-xs text-muted-foreground">In progress</p>
             </CardContent>
           </Card>
 
@@ -160,7 +160,7 @@ export default function AFAOrdersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.completed}</div>
-              <p className="text-xs text-gray-600">Completed</p>
+              <p className="text-xs text-muted-foreground">Completed</p>
             </CardContent>
           </Card>
 
@@ -171,7 +171,7 @@ export default function AFAOrdersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.cancelled}</div>
-              <p className="text-xs text-gray-600">Cancelled</p>
+              <p className="text-xs text-muted-foreground">Cancelled</p>
             </CardContent>
           </Card>
         </div>
@@ -185,10 +185,10 @@ export default function AFAOrdersPage() {
           <CardContent>
             {orders.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-gray-600 mb-4">No AFA orders yet</p>
+                <p className="text-muted-foreground mb-4">No AFA orders yet</p>
                 <Button
                   onClick={() => setShowSubmissionModal(true)}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-primary hover:bg-primary/90"
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Create Your First AFA Order
@@ -197,20 +197,20 @@ export default function AFAOrdersPage() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
+                  <thead className="bg-muted/40 border-b">
                     <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Order Code</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Transaction Code</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Amount</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Beneficiary</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Phone</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Order Code</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Transaction Code</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Date</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Status</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Amount</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Beneficiary</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Phone</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {orders.map((order) => (
-                      <tr key={order.id} className="hover:bg-gray-50">
+                      <tr key={order.id} className="hover:bg-accent">
                         <td className="px-6 py-4 text-sm font-semibold">{order.order_code}</td>
                         <td className="px-6 py-4 text-sm">{order.transaction_code || "-"}</td>
                         <td className="px-6 py-4 text-sm">
@@ -224,7 +224,7 @@ export default function AFAOrdersPage() {
                                 : order.status === "pending"
                                 ? "bg-yellow-100 text-yellow-800"
                                 : order.status === "processing"
-                                ? "bg-blue-100 text-blue-800"
+                                ? "bg-primary/10 text-primary"
                                 : "bg-red-100 text-red-800"
                             }
                           >
@@ -242,7 +242,7 @@ export default function AFAOrdersPage() {
             )}
             {orders.length > 0 && (
               <div className="mt-4 flex justify-between items-center">
-                <p className="text-sm text-gray-600">Showing {orders.length} of {stats.total} results</p>
+                <p className="text-sm text-muted-foreground">Showing {orders.length} of {stats.total} results</p>
               </div>
             )}
           </CardContent>

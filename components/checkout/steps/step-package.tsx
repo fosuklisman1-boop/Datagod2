@@ -29,7 +29,7 @@ interface StepPackageProps {
 
 const getPackageIcon = (type: 'airtime' | 'data') => {
   return type === 'data' ? (
-    <Database className="h-5 w-5 text-blue-500" />
+    <Database className="h-5 w-5 text-primary" />
   ) : (
     <Zap className="h-5 w-5 text-yellow-500" />
   )
@@ -70,7 +70,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold mb-2">Select Package</h2>
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-muted-foreground">
           {networkName && `Choose a package for ${networkName}`}
         </p>
       </div>
@@ -84,7 +84,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
           {groupedPackages.data.length > 0 && (
             <div>
               <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <Database className="h-5 w-5 text-blue-500" />
+                <Database className="h-5 w-5 text-primary" />
                 Data Packages
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -100,7 +100,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
                         className={`h-full transition-all duration-200 cursor-pointer border-2 ${
                           selectedPackageId === pkg.id
                             ? 'border-primary shadow-lg'
-                            : 'border-gray-200 hover:border-primary/50'
+                            : 'border-border hover:border-primary/50'
                         }`}
                       >
                         <CardContent className="pt-4 pb-4">
@@ -109,7 +109,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
                               <div className="flex-1">
                                 <h4 className="font-semibold text-sm">{pkg.name}</h4>
                                 {pkg.description && (
-                                  <p className="text-xs text-gray-600 mt-1">{pkg.description}</p>
+                                  <p className="text-xs text-muted-foreground mt-1">{pkg.description}</p>
                                 )}
                               </div>
                             </div>
@@ -161,7 +161,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
                         className={`h-full transition-all duration-200 cursor-pointer border-2 ${
                           selectedPackageId === pkg.id
                             ? 'border-primary shadow-lg'
-                            : 'border-gray-200 hover:border-primary/50'
+                            : 'border-border hover:border-primary/50'
                         }`}
                       >
                         <CardContent className="pt-4 pb-4">
@@ -170,7 +170,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
                               <div className="flex-1">
                                 <h4 className="font-semibold text-sm">{pkg.name}</h4>
                                 {pkg.description && (
-                                  <p className="text-xs text-gray-600 mt-1">{pkg.description}</p>
+                                  <p className="text-xs text-muted-foreground mt-1">{pkg.description}</p>
                                 )}
                               </div>
                             </div>
@@ -208,7 +208,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
         <Card className="border-dashed">
           <CardContent className="pt-12 pb-12 text-center">
             <Database className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-sm text-gray-500">No packages available for this network</p>
+            <p className="text-sm text-muted-foreground">No packages available for this network</p>
           </CardContent>
         </Card>
       )}
@@ -225,7 +225,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
               <Badge>{selectedPackage.package_type}</Badge>
             </div>
             <div className="flex items-center justify-between pt-2 border-t">
-              <span className="text-sm text-gray-600">Total Amount</span>
+              <span className="text-sm text-muted-foreground">Total Amount</span>
               <span className="text-lg font-bold text-primary">
                 {formatAmount(selectedPackage.amount)}
               </span>

@@ -292,15 +292,15 @@ export default function SignupPage() {
   return (
     <>
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 p-4">
-        <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
+        <Card className="w-full max-w-md shadow-xl border border-white/40 bg-card/70 backdrop-blur-xl">
           <CardHeader className="space-y-2 text-center">
             <div className="flex justify-center mb-4">
-              <div className="bg-white p-3 rounded-lg shadow-lg">
+              <div className="bg-card p-3 rounded-lg shadow-lg">
                 <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-8 h-8 rounded-lg object-cover" />
               </div>
             </div>
             <CardTitle className="text-3xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent">Create Account</CardTitle>
-            <CardDescription className="text-gray-600">Join DATAGOD today</CardDescription>
+            <CardDescription className="text-muted-foreground">Join DATAGOD today</CardDescription>
           </CardHeader>
           <CardContent>
             {signupsEnabled === null ? (
@@ -312,12 +312,12 @@ export default function SignupPage() {
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 mb-2">
                   <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                 </div>
-                <h3 className="text-xl font-bold text-gray-900">Signups Temporarily Disabled</h3>
-                <p className="text-gray-600 max-w-sm mx-auto">
+                <h3 className="text-xl font-bold text-foreground">Signups Temporarily Disabled</h3>
+                <p className="text-muted-foreground max-w-sm mx-auto">
                   We are currently performing maintenance or upgrades. New account registrations are paused. Please try again later.
                 </p>
                 <div className="pt-4">
-                  <Link href="/auth/login" className="text-blue-600 hover:underline font-medium">
+                  <Link href="/auth/login" className="text-primary hover:underline font-medium">
                     Return to Login
                   </Link>
                 </div>
@@ -405,7 +405,7 @@ export default function SignupPage() {
                         {verifyLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Verify"}
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                    <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
                     </>
                   )}
                 </div>
@@ -460,12 +460,12 @@ export default function SignupPage() {
                     onCheckedChange={(checked) => setTermsAccepted(checked === true)}
                     className="mt-0.5"
                   />
-                  <label htmlFor="terms" className="text-sm text-gray-600 leading-snug cursor-pointer select-none">
+                  <label htmlFor="terms" className="text-sm text-muted-foreground leading-snug cursor-pointer select-none">
                     I have read and agree to the{" "}
                     <button
                       type="button"
                       onClick={handleOpenTerms}
-                      className="text-blue-600 hover:underline font-medium"
+                      className="text-primary hover:underline font-medium"
                     >
                       Terms of Service
                     </button>
@@ -484,25 +484,25 @@ export default function SignupPage() {
                 {/* Google OAuth */}
                 <div className="relative my-1">
                   <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t border-gray-200" />
+                    <span className="w-full border-t border-border" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white/70 px-2 text-gray-400">or</span>
+                    <span className="bg-card/70 px-2 text-muted-foreground">or</span>
                   </div>
                 </div>
                 <GoogleAuthButton />
 
                 {/* Login Link */}
-                <div className="text-center text-sm text-gray-600">
+                <div className="text-center text-sm text-muted-foreground">
                   Already have an account?{" "}
-                  <Link href="/auth/login" className="text-blue-600 hover:underline font-medium">
+                  <Link href="/auth/login" className="text-primary hover:underline font-medium">
                     Sign in
                   </Link>
                 </div>
 
                 {/* Back to Home Link */}
                 <div className="text-center">
-                  <Link href="/" className="text-sm text-gray-600 hover:underline">
+                  <Link href="/" className="text-sm text-muted-foreground hover:underline">
                     Back to Home
                   </Link>
                 </div>
@@ -527,15 +527,15 @@ export default function SignupPage() {
             ) : (
               <div className="space-y-4 text-sm py-2">
                 {intro && (
-                  <p className="text-gray-600 leading-relaxed">{intro}</p>
+                  <p className="text-muted-foreground leading-relaxed">{intro}</p>
                 )}
                 {sections.map((s, i) => (
                   <div key={i} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-                    <p className="font-bold text-gray-900 mb-1">{s.title}</p>
-                    <p className="text-gray-700 leading-relaxed">{s.body}</p>
+                    <p className="font-bold text-foreground mb-1">{s.title}</p>
+                    <p className="text-foreground leading-relaxed">{s.body}</p>
                   </div>
                 ))}
-                <p className="text-xs text-gray-400 pt-2 text-center">
+                <p className="text-xs text-muted-foreground pt-2 text-center">
                   Last updated: {formattedDate}
                 </p>
               </div>

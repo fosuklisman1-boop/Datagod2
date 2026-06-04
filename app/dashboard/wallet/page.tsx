@@ -369,14 +369,14 @@ export default function WalletPage() {
       <div className="space-y-6 px-2 sm:px-4">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Wallet</h1>
-          <p className="text-gray-600 mt-1 text-sm sm:text-base">Manage your account balance and funds</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Wallet</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">Manage your account balance and funds</p>
         </div>
 
         {/* Balance Card */}
         <Card className={`text-white border-0 ${isDealer
           ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500"
-          : "bg-gradient-to-r from-blue-600 to-purple-600"
+          : "bg-gradient-to-r from-primary to-purple-600"
           }`}>
           <CardHeader>
             <CardTitle className="text-white">Current Balance</CardTitle>
@@ -384,23 +384,23 @@ export default function WalletPage() {
           <CardContent className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className={`${isDealer ? "text-amber-100" : "text-blue-100"} text-sm`}>Available Balance</p>
+                <p className={`${isDealer ? "text-amber-100" : "text-primary-foreground/80"} text-sm`}>Available Balance</p>
                 <p className="text-2xl sm:text-3xl md:text-4xl font-bold">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
               </div>
-              <Wallet className={`w-16 h-16 opacity-50 ${isDealer ? "text-amber-100" : "text-blue-100"}`} />
+              <Wallet className={`w-16 h-16 opacity-50 ${isDealer ? "text-amber-100" : "text-primary-foreground/80"}`} />
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
               {walletTopupsEnabled || isDealer ? (
                 <Button
                   onClick={() => setShowTopUp(!showTopUp)}
-                  className={`bg-white hover:bg-gray-100 w-full sm:w-auto ${isDealer ? "text-amber-600" : "text-blue-600"
+                  className={`bg-card hover:bg-accent w-full sm:w-auto ${isDealer ? "text-amber-600" : "text-primary"
                     }`}
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Add Funds
                 </Button>
               ) : (
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-3 w-full text-sm text-white/90">
+                <div className="bg-card/10 backdrop-blur-sm border border-white/20 rounded-lg p-3 w-full text-sm text-white/90">
                   ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
                 </div>
               )}
@@ -431,18 +431,18 @@ export default function WalletPage() {
               {pendingPayments.map((payment) => (
                 <div
                   key={payment.id}
-                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-white border border-yellow-200"
+                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-card border border-yellow-200"
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-gray-900">
+                      <span className="font-semibold text-foreground">
                         GHS {(payment.amount || 0).toFixed(2)}
                       </span>
                       <Badge className="bg-yellow-100 text-yellow-800 text-xs">
                         {payment.status}
                       </Badge>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {new Date(payment.created_at).toLocaleString()} · Ref: {payment.reference?.slice(-10) || "—"}
                     </p>
                   </div>
@@ -474,7 +474,7 @@ export default function WalletPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {walletData.totalCredited.toFixed(2)}</div>
-              <p className="text-xs text-gray-600">All deposits</p>
+              <p className="text-xs text-muted-foreground">All deposits</p>
             </CardContent>
           </Card>
 
@@ -485,18 +485,18 @@ export default function WalletPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {walletData.totalDebited.toFixed(2)}</div>
-              <p className="text-xs text-gray-600">All purchases</p>
+              <p className="text-xs text-muted-foreground">All purchases</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
-              <Wallet className="h-4 w-4 text-blue-600" />
+              <Wallet className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {Math.max(0, walletData.balance).toFixed(2)}</div>
-              <p className="text-xs text-gray-600">Ready to use</p>
+              <p className="text-xs text-muted-foreground">Ready to use</p>
             </CardContent>
           </Card>
         </div>
@@ -517,20 +517,20 @@ export default function WalletPage() {
               </Alert>
             ) : (
               <>
-                <div className="overflow-x-auto rounded-md border border-gray-100">
+                <div className="overflow-x-auto rounded-md border border-border">
                   <table className="min-w-[600px] w-full text-xs sm:text-sm">
-                    <thead className="bg-gray-50 border-b">
+                    <thead className="bg-muted/40 border-b">
                       <tr>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Description</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Type</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Reference</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground">Date</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground">Description</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground">Amount</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground">Type</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground">Reference</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {transactions.map((transaction) => (
-                        <tr key={transaction.id} className="hover:bg-gray-50">
+                        <tr key={transaction.id} className="hover:bg-accent">
                           <td className="px-4 py-3">
                             {new Date(transaction.created_at).toLocaleDateString()}
                           </td>
@@ -548,7 +548,7 @@ export default function WalletPage() {
                               {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3 font-mono text-gray-600">
+                          <td className="px-4 py-3 font-mono text-muted-foreground">
                             {transaction.reference?.slice(-8) || "—"}
                           </td>
                         </tr>
@@ -557,7 +557,7 @@ export default function WalletPage() {
                   </table>
                 </div>
                 <div className="mt-4 flex justify-between items-center">
-                  <p className="text-sm text-gray-600">Showing {transactions.length} transaction(s)</p>
+                  <p className="text-sm text-muted-foreground">Showing {transactions.length} transaction(s)</p>
                 </div>
               </>
             )}

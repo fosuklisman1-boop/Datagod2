@@ -157,7 +157,7 @@ export default function CustomersPage() {
     <DashboardLayout>
       <div className="space-y-6 pt-4">
         {/* Header with Back Button */}
-        <div className="flex items-center gap-4 pb-4 border-b border-gray-200">
+        <div className="flex items-center gap-4 pb-4 border-b border-border">
           <Button
             variant="ghost"
             size="icon"
@@ -170,23 +170,23 @@ export default function CustomersPage() {
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
               Customers
             </h1>
-            <p className="text-gray-500 mt-1">Manage and analyze your customer base</p>
+            <p className="text-muted-foreground mt-1">Manage and analyze your customer base</p>
           </div>
         </div>
 
         {/* Stats Cards */}
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {/* Total Customers */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-              <Users className="h-4 w-4 text-blue-600" />
+              <Users className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">
                 {totalCount}
               </div>
-              <p className="text-xs text-gray-500">Unique customers</p>
+              <p className="text-xs text-muted-foreground">Unique customers</p>
             </CardContent>
           </Card>
 
@@ -200,7 +200,7 @@ export default function CustomersPage() {
               <div className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
                 {customers.filter((c) => c.repeat_customer).length}
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-muted-foreground">
                 {totalCount > 0
                   ? `${((customers.filter((c) => c.repeat_customer).length / totalCount) * 100).toFixed(1)}% retention`
                   : "No customers"}
@@ -218,7 +218,7 @@ export default function CustomersPage() {
               <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
                 GHS {customers.length > 0 ? (customers.reduce((sum, c) => sum + c.total_spent, 0) / customers.length).toFixed(2) : "0.00"}
               </div>
-              <p className="text-xs text-gray-500">Per customer LTV</p>
+              <p className="text-xs text-muted-foreground">Per customer LTV</p>
             </CardContent>
           </Card>
         </div>
@@ -242,7 +242,7 @@ export default function CustomersPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Search</label>
                   <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input
                       placeholder="Search by name, phone, or email..."
                       value={searchTerm}
@@ -278,7 +278,7 @@ export default function CustomersPage() {
                         setSortBy(e.target.value as any)
                         setPagination({ ...pagination, offset: 0 })
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                     >
                       <option value="last_purchase">Last Purchase</option>
                       <option value="total_spent">Highest Spend</option>
@@ -288,7 +288,7 @@ export default function CustomersPage() {
 
                   {/* Results Count */}
                   <div className="flex items-end">
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-muted-foreground">
                       Showing {filteredCustomers.length} of {totalCount}
                     </div>
                   </div>
@@ -315,36 +315,36 @@ export default function CustomersPage() {
                 <CardContent className="pt-6">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b">
+                      <thead className="bg-muted/40 border-b">
                         <tr>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Name</th>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Phone</th>
-                          <th className="px-4 py-2 text-center font-semibold text-gray-700">Orders</th>
-                          <th className="px-4 py-2 text-right font-semibold text-gray-700">Total Spent</th>
-                          <th className="px-4 py-2 text-center font-semibold text-gray-700">Status</th>
-                          <th className="px-4 py-2 text-center font-semibold text-gray-700">Last Purchase</th>
-                          <th className="px-4 py-2 text-center font-semibold text-gray-700">Action</th>
+                          <th className="px-4 py-2 text-left font-semibold text-foreground">Name</th>
+                          <th className="px-4 py-2 text-left font-semibold text-foreground">Phone</th>
+                          <th className="px-4 py-2 text-center font-semibold text-foreground">Orders</th>
+                          <th className="px-4 py-2 text-right font-semibold text-foreground">Total Spent</th>
+                          <th className="px-4 py-2 text-center font-semibold text-foreground">Status</th>
+                          <th className="px-4 py-2 text-center font-semibold text-foreground">Last Purchase</th>
+                          <th className="px-4 py-2 text-center font-semibold text-foreground">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
                         {filteredCustomers.map((customer) => (
-                          <tr key={customer.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 font-medium text-gray-900">{customer.customer_name}</td>
-                            <td className="px-4 py-3 font-mono text-sm text-gray-600">{customer.phone_number}</td>
+                          <tr key={customer.id} className="hover:bg-accent">
+                            <td className="px-4 py-3 font-medium text-foreground">{customer.customer_name}</td>
+                            <td className="px-4 py-3 font-mono text-sm text-muted-foreground">{customer.phone_number}</td>
                             <td className="px-4 py-3 text-center">
                               <Badge variant="outline">{customer.total_purchases}</Badge>
                             </td>
-                            <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                            <td className="px-4 py-3 text-right font-semibold text-foreground">
                               GHS {(customer.total_spent || 0).toFixed(2)}
                             </td>
                             <td className="px-4 py-3 text-center">
                               {customer.repeat_customer ? (
                                 <Badge className="bg-green-100 text-green-800 border-green-200">Repeat</Badge>
                               ) : (
-                                <Badge className="bg-blue-100 text-blue-800 border-blue-200">New</Badge>
+                                <Badge className="bg-primary/10 text-primary border-primary/20">New</Badge>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center text-gray-600 text-xs">
+                            <td className="px-4 py-3 text-center text-muted-foreground text-xs">
                               {new Date(customer.last_purchase_at).toLocaleDateString()}
                             </td>
                             <td className="px-4 py-3 text-center">
@@ -372,7 +372,7 @@ export default function CustomersPage() {
                     >
                       Previous
                     </Button>
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-muted-foreground">
                       Page {Math.floor(pagination.offset / pagination.limit) + 1}
                     </span>
                     <Button
@@ -400,42 +400,42 @@ export default function CustomersPage() {
                   </CardHeader>
                   <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">Phone</p>
+                      <p className="text-xs text-muted-foreground mb-1">Phone</p>
                       <p className="font-mono text-sm font-semibold">{selectedCustomer.phone_number}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">Email</p>
+                      <p className="text-xs text-muted-foreground mb-1">Email</p>
                       <p className="text-sm font-semibold">{selectedCustomer.email || "N/A"}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">Total Orders</p>
+                      <p className="text-xs text-muted-foreground mb-1">Total Orders</p>
                       <p className="text-sm font-semibold">{selectedCustomer.total_purchases}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">Total Spent</p>
+                      <p className="text-xs text-muted-foreground mb-1">Total Spent</p>
                       <p className="text-sm font-semibold">GHS {(selectedCustomer.total_spent || 0).toFixed(2)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">First Purchase</p>
+                      <p className="text-xs text-muted-foreground mb-1">First Purchase</p>
                       <p className="text-sm font-semibold">
                         {new Date(selectedCustomer.first_purchase_at).toLocaleDateString()}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">Last Purchase</p>
+                      <p className="text-xs text-muted-foreground mb-1">Last Purchase</p>
                       <p className="text-sm font-semibold">
                         {new Date(selectedCustomer.last_purchase_at).toLocaleDateString()}
                       </p>
                     </div>
                     {selectedCustomer.first_source_slug && (
                       <div>
-                        <p className="text-xs text-gray-600 mb-1">Source Slug</p>
+                        <p className="text-xs text-muted-foreground mb-1">Source Slug</p>
                         <Badge variant="outline">{selectedCustomer.first_source_slug}</Badge>
                       </div>
                     )}
                     {selectedCustomer.preferred_network && (
                       <div>
-                        <p className="text-xs text-gray-600 mb-1">Preferred Network</p>
+                        <p className="text-xs text-muted-foreground mb-1">Preferred Network</p>
                         <Badge>{selectedCustomer.preferred_network}</Badge>
                       </div>
                     )}
@@ -461,20 +461,20 @@ export default function CustomersPage() {
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
-                          <thead className="bg-gray-50 border-b">
+                          <thead className="bg-muted/40 border-b">
                             <tr>
-                              <th className="px-4 py-2 text-left font-semibold text-gray-700">Reference</th>
-                              <th className="px-4 py-2 text-left font-semibold text-gray-700">Network</th>
-                              <th className="px-4 py-2 text-center font-semibold text-gray-700">Package</th>
-                              <th className="px-4 py-2 text-right font-semibold text-gray-700">Price</th>
-                              <th className="px-4 py-2 text-center font-semibold text-gray-700">Status</th>
-                              <th className="px-4 py-2 text-center font-semibold text-gray-700">Date</th>
+                              <th className="px-4 py-2 text-left font-semibold text-foreground">Reference</th>
+                              <th className="px-4 py-2 text-left font-semibold text-foreground">Network</th>
+                              <th className="px-4 py-2 text-center font-semibold text-foreground">Package</th>
+                              <th className="px-4 py-2 text-right font-semibold text-foreground">Price</th>
+                              <th className="px-4 py-2 text-center font-semibold text-foreground">Status</th>
+                              <th className="px-4 py-2 text-center font-semibold text-foreground">Date</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y">
                             {customerHistory.map((order) => (
-                              <tr key={order.id} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">
+                              <tr key={order.id} className="hover:bg-accent">
+                                <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">
                                   {order.reference_code}
                                 </td>
                                 <td className="px-4 py-3">{order.network}</td>
@@ -493,7 +493,7 @@ export default function CustomersPage() {
                                     {order.order_status}
                                   </Badge>
                                 </td>
-                                <td className="px-4 py-3 text-center text-gray-600 text-xs">
+                                <td className="px-4 py-3 text-center text-muted-foreground text-xs">
                                   {new Date(order.created_at).toLocaleDateString()}
                                 </td>
                               </tr>

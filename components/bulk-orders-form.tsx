@@ -516,12 +516,12 @@ export function BulkOrdersForm() {
   }
 
   return (
-    <Card className="bg-gradient-to-br from-blue-50/60 to-indigo-50/40 backdrop-blur-xl border border-blue-200/40 hover:border-blue-300/60 hover:shadow-2xl transition-all duration-300">
+    <Card className="bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur-xl border border-primary/20 hover:border-blue-300/60 hover:shadow-2xl transition-all duration-300">
       <CardHeader>
         <div className="flex items-center gap-2">
           <Download className="h-5 w-5 text-violet-600" />
           <div>
-            <CardTitle className="text-gray-900">Bulk Orders (Excel/Text)</CardTitle>
+            <CardTitle className="text-foreground">Bulk Orders (Excel/Text)</CardTitle>
             <CardDescription>Upload multiple phone numbers at once</CardDescription>
           </div>
         </div>
@@ -549,14 +549,14 @@ export function BulkOrdersForm() {
           <Button
             variant={activeTab === "text" ? "default" : "outline"}
             onClick={() => setActiveTab("text")}
-            className={activeTab === "text" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-violet-300/40 text-gray-700"}
+            className={activeTab === "text" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-violet-300/40 text-foreground"}
           >
             Text Input
           </Button>
           <Button
             variant={activeTab === "excel" ? "default" : "outline"}
             onClick={() => setActiveTab("excel")}
-            className={activeTab === "excel" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-violet-300/40 text-gray-700"}
+            className={activeTab === "excel" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-violet-300/40 text-foreground"}
           >
             Excel Upload
           </Button>
@@ -572,9 +572,9 @@ export function BulkOrdersForm() {
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               rows={6}
-              className="font-mono text-sm bg-white/70 backdrop-blur border-violet-300/50 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/50"
+              className="font-mono text-sm bg-card/70 backdrop-blur border-violet-300/50 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/50"
             />
-            <p className="text-xs text-gray-600">
+            <p className="text-xs text-muted-foreground">
               Format: Phone number followed by space and volume in GB
             </p>
           </div>
@@ -584,8 +584,8 @@ export function BulkOrdersForm() {
         {activeTab === "excel" && (
           <div className="space-y-4">
             <div className="border-2 border-dashed border-violet-300 rounded-lg p-6 text-center hover:border-violet-500 transition-colors cursor-pointer">
-              <p className="text-gray-600 mb-2">Click to upload Excel file or drag and drop</p>
-              <p className="text-xs text-gray-500">CSV or XLSX files only</p>
+              <p className="text-muted-foreground mb-2">Click to upload Excel file or drag and drop</p>
+              <p className="text-xs text-muted-foreground">CSV or XLSX files only</p>
               <Input
                 type="file"
                 accept=".csv,.xlsx"
@@ -656,16 +656,16 @@ export function BulkOrdersForm() {
             </div>
 
             {/* Results Table */}
-            <div className="overflow-x-auto border rounded-lg bg-gradient-to-br from-blue-50/60 to-indigo-50/40 backdrop-blur border-blue-200/40">
+            <div className="overflow-x-auto border rounded-lg bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur border-primary/20">
               <table className="w-full text-sm">
-                <thead className="bg-gradient-to-r from-blue-100/60 via-indigo-100/60 to-violet-100/60 backdrop-blur border-b border-blue-200/40">
+                <thead className="bg-gradient-to-r from-primary/10 via-indigo-100/60 to-violet-100/60 backdrop-blur border-b border-primary/20">
                   <tr>
-                    <th className="px-4 py-2 text-left font-semibold text-gray-900">#</th>
-                    <th className="px-4 py-2 text-left font-semibold text-gray-900">Phone Number</th>
-                    <th className="px-4 py-2 text-left font-semibold text-gray-900">Volume (GB)</th>
-                    <th className="px-4 py-2 text-left font-semibold text-gray-900">Package Price</th>
-                    <th className="px-4 py-2 text-left font-semibold text-gray-900">Status</th>
-                    <th className="px-4 py-2 text-left font-semibold text-gray-900">Reason</th>
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">#</th>
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">Phone Number</th>
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">Volume (GB)</th>
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">Package Price</th>
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">Status</th>
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">Reason</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -699,7 +699,7 @@ export function BulkOrdersForm() {
                           {order.status === "valid" ? "✓ Valid" : "✕ Invalid"}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-gray-600">{order.reason}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{order.reason}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -710,7 +710,7 @@ export function BulkOrdersForm() {
             <div className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl p-4 rounded-lg border border-violet-200/40">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     Total: <span className="font-semibold">{validationResults.total}</span> |{" "}
                     <span className="text-emerald-600">
                       Valid: <span className="font-semibold">{validationResults.valid}</span>
@@ -757,19 +757,19 @@ export function BulkOrdersForm() {
 
             {validationResults && (
               <div className="space-y-4 py-4">
-                <div className="bg-blue-50 p-4 rounded-lg space-y-2">
+                <div className="bg-primary/5 p-4 rounded-lg space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Number of Orders:</span>
+                    <span className="text-sm text-muted-foreground">Number of Orders:</span>
                     <span className="font-semibold text-lg">{validationResults.valid}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Network:</span>
+                    <span className="text-sm text-muted-foreground">Network:</span>
                     <span className="font-semibold">
                       {networks.find(n => n.id === selectedNetwork)?.label}
                     </span>
                   </div>
                   <div className="border-t pt-2 flex justify-between">
-                    <span className="text-sm text-gray-600">Total Cost:</span>
+                    <span className="text-sm text-muted-foreground">Total Cost:</span>
                     <span className="font-bold text-lg text-violet-600">
                       ₵{validationResults.orders
                         .filter(o => o.status === "valid")
@@ -781,13 +781,13 @@ export function BulkOrdersForm() {
 
                 <div className="bg-green-50 p-4 rounded-lg">
                   <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Available Balance:</span>
+                    <span className="text-sm text-muted-foreground">Available Balance:</span>
                     <span className="font-bold text-lg text-emerald-600">
                       ₵{(walletBalance || 0).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between mt-2">
-                    <span className="text-sm text-gray-600">Balance After:</span>
+                    <span className="text-sm text-muted-foreground">Balance After:</span>
                     <span className="font-bold text-lg text-emerald-600">
                       ₵{(
                         (walletBalance || 0) -

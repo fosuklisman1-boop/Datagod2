@@ -283,14 +283,14 @@ export default function AdminUssdShopsPage() {
   const statusBadge = (status: string) => {
     if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-green-200">Active</Badge>
     if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Suspended</Badge>
-    return <Badge className="bg-gray-100 text-gray-600 border-gray-200">Inactive</Badge>
+    return <Badge className="bg-muted text-muted-foreground border-border">Inactive</Badge>
   }
 
   const paymentBadge = (status: string) => {
     if (status === 'completed') return <Badge className="bg-green-100 text-green-800 text-xs">Paid</Badge>
     if (status === 'failed') return <Badge className="bg-red-100 text-red-800 text-xs">Failed</Badge>
     if (status === 'otp_required') return <Badge className="bg-yellow-100 text-yellow-800 text-xs">OTP</Badge>
-    return <Badge className="bg-gray-100 text-gray-600 text-xs">Pending</Badge>
+    return <Badge className="bg-muted text-muted-foreground text-xs">Pending</Badge>
   }
 
   const filtered = codes.filter(c =>
@@ -301,7 +301,7 @@ export default function AdminUssdShopsPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64 text-gray-500">Loading USSD shops...</div>
+        <div className="flex items-center justify-center h-64 text-muted-foreground">Loading USSD shops...</div>
       </DashboardLayout>
     )
   }
@@ -311,8 +311,8 @@ export default function AdminUssdShopsPage() {
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">USSD Shops</h1>
-            <p className="text-sm text-gray-500 mt-1">Manage shop codes, tokens, and orders for the shop-code USSD storefront</p>
+            <h1 className="text-2xl font-bold text-foreground">USSD Shops</h1>
+            <p className="text-sm text-muted-foreground mt-1">Manage shop codes, tokens, and orders for the shop-code USSD storefront</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={loadAll}>
@@ -325,9 +325,9 @@ export default function AdminUssdShopsPage() {
         </div>
 
         {/* USSD Settings */}
-        <Card className="mb-6 border-blue-200 bg-blue-50">
+        <Card className="mb-6 border-primary/20 bg-primary/5">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold text-primary flex items-center gap-2">
               <Settings2 className="w-4 h-4" />
               USSD Storefront Settings
             </CardTitle>
@@ -337,34 +337,34 @@ export default function AdminUssdShopsPage() {
             {/* Dial Code */}
             <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
               <div className="flex-1 space-y-1">
-                <Label className="text-xs text-blue-700">Dial Code (shown to shop owners)</Label>
+                <Label className="text-xs text-primary">Dial Code (shown to shop owners)</Label>
                 <Input
                   placeholder="e.g. *713# or *920*1#"
                   value={dialCode}
                   onChange={e => setDialCode(e.target.value)}
-                  className="bg-white border-blue-200 font-mono"
+                  className="bg-card border-primary/20 font-mono"
                 />
-                <p className="text-xs text-blue-600">Customers dial this code to access any shop's storefront.</p>
+                <p className="text-xs text-primary">Customers dial this code to access any shop's storefront.</p>
               </div>
               <Button
                 size="sm"
                 onClick={handleSaveDialCode}
                 disabled={savingDialCode}
-                className="bg-blue-600 hover:bg-blue-700 shrink-0"
+                className="bg-primary hover:bg-primary/90 shrink-0"
               >
                 <Save className="w-3 h-3 mr-1" />
                 {savingDialCode ? "Saving..." : "Save"}
               </Button>
             </div>
 
-            <div className="border-t border-blue-200" />
+            <div className="border-t border-primary/20" />
 
             {/* Session Settings */}
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Session Purchase Settings</p>
+              <p className="text-xs font-semibold text-primary uppercase tracking-wide">Session Purchase Settings</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs text-blue-700">Activation Fee (GHS)</Label>
+                  <Label className="text-xs text-primary">Activation Fee (GHS)</Label>
                   <Input
                     type="number"
                     min="0"
@@ -372,11 +372,11 @@ export default function AdminUssdShopsPage() {
                     placeholder="e.g. 20.00"
                     value={activationFee}
                     onChange={e => setActivationFee(e.target.value)}
-                    className="bg-white border-blue-200"
+                    className="bg-card border-primary/20"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-blue-700">Price per Session (GHS)</Label>
+                  <Label className="text-xs text-primary">Price per Session (GHS)</Label>
                   <Input
                     type="number"
                     min="0"
@@ -384,34 +384,34 @@ export default function AdminUssdShopsPage() {
                     placeholder="e.g. 0.50"
                     value={sessionPrice}
                     onChange={e => setSessionPrice(e.target.value)}
-                    className="bg-white border-blue-200"
+                    className="bg-card border-primary/20"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-blue-700">Min Purchase</Label>
+                  <Label className="text-xs text-primary">Min Purchase</Label>
                   <Input
                     type="number"
                     min="1"
                     placeholder="e.g. 10"
                     value={minSessions}
                     onChange={e => setMinSessions(e.target.value)}
-                    className="bg-white border-blue-200"
+                    className="bg-card border-primary/20"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-blue-700">Max Purchase</Label>
+                  <Label className="text-xs text-primary">Max Purchase</Label>
                   <Input
                     type="number"
                     min="1"
                     placeholder="e.g. 500"
                     value={maxSessions}
                     onChange={e => setMaxSessions(e.target.value)}
-                    className="bg-white border-blue-200"
+                    className="bg-card border-primary/20"
                   />
                 </div>
               </div>
               {sessionPrice && minSessions && maxSessions && (
-                <p className="text-xs text-blue-600">
+                <p className="text-xs text-primary">
                   Shop owners can buy between {minSessions}–{maxSessions} sessions at GHS {parseFloat(sessionPrice || "0").toFixed(2)} each.
                 </p>
               )}
@@ -419,7 +419,7 @@ export default function AdminUssdShopsPage() {
                 size="sm"
                 onClick={handleSaveSessionSettings}
                 disabled={savingSessionSettings}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-primary hover:bg-primary/90"
               >
                 <Save className="w-3 h-3 mr-1" />
                 {savingSessionSettings ? "Saving..." : "Save Session Settings"}
@@ -435,8 +435,8 @@ export default function AdminUssdShopsPage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Activated &amp; Active</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Activated &amp; Active</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">
                     {codes.filter(c => c.activation_fee_paid && c.status === 'active').length}
                   </p>
                 </div>
@@ -448,12 +448,12 @@ export default function AdminUssdShopsPage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Active Codes</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Active Codes</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">
                     {codes.filter(c => c.status === 'active').length}
                   </p>
                 </div>
-                <Activity className="w-8 h-8 text-blue-500 opacity-80 shrink-0" />
+                <Activity className="w-8 h-8 text-primary opacity-80 shrink-0" />
               </div>
             </CardContent>
           </Card>
@@ -461,8 +461,8 @@ export default function AdminUssdShopsPage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Activation Revenue</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Activation Revenue</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">
                     GH¢{activationRevenue.toFixed(2)}
                   </p>
                 </div>
@@ -474,8 +474,8 @@ export default function AdminUssdShopsPage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Available Tokens</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Available Tokens</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">
                     {codes.filter(c => c.status === 'active').reduce((sum, c) => sum + (c.token_balance ?? 0), 0).toLocaleString()}
                   </p>
                 </div>
@@ -487,8 +487,8 @@ export default function AdminUssdShopsPage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Today&apos;s Activations</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Today&apos;s Activations</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">
                     GH¢{todayActivationRevenue.toFixed(2)}
                   </p>
                 </div>
@@ -520,7 +520,7 @@ export default function AdminUssdShopsPage() {
               </CardHeader>
               <CardContent>
                 {filtered.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
+                  <div className="text-center py-12 text-muted-foreground">
                     <Hash className="w-10 h-10 mx-auto mb-3 opacity-40" />
                     <p>No shop codes yet. Click "New Shop Code" to create one.</p>
                   </div>
@@ -528,7 +528,7 @@ export default function AdminUssdShopsPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b text-left text-gray-500 text-xs uppercase tracking-wide">
+                        <tr className="border-b text-left text-muted-foreground text-xs uppercase tracking-wide">
                           <th className="pb-3 pr-4">Code</th>
                           <th className="pb-3 pr-4">Shop</th>
                           <th className="pb-3 pr-4">Status</th>
@@ -539,25 +539,25 @@ export default function AdminUssdShopsPage() {
                       </thead>
                       <tbody>
                         {filtered.map(code => (
-                          <tr key={code.id} className="border-b last:border-0 hover:bg-gray-50">
+                          <tr key={code.id} className="border-b last:border-0 hover:bg-accent">
                             <td className="py-3 pr-4">
-                              <code className="bg-gray-100 text-gray-800 font-mono font-bold text-base px-2 py-1 rounded">
+                              <code className="bg-muted text-foreground font-mono font-bold text-base px-2 py-1 rounded">
                                 {code.code}
                               </code>
                             </td>
                             <td className="py-3 pr-4">
-                              <span className="font-medium text-gray-800">{code.shop_name}</span>
+                              <span className="font-medium text-foreground">{code.shop_name}</span>
                             </td>
                             <td className="py-3 pr-4">{statusBadge(code.status)}</td>
                             <td className="py-3 pr-4">
-                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-red-600' : 'text-gray-800'}`}>
+                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-red-600' : 'text-foreground'}`}>
                                 {code.token_balance}
                               </span>
                               {code.token_balance <= 5 && code.token_balance > 0 && (
                                 <span className="text-xs text-red-500 ml-1">low</span>
                               )}
                             </td>
-                            <td className="py-3 pr-4 text-gray-600">{code.order_count}</td>
+                            <td className="py-3 pr-4 text-muted-foreground">{code.order_count}</td>
                             <td className="py-3">
                               <div className="flex gap-1 flex-wrap">
                                 {!code.activation_fee_paid && (
@@ -612,7 +612,7 @@ export default function AdminUssdShopsPage() {
               </CardHeader>
               <CardContent>
                 {codes.filter(c => c.status === 'active').length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
+                  <div className="text-center py-12 text-muted-foreground">
                     <Activity className="w-10 h-10 mx-auto mb-3 opacity-40" />
                     <p>No active codes yet.</p>
                   </div>
@@ -620,7 +620,7 @@ export default function AdminUssdShopsPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b text-left text-gray-500 text-xs uppercase tracking-wide">
+                        <tr className="border-b text-left text-muted-foreground text-xs uppercase tracking-wide">
                           <th className="pb-3 pr-4">Code</th>
                           <th className="pb-3 pr-4">Shop</th>
                           <th className="pb-3 pr-4">Tokens</th>
@@ -630,17 +630,17 @@ export default function AdminUssdShopsPage() {
                       </thead>
                       <tbody>
                         {codes.filter(c => c.status === 'active').map(code => (
-                          <tr key={code.id} className="border-b last:border-0 hover:bg-gray-50">
+                          <tr key={code.id} className="border-b last:border-0 hover:bg-accent">
                             <td className="py-3 pr-4">
                               <code className="bg-green-50 text-green-800 font-mono font-bold text-base px-2 py-1 rounded border border-green-200">
                                 {code.code}
                               </code>
                             </td>
                             <td className="py-3 pr-4">
-                              <span className="font-medium text-gray-800">{code.shop_name}</span>
+                              <span className="font-medium text-foreground">{code.shop_name}</span>
                             </td>
                             <td className="py-3 pr-4">
-                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-red-600' : 'text-gray-800'}`}>
+                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-red-600' : 'text-foreground'}`}>
                                 {code.token_balance}
                               </span>
                               {code.token_balance <= 5 && code.token_balance > 0 && (
@@ -650,7 +650,7 @@ export default function AdminUssdShopsPage() {
                                 <span className="text-xs text-red-500 ml-1">empty</span>
                               )}
                             </td>
-                            <td className="py-3 pr-4 text-gray-600">{code.order_count}</td>
+                            <td className="py-3 pr-4 text-muted-foreground">{code.order_count}</td>
                             <td className="py-3">
                               <div className="flex gap-1 flex-wrap">
                                 <Button
@@ -686,12 +686,12 @@ export default function AdminUssdShopsPage() {
               </CardHeader>
               <CardContent>
                 {orders.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">No orders yet.</div>
+                  <div className="text-center py-12 text-muted-foreground">No orders yet.</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b text-left text-gray-500 text-xs uppercase tracking-wide">
+                        <tr className="border-b text-left text-muted-foreground text-xs uppercase tracking-wide">
                           <th className="pb-3 pr-4">Order ID</th>
                           <th className="pb-3 pr-4">From</th>
                           <th className="pb-3 pr-4">To</th>
@@ -703,19 +703,19 @@ export default function AdminUssdShopsPage() {
                       </thead>
                       <tbody>
                         {orders.map(order => (
-                          <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
+                          <tr key={order.id} className="border-b last:border-0 hover:bg-accent">
                             <td className="py-3 pr-4">
-                              <code className="text-xs text-gray-500">{order.id.slice(0, 8)}</code>
+                              <code className="text-xs text-muted-foreground">{order.id.slice(0, 8)}</code>
                             </td>
-                            <td className="py-3 pr-4 text-gray-700">{order.dialing_phone}</td>
-                            <td className="py-3 pr-4 text-gray-700">{order.recipient_phone}</td>
+                            <td className="py-3 pr-4 text-foreground">{order.dialing_phone}</td>
+                            <td className="py-3 pr-4 text-foreground">{order.recipient_phone}</td>
                             <td className="py-3 pr-4">
                               <span className="font-medium">{order.package_size}</span>
-                              <span className="text-gray-400 ml-1 text-xs">{order.network}</span>
+                              <span className="text-muted-foreground ml-1 text-xs">{order.network}</span>
                             </td>
                             <td className="py-3 pr-4 font-medium">GHS {Number(order.amount).toFixed(2)}</td>
                             <td className="py-3 pr-4">{paymentBadge(order.payment_status)}</td>
-                            <td className="py-3 text-gray-400 text-xs">
+                            <td className="py-3 text-muted-foreground text-xs">
                               {new Date(order.created_at).toLocaleDateString()}
                             </td>
                           </tr>
@@ -724,7 +724,7 @@ export default function AdminUssdShopsPage() {
                     </table>
                     {ordersTotalCount > ORDERS_PER_PAGE && (
                       <div className="flex items-center justify-between pt-4 border-t mt-2">
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-muted-foreground">
                           Showing {ordersPage * ORDERS_PER_PAGE + 1}–{Math.min((ordersPage + 1) * ORDERS_PER_PAGE, ordersTotalCount)} of {ordersTotalCount}
                         </span>
                         <div className="flex gap-2">
@@ -783,7 +783,7 @@ export default function AdminUssdShopsPage() {
                 onChange={e => setCreateCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
                 maxLength={8}
               />
-              <p className="text-xs text-gray-400">Leave blank to auto-generate a unique 4-digit code</p>
+              <p className="text-xs text-muted-foreground">Leave blank to auto-generate a unique 4-digit code</p>
             </div>
             <div className="space-y-1">
               <Label>Initial Tokens</Label>
@@ -791,7 +791,7 @@ export default function AdminUssdShopsPage() {
                 type="number" min="0" value={createTokens}
                 onChange={e => setCreateTokens(e.target.value)}
               />
-              <p className="text-xs text-gray-400">Each token = one customer session. Can add more later.</p>
+              <p className="text-xs text-muted-foreground">Each token = one customer session. Can add more later.</p>
             </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowCreate(false)} className="flex-1">Cancel</Button>
@@ -810,7 +810,7 @@ export default function AdminUssdShopsPage() {
             <DialogTitle>Add Tokens — {tokensTarget?.shop_name} ({tokensTarget?.code})</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted-foreground">
               Current balance: <strong>{tokensTarget?.token_balance ?? 0}</strong> tokens
             </p>
             <div className="space-y-1">
@@ -837,7 +837,7 @@ export default function AdminUssdShopsPage() {
             <div className="space-y-1">
               <Label>Initial Tokens</Label>
               <Input type="number" min="0" value={activateTokens} onChange={e => setActivateTokens(e.target.value)} />
-              <p className="text-xs text-gray-400">Tokens granted on activation. Can add more later.</p>
+              <p className="text-xs text-muted-foreground">Tokens granted on activation. Can add more later.</p>
             </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowActivate(false)} className="flex-1">Cancel</Button>

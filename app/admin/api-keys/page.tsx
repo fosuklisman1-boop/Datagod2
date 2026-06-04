@@ -238,7 +238,7 @@ export default function AdminApiManagementPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-full">
-          <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+          <RefreshCw className="w-8 h-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     )
@@ -293,10 +293,10 @@ export default function AdminApiManagementPage() {
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="bg-gradient-to-br from-blue-50 to-white border-blue-100">
+          <Card className="bg-gradient-to-br from-primary/5 to-white border-primary/20">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Active Keys</CardTitle>
-              <Key className="w-4 h-4 text-blue-600" />
+              <Key className="w-4 h-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{keys.filter(k => k.is_active).length}</div>
@@ -372,7 +372,7 @@ export default function AdminApiManagementPage() {
                           <td className="py-4 pl-2">
                             <div className="font-semibold text-slate-900">{key.name}</div>
                             <div className="text-xs text-slate-500 font-mono mt-1">{key.key_prefix}... [ID: {key.id.substring(0,8)}]</div>
-                            <div className="text-xs text-blue-600 font-medium mt-0.5">{key.user?.first_name} ({key.user?.email})</div>
+                            <div className="text-xs text-primary font-medium mt-0.5">{key.user?.first_name} ({key.user?.email})</div>
                           </td>
                           <td className="py-4">
                             <div className="flex items-center gap-3">

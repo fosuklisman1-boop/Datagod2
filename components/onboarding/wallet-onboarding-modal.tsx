@@ -68,7 +68,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
         <div className="space-y-6 py-6">
           {/* Current Balance */}
           <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-6">
-            <p className="text-sm text-gray-600 mb-2">Current Balance</p>
+            <p className="text-sm text-muted-foreground mb-2">Current Balance</p>
             <div className="flex items-center gap-3">
               <Wallet className="w-8 h-8 text-green-600" />
               <div className="text-3xl font-bold text-green-600">
@@ -78,8 +78,8 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
           </div>
 
           {/* Info Message */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-gray-700">
+          <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+            <p className="text-sm text-foreground">
               You need a minimum balance to purchase data packages. Click the button below to add funds to your wallet using various payment methods.
             </p>
           </div>

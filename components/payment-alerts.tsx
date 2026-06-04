@@ -33,9 +33,9 @@ interface PaymentHelpProps {
 
 export function PaymentHelpMessage({ title = "Need help with payment?" }: PaymentHelpProps) {
   return (
-    <Alert className="border-blue-200 bg-blue-50">
-      <Lightbulb className="h-4 w-4 text-blue-600" />
-      <AlertDescription className="text-blue-800">
+    <Alert className="border-primary/20 bg-primary/5">
+      <Lightbulb className="h-4 w-4 text-primary" />
+      <AlertDescription className="text-primary">
         <div className="font-semibold mb-1">{title}</div>
         <p className="text-sm mb-2">
           If you experience issues with payment:

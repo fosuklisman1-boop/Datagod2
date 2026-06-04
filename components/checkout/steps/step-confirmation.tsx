@@ -60,8 +60,8 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
           </div>
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Order Created Successfully!</h2>
-          <p className="text-gray-600 mt-2">Your order has been created and is awaiting payment</p>
+          <h2 className="text-2xl font-bold text-foreground">Order Created Successfully!</h2>
+          <p className="text-muted-foreground mt-2">Your order has been created and is awaiting payment</p>
         </div>
       </div>
 
@@ -72,15 +72,15 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
             <div className="space-y-4">
               {/* Order ID */}
               <div>
-                <p className="text-xs font-medium text-gray-600 mb-1">Order Number</p>
-                <p className="text-lg font-bold text-gray-900 font-mono">{order.id}</p>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Order Number</p>
+                <p className="text-lg font-bold text-foreground font-mono">{order.id}</p>
               </div>
 
               <Separator />
 
               {/* Package Info */}
               <div>
-                <p className="text-xs font-medium text-gray-600 mb-2">Package Details</p>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Package Details</p>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm">{order.package.name}</span>
@@ -101,11 +101,11 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
 
               {/* Customer Info */}
               <div>
-                <p className="text-xs font-medium text-gray-600 mb-2">Delivery To</p>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Delivery To</p>
                 <div className="space-y-1 text-sm">
                   <p className="font-semibold">{order.customer.name}</p>
-                  <p className="text-gray-600">{order.customer.phone}</p>
-                  <p className="text-gray-600">{order.customer.email}</p>
+                  <p className="text-muted-foreground">{order.customer.phone}</p>
+                  <p className="text-muted-foreground">{order.customer.email}</p>
                 </div>
               </div>
 
@@ -113,8 +113,8 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
 
               {/* Created Time */}
               <div>
-                <p className="text-xs font-medium text-gray-600 mb-1">Created At</p>
-                <p className="text-sm text-gray-700">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Created At</p>
+                <p className="text-sm text-foreground">
                   {new Date(order.created_at).toLocaleString('en-US', {
                     year: 'numeric',
                     month: 'short',
@@ -130,12 +130,12 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
       )}
 
       {/* Important Info */}
-      <Card className="border-blue-200 bg-blue-50">
+      <Card className="border-primary/20 bg-primary/5">
         <CardContent className="pt-4 pb-4">
           <div className="space-y-3">
             <div>
               <p className="font-semibold text-blue-900 mb-2">📋 What Happens Next?</p>
-              <ol className="space-y-2 text-sm text-blue-800">
+              <ol className="space-y-2 text-sm text-primary">
                 <li className="flex gap-2">
                   <span className="font-bold">1.</span>
                   <span>Click "Proceed to Payment" below</span>
@@ -195,10 +195,10 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
       </div>
 
       {/* Help Section */}
-      <Card className="border-gray-200 bg-gray-50">
+      <Card className="border-border bg-muted/40">
         <CardContent className="pt-4 pb-4">
-          <div className="space-y-2 text-sm text-gray-600">
-            <p className="font-semibold text-gray-900">Need Help?</p>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p className="font-semibold text-foreground">Need Help?</p>
             <ul className="space-y-1 text-xs">
               <li>• Payment issues? Check your internet connection and try again</li>
               <li>• Lost your order number? Check your email confirmation</li>

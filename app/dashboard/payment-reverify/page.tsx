@@ -163,7 +163,7 @@ export default function ShopPaymentReverifyPage() {
     switch (result.paystack_status) {
       case "success":
         return result.action === "already_processed"
-          ? <Badge className="bg-blue-500 text-xs">Already Done</Badge>
+          ? <Badge className="bg-primary text-xs">Already Done</Badge>
           : <Badge className="bg-green-500 text-xs"><CheckCircle className="w-3 h-3 mr-1" />Verified</Badge>
       case "failed":
         return <Badge className="bg-red-500 text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
@@ -180,7 +180,7 @@ export default function ShopPaymentReverifyPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     )
@@ -253,7 +253,7 @@ export default function ShopPaymentReverifyPage() {
                 {loading ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-12">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-500" />
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
                     </TableCell>
                   </TableRow>
                 ) : orders.length === 0 ? (

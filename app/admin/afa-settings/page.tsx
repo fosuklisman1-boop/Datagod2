@@ -108,7 +108,7 @@ export default function AFASettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">AFA Registration Settings</h1>
-        <p className="text-gray-600 mt-2">Manage MTN AFA registration pricing</p>
+        <p className="text-muted-foreground mt-2">Manage MTN AFA registration pricing</p>
       </div>
 
       <Card>
@@ -128,7 +128,7 @@ export default function AFASettingsPage() {
 
           {fetching ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
           ) : (
             <form onSubmit={handleUpdatePrice} className="space-y-4">
@@ -145,7 +145,7 @@ export default function AFASettingsPage() {
                     className="flex-1"
                     placeholder="Enter price"
                   />
-                  <span className="flex items-center px-3 bg-gray-100 rounded-md font-semibold">
+                  <span className="flex items-center px-3 bg-muted rounded-md font-semibold">
                     GHS
                   </span>
                 </div>
@@ -195,7 +195,7 @@ export default function AFASettingsPage() {
           <p>
             <strong>Storage:</strong> Database (afa_registration_prices table)
           </p>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             Changes to the price will take effect immediately for new registrations.
           </p>
         </CardContent>

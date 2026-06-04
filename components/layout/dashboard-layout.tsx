@@ -193,7 +193,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-    <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${isDealer ? "bg-amber-50/40" : "bg-gray-50"}`}>
+    <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${isDealer ? "bg-violet-50/40 dark:bg-violet-950/20" : "bg-background"}`}>
       {/* Sidebar */}
       <Sidebar />
 

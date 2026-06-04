@@ -229,7 +229,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isAdd
-              ? <Phone className="w-5 h-5 text-blue-600" />
+              ? <Phone className="w-5 h-5 text-primary" />
               : gracePeriodActive
                 ? <ShieldCheck className="w-5 h-5 text-emerald-600" />
                 : <ShieldAlert className="w-5 h-5 text-red-500" />
@@ -257,16 +257,16 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
         {/* Mode tabs — only when there's an existing number to verify. For an ADD
             flow there's nothing to verify, so we go straight to the change/add UI. */}
         {!isAdd && (
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+          <div className="flex rounded-lg border border-border overflow-hidden text-sm">
             <button
               onClick={() => setMode("verify")}
-              className={`flex-1 py-2 font-medium transition-colors ${mode === "verify" ? "bg-emerald-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+              className={`flex-1 py-2 font-medium transition-colors ${mode === "verify" ? "bg-emerald-600 text-white" : "bg-card text-muted-foreground hover:bg-accent"}`}
             >
               Verify Current
             </button>
             <button
               onClick={() => setMode("change")}
-              className={`flex-1 py-2 font-medium transition-colors ${mode === "change" ? "bg-emerald-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+              className={`flex-1 py-2 font-medium transition-colors ${mode === "change" ? "bg-emerald-600 text-white" : "bg-card text-muted-foreground hover:bg-accent"}`}
             >
               Change Number
             </button>
@@ -275,9 +275,9 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
 
         {mode === "verify" ? (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border">
-              <Phone className="w-4 h-4 text-gray-400 shrink-0" />
-              <span className="text-sm text-gray-700 font-medium">{currentPhone}</span>
+            <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg border">
+              <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+              <span className="text-sm text-foreground font-medium">{currentPhone}</span>
             </div>
 
             {!verifyOtpSent ? (
@@ -311,7 +311,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
                   {verifyOtpLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                   Confirm Verification
                 </Button>
-                <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
               </div>
             )}
           </div>
@@ -365,7 +365,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
             )}
 
             {changeOtpSent && !changePhoneVerified && (
-              <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+              <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
             )}
 
             {changePhoneVerified && (
@@ -378,7 +378,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
         )}
 
         {gracePeriodActive && (
-          <Button variant="ghost" onClick={onDismiss} className="w-full text-gray-400 text-sm">
+          <Button variant="ghost" onClick={onDismiss} className="w-full text-muted-foreground text-sm">
             Remind me later
           </Button>
         )}

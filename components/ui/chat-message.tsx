@@ -17,7 +17,7 @@ export function ChatMessage({ role, content, variant = "violet" }: ChatMessagePr
       <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
         isUser
           ? `${userBg} text-white rounded-br-sm`
-          : "bg-gray-100 text-gray-800 rounded-bl-sm"
+          : "bg-muted text-foreground rounded-bl-sm"
       }`}>
         {isUser ? (
           <span>{content}</span>
@@ -29,7 +29,7 @@ export function ChatMessage({ role, content, variant = "violet" }: ChatMessagePr
               ol: ({ children }) => <ol className="list-decimal pl-4 mb-1 space-y-0.5">{children}</ol>,
               li: ({ children }) => <li>{children}</li>,
               strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-              code: ({ children }) => <code className="bg-gray-200 rounded px-1 text-xs font-mono">{children}</code>,
+              code: ({ children }) => <code className="bg-muted rounded px-1 text-xs font-mono">{children}</code>,
             }}
           >
             {content}

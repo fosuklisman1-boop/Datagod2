@@ -188,7 +188,7 @@ export default function AISettingsPage() {
   const keyInfo: { provider: "anthropic" | "openai" | "gemini" | "deepseek" | "groq"; label: string; placeholder: string; color: string }[] = [
     { provider: "anthropic", label: "Anthropic",    placeholder: "sk-ant-api03-...", color: "bg-orange-500" },
     { provider: "openai",    label: "OpenAI",       placeholder: "sk-proj-...",      color: "bg-green-600" },
-    { provider: "gemini",    label: "Google Gemini",placeholder: "AIzaSy...",        color: "bg-blue-600"  },
+    { provider: "gemini",    label: "Google Gemini",placeholder: "AIzaSy...",        color: "bg-primary"  },
     { provider: "deepseek",  label: "DeepSeek",     placeholder: "sk-...",           color: "bg-sky-500"   },
     { provider: "groq",      label: "Groq",         placeholder: "gsk_...",          color: "bg-purple-600"},
   ]
@@ -201,10 +201,10 @@ export default function AISettingsPage() {
             <Bot size={22} className="text-violet-600" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">AI Provider Settings</h1>
-            <p className="text-sm text-gray-500">Configure API keys and assign models to each chat widget</p>
+            <h1 className="text-xl font-bold text-foreground">AI Provider Settings</h1>
+            <p className="text-sm text-muted-foreground">Configure API keys and assign models to each chat widget</p>
           </div>
-          <button onClick={fetchConfig} className="ml-auto text-gray-400 hover:text-gray-600">
+          <button onClick={fetchConfig} className="ml-auto text-muted-foreground hover:text-muted-foreground">
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
@@ -213,7 +213,7 @@ export default function AISettingsPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">API Keys</CardTitle>
-            <p className="text-xs text-gray-500">Keys are stored encrypted. Existing keys are shown masked — enter a new value to replace.</p>
+            <p className="text-xs text-muted-foreground">Keys are stored encrypted. Existing keys are shown masked — enter a new value to replace.</p>
           </CardHeader>
           <CardContent className="space-y-4">
             {keyInfo.map(({ provider, label, placeholder, color }) => (
@@ -223,11 +223,11 @@ export default function AISettingsPage() {
                   <Label className="text-sm font-medium">{label}</Label>
                   {config[`${provider}_key_set` as keyof ConfigState]
                     ? <Badge variant="outline" className="text-[10px] text-green-600 border-green-200">Configured</Badge>
-                    : <Badge variant="outline" className="text-[10px] text-gray-400">Not set</Badge>
+                    : <Badge variant="outline" className="text-[10px] text-muted-foreground">Not set</Badge>
                   }
                 </div>
                 {config[`${provider}_api_key_masked` as keyof ConfigState] && (
-                  <p className="text-xs text-gray-400 font-mono pl-4">{String(config[`${provider}_api_key_masked` as keyof ConfigState])}</p>
+                  <p className="text-xs text-muted-foreground font-mono pl-4">{String(config[`${provider}_api_key_masked` as keyof ConfigState])}</p>
                 )}
                 <div className="flex gap-2">
                   <div className="relative flex-1">
@@ -241,7 +241,7 @@ export default function AISettingsPage() {
                     <button
                       type="button"
                       onClick={() => setShowKeys(s => ({ ...s, [provider]: !s[provider] }))}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
                     >
                       {showKeys[provider] ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
@@ -265,11 +265,11 @@ export default function AISettingsPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Model Assignment</CardTitle>
-            <p className="text-xs text-gray-500">Choose which AI model powers each chat widget. Takes effect within 30 seconds.</p>
+            <p className="text-xs text-muted-foreground">Choose which AI model powers each chat widget. Takes effect within 30 seconds.</p>
           </CardHeader>
           <CardContent className="space-y-5">
             {/* Same for all toggle */}
-            <div className="flex items-start gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50">
+            <div className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/40">
               <input
                 type="checkbox"
                 id="same-for-all"
@@ -277,7 +277,7 @@ export default function AISettingsPage() {
                 onChange={e => setSameForAll(e.target.checked)}
                 className="mt-0.5 accent-violet-600"
               />
-              <label htmlFor="same-for-all" className="text-sm font-medium text-gray-700 cursor-pointer">
+              <label htmlFor="same-for-all" className="text-sm font-medium text-foreground cursor-pointer">
                 Use the same model for all three widgets
               </label>
             </div>
@@ -286,7 +286,7 @@ export default function AISettingsPage() {
               <div className="space-y-3 pl-1">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-500">Provider</Label>
+                    <Label className="text-xs text-muted-foreground">Provider</Label>
                     <select
                       value={allProvider}
                       onChange={e => {
@@ -294,7 +294,7 @@ export default function AISettingsPage() {
                         setAllProvider(p)
                         setAllModel(PROVIDER_MODELS[p][0].id)
                       }}
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-violet-400"
+                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-violet-400"
                     >
                       {providers.map(p => (
                         <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
@@ -302,11 +302,11 @@ export default function AISettingsPage() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-500">Model</Label>
+                    <Label className="text-xs text-muted-foreground">Model</Label>
                     <select
                       value={allModel}
                       onChange={e => setAllModel(e.target.value)}
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-violet-400"
+                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-violet-400"
                     >
                       {PROVIDER_MODELS[allProvider].map(m => (
                         <option key={m.id} value={m.id}>{m.label}</option>
@@ -322,11 +322,11 @@ export default function AISettingsPage() {
                     <Label className="text-sm font-medium capitalize">{CONTEXT_LABELS[ctx]} Widget</Label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-xs text-gray-500">Provider</Label>
+                        <Label className="text-xs text-muted-foreground">Provider</Label>
                         <select
                           value={config[`${ctx}_provider` as keyof ConfigState] as string}
                           onChange={e => setContextProvider(ctx, e.target.value as ProviderName)}
-                          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-violet-400"
+                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-violet-400"
                         >
                           {providers.map(p => (
                             <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
@@ -334,11 +334,11 @@ export default function AISettingsPage() {
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs text-gray-500">Model</Label>
+                        <Label className="text-xs text-muted-foreground">Model</Label>
                         <select
                           value={config[`${ctx}_model` as keyof ConfigState] as string}
                           onChange={e => setContextModel(ctx, e.target.value)}
-                          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-violet-400"
+                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-violet-400"
                         >
                           {PROVIDER_MODELS[config[`${ctx}_provider` as keyof ConfigState] as ProviderName].map(m => (
                             <option key={m.id} value={m.id}>{m.label}</option>

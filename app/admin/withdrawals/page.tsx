@@ -180,9 +180,9 @@ export default function WithdrawalsPage() {
       case "rejected":
         return <XCircle className="h-4 w-4 text-red-600" />
       case "completed":
-        return <CheckCircle className="h-4 w-4 text-blue-600" />
+        return <CheckCircle className="h-4 w-4 text-primary" />
       case "processing":
-        return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+        return <Loader2 className="h-4 w-4 text-primary animate-spin" />
       case "failed":
         return <XCircle className="h-4 w-4 text-red-500" />
       default:
@@ -199,13 +199,13 @@ export default function WithdrawalsPage() {
       case "rejected":
         return "bg-red-100 text-red-800"
       case "completed":
-        return "bg-blue-100 text-blue-800"
+        return "bg-primary/10 text-primary"
       case "processing":
-        return "bg-blue-50 text-blue-600"
+        return "bg-primary/5 text-primary"
       case "failed":
         return "bg-red-100 text-red-700"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
@@ -236,7 +236,7 @@ export default function WithdrawalsPage() {
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
             Withdrawal Approvals
           </h1>
-          <p className="text-gray-500 mt-1 font-medium">Manage shop withdrawal requests</p>
+          <p className="text-muted-foreground mt-1 font-medium">Manage shop withdrawal requests</p>
         </div>
 
         {/* Filter Buttons */}
@@ -256,11 +256,11 @@ export default function WithdrawalsPage() {
         {/* Withdrawals Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="text-gray-500">Loading withdrawal requests...</div>
+            <div className="text-muted-foreground">Loading withdrawal requests...</div>
           </div>
         ) : withdrawals.length === 0 ? (
           <Card>
-            <CardContent className="pt-6 text-center text-gray-500">
+            <CardContent className="pt-6 text-center text-muted-foreground">
               No withdrawal requests found
             </CardContent>
           </Card>
@@ -282,14 +282,14 @@ export default function WithdrawalsPage() {
                             {withdrawal.status.toUpperCase()}
                           </Badge>
                         </div>
-                        <p className="text-xs text-gray-500 truncate">{withdrawal.reference_code}</p>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-xs text-muted-foreground truncate">{withdrawal.reference_code}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
                           📅 {new Date(withdrawal.created_at).toLocaleString()}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-2xl font-bold text-gray-900">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
-                        <p className="text-xs text-gray-600 capitalize">{withdrawal.withdrawal_method}</p>
+                        <p className="text-2xl font-bold text-foreground">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{withdrawal.withdrawal_method}</p>
                         {withdrawal.fee_amount && withdrawal.fee_amount > 0 && (
                           <p className="text-xs text-orange-600 font-medium mt-1">Fee: GHS {(withdrawal.fee_amount || 0).toFixed(2)}</p>
                         )}
@@ -297,8 +297,8 @@ export default function WithdrawalsPage() {
                           <p className="text-xs text-green-600 font-semibold mt-1">Payout: GHS {(withdrawal.net_amount || 0).toFixed(2)}</p>
                         )}
                         {/* Available Balance for verification */}
-                        <div className="mt-2 pt-2 border-t border-gray-200">
-                          <p className="text-xs text-gray-500">Current Balance</p>
+                        <div className="mt-2 pt-2 border-t border-border">
+                          <p className="text-xs text-muted-foreground">Current Balance</p>
                           <p className={`text-sm font-bold ${
                             (withdrawal.current_available_balance ?? 0) >= withdrawal.amount 
                               ? 'text-green-600' 
@@ -315,15 +315,15 @@ export default function WithdrawalsPage() {
 
                     {/* Processing Details */}
                     <div className="border-t pt-4">
-                      <p className="text-xs font-semibold text-gray-900 mb-3">Processing Details</p>
+                      <p className="text-xs font-semibold text-foreground mb-3">Processing Details</p>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                         {/* Account Name */}
                         <div>
-                          <p className="text-xs text-gray-600 mb-1">Account Name</p>
+                          <p className="text-xs text-muted-foreground mb-1">Account Name</p>
                           <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-blue-50 p-2 rounded border border-blue-200">
-                              <p className="font-mono text-sm text-gray-900">
+                            <div className="flex-1 bg-primary/5 p-2 rounded border border-primary/20">
+                              <p className="font-mono text-sm text-foreground">
                                 {withdrawal.account_details?.account_name || "N/A"}
                               </p>
                             </div>
@@ -342,10 +342,10 @@ export default function WithdrawalsPage() {
                         {withdrawal.withdrawal_method === "mobile_money" && (
                           <>
                             <div>
-                              <p className="text-xs text-gray-600 mb-1">Mobile Number</p>
+                              <p className="text-xs text-muted-foreground mb-1">Mobile Number</p>
                               <div className="flex items-center gap-2">
                                 <div className="flex-1 bg-green-50 p-2 rounded border border-green-200">
-                                  <p className="font-mono text-sm text-gray-900">
+                                  <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.phone || "N/A"}
                                   </p>
                                 </div>
@@ -360,10 +360,10 @@ export default function WithdrawalsPage() {
                               </div>
                             </div>
                             <div>
-                              <p className="text-xs text-gray-600 mb-1">Network</p>
+                              <p className="text-xs text-muted-foreground mb-1">Network</p>
                               <div className="flex items-center gap-2">
                                 <div className="flex-1 bg-orange-50 p-2 rounded border border-orange-200">
-                                  <p className="font-mono text-sm font-semibold text-gray-900">
+                                  <p className="font-mono text-sm font-semibold text-foreground">
                                     {withdrawal.account_details?.network || "N/A"}
                                   </p>
                                 </div>
@@ -384,10 +384,10 @@ export default function WithdrawalsPage() {
                         {withdrawal.withdrawal_method === "bank_transfer" && (
                           <>
                             <div>
-                              <p className="text-xs text-gray-600 mb-1">Bank Name</p>
+                              <p className="text-xs text-muted-foreground mb-1">Bank Name</p>
                               <div className="flex items-center gap-2">
                                 <div className="flex-1 bg-purple-50 p-2 rounded border border-purple-200">
-                                  <p className="font-mono text-sm text-gray-900">
+                                  <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.bank_name || "N/A"}
                                   </p>
                                 </div>
@@ -403,10 +403,10 @@ export default function WithdrawalsPage() {
                             </div>
 
                             <div>
-                              <p className="text-xs text-gray-600 mb-1">Account Number</p>
+                              <p className="text-xs text-muted-foreground mb-1">Account Number</p>
                               <div className="flex items-center gap-2">
                                 <div className="flex-1 bg-orange-50 p-2 rounded border border-orange-200">
-                                  <p className="font-mono text-sm text-gray-900">
+                                  <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.account_number || "N/A"}
                                   </p>
                                 </div>
@@ -427,14 +427,14 @@ export default function WithdrawalsPage() {
                       {/* Dates */}
                       <div className="grid grid-cols-2 gap-2 text-xs mb-4 pb-4 border-b">
                         <div>
-                          <p className="text-gray-600">Requested</p>
-                          <p className="font-semibold text-gray-900">
+                          <p className="text-muted-foreground">Requested</p>
+                          <p className="font-semibold text-foreground">
                             {new Date(withdrawal.created_at).toLocaleDateString()}
                           </p>
                         </div>
                         <div>
-                          <p className="text-gray-600">Updated</p>
-                          <p className="font-semibold text-gray-900">
+                          <p className="text-muted-foreground">Updated</p>
+                          <p className="font-semibold text-foreground">
                             {new Date(withdrawal.updated_at).toLocaleDateString()}
                           </p>
                         </div>
@@ -442,9 +442,9 @@ export default function WithdrawalsPage() {
 
                       {/* Moolre Transfer ID */}
                       {withdrawal.moolre_transfer_id && (
-                        <div className="mb-3 bg-gray-50 p-2 rounded border border-gray-200">
-                          <p className="text-xs text-gray-500">Moolre Transfer ID</p>
-                          <p className="font-mono text-xs text-gray-700">{withdrawal.moolre_transfer_id}</p>
+                        <div className="mb-3 bg-muted/40 p-2 rounded border border-border">
+                          <p className="text-xs text-muted-foreground">Moolre Transfer ID</p>
+                          <p className="font-mono text-xs text-foreground">{withdrawal.moolre_transfer_id}</p>
                         </div>
                       )}
 
@@ -457,10 +457,10 @@ export default function WithdrawalsPage() {
 
                       {/* Processing notice + reset */}
                       {withdrawal.status === "processing" && (
-                        <div className="mb-3 bg-blue-50 p-3 rounded border border-blue-200 space-y-2">
+                        <div className="mb-3 bg-primary/5 p-3 rounded border border-primary/20 space-y-2">
                           <div className="flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin text-blue-500 shrink-0" />
-                            <p className="text-xs text-blue-700">Transfer in progress — awaiting MoMo confirmation. Cron checks every 5 min.</p>
+                            <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                            <p className="text-xs text-primary">Transfer in progress — awaiting MoMo confirmation. Cron checks every 5 min.</p>
                           </div>
                           <Button
                             size="sm"
@@ -487,8 +487,8 @@ export default function WithdrawalsPage() {
                       {(withdrawal.status === "pending" || withdrawal.status === "failed") && (
                         <div className="space-y-2">
                           {(withdrawal.withdrawal_method === "mobile_money" || (withdrawal.withdrawal_method === "bank_transfer" && (withdrawal.account_details as any)?.sublistid)) && withdrawal.net_amount && withdrawal.net_amount !== withdrawal.amount && (
-                            <p className="text-xs text-gray-500 text-center">
-                              Moolre will send <span className="font-semibold text-gray-800">GHS {withdrawal.net_amount.toFixed(2)}</span> (after GHS {(withdrawal.fee_amount ?? 0).toFixed(2)} fee)
+                            <p className="text-xs text-muted-foreground text-center">
+                              Moolre will send <span className="font-semibold text-foreground">GHS {withdrawal.net_amount.toFixed(2)}</span> (after GHS {(withdrawal.fee_amount ?? 0).toFixed(2)} fee)
                             </p>
                           )}
                           {/* Auto transfer (Moolre) — mobile money + bank transfers with sublistid */}
@@ -509,7 +509,7 @@ export default function WithdrawalsPage() {
                               onClick={() => approveWithdrawal(withdrawal.id, true)}
                               disabled={actionLoadingId === withdrawal.id}
                               variant="outline"
-                              className="flex-1 text-sm border-blue-300 text-blue-700 hover:bg-blue-50"
+                              className="flex-1 text-sm border-blue-300 text-primary hover:bg-primary/5"
                             >
                               {actionLoadingId === withdrawal.id ? (
                                 <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>

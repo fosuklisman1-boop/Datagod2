@@ -82,7 +82,7 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
 
       {/* Recovery Options */}
       <div className="space-y-3">
-        <h3 className="font-semibold text-gray-900">What would you like to do?</h3>
+        <h3 className="font-semibold text-foreground">What would you like to do?</h3>
         <div className="grid grid-cols-1 gap-2">
           {recoveryOptions.map((option, index) => (
             <Button
@@ -104,11 +104,11 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
       </div>
 
       {/* Helpful Tips */}
-      <Card className="bg-blue-50 border-blue-200">
+      <Card className="bg-primary/5 border-primary/20">
         <CardContent className="pt-4 pb-4">
           <div className="space-y-2">
             <p className="font-semibold text-blue-900 text-sm">💡 Troubleshooting Tips</p>
-            <ul className="space-y-1 text-xs text-blue-800">
+            <ul className="space-y-1 text-xs text-primary">
               <li>• Check your internet connection and try again</li>
               <li>• Clear your browser cache if issues persist</li>
               <li>• Try using a different browser or device</li>
@@ -119,11 +119,11 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
       </Card>
 
       {/* Support Info */}
-      <Card className="border-gray-200">
+      <Card className="border-border">
         <CardContent className="pt-4 pb-4">
           <div className="space-y-2 text-sm">
-            <p className="font-semibold text-gray-900">Need Additional Help?</p>
-            <p className="text-gray-600 text-xs">
+            <p className="font-semibold text-foreground">Need Additional Help?</p>
+            <p className="text-muted-foreground text-xs">
               If you continue to experience issues, our support team is ready to assist you.
             </p>
             <div className="flex gap-2 mt-3">

@@ -15,7 +15,7 @@ export default function AirtimeSettingsCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-muted-foreground">
           Manage airtime fees for customers and dealers, set transaction limits, and toggle network availability (MTN, Telecel, AT).
         </p>
         <div className="flex flex-wrap gap-3">

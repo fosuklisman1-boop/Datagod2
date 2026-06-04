@@ -164,24 +164,24 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
 
         <div className="space-y-6">
           {/* Order Summary */}
-          <Card className="bg-gradient-to-br from-blue-50 to-cyan-50 border-blue-200">
+          <Card className="bg-gradient-to-br from-primary/5 to-cyan-50 border-primary/20">
             <CardContent className="pt-4">
               <div className="space-y-2 text-sm">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs font-semibold text-gray-600">Network</p>
+                    <p className="text-xs font-semibold text-muted-foreground">Network</p>
                     <p className="font-medium">{orderDetails.networkName}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-gray-600">Package</p>
+                    <p className="text-xs font-semibold text-muted-foreground">Package</p>
                     <p className="font-medium">{orderDetails.packageName}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-gray-600">Phone Number</p>
+                    <p className="text-xs font-semibold text-muted-foreground">Phone Number</p>
                     <p className="font-mono">{orderDetails.phoneNumber}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-gray-600">Amount Paid</p>
+                    <p className="text-xs font-semibold text-muted-foreground">Amount Paid</p>
                     <p className="font-medium">GHS {orderDetails.totalPrice.toFixed(2)}</p>
                   </div>
                 </div>
@@ -199,7 +199,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
               title="Select issue priority"
               value={selectedPriority}
               onChange={(e) => setSelectedPriority(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               disabled={isSubmitting}
             >
               <option value="low">Low - Minor inconvenience</option>
@@ -218,36 +218,36 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Explain what happened. For example: 'Purchased 2GB but received only 1GB', 'Data expired immediately after purchase', etc."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
               rows={4}
               disabled={isSubmitting}
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Minimum 10 characters required
             </p>
           </div>
 
           {/* Image Uploads */}
           <div className="space-y-4">
-            <Alert className="border-blue-300 bg-blue-50">
-              <AlertCircle className="h-4 w-4 text-blue-600" />
-              <AlertDescription className="text-blue-700">
+            <Alert className="border-blue-300 bg-primary/5">
+              <AlertCircle className="h-4 w-4 text-primary" />
+              <AlertDescription className="text-primary">
                 Upload screenshots or photos as evidence:
               </AlertDescription>
             </Alert>
 
             {/* Data Balance Evidence */}
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+            <div className="border-2 border-dashed border-border rounded-lg p-4">
               <Label className="text-sm font-semibold mb-3 block">
                 Data Balance Evidence *
               </Label>
-              <p className="text-xs text-gray-600 mb-3">
+              <p className="text-xs text-muted-foreground mb-3">
                 Screenshot showing your data balance (with amount you have remaining)
               </p>
 
               {balanceImage ? (
                 <div className="space-y-2">
-                  <div className="relative w-full h-40 bg-gray-100 rounded-lg overflow-hidden border border-green-200">
+                  <div className="relative w-full h-40 bg-muted rounded-lg overflow-hidden border border-green-200">
                     <img
                       src={balanceImage.preview}
                       alt="Data Balance"
@@ -268,11 +268,11 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
                   </Button>
                 </div>
               ) : (
-                <label className="flex items-center justify-center w-full cursor-pointer hover:bg-gray-50 transition">
+                <label className="flex items-center justify-center w-full cursor-pointer hover:bg-accent transition">
                   <div className="flex flex-col items-center justify-center py-6">
-                    <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                    <p className="text-sm text-gray-600">Click to upload image</p>
-                    <p className="text-xs text-gray-500">JPG, PNG, WebP (Max 5MB)</p>
+                    <Upload className="w-8 h-8 text-muted-foreground mb-2" />
+                    <p className="text-sm text-muted-foreground">Click to upload image</p>
+                    <p className="text-xs text-muted-foreground">JPG, PNG, WebP (Max 5MB)</p>
                   </div>
                   <input
                     type="file"
@@ -286,17 +286,17 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
             </div>
 
             {/* MoMo Receipt Evidence */}
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+            <div className="border-2 border-dashed border-border rounded-lg p-4">
               <Label className="text-sm font-semibold mb-3 block">
                 MoMo Receipt / Payment Evidence (Optional)
               </Label>
-              <p className="text-xs text-gray-600 mb-3">
+              <p className="text-xs text-muted-foreground mb-3">
                 Screenshot of your Mobile Money receipt showing the transaction
               </p>
 
               {momoReceiptImage ? (
                 <div className="space-y-2">
-                  <div className="relative w-full h-40 bg-gray-100 rounded-lg overflow-hidden border border-green-200">
+                  <div className="relative w-full h-40 bg-muted rounded-lg overflow-hidden border border-green-200">
                     <img
                       src={momoReceiptImage.preview}
                       alt="MoMo Receipt"
@@ -317,11 +317,11 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
                   </Button>
                 </div>
               ) : (
-                <label className="flex items-center justify-center w-full cursor-pointer hover:bg-gray-50 transition">
+                <label className="flex items-center justify-center w-full cursor-pointer hover:bg-accent transition">
                   <div className="flex flex-col items-center justify-center py-6">
-                    <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                    <p className="text-sm text-gray-600">Click to upload image</p>
-                    <p className="text-xs text-gray-500">JPG, PNG, WebP (Max 5MB)</p>
+                    <Upload className="w-8 h-8 text-muted-foreground mb-2" />
+                    <p className="text-sm text-muted-foreground">Click to upload image</p>
+                    <p className="text-xs text-muted-foreground">JPG, PNG, WebP (Max 5MB)</p>
                   </div>
                   <input
                     type="file"
@@ -347,7 +347,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
             <Button
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
+              className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700"
             >
               {isSubmitting ? (
                 <>

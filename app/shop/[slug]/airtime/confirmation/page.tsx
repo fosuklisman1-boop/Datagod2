@@ -81,10 +81,10 @@ export default function AirtimeConfirmationPage() {
 
   if (loading || verifying) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-muted/40">
         <div className="text-center space-y-4">
           <Loader2 className="w-10 h-10 animate-spin text-violet-600 mx-auto" />
-          <p className="text-gray-600 font-medium">Verifying your payment...</p>
+          <p className="text-muted-foreground font-medium">Verifying your payment...</p>
         </div>
       </div>
     )
@@ -124,32 +124,32 @@ export default function AirtimeConfirmationPage() {
           <CardContent className="pt-6 space-y-6">
             <div className="space-y-4">
               <div className="flex justify-between items-center text-sm border-b pb-2">
-                <span className="text-gray-500 font-medium">Reference Code</span>
+                <span className="text-muted-foreground font-medium">Reference Code</span>
                 <span className="font-mono font-bold">{order?.reference_code || reference}</span>
               </div>
               <div className="flex justify-between items-center text-sm border-b pb-2">
-                <span className="text-gray-500 font-medium">Amount Paid</span>
+                <span className="text-muted-foreground font-medium">Amount Paid</span>
                 <span className="font-bold">GHS {order?.total_paid?.toFixed(2) || "0.00"}</span>
               </div>
               <div className="flex justify-between items-center text-sm border-b pb-2">
-                <span className="text-gray-500 font-medium">Recipient Gets</span>
+                <span className="text-muted-foreground font-medium">Recipient Gets</span>
                 <span className="font-bold text-green-600">GHS {order?.airtime_amount?.toFixed(2) || "0.00"}</span>
               </div>
               <div className="flex justify-between items-center text-sm border-b pb-2">
-                <span className="text-gray-500 font-medium">Recipient Number</span>
+                <span className="text-muted-foreground font-medium">Recipient Number</span>
                 <span className="font-bold">{order?.beneficiary_phone}</span>
               </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500 font-medium">Order Status</span>
+                <span className="text-muted-foreground font-medium">Order Status</span>
                 <Badge className={isSuccess ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
                   {order?.status?.toUpperCase() || "PENDING"}
                 </Badge>
               </div>
             </div>
 
-            <div className="bg-blue-50 p-4 rounded-lg flex gap-3">
-              <Clock className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-blue-700 leading-relaxed">
+            <div className="bg-primary/5 p-4 rounded-lg flex gap-3">
+              <Clock className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-primary leading-relaxed">
                 Airtime is usually delivered within 1-5 minutes. If you experience any delay, please contact the shop owner.
               </p>
             </div>
@@ -164,7 +164,7 @@ export default function AirtimeConfirmationPage() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-gray-400">
+        <p className="text-center text-xs text-muted-foreground">
           Powered by DATAGOD • Secure Transaction
         </p>
       </div>

@@ -170,10 +170,10 @@ export default function MessagingHistoryPage() {
                         </Button>
                         <div>
                             <div className="flex items-center gap-2 mb-1">
-                                <History className="w-5 h-5 text-gray-500" />
+                                <History className="w-5 h-5 text-muted-foreground" />
                                 <h1 className="text-2xl font-bold">Messaging History</h1>
                             </div>
-                            <p className="text-gray-500 text-sm">Track your communication delivery and logs</p>
+                            <p className="text-muted-foreground text-sm">Track your communication delivery and logs</p>
                         </div>
                     </div>
                     <Button onClick={loadData} variant="outline" size="sm">
@@ -182,7 +182,7 @@ export default function MessagingHistoryPage() {
                 </header>
 
                 <Tabs defaultValue="broadcasts" className="w-full">
-                    <TabsList className="grid w-full grid-cols-3 bg-gray-100 p-1 rounded-xl">
+                    <TabsList className="grid w-full grid-cols-3 bg-muted p-1 rounded-xl">
                         <TabsTrigger value="broadcasts" className="rounded-lg">
                             <Send className="w-4 h-4 mr-2" />
                             Broadcasts
@@ -201,7 +201,7 @@ export default function MessagingHistoryPage() {
                     <TabsContent value="broadcasts" className="mt-6">
                         <div className="grid grid-cols-1 gap-4">
                             {broadcasts.length === 0 ? (
-                                <Card className="p-8 text-center text-gray-500">No broadcasts found</Card>
+                                <Card className="p-8 text-center text-muted-foreground">No broadcasts found</Card>
                             ) : (
                                 broadcasts.map(log => (
                                     <Card key={log.id} className="overflow-hidden border-pink-100 shadow-sm hover:shadow-md transition-shadow">
@@ -209,7 +209,7 @@ export default function MessagingHistoryPage() {
                                             <div className="flex justify-between items-start">
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <Badge variant="outline" className="bg-white px-3 py-1">{log.status}</Badge>
+                                                        <Badge variant="outline" className="bg-card px-3 py-1">{log.status}</Badge>
                                                         {((log.results?.email?.failed > 0) || (log.results?.sms?.failed > 0)) && (
                                                             <Button
                                                                 variant="destructive"
@@ -242,14 +242,14 @@ export default function MessagingHistoryPage() {
                                         </CardHeader>
                                         <CardContent className="pt-4">
                                             <div className="space-y-4">
-                                                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border italic">
+                                                <div className="text-sm text-muted-foreground bg-muted/40 p-3 rounded-lg border italic">
                                                     "{log.message}"
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-4">
-                                                    <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100">
-                                                        <p className="text-[10px] text-blue-600 font-bold uppercase mb-1">Email Delivery</p>
+                                                    <div className="p-3 bg-primary/5 rounded-lg border border-primary/20">
+                                                        <p className="text-[10px] text-primary font-bold uppercase mb-1">Email Delivery</p>
                                                         <div className="flex justify-between items-end">
-                                                            <span className="text-xl font-bold text-blue-700">{log.results?.email?.sent || 0}</span>
+                                                            <span className="text-xl font-bold text-primary">{log.results?.email?.sent || 0}</span>
                                                             <div className="text-right">
                                                                 <span className="text-xs text-blue-400 block">Sent Sukses</span>
                                                                 {log.results?.email?.failed > 0 && (
@@ -312,19 +312,19 @@ export default function MessagingHistoryPage() {
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-sm">
                                         <thead>
-                                            <tr className="bg-gray-50 border-bottom">
-                                                <th className="text-left p-4 font-semibold text-gray-600">Recipient</th>
-                                                <th className="text-left p-4 font-semibold text-gray-600">Subject</th>
-                                                <th className="text-left p-4 font-semibold text-gray-600">Status</th>
-                                                <th className="text-left p-4 font-semibold text-gray-600">Sent At</th>
+                                            <tr className="bg-muted/40 border-bottom">
+                                                <th className="text-left p-4 font-semibold text-muted-foreground">Recipient</th>
+                                                <th className="text-left p-4 font-semibold text-muted-foreground">Subject</th>
+                                                <th className="text-left p-4 font-semibold text-muted-foreground">Status</th>
+                                                <th className="text-left p-4 font-semibold text-muted-foreground">Sent At</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
                                             {emails.map(log => (
-                                                <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                                                <tr key={log.id} className="hover:bg-accent transition-colors">
                                                     <td className="p-4">
                                                         <div className="font-medium">{log.user?.first_name || 'Guest'}</div>
-                                                        <div className="text-xs text-gray-500 font-mono">{log.email}</div>
+                                                        <div className="text-xs text-muted-foreground font-mono">{log.email}</div>
                                                     </td>
                                                     <td className="p-4 max-w-xs truncate">{log.subject}</td>
                                                     <td className="p-4">
@@ -334,7 +334,7 @@ export default function MessagingHistoryPage() {
                                                             <Badge variant="destructive">{log.status}</Badge>
                                                         )}
                                                     </td>
-                                                    <td className="p-4 text-gray-500 whitespace-nowrap">
+                                                    <td className="p-4 text-muted-foreground whitespace-nowrap">
                                                         {format(new Date(log.sent_at), "MMM d, p")}
                                                     </td>
                                                 </tr>
@@ -353,21 +353,21 @@ export default function MessagingHistoryPage() {
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-sm">
                                         <thead>
-                                            <tr className="bg-gray-50 border-bottom">
-                                                <th className="text-left p-4 font-semibold text-gray-600">Recipient</th>
-                                                <th className="text-left p-4 font-semibold text-gray-600">Message</th>
-                                                <th className="text-left p-4 font-semibold text-gray-600">Status</th>
-                                                <th className="text-left p-4 font-semibold text-gray-600">Sent At</th>
+                                            <tr className="bg-muted/40 border-bottom">
+                                                <th className="text-left p-4 font-semibold text-muted-foreground">Recipient</th>
+                                                <th className="text-left p-4 font-semibold text-muted-foreground">Message</th>
+                                                <th className="text-left p-4 font-semibold text-muted-foreground">Status</th>
+                                                <th className="text-left p-4 font-semibold text-muted-foreground">Sent At</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
                                             {smsLogs.map(log => (
-                                                <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                                                <tr key={log.id} className="hover:bg-accent transition-colors">
                                                     <td className="p-4">
                                                         <div className="font-medium">{log.user?.first_name || 'User'}</div>
-                                                        <div className="text-xs text-gray-500 font-mono">{log.phone_number}</div>
+                                                        <div className="text-xs text-muted-foreground font-mono">{log.phone_number}</div>
                                                     </td>
-                                                    <td className="p-4 max-w-sm truncate text-gray-600 italic">"{log.message}"</td>
+                                                    <td className="p-4 max-w-sm truncate text-muted-foreground italic">"{log.message}"</td>
                                                     <td className="p-4">
                                                         {log.status === 'sent' || log.status === 'delivered' ? (
                                                             <Badge className="bg-emerald-100 text-emerald-700">Sent</Badge>
@@ -375,7 +375,7 @@ export default function MessagingHistoryPage() {
                                                             <Badge variant="destructive">{log.status}</Badge>
                                                         )}
                                                     </td>
-                                                    <td className="p-4 text-gray-500 whitespace-nowrap">
+                                                    <td className="p-4 text-muted-foreground whitespace-nowrap">
                                                         {format(new Date(log.sent_at), "MMM d, p")}
                                                     </td>
                                                 </tr>

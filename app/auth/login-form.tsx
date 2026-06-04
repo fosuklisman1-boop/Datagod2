@@ -88,15 +88,15 @@ export default function LoginForm() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 via-purple-50 to-fuchsia-50 p-4">
-      <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
+      <Card className="w-full max-w-md shadow-xl border border-white/40 bg-card/70 backdrop-blur-xl">
         <CardHeader className="space-y-2 text-center">
           <div className="flex justify-center mb-4">
-            <div className="bg-white p-3 rounded-lg shadow-lg">
+            <div className="bg-card p-3 rounded-lg shadow-lg">
               <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-8 h-8 rounded-lg object-cover" />
             </div>
           </div>
           <CardTitle className="text-3xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Welcome Back</CardTitle>
-          <CardDescription className="text-gray-600">Sign in to your DATAGOD account</CardDescription>
+          <CardDescription className="text-muted-foreground">Sign in to your DATAGOD account</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -140,25 +140,25 @@ export default function LoginForm() {
             {/* Google OAuth */}
             <div className="relative my-1">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-gray-200" />
+                <span className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white/70 px-2 text-gray-400">or</span>
+                <span className="bg-card/70 px-2 text-muted-foreground">or</span>
               </div>
             </div>
             <GoogleAuthButton redirectTo={redirectTo} />
 
             {/* Forgot Password Link */}
             <div className="text-center">
-              <Link href="/auth/forgot-password" className="text-sm text-blue-600 hover:underline">
+              <Link href="/auth/forgot-password" className="text-sm text-primary hover:underline">
                 Forgot your password?
               </Link>
             </div>
 
             {/* Create Account Link */}
-            <div className="text-center text-sm text-gray-600">
+            <div className="text-center text-sm text-muted-foreground">
               Don't have an account?{" "}
-              <Link href="/auth/signup" className="text-blue-600 hover:underline font-medium">
+              <Link href="/auth/signup" className="text-primary hover:underline font-medium">
                 Create an account
               </Link>
             </div>
@@ -182,7 +182,7 @@ export default function LoginForm() {
 
             {/* Back to Home Link */}
             <div className="text-center">
-              <Link href="/" className="text-sm text-gray-600 hover:underline">
+              <Link href="/" className="text-sm text-muted-foreground hover:underline">
                 Back to Home
               </Link>
             </div>

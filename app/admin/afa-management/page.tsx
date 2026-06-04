@@ -309,10 +309,10 @@ Occupation: ${submission.occupation || "N/A"}`
   const getStatusColor = (status: string) => {
     switch (status) {
       case "completed":  return "bg-green-100 text-green-800"
-      case "processing": return "bg-blue-100 text-blue-800"
+      case "processing": return "bg-primary/10 text-primary"
       case "pending":    return "bg-yellow-100 text-yellow-800"
       case "cancelled":  return "bg-red-100 text-red-800"
-      default:           return "bg-gray-100 text-gray-800"
+      default:           return "bg-muted text-foreground"
     }
   }
 
@@ -322,7 +322,7 @@ Occupation: ${submission.occupation || "N/A"}`
       case "fulfilled":
         return <Badge className="bg-green-100 text-green-800 text-xs">Fulfilled</Badge>
       case "pending":
-        return <Badge className="bg-blue-100 text-blue-800 text-xs">Fulfilling…</Badge>
+        return <Badge className="bg-primary/10 text-primary text-xs">Fulfilling…</Badge>
       case "failed":
         return (
           <span title={sub.fulfillment_error || "Unknown error"}>
@@ -330,7 +330,7 @@ Occupation: ${submission.occupation || "N/A"}`
           </span>
         )
       default:
-        return <Badge className="bg-gray-100 text-gray-700 text-xs">Unfulfilled</Badge>
+        return <Badge className="bg-muted text-foreground text-xs">Unfulfilled</Badge>
     }
   }
 
@@ -352,7 +352,7 @@ Occupation: ${submission.occupation || "N/A"}`
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
-          <p className="text-gray-500">Loading...</p>
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </DashboardLayout>
     )
@@ -367,14 +367,14 @@ Occupation: ${submission.occupation || "N/A"}`
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-cyan-600 via-primary to-purple-600 bg-clip-text text-transparent">
             AFA Management
           </h1>
-          <p className="text-gray-500 mt-1 font-medium">Configure pricing, manage and fulfill AFA registrations</p>
+          <p className="text-muted-foreground mt-1 font-medium">Configure pricing, manage and fulfill AFA registrations</p>
         </div>
 
         {/* Auto-Fulfillment Toggle Card */}
-        <Card className="border-l-4 border-l-purple-500 bg-gradient-to-br from-purple-50/60 to-blue-50/40 backdrop-blur-xl border border-purple-200/40">
+        <Card className="border-l-4 border-l-purple-500 bg-gradient-to-br from-purple-50/60 to-primary/5 backdrop-blur-xl border border-purple-200/40">
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="bg-gradient-to-br from-purple-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-purple-300/60">
@@ -390,18 +390,18 @@ Occupation: ${submission.occupation || "N/A"}`
           </CardHeader>
           <CardContent className="space-y-4">
             {loadingToggle ? (
-              <div className="flex items-center gap-2 text-gray-500">
+              <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">Loading setting...</span>
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between p-4 bg-card rounded-lg border border-border">
                   <div className="space-y-1">
-                    <p className="font-semibold text-gray-900">
+                    <p className="font-semibold text-foreground">
                       {autoFulfillEnabled ? "🟢 ENABLED" : "⚪ DISABLED"}
                     </p>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-muted-foreground">
                       {autoFulfillEnabled
                         ? "Orders are sent to Sykes API automatically on submission"
                         : "Orders wait in the queue for manual fulfillment below"}
@@ -441,7 +441,7 @@ Occupation: ${submission.occupation || "N/A"}`
         </Card>
 
         {/* Bulk Fulfillment Action */}
-        <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
+        <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
           <CardHeader>
             <CardTitle className="text-base">Bulk Fulfillment</CardTitle>
             <CardDescription>
@@ -451,13 +451,13 @@ Occupation: ${submission.occupation || "N/A"}`
           <CardContent>
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="space-y-1">
-                <p className="text-sm text-gray-700">
+                <p className="text-sm text-foreground">
                   <span className="font-semibold text-orange-600">{stats.unfulfilled}</span> order{stats.unfulfilled !== 1 ? "s" : ""} awaiting fulfillment
                   {stats.failedFulfillment > 0 && (
                     <span className="ml-2 text-red-600">({stats.failedFulfillment} previously failed — will retry)</span>
                   )}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   {stats.fulfilled} fulfilled · {stats.total} total
                 </p>
               </div>
@@ -474,7 +474,7 @@ Occupation: ${submission.occupation || "N/A"}`
                 <Button
                   onClick={handleFulfillAllPending}
                   disabled={bulkFulfilling || stats.unfulfilled === 0}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold"
+                  className="bg-gradient-to-r from-primary to-purple-600 hover:from-primary hover:to-purple-700 text-white font-semibold"
                 >
                   {bulkFulfilling ? (
                     <>
@@ -494,7 +494,7 @@ Occupation: ${submission.occupation || "N/A"}`
         </Card>
 
         {/* AFA Price Settings */}
-        <Card className="border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+        <Card className="border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40">
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-cyan-300/60">
@@ -509,7 +509,7 @@ Occupation: ${submission.occupation || "N/A"}`
           <CardContent>
             <div className="flex gap-4 items-end">
               <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Price (GHS)</label>
+                <label className="block text-sm font-medium text-foreground mb-2">Price (GHS)</label>
                 <Input
                   type="number"
                   min="1"
@@ -522,12 +522,12 @@ Occupation: ${submission.occupation || "N/A"}`
               <Button
                 onClick={handleSavePrice}
                 disabled={savingPrice}
-                className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-semibold"
+                className="bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 text-white font-semibold"
               >
                 {savingPrice ? "Saving..." : "Save Price"}
               </Button>
             </div>
-            <p className="text-xs text-gray-500 mt-2">
+            <p className="text-xs text-muted-foreground mt-2">
               Current AFA registration cost: GHS {(settings.price || 0).toFixed(2)}
             </p>
           </CardContent>
@@ -535,18 +535,18 @@ Occupation: ${submission.occupation || "N/A"}`
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-          <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
+          <Card className="bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Total</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Total</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
+              <div className="text-2xl font-bold text-primary">{stats.total}</div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-yellow-50/60 to-amber-50/40 backdrop-blur-xl border border-yellow-200/40">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Pending</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Pending</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
@@ -555,7 +555,7 @@ Occupation: ${submission.occupation || "N/A"}`
 
           <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Fulfilled</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Fulfilled</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">{stats.fulfilled}</div>
@@ -564,7 +564,7 @@ Occupation: ${submission.occupation || "N/A"}`
 
           <Card className="bg-gradient-to-br from-red-50/60 to-orange-50/40 backdrop-blur-xl border border-red-200/40">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Failed</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Failed</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{stats.failedFulfillment}</div>
@@ -573,7 +573,7 @@ Occupation: ${submission.occupation || "N/A"}`
         </div>
 
         {/* Submissions List */}
-        <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
+        <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
           <CardHeader>
             <CardTitle>AFA Submissions</CardTitle>
             <CardDescription>View, manage, and fulfill AFA registration submissions</CardDescription>
@@ -582,7 +582,7 @@ Occupation: ${submission.occupation || "N/A"}`
             {/* Search and Filters */}
             <div className="flex gap-3 mb-6 flex-col sm:flex-row">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search by email, phone, order code..."
                   value={searchTerm}
@@ -593,7 +593,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+                className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
@@ -604,7 +604,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <select
                 value={filterFulfillment}
                 onChange={(e) => setFilterFulfillment(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
               >
                 <option value="all">All Fulfillment</option>
                 <option value="unfulfilled">Unfulfilled</option>
@@ -616,21 +616,21 @@ Occupation: ${submission.occupation || "N/A"}`
 
             {/* Table */}
             {loading ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
                 Loading submissions...
               </div>
             ) : filteredSubmissions.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">No submissions found</div>
+              <div className="text-center py-8 text-muted-foreground">No submissions found</div>
             ) : (
               <div className="space-y-4">
                 {filteredSubmissions.map((submission) => (
-                  <div key={submission.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                  <div key={submission.id} className="border border-border rounded-lg p-4 hover:bg-accent">
                     {/* Header Row */}
                     <div className="flex justify-between items-start mb-4 flex-wrap gap-2">
                       <div>
-                        <p className="font-semibold text-gray-900">{submission.full_name || "N/A"}</p>
-                        <p className="text-sm text-gray-600">{submission.user_email}</p>
+                        <p className="font-semibold text-foreground">{submission.full_name || "N/A"}</p>
+                        <p className="text-sm text-muted-foreground">{submission.user_email}</p>
                       </div>
                       <div className="flex gap-2 items-center flex-wrap">
                         {/* Order status badge */}
@@ -642,7 +642,7 @@ Occupation: ${submission.occupation || "N/A"}`
                         {/* Copy all button */}
                         <button
                           onClick={() => copyToClipboard(submission)}
-                          className="flex items-center gap-1 bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded text-xs font-medium"
+                          className="flex items-center gap-1 bg-primary/5 text-primary hover:bg-primary/10 px-3 py-1 rounded text-xs font-medium"
                         >
                           {copiedId === `full-${submission.id}` ? (
                             <><Check className="h-3 w-3" /> Copied</>
@@ -674,7 +674,7 @@ Occupation: ${submission.occupation || "N/A"}`
                             value={submission.status}
                             onChange={(e) => updateStatus(submission.id, e.target.value)}
                             disabled={updatingId === submission.id}
-                            className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
+                            className="px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
                           >
                             <option value="pending">Pending</option>
                             <option value="processing">Processing</option>
@@ -682,7 +682,7 @@ Occupation: ${submission.occupation || "N/A"}`
                             <option value="cancelled">Cancelled</option>
                           </select>
                           {updatingId === submission.id && (
-                            <div className="flex items-center text-xs text-gray-500">
+                            <div className="flex items-center text-xs text-muted-foreground">
                               <Loader2 className="h-3 w-3 animate-spin mr-1" /> Updating...
                             </div>
                           )}
@@ -692,61 +692,61 @@ Occupation: ${submission.occupation || "N/A"}`
 
                     {/* Details Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">Full Name</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.full_name || "N/A"}</p>
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">Full Name</p>
+                        <p className="mt-1 text-foreground text-sm font-mono">{submission.full_name || "N/A"}</p>
                       </div>
 
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">Phone</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.phone_number || "N/A"}</p>
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">Phone</p>
+                        <p className="mt-1 text-foreground text-sm font-mono">{submission.phone_number || "N/A"}</p>
                       </div>
 
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">GH Card</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.gh_card_number || "N/A"}</p>
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">GH Card</p>
+                        <p className="mt-1 text-foreground text-sm font-mono">{submission.gh_card_number || "N/A"}</p>
                       </div>
 
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">Location</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.location || "N/A"}</p>
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">Location</p>
+                        <p className="mt-1 text-foreground text-sm font-mono">{submission.location || "N/A"}</p>
                       </div>
 
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">Region</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.region || "N/A"}</p>
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">Region</p>
+                        <p className="mt-1 text-foreground text-sm font-mono">{submission.region || "N/A"}</p>
                       </div>
 
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">Occupation</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.occupation || "N/A"}</p>
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">Occupation</p>
+                        <p className="mt-1 text-foreground text-sm font-mono">{submission.occupation || "N/A"}</p>
                       </div>
 
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">Order Code</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono">{submission.order_code}</p>
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">Order Code</p>
+                        <p className="mt-1 text-foreground text-sm font-mono">{submission.order_code}</p>
                       </div>
 
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">Amount</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono font-semibold">
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">Amount</p>
+                        <p className="mt-1 text-foreground text-sm font-mono font-semibold">
                           GHS {(submission.amount || 0).toFixed(2)}
                         </p>
                       </div>
 
                       {/* Fulfillment info tile */}
-                      <div className={`bg-white border rounded p-3 ${
+                      <div className={`bg-card border rounded p-3 ${
                         submission.fulfillment_status === "fulfilled"
                           ? "border-green-300 bg-green-50"
                           : submission.fulfillment_status === "failed"
                           ? "border-red-300 bg-red-50"
-                          : "border-gray-200"
+                          : "border-border"
                       }`}>
-                        <p className="text-xs text-gray-600 font-medium">Fulfillment</p>
+                        <p className="text-xs text-muted-foreground font-medium">Fulfillment</p>
                         <div className="mt-1 space-y-1">
                           {getFulfillmentBadge(submission)}
                           {submission.fulfillment_ref && (
-                            <p className="text-xs text-gray-600 font-mono truncate" title={submission.fulfillment_ref}>
+                            <p className="text-xs text-muted-foreground font-mono truncate" title={submission.fulfillment_ref}>
                               Ref: {submission.fulfillment_ref}
                             </p>
                           )}
@@ -756,16 +756,16 @@ Occupation: ${submission.occupation || "N/A"}`
                             </p>
                           )}
                           {submission.fulfillment_attempts && submission.fulfillment_attempts > 0 && (
-                            <p className="text-xs text-gray-400">
+                            <p className="text-xs text-muted-foreground">
                               Attempts: {submission.fulfillment_attempts}
                             </p>
                           )}
                         </div>
                       </div>
 
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <p className="text-xs text-gray-600 font-medium">Submitted</p>
-                        <p className="mt-1 text-gray-900 text-sm font-mono">
+                      <div className="bg-card border border-border rounded p-3">
+                        <p className="text-xs text-muted-foreground font-medium">Submitted</p>
+                        <p className="mt-1 text-foreground text-sm font-mono">
                           {new Date(submission.created_at).toLocaleDateString()}
                         </p>
                       </div>

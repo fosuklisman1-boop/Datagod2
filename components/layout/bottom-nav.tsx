@@ -33,26 +33,27 @@ export function BottomNav() {
   const onAdminPage = pathname.startsWith("/admin")
   const items = isAdmin && onAdminPage ? ADMIN_NAV : USER_NAV
 
-  // Colour tokens — admin theme only applies when inside /admin pages
+  // Colour tokens — admin theme only applies when inside /admin pages.
+  // Dealer uses the "Bold Telco" fuchsia/purple accent; everyone else the Fintech primary.
   const activeColor = isAdmin && onAdminPage
     ? "text-violet-600 dark:text-violet-400"
     : isDealer
-      ? "text-amber-500 dark:text-amber-400"
-      : "text-blue-600 dark:text-blue-400"
+      ? "text-fuchsia-600 dark:text-fuchsia-400"
+      : "text-primary"
 
   const fabGradient = isAdmin && onAdminPage
     ? "bg-gradient-to-br from-violet-500 to-violet-700 ring-4 ring-violet-100 dark:ring-violet-900"
     : isDealer
-      ? "bg-gradient-to-br from-amber-400 to-amber-600 ring-4 ring-amber-100 dark:ring-amber-900"
-      : "bg-gradient-to-br from-blue-500 to-blue-700 ring-4 ring-blue-100 dark:ring-blue-900"
+      ? "bg-gradient-to-br from-fuchsia-500 to-purple-700 ring-4 ring-fuchsia-100 dark:ring-fuchsia-900"
+      : "bg-gradient-to-br from-primary to-violet-600 ring-4 ring-primary/15"
 
   const fabLabelColor = isAdmin && onAdminPage
     ? "text-violet-600"
-    : isDealer ? "text-amber-500" : "text-blue-600"
+    : isDealer ? "text-fuchsia-600" : "text-primary"
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
+      className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
     >
       <div className="flex items-end justify-around h-16 px-1">
@@ -75,7 +76,7 @@ export function BottomNav() {
                 </div>
                 <span className={cn(
                   "text-[10px] font-medium",
-                  isActive ? fabLabelColor : "text-gray-400 dark:text-gray-500"
+                  isActive ? fabLabelColor : "text-muted-foreground"
                 )}>
                   {item.label}
                 </span>
@@ -89,7 +90,7 @@ export function BottomNav() {
               href={item.href}
               className={cn(
                 "flex flex-col items-center justify-center flex-1 py-2 gap-0.5 transition-colors",
-                isActive ? activeColor : "text-gray-500 dark:text-gray-400"
+                isActive ? activeColor : "text-muted-foreground"
               )}
             >
               <Icon className={cn("w-5 h-5", isActive && "stroke-[2.5]")} />

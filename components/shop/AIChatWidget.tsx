@@ -46,7 +46,7 @@ const mdComponents = {
   ol: ({ children }: any) => <ol className="list-decimal pl-4 mb-1 space-y-0.5">{children}</ol>,
   li: ({ children }: any) => <li>{children}</li>,
   strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
-  code: ({ children }: any) => <code className="bg-gray-200 rounded px-1 text-xs font-mono">{children}</code>,
+  code: ({ children }: any) => <code className="bg-muted rounded px-1 text-xs font-mono">{children}</code>,
 }
 
 export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
@@ -213,14 +213,14 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
 
   function buttonClass(style?: string) {
     if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
-    if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+    if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
   }
 
   return (
     <div ref={wrapperRef} className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[360px] h-[520px] max-h-[calc(100vh-100px)] bg-white/12 backdrop-blur-3xl backdrop-saturate-150 rounded-2xl border border-white/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.06),0_24px_48px_rgba(0,0,0,0.14),0_4px_16px_rgba(139,92,246,0.15)] flex flex-col overflow-hidden">
+        <div className="w-[calc(100vw-3rem)] sm:w-[360px] h-[520px] max-h-[calc(100vh-100px)] bg-card/12 backdrop-blur-3xl backdrop-saturate-150 rounded-2xl border border-white/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.06),0_24px_48px_rgba(0,0,0,0.14),0_4px_16px_rgba(139,92,246,0.15)] flex flex-col overflow-hidden">
           <div className="bg-violet-500/55 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/20">
             <div>
               <p className="font-semibold text-sm">{shop.shop_name}</p>
@@ -253,7 +253,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
 
               {isStreaming && (
                 <div className="flex justify-start">
-                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-gray-100 text-gray-800">
+                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-muted text-foreground">
                     {streamingContent ? (
                       <ReactMarkdown components={mdComponents}>
                         {streamingContent + "▋"}
@@ -293,7 +293,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
             )}
           </div>
 
-          <div className="border-t border-white/20 bg-white/8 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
+          <div className="border-t border-white/20 bg-card/8 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
             <input
               ref={inputRef}
               value={input}
@@ -301,7 +301,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Type a message..."
-              className="flex-1 text-sm bg-white/30 border border-white/40 rounded-xl px-3 py-2 outline-none focus:border-violet-400/80 focus:bg-white/50 disabled:opacity-50 transition-all placeholder:text-gray-500 text-gray-800"
+              className="flex-1 text-sm bg-card/30 border border-white/40 rounded-xl px-3 py-2 outline-none focus:border-violet-400/80 focus:bg-card/50 disabled:opacity-50 transition-all placeholder:text-muted-foreground text-foreground"
             />
             <button
               onClick={() => sendMessage()}
@@ -317,7 +317,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       {!isOpen && (
         <button
           onClick={() => window.location.reload()}
-          className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 text-gray-500 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-gray-50 hover:text-gray-700 transition-all active:scale-95"
+          className="flex items-center gap-1.5 bg-card/90 backdrop-blur-sm border border-border text-muted-foreground rounded-full px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent hover:text-foreground transition-all active:scale-95"
           aria-label="Hard refresh page"
           title="Hard refresh"
         >
@@ -328,7 +328,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
 
       {!isOpen && (
         <div className={`transition-opacity duration-300 ${hintVisible ? "opacity-100" : "opacity-0"}`}>
-          <div className="bg-white/95 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg border border-violet-100">
+          <div className="bg-card/95 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg border border-violet-100">
             <p className="text-xs font-semibold text-violet-600 whitespace-nowrap">{hints[hintIndex]}</p>
           </div>
         </div>

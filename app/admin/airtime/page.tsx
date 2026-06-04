@@ -52,7 +52,7 @@ interface Stats {
 
 const STATUS_CLASSES: Record<string, string> = {
   pending:    "bg-yellow-100 text-yellow-800",
-  processing: "bg-blue-100 text-blue-800",
+  processing: "bg-primary/10 text-primary",
   completed:  "bg-green-100 text-green-800",
   failed:     "bg-red-100 text-red-800",
 }
@@ -252,7 +252,7 @@ export default function AdminAirtimePage() {
         { label: "Revenue",   value: `GHS ${Number(stats.totalRevenue || 0).toFixed(2)}`,  color: "text-indigo-600" },
         { label: "Net Profit", value: `GHS ${Number(stats.totalProfit || 0).toFixed(2)}`,   color: "text-green-600" },
         { label: "Merchant Payout", value: `GHS ${Number(stats.totalMerchantPayout || 0).toFixed(2)}`, color: "text-orange-600" },
-        { label: "Volume",    value: `GHS ${Number(stats.totalVolume || 0).toFixed(2)}`,   color: "text-blue-600" },
+        { label: "Volume",    value: `GHS ${Number(stats.totalVolume || 0).toFixed(2)}`,   color: "text-primary" },
         { label: "Pending",   value: stats.pending,                            color: "text-yellow-600" },
         { label: "Completed", value: stats.completed,                          color: "text-emerald-600" },
       ]
@@ -316,7 +316,7 @@ export default function AdminAirtimePage() {
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
               Airtime Management
             </h1>
-            <p className="text-gray-500 mt-1 font-medium text-sm">Download and manage pending airtime orders</p>
+            <p className="text-muted-foreground mt-1 font-medium text-sm">Download and manage pending airtime orders</p>
           </div>
           <Button onClick={() => loadOrders()} variant="outline" size="sm" className="w-fit">
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh Data
@@ -327,8 +327,8 @@ export default function AdminAirtimePage() {
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {statCards.map((s) => (
-              <div key={s.label} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-center">
-                <p className="text-xs text-gray-400 uppercase tracking-wide">{s.label}</p>
+              <div key={s.label} className="bg-card rounded-xl p-4 shadow-sm border border-border text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">{s.label}</p>
                 <p className={`text-lg font-bold mt-1 ${s.color}`}>{s.value}</p>
               </div>
             ))}
@@ -374,35 +374,35 @@ export default function AdminAirtimePage() {
           <TabsContent value="pending" className="space-y-6 pt-4">
             {/* Filters */}
             <div className="flex justify-between items-center gap-4">
-              <form onSubmit={handleSearch} className="flex-1 bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3 items-end">
+              <form onSubmit={handleSearch} className="flex-1 bg-card rounded-xl border border-border shadow-sm p-4 flex flex-wrap gap-3 items-end">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Date</label>
                   <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Network</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Network</label>
                   <select value={network} onChange={e => setNetwork(e.target.value)}
-                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="all">All</option>
                     <option>MTN</option><option>Telecel</option><option>AT</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Status</label>
                   <select value={status} onChange={e => setStatus(e.target.value)}
-                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="all">All</option>
                     <option>pending</option><option>processing</option><option>completed</option><option>failed</option>
                   </select>
                 </div>
                 <div className="flex-1 min-w-[180px]">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Search</label>
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                       placeholder="Reference or Phone…"
-                      className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                   </div>
                 </div>
                 <Button type="submit" variant="default" className="bg-indigo-600 hover:bg-indigo-700">
@@ -413,7 +413,7 @@ export default function AdminAirtimePage() {
               <Button 
                 onClick={handleDownload} 
                 disabled={downloading || orders.filter(o => o.status === 'pending').length === 0} 
-                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold h-[58px] px-6"
+                className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white font-semibold h-[58px] px-6"
               >
                 {downloading ? (
                   <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -425,57 +425,57 @@ export default function AdminAirtimePage() {
             </div>
 
             {/* Orders Table */}
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-100">
+                  <thead className="bg-muted/40 border-b border-border">
                     <tr>
                       {["Reference","Customer","Shop","Network","Phone","Airtime","Total","Status","Date","Actions"].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {loading ? (
-                      <tr><td colSpan={10} className="text-center py-12 text-gray-400">Loading orders...</td></tr>
+                      <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">Loading orders...</td></tr>
                     ) : orders.length === 0 ? (
-                      <tr><td colSpan={10} className="text-center py-12 text-gray-400">No pending orders found.</td></tr>
+                      <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">No pending orders found.</td></tr>
                     ) : (
                       orders.map((o) => (
-                        <tr key={o.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-800">{o.reference_code}</td>
+                        <tr key={o.id} className="hover:bg-accent transition-colors">
+                          <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{o.reference_code}</td>
                           <td className="px-4 py-3">
-                            <p className="text-xs font-medium text-gray-900 truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
+                            <p className="text-xs font-medium text-foreground truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
                               {o.users?.email || o.customer_email || o.customer_name || "Guest"}
                             </p>
                           </td>
                           <td className="px-4 py-3">
-                            <p className="text-xs text-gray-600 italic">
+                            <p className="text-xs text-muted-foreground italic">
                               {o.user_shops?.shop_name || "Direct"}
                             </p>
                           </td>
                           <td className="px-4 py-3">
-                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-yellow-200 bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-700'}>
+                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-yellow-200 bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-red-200 bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
                                 {o.network}
                              </Badge>
                           </td>
                           <td className="px-4 py-3">
                             <button
                               onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
-                              className="font-mono text-xs bg-gray-100 hover:bg-indigo-100 text-gray-800 px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
+                              className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
                             >
                               {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
                               {o.beneficiary_phone}
                             </button>
                           </td>
-                          <td className="px-4 py-3 font-semibold text-gray-900">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 font-semibold text-foreground">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
                           <td className="px-4 py-3">
-                            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-gray-100 text-gray-600"}`}>
+                            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
                               {(o.status || 'pending').toUpperCase()}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+                          <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
                             {new Date(o.created_at).toLocaleString()}
                           </td>
                           <td className="px-4 py-3">
@@ -509,35 +509,35 @@ export default function AdminAirtimePage() {
 
           <TabsContent value="history" className="space-y-6 pt-4">
             {/* Shared Filters */}
-            <form onSubmit={handleSearch} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3 items-end">
+            <form onSubmit={handleSearch} className="bg-card rounded-xl border border-border shadow-sm p-4 flex flex-wrap gap-3 items-end">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Date</label>
                 <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Network</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Network</label>
                 <select value={network} onChange={e => setNetwork(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   <option value="all">All</option>
                   <option>MTN</option><option>Telecel</option><option>AT</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Status</label>
                 <select value={status} onChange={e => setStatus(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   <option value="all">All</option>
                   <option>pending</option><option>processing</option><option>completed</option><option>failed</option>
                 </select>
               </div>
               <div className="flex-1 min-w-[180px]">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Search</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                     placeholder="Reference or Phone…"
-                    className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 </div>
               </div>
               <Button type="submit" variant="default" className="bg-indigo-600 hover:bg-indigo-700">
@@ -546,57 +546,57 @@ export default function AdminAirtimePage() {
             </form>
 
             {/* Orders Table (Reusable) */}
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-100">
+                  <thead className="bg-muted/40 border-b border-border">
                     <tr>
                       {["Reference","Customer","Shop","Network","Phone","Airtime","Total","Status","Date","Actions"].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {loading ? (
-                      <tr><td colSpan={10} className="text-center py-12 text-gray-400">Loading orders...</td></tr>
+                      <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">Loading orders...</td></tr>
                     ) : orders.length === 0 ? (
-                      <tr><td colSpan={10} className="text-center py-12 text-gray-400">No orders found.</td></tr>
+                      <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">No orders found.</td></tr>
                     ) : (
                       orders.map((o) => (
-                        <tr key={o.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-800">{o.reference_code}</td>
+                        <tr key={o.id} className="hover:bg-accent transition-colors">
+                          <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{o.reference_code}</td>
                           <td className="px-4 py-3">
-                            <p className="text-xs font-medium text-gray-900 truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
+                            <p className="text-xs font-medium text-foreground truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
                               {o.users?.email || o.customer_email || o.customer_name || "Guest"}
                             </p>
                           </td>
                           <td className="px-4 py-3">
-                            <p className="text-xs text-gray-600 italic">
+                            <p className="text-xs text-muted-foreground italic">
                               {o.user_shops?.shop_name || "Direct"}
                             </p>
                           </td>
                           <td className="px-4 py-3">
-                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-yellow-200 bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-700'}>
+                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-yellow-200 bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-red-200 bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
                                 {o.network}
                              </Badge>
                           </td>
                           <td className="px-4 py-3">
                             <button
                               onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
-                              className="font-mono text-xs bg-gray-100 hover:bg-indigo-100 text-gray-800 px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
+                              className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
                             >
                               {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
                               {o.beneficiary_phone}
                             </button>
                           </td>
-                          <td className="px-4 py-3 font-semibold text-gray-900">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 font-semibold text-foreground">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
                           <td className="px-4 py-3">
-                            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-gray-100 text-gray-600"}`}>
+                            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
                               {(o.status || 'pending').toUpperCase()}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+                          <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
                             {new Date(o.created_at).toLocaleString()}
                           </td>
                           <td className="px-4 py-3">
@@ -690,22 +690,22 @@ export default function AdminAirtimePage() {
             </div>
 
             {loadingBatches ? (
-              <div className="text-center py-12 text-gray-400">Loading batches...</div>
+              <div className="text-center py-12 text-muted-foreground">Loading batches...</div>
             ) : filteredBatches.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
+              <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-dashed border-border">
                 No batches match your filters.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredBatches.map((batch) => (
-                  <Card key={batch.id} className="overflow-hidden border-gray-200 shadow-sm">
-                    <CardHeader className="bg-gray-50/50 py-4">
+                  <Card key={batch.id} className="overflow-hidden border-border shadow-sm">
+                    <CardHeader className="bg-muted/40 py-4">
                       <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
-                           <Badge className={batch.network === 'MTN' ? 'bg-yellow-500' : batch.network === 'Telecel' ? 'bg-red-600' : 'bg-blue-600'}>
+                           <Badge className={batch.network === 'MTN' ? 'bg-yellow-500' : batch.network === 'Telecel' ? 'bg-red-600' : 'bg-primary'}>
                              {batch.network}
                            </Badge>
-                           <span className="text-xs font-medium text-gray-500">
+                           <span className="text-xs font-medium text-muted-foreground">
                              {new Date(batch.batch_time).toLocaleString()}
                            </span>
                         </div>
@@ -720,7 +720,7 @@ export default function AdminAirtimePage() {
                     <CardContent className="py-4 space-y-4">
                       <div className="max-h-[200px] overflow-y-auto border rounded-lg">
                         <table className="w-full text-[10px]">
-                          <thead className="bg-gray-50 sticky top-0">
+                          <thead className="bg-muted/40 sticky top-0">
                             <tr>
                               <th className="px-2 py-1 text-left">Ref</th>
                               <th className="px-2 py-1 text-left">Phone</th>
@@ -773,27 +773,27 @@ export default function AdminAirtimePage() {
         {/* Single Action Modal */}
         {actionModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 transform transition-all scale-100">
-              <h3 className="text-lg font-bold text-gray-900">
+            <div className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 transform transition-all scale-100">
+              <h3 className="text-lg font-bold text-foreground">
                 {actionModal.action === "completed" ? "✅ Mark as Completed" : "❌ Mark as Failed"}
               </h3>
-              <div className="bg-gray-50 rounded-xl p-4 text-sm space-y-1">
-                <p><span className="text-gray-500">Ref:</span> <strong>{actionModal.order.reference_code}</strong></p>
-                <p><span className="text-gray-500">Network:</span> {actionModal.order.network}</p>
-                <p><span className="text-gray-500">Phone:</span> {actionModal.order.beneficiary_phone}</p>
-                <p><span className="text-gray-500">Airtime:</span> GHS {Number(actionModal.order.airtime_amount || 0).toFixed(2)}</p>
+              <div className="bg-muted/40 rounded-xl p-4 text-sm space-y-1">
+                <p><span className="text-muted-foreground">Ref:</span> <strong>{actionModal.order.reference_code}</strong></p>
+                <p><span className="text-muted-foreground">Network:</span> {actionModal.order.network}</p>
+                <p><span className="text-muted-foreground">Phone:</span> {actionModal.order.beneficiary_phone}</p>
+                <p><span className="text-muted-foreground">Airtime:</span> GHS {Number(actionModal.order.airtime_amount || 0).toFixed(2)}</p>
                 {actionModal.action === "failed" && (
                   <p className="text-red-600 font-semibold mt-2">⚠ GHS {Number(actionModal.order.total_paid || 0).toFixed(2)} will be refunded to the user's wallet.</p>
                 )}
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Notes (optional)</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Notes (optional)</label>
                 <input
                   type="text"
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
                   placeholder={actionModal.action === "failed" ? "e.g. Network unreachable" : "e.g. Sent via portal"}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
               {actionMsg && <p className="text-red-600 text-sm">{actionMsg}</p>}

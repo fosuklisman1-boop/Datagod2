@@ -58,10 +58,10 @@ export default function SmsHealthPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+            <h1 className="text-2xl font-black text-foreground flex items-center gap-2">
               <MessageSquare className="w-6 h-6 text-violet-600" /> SMS Health
             </h1>
-            <p className="text-sm text-gray-500 mt-1">Real delivery outcomes (delivered vs failed), not just gateway acceptance.</p>
+            <p className="text-sm text-muted-foreground mt-1">Real delivery outcomes (delivered vs failed), not just gateway acceptance.</p>
           </div>
           <div className="flex items-center gap-2">
             {WINDOWS.map((w) => (
@@ -100,7 +100,7 @@ export default function SmsHealthPage() {
 
             {/* Overall cards */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <StatCard label="Total" value={overall.total ?? 0} icon={<MessageSquare className="w-4 h-4 text-gray-500" />} />
+              <StatCard label="Total" value={overall.total ?? 0} icon={<MessageSquare className="w-4 h-4 text-muted-foreground" />} />
               <StatCard label="Delivered" value={overall.delivered ?? 0} icon={<CheckCircle2 className="w-4 h-4 text-green-600" />} tone="green" />
               <StatCard label="Failed" value={overall.failed ?? 0} icon={<XCircle className="w-4 h-4 text-red-600" />} tone="red" />
               <StatCard label="Awaiting DLR" value={overall.sent ?? 0} icon={<Clock className="w-4 h-4 text-amber-600" />} tone="amber" />
@@ -143,15 +143,15 @@ export default function SmsHealthPage() {
               <CardHeader><CardTitle className="text-lg">Recent failures</CardTitle><CardDescription>Last 20 failed sends (numbers masked)</CardDescription></CardHeader>
               <CardContent>
                 {failures.length === 0 ? (
-                  <p className="text-sm text-gray-500">No failures in this window 🎉</p>
+                  <p className="text-sm text-muted-foreground">No failures in this window 🎉</p>
                 ) : (
                   <div className="space-y-2">
                     {failures.map((f, i) => (
-                      <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm border-b border-gray-100 pb-2">
-                        <span className="font-mono text-gray-700">{f.phone_number}</span>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{f.message_type}</span>
+                      <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm border-b border-border pb-2">
+                        <span className="font-mono text-foreground">{f.phone_number}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{f.message_type}</span>
                         <span className="text-red-600 flex-1 min-w-0 truncate">{f.error_message}</span>
-                        <span className="text-xs text-gray-400">{new Date(f.created_at).toLocaleString()}</span>
+                        <span className="text-xs text-muted-foreground">{new Date(f.created_at).toLocaleString()}</span>
                       </div>
                     ))}
                   </div>
@@ -159,7 +159,7 @@ export default function SmsHealthPage() {
               </CardContent>
             </Card>
 
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-muted-foreground">
               "Awaiting DLR" = accepted by the gateway, delivery not yet confirmed (resolves within a few minutes via the sms-delivery-sync cron). Only Moolre supports delivery reports; other providers show as awaiting.
             </p>
           </>
@@ -170,11 +170,11 @@ export default function SmsHealthPage() {
 }
 
 function StatCard({ label, value, icon, tone }: { label: string; value: number | string; icon?: React.ReactNode; tone?: "green" | "red" | "amber" | "violet" }) {
-  const toneClass = tone === "green" ? "text-green-700" : tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : tone === "violet" ? "text-violet-700" : "text-gray-900"
+  const toneClass = tone === "green" ? "text-green-700" : tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : tone === "violet" ? "text-violet-700" : "text-foreground"
   return (
     <Card>
       <CardContent className="pt-5 pb-4">
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">{icon}{label}</div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">{icon}{label}</div>
         <div className={`text-2xl font-black ${toneClass}`}>{value}</div>
       </CardContent>
     </Card>
@@ -182,19 +182,19 @@ function StatCard({ label, value, icon, tone }: { label: string; value: number |
 }
 
 function Table({ headers, rows }: { headers: string[]; rows: (string | number)[][] }) {
-  if (rows.length === 0) return <p className="text-sm text-gray-500">No data in this window.</p>
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">No data in this window.</p>
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-gray-500 border-b border-gray-200">
+          <tr className="text-left text-muted-foreground border-b border-border">
             {headers.map((h, i) => <th key={i} className={`py-2 ${i === 0 ? "" : "text-right"}`}>{h}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-b border-gray-50">
-              {r.map((c, j) => <td key={j} className={`py-2 ${j === 0 ? "font-medium text-gray-800" : "text-right text-gray-700"}`}>{c}</td>)}
+              {r.map((c, j) => <td key={j} className={`py-2 ${j === 0 ? "font-medium text-foreground" : "text-right text-foreground"}`}>{c}</td>)}
             </tr>
           ))}
         </tbody>

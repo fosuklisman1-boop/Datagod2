@@ -165,7 +165,7 @@ export default function SubAgentCatalogPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
           <div>
             <h1 className="text-2xl font-bold">Sub-Agent Catalog</h1>
-            <p className="text-gray-500">
+            <p className="text-muted-foreground">
               Manage packages available for your sub-agents to sell
             </p>
           </div>
@@ -187,7 +187,7 @@ export default function SubAgentCatalogPage() {
                   <Package className="h-6 w-6 text-violet-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Catalog Packages</p>
+                  <p className="text-sm text-muted-foreground">Catalog Packages</p>
                   <p className="text-2xl font-bold">{catalog.length}</p>
                 </div>
               </div>
@@ -201,7 +201,7 @@ export default function SubAgentCatalogPage() {
                   <Users className="h-6 w-6 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Has Sub-Agents</p>
+                  <p className="text-sm text-muted-foreground">Has Sub-Agents</p>
                   <p className="text-2xl font-bold">{hasSubAgents ? "Yes" : "No"}</p>
                 </div>
               </div>
@@ -211,11 +211,11 @@ export default function SubAgentCatalogPage() {
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-blue-100 rounded-lg">
-                  <DollarSign className="h-6 w-6 text-blue-600" />
+                <div className="p-3 bg-primary/10 rounded-lg">
+                  <DollarSign className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Avg Margin</p>
+                  <p className="text-sm text-muted-foreground">Avg Margin</p>
                   <p className="text-2xl font-bold">
                     GHS {catalog.length > 0
                       ? (catalog.reduce((sum, c) => sum + (c.wholesale_margin || 0), 0) / catalog.length).toFixed(2)
@@ -230,9 +230,9 @@ export default function SubAgentCatalogPage() {
 
         {/* Info Alert */}
         {!hasSubAgents && (
-          <Alert className="bg-blue-50 border-blue-200">
-            <AlertCircle className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-blue-800">
+          <Alert className="bg-primary/5 border-primary/20">
+            <AlertCircle className="h-4 w-4 text-primary" />
+            <AlertDescription className="text-primary">
               You don't have any sub-agents yet. Go to the <strong>Sub-Agents</strong> page to invite them.
               Once you add packages here, your sub-agents will be able to purchase and resell them.
             </AlertDescription>
@@ -249,7 +249,7 @@ export default function SubAgentCatalogPage() {
           </CardHeader>
           <CardContent>
             {catalog.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-muted-foreground">
                 <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>No packages in your sub-agent catalog yet.</p>
                 <p className="text-sm mb-4">Click "Add Packages" to get started.</p>
@@ -261,7 +261,7 @@ export default function SubAgentCatalogPage() {
                 </Link>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-md border border-gray-100">
+              <div className="overflow-x-auto rounded-md border border-border">
                 <Table className="min-w-[600px] w-full text-xs sm:text-sm">
                   <TableHeader>
                     <TableRow>

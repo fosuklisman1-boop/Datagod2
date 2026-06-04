@@ -289,21 +289,21 @@ export default function DashboardPage() {
                   {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
                 </p>
               </div>
-              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center backdrop-blur border border-white/30">
+              <div className="w-16 h-16 bg-card/20 rounded-full flex items-center justify-center backdrop-blur border border-white/30">
                 <TrendingUp className="h-8 w-8 text-white" />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-              <div className="bg-white/10 backdrop-blur rounded-lg p-3 border border-white/20">
+              <div className="bg-card/10 backdrop-blur rounded-lg p-3 border border-white/20">
                 <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Role</p>
                 <p className="text-white font-semibold mt-1">{isDealer ? "Authorized Dealer" : "Premium Agent"}</p>
               </div>
-              <div className="bg-white/10 backdrop-blur rounded-lg p-3 border border-white/20">
+              <div className="bg-card/10 backdrop-blur rounded-lg p-3 border border-white/20">
                 <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Status</p>
                 <p className="text-white font-semibold mt-1">Active</p>
               </div>
-              <div className="bg-white/10 backdrop-blur rounded-lg p-3 border border-white/20">
+              <div className="bg-card/10 backdrop-blur rounded-lg p-3 border border-white/20">
                 <p className={`${isDealer ? "text-amber-100" : "text-indigo-100"} text-xs font-medium`}>Member Since</p>
                 <p className="text-white font-semibold mt-1">{joinDate || "Recently"}</p>
               </div>
@@ -321,78 +321,78 @@ export default function DashboardPage() {
             }`}>
             Dashboard
           </h1>
-          <p className="text-gray-500 mt-1 font-medium">Welcome back! Here's your account overview.</p>
+          <p className="text-muted-foreground mt-1 font-medium">Welcome back! Here's your account overview.</p>
         </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
           {/* Total Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Total Orders</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Total Orders</CardTitle>
               <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-cyan-300/60 shadow-lg">
                 <ShoppingCart className="h-4 w-4 text-cyan-600" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">{formatCount(stats.totalOrders)}</div>
-              <p className="text-xs text-gray-500">All time orders</p>
+              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-primary/80 bg-clip-text text-transparent">{formatCount(stats.totalOrders)}</div>
+              <p className="text-xs text-muted-foreground">All time orders</p>
             </CardContent>
           </Card>
 
           {/* Completed Orders */}
           <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40 hover:border-emerald-300/60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Completed</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Completed</CardTitle>
               <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-emerald-300/60 shadow-lg">
                 <CheckCircle className="h-4 w-4 text-emerald-600" />
               </div>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{formatCount(stats.completed)}</div>
-              <p className="text-xs text-gray-500">{stats.successRate} success rate</p>
+              <p className="text-xs text-muted-foreground">{stats.successRate} success rate</p>
             </CardContent>
           </Card>
 
           {/* Processing Orders */}
           <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/60 to-orange-50/40 backdrop-blur-xl border border-amber-200/40 hover:border-amber-300/60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Processing</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Processing</CardTitle>
               <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-amber-300/60 shadow-lg">
                 <TrendingUp className="h-4 w-4 text-amber-600" />
               </div>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">{formatCount(stats.processing)}</div>
-              <p className="text-xs text-gray-500">In progress</p>
+              <p className="text-xs text-muted-foreground">In progress</p>
             </CardContent>
           </Card>
 
           {/* Failed Orders */}
           <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/60 to-pink-50/40 backdrop-blur-xl border border-rose-200/40 hover:border-rose-300/60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Failed</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Failed</CardTitle>
               <div className="bg-gradient-to-br from-rose-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-rose-300/60 shadow-lg">
                 <AlertCircle className="h-4 w-4 text-rose-600" />
               </div>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">{formatCount(stats.failed)}</div>
-              <p className="text-xs text-gray-500">No failures</p>
+              <p className="text-xs text-muted-foreground">No failures</p>
             </CardContent>
           </Card>
 
           {/* Pending Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/60 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-primary/5 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Pending</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Pending</CardTitle>
               <div className="bg-gradient-to-br from-indigo-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-indigo-300/60 shadow-lg">
                 <Clock className="h-4 w-4 text-indigo-600" />
               </div>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{formatCount(stats.pending)}</div>
-              <p className="text-xs text-gray-500">Awaiting processing</p>
+              <p className="text-xs text-muted-foreground">Awaiting processing</p>
             </CardContent>
           </Card>
 
@@ -402,7 +402,7 @@ export default function DashboardPage() {
             data-tour="wallet-balance"
           >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-900">Wallet Balance</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Wallet Balance</CardTitle>
               <div className="bg-gradient-to-br from-green-400/30 to-emerald-400/20 backdrop-blur p-2 rounded-lg border border-green-300/60 shadow-lg">
                 <Wallet className="h-4 w-4 text-green-600" />
               </div>
@@ -411,7 +411,7 @@ export default function DashboardPage() {
               <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
                 GHS {Math.max(0, walletBalance || 0).toFixed(2)}
               </div>
-              <p className="text-xs text-gray-500">Available funds</p>
+              <p className="text-xs text-muted-foreground">Available funds</p>
             </CardContent>
           </Card>
         </div>
@@ -419,7 +419,7 @@ export default function DashboardPage() {
         {/* Quick Actions */}
         <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl hover:shadow-2xl transition-all duration-300 border border-violet-200/40 hover:border-violet-300/60">
           <CardHeader>
-            <CardTitle className="text-gray-900">Quick Actions</CardTitle>
+            <CardTitle className="text-foreground">Quick Actions</CardTitle>
             <CardDescription>Get started with common tasks</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -462,7 +462,7 @@ export default function DashboardPage() {
         <BulkOrdersForm />
 
         {/* Recent Activity */}
-        <Card className="hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-indigo-50/60 to-blue-50/40 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
+        <Card className="hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
           <CardHeader>
             <CardTitle>Recent Activity</CardTitle>
             <CardDescription>Your latest transactions</CardDescription>
@@ -470,13 +470,13 @@ export default function DashboardPage() {
           <CardContent>
             <div className="space-y-4">
               {recentActivity.length === 0 ? (
-                <p className="text-sm text-gray-500">No recent activity</p>
+                <p className="text-sm text-muted-foreground">No recent activity</p>
               ) : (
                 recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex items-center justify-between pb-4 border-b hover:bg-white/40 backdrop-blur -mx-4 px-4 py-2 rounded transition-colors duration-200">
+                  <div key={activity.id} className="flex items-center justify-between pb-4 border-b hover:bg-card/40 backdrop-blur -mx-4 px-4 py-2 rounded transition-colors duration-200">
                     <div>
                       <p className="font-medium">{activity.description}</p>
-                      <p className="text-sm text-gray-600">{new Date(activity.timestamp).toLocaleDateString()} at {new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      <p className="text-sm text-muted-foreground">{new Date(activity.timestamp).toLocaleDateString()} at {new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                     <p className={`font-semibold ${activity.type === "credit" ? "text-green-600" : "text-red-600"}`}>
                       {activity.type === "credit" ? "+" : "-"}GHS {(activity.amount || 0).toFixed(2)}

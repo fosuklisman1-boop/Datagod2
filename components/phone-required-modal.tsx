@@ -158,7 +158,7 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
       <DialogContent className="max-w-md" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Phone className="w-5 h-5 text-blue-600" />
+            <Phone className="w-5 h-5 text-primary" />
             Phone Number Required
           </DialogTitle>
           <DialogDescription>
@@ -184,7 +184,7 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
 
           {/* Phone + Send OTP */}
           <div>
-            <label className="text-sm font-medium text-gray-700">Phone Number *</label>
+            <label className="text-sm font-medium text-foreground">Phone Number *</label>
             <div className="flex gap-2 mt-1">
               <div className="relative flex-1">
                 <Input
@@ -209,7 +209,7 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
                 {otpLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : resendTimer > 0 ? `${resendTimer}s` : otpSent ? "Resend" : "Send OTP"}
               </Button>
             </div>
-            <p className="text-xs text-gray-500 mt-1">Must be 9 or 10 digits</p>
+            <p className="text-xs text-muted-foreground mt-1">Must be 9 or 10 digits</p>
           </div>
 
           {/* OTP input */}
@@ -236,14 +236,14 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
                 {verifyLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Verify"}
               </Button>
             </div>
-            <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+            <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
             </>
           )}
 
           <Button
             onClick={handleSavePhone}
             disabled={isSaving || !phone || !phoneVerified}
-            className="w-full bg-blue-600 hover:bg-blue-700"
+            className="w-full bg-primary hover:bg-primary/90"
           >
             {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
             {isSaving ? "Saving..." : "Save Phone Number"}
@@ -256,7 +256,7 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
             variant="ghost"
             onClick={handleLogout}
             disabled={loggingOut || isSaving}
-            className="w-full text-gray-500 hover:text-gray-700 text-sm"
+            className="w-full text-muted-foreground hover:text-foreground text-sm"
           >
             {loggingOut ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LogOut className="w-4 h-4 mr-2" />}
             Log out

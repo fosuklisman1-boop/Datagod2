@@ -402,7 +402,7 @@ export default function ProfilePage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     )
@@ -413,26 +413,26 @@ export default function ProfilePage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
-          <p className="text-gray-600 mt-1">Manage your account information and settings</p>
+          <h1 className="text-3xl font-bold text-foreground">My Profile</h1>
+          <p className="text-muted-foreground mt-1">Manage your account information and settings</p>
         </div>
 
         {/* Profile Header Card */}
         <Card className={`border-0 text-white ${isDealer
             ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500"
-            : "bg-gradient-to-r from-blue-600 to-purple-600"
+            : "bg-gradient-to-r from-primary to-purple-600"
           }`}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center">
-                  <User className={`w-8 h-8 ${isDealer ? "text-amber-600" : "text-blue-600"}`} />
+                <div className="w-16 h-16 bg-card rounded-full flex items-center justify-center">
+                  <User className={`w-8 h-8 ${isDealer ? "text-amber-600" : "text-primary"}`} />
                 </div>
                 <div>
                   <h2 className="text-2xl font-bold">{profile.firstName} {profile.lastName}</h2>
-                  <p className={isDealer ? "text-amber-100" : "text-blue-100"}>{profile.email}</p>
+                  <p className={isDealer ? "text-amber-100" : "text-primary-foreground/80"}>{profile.email}</p>
                   <div className="flex gap-2 mt-2">
-                    <Badge className={`bg-white ${isDealer ? "text-amber-600" : "text-blue-600"}`}>
+                    <Badge className={`bg-card ${isDealer ? "text-amber-600" : "text-primary"}`}>
                       {profile.role ? profile.role.toUpperCase() : "USER"}
                     </Badge>
                     <Badge className="bg-green-500">{profile.status}</Badge>
@@ -441,14 +441,14 @@ export default function ProfilePage() {
               </div>
               <div className="flex gap-2">
                 <Button
-                  className={`bg-white hover:bg-gray-100 ${isDealer ? "text-amber-600" : "text-blue-600"}`}
+                  className={`bg-card hover:bg-accent ${isDealer ? "text-amber-600" : "text-primary"}`}
                   onClick={handleOpenEditDialog}
                 >
                   Edit Profile
                 </Button>
                 <Button
                   variant="outline"
-                  className="border-white text-white hover:bg-white/20"
+                  className="border-white text-white hover:bg-card/20"
                   onClick={() => (isOAuthUser ? setShowSetPasswordDialog(true) : setShowChangePasswordDialog(true))}
                 >
                   {isOAuthUser ? "Set Password" : "Change Password"}
@@ -467,25 +467,25 @@ export default function ProfilePage() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-2">
               <div>
-                <label className="text-sm font-medium text-gray-700">First Name</label>
+                <label className="text-sm font-medium text-foreground">First Name</label>
                 <Input value={profile.firstName} readOnly className="mt-1" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Last Name</label>
+                <label className="text-sm font-medium text-foreground">Last Name</label>
                 <Input value={profile.lastName} readOnly className="mt-1" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Email</label>
+                <label className="text-sm font-medium text-foreground">Email</label>
                 <Input value={profile.email} readOnly className="mt-1" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Phone</label>
+                <label className="text-sm font-medium text-foreground">Phone</label>
                 <div className="flex items-center gap-2 mt-1">
                   <Input value={profile.phone || "Not provided"} readOnly className="flex-1" />
                   {!profile.phone ? (
                     <button
                       onClick={() => setShowPhoneVerifyModal(true)}
-                      className="flex items-center gap-1 text-xs text-blue-600 font-medium shrink-0 hover:text-blue-700"
+                      className="flex items-center gap-1 text-xs text-primary font-medium shrink-0 hover:text-primary"
                     >
                       <Phone className="w-4 h-4" /> Add
                     </button>
@@ -496,7 +496,7 @@ export default function ProfilePage() {
                       </span>
                       <button
                         onClick={() => setShowPhoneVerifyModal(true)}
-                        className="text-xs text-blue-600 font-medium shrink-0 hover:text-blue-700"
+                        className="text-xs text-primary font-medium shrink-0 hover:text-primary"
                       >
                         Change
                       </button>
@@ -512,7 +512,7 @@ export default function ProfilePage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">WhatsApp</label>
+                <label className="text-sm font-medium text-foreground">WhatsApp</label>
                 <Input value={profile.phone || "Not provided"} readOnly className="mt-1" />
               </div>
             </div>
@@ -528,22 +528,22 @@ export default function ProfilePage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700">Username</label>
+                <label className="text-sm font-medium text-foreground">Username</label>
                 <Input value={profile.firstName.toLowerCase()} readOnly className="mt-1" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Role</label>
+                <label className="text-sm font-medium text-foreground">Role</label>
                 <Input value={profile.role} readOnly className="mt-1" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Status</label>
+                <label className="text-sm font-medium text-foreground">Status</label>
                 <div className="mt-1 flex items-center gap-2">
                   <Input value={profile.status} readOnly />
                   <Badge className="bg-green-100 text-green-800">Active</Badge>
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Member Since</label>
+                <label className="text-sm font-medium text-foreground">Member Since</label>
                 <Input value={profile.memberSince} readOnly className="mt-1" />
               </div>
             </div>
@@ -558,20 +558,20 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
-              <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-gray-600">Total Orders</p>
-                <p className="text-2xl font-bold text-blue-600">{stats.totalOrders.toLocaleString()}</p>
+              <div className="p-4 bg-primary/5 rounded-lg">
+                <p className="text-sm text-muted-foreground">Total Orders</p>
+                <p className="text-2xl font-bold text-primary">{stats.totalOrders.toLocaleString()}</p>
               </div>
               <div className="p-4 bg-green-50 rounded-lg">
-                <p className="text-sm text-gray-600">Completed Orders</p>
+                <p className="text-sm text-muted-foreground">Completed Orders</p>
                 <p className="text-2xl font-bold text-green-600">{stats.completedOrders.toLocaleString()}</p>
               </div>
               <div className="p-4 bg-purple-50 rounded-lg">
-                <p className="text-sm text-gray-600">Success Rate</p>
+                <p className="text-sm text-muted-foreground">Success Rate</p>
                 <p className="text-2xl font-bold text-purple-600">{stats.successRate.toFixed(1)}%</p>
               </div>
               <div className="p-4 bg-orange-50 rounded-lg">
-                <p className="text-sm text-gray-600">Lifetime Spent</p>
+                <p className="text-sm text-muted-foreground">Lifetime Spent</p>
                 <p className="text-2xl font-bold text-orange-600">GHS {stats.totalSpent.toFixed(2)}</p>
               </div>
             </div>
@@ -598,7 +598,7 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between p-4 border rounded-lg">
               <div>
                 <p className="font-semibold">Password</p>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   {isOAuthUser
                     ? "You signed up with Google. Set a password to also sign in with email."
                     : "Change the password you use to sign in."}
@@ -615,7 +615,7 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between p-4 border rounded-lg">
               <div>
                 <p className="font-semibold">Active Sessions</p>
-                <p className="text-sm text-gray-600">You have 1 active session</p>
+                <p className="text-sm text-muted-foreground">You have 1 active session</p>
               </div>
               <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">
                 <LogOut className="w-4 h-4 mr-2" />
@@ -637,7 +637,7 @@ export default function ProfilePage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-gray-700">Current Password</label>
+              <label className="text-sm font-medium text-foreground">Current Password</label>
               <Input
                 type="password"
                 placeholder="Enter your current password"
@@ -653,7 +653,7 @@ export default function ProfilePage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">New Password</label>
+              <label className="text-sm font-medium text-foreground">New Password</label>
               <Input
                 type="password"
                 placeholder="Enter your new password"
@@ -669,7 +669,7 @@ export default function ProfilePage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">Confirm Password</label>
+              <label className="text-sm font-medium text-foreground">Confirm Password</label>
               <Input
                 type="password"
                 placeholder="Confirm your new password"
@@ -695,7 +695,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleChangePassword}
                 disabled={isChangingPassword}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-primary hover:bg-primary/90"
               >
                 {isChangingPassword && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isChangingPassword ? "Changing..." : "Change Password"}
@@ -722,7 +722,7 @@ export default function ProfilePage() {
           <div className="space-y-4">
             {/* OTP */}
             <div>
-              <label className="text-sm font-medium text-gray-700">Phone Verification</label>
+              <label className="text-sm font-medium text-foreground">Phone Verification</label>
               <div className="flex gap-2 mt-1">
                 <Input
                   type="text"
@@ -750,7 +750,7 @@ export default function ProfilePage() {
                 )}
               </div>
               {setPwOtp.sent && !setPwOtp.verified && (
-                <button type="button" onClick={handleSendSetPwOtp} disabled={setPwOtpLoading} className="text-xs text-blue-600 hover:underline mt-1">
+                <button type="button" onClick={handleSendSetPwOtp} disabled={setPwOtpLoading} className="text-xs text-primary hover:underline mt-1">
                   Resend code
                 </button>
               )}
@@ -758,7 +758,7 @@ export default function ProfilePage() {
 
             {/* New password */}
             <div>
-              <label className="text-sm font-medium text-gray-700">New Password</label>
+              <label className="text-sm font-medium text-foreground">New Password</label>
               <Input
                 type="password"
                 placeholder="At least 6 characters"
@@ -769,7 +769,7 @@ export default function ProfilePage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">Confirm Password</label>
+              <label className="text-sm font-medium text-foreground">Confirm Password</label>
               <Input
                 type="password"
                 placeholder="Re-enter your new password"
@@ -787,7 +787,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleSetPassword}
                 disabled={setPwLoading || !setPwOtp.verified || !setPwForm.newPassword}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-primary hover:bg-primary/90"
               >
                 {setPwLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {setPwLoading ? "Saving..." : "Set Password"}
@@ -808,7 +808,7 @@ export default function ProfilePage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-gray-700">First Name</label>
+              <label className="text-sm font-medium text-foreground">First Name</label>
               <Input
                 type="text"
                 placeholder="Enter your first name"
@@ -824,7 +824,7 @@ export default function ProfilePage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">Last Name</label>
+              <label className="text-sm font-medium text-foreground">Last Name</label>
               <Input
                 type="text"
                 placeholder="Enter your last name"
@@ -839,7 +839,7 @@ export default function ProfilePage() {
                 className="mt-1"
               />
             </div>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted-foreground">
               To add or change your phone number, use the <span className="font-medium">Add/Change</span> option
               next to Phone on your profile — it's verified with a one-time code.
             </p>
@@ -854,7 +854,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleEditProfile}
                 disabled={isSavingProfile}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-primary hover:bg-primary/90"
               >
                 {isSavingProfile && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isSavingProfile ? "Saving..." : "Save Changes"}

@@ -41,11 +41,11 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-primary/5 to-purple-50 flex items-center justify-center p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-4">
-            <div className="bg-white p-3 rounded-full">
+            <div className="bg-card p-3 rounded-full">
               <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6 rounded-lg object-cover" />
             </div>
           </div>
@@ -60,8 +60,8 @@ export default function ForgotPasswordPage() {
               <div className="flex justify-center">
                 <CheckCircle2 className="h-12 w-12 text-emerald-500" />
               </div>
-              <h3 className="text-lg font-medium text-gray-900">Registration Checked</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="text-lg font-medium text-foreground">Registration Checked</h3>
+              <p className="text-sm text-muted-foreground">
                 If an account matches <span className="font-semibold">{contact}</span>, a password reset link has been sent. The link will expire in 5 minutes.
               </p>
               <Button 
@@ -96,7 +96,7 @@ export default function ForgotPasswordPage() {
 
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                className="w-full bg-gradient-to-r from-primary to-indigo-600 hover:from-primary hover:to-indigo-700 text-white"
                 disabled={loading || !contact}
               >
                 {loading ? (
