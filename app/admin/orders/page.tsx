@@ -11,13 +11,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -95,7 +88,6 @@ export default function AdminOrdersPage() {
   const [loadingMTNOrders, setLoadingMTNOrders] = useState(false)
   const [fulfillingMTNOrder, setFulfillingMTNOrder] = useState<string | null>(null)
   const [mtnFulfillmentStatus, setMTNFulfillmentStatus] = useState<{ [key: string]: string }>({})
-  const [selectedProviders, setSelectedProviders] = useState<{ [key: string]: string }>({})
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -370,7 +362,8 @@ export default function AdminOrdersPage() {
           shop_order_id: orderId,
           order_type: (order as any).type || "shop",
           network: order.network,
-          provider: selectedProviders[orderId] || "sykes"
+          // No explicit provider — the backend uses the admin-selected provider
+          // (admin_settings.mtn_provider_selection) via getMTNProvider().
         })
       })
 
@@ -649,18 +642,20 @@ export default function AdminOrdersPage() {
         return
       }
 
-      const orders = pendingMTNOrders.map(o => ({ id: o.id, type: o.type || 'shop' }))
-      
+      // No explicit provider — every order uses the admin-selected provider
+      // (admin_settings.mtn_provider_selection) resolved server-side.
+      const orders = pendingMTNOrders.map(o => ({
+        id: o.id,
+        type: (o as any).type || 'shop',
+      }))
+
       const response = await fetch("/api/admin/fulfillment/bulk-manual-fulfill", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          orders,
-          provider: "sykes" // Default
-        })
+        body: JSON.stringify({ orders })
       })
 
       if (!response.ok) {
@@ -1470,25 +1465,10 @@ export default function AdminOrdersPage() {
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-4">
                             <div className="min-w-[120px]">
-                              {order.network?.toUpperCase() === "MTN" ? (
-                                <Select
-                                  value={selectedProviders[order.id] || "sykes"}
-                                  onValueChange={(val) => setSelectedProviders(prev => ({ ...prev, [order.id]: val }))}
-                                  disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
-                                >
-                                  <SelectTrigger className="h-8 text-xs">
-                                    <SelectValue placeholder="Select Provider" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="sykes">Sykes</SelectItem>
-                                    <SelectItem value="datakazina">DataKazina</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              ) : (
-                                <Badge variant="outline" className="w-full h-8 flex items-center justify-center text-xs font-medium text-gray-500 bg-gray-50 border-gray-200">
-                                  Default
-                                </Badge>
-                              )}
+                              {/* Provider is always the admin-selected default (admin_settings.mtn_provider_selection). */}
+                              <Badge variant="outline" className="w-full h-8 flex items-center justify-center text-xs font-medium text-gray-500 bg-gray-50 border-gray-200">
+                                Default
+                              </Badge>
                             </div>
                             <span className="text-right font-semibold whitespace-nowrap">₵ {(order.price || 0).toFixed(2)}</span>
                           </div>

@@ -35,9 +35,10 @@ export async function fulfillUssdOrder(
   recipientPhone: string,
   packageSize: string,
   forceManual = false,
-  orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders"
+  orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders",
+  provider?: string
 ): Promise<{ success: boolean; message: string }> {
-  console.log("[USSD-FULFILL] Starting fulfillment:", { orderId, network, recipientPhone, packageSize, forceManual })
+  console.log("[USSD-FULFILL] Starting fulfillment:", { orderId, network, recipientPhone, packageSize, forceManual, provider })
 
   // Blacklist check
   try {
@@ -63,6 +64,7 @@ export async function fulfillUssdOrder(
         recipient_phone: normalizedPhone,
         network: "MTN",
         size_gb: sizeGb,
+        ...(provider ? { provider } : {}),
       }
       const mtnResponse = await createMTNOrder(orderRequest)
 
