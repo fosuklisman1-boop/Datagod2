@@ -8,6 +8,7 @@ import { chargeMobileMoney, submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { fulfillUssdOrder } from "../fulfill"
 import { sendSMS, SMSTemplates } from "../../sms-service"
+import { getJoinCommunityLink } from "../../app-settings"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -521,9 +522,10 @@ export async function handlePaymentMethod(
       }
 
       try {
+        const channelLink = await getJoinCommunityLink()
         await sendSMS({
           phone: recipientPhone!,
-          message: SMSTemplates.ussdOrderConfirmed(bundleSize ?? '', network ?? ''),
+          message: SMSTemplates.ussdOrderConfirmed(bundleSize ?? '', network ?? '', channelLink),
           type: 'order_confirmation',
           reference: orderId,
         })

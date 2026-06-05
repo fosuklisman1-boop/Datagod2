@@ -166,8 +166,19 @@ export const SMSTemplates = {
     `DTGOD: You have been invited to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`,
 
   // USSD order confirmed — sent to recipient phone
-  ussdOrderConfirmed: (packageSize: string, network: string) =>
-    `DTGOD: Your ${packageSize} ${networkColor(network)} is on its way! It will reflect in a few minutes.`,
+  ussdOrderConfirmed: (packageSize: string, network: string, channelLink?: string) => {
+    const colour = networkColor(network)
+    // package_size sometimes embeds the carrier name (e.g. "MTN 5GB"); swap it for
+    // the colour alias so the real network name never appears in the message.
+    const escaped = network.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const sized = network
+      ? packageSize.replace(new RegExp(escaped, "ig"), colour).replace(/\s{2,}/g, " ").trim()
+      : packageSize
+    // Append the colour separately only if it isn't already present in the size text.
+    const suffix = sized.toLowerCase().includes(colour.toLowerCase()) ? "" : ` ${colour}`
+    return `DTGOD: Your ${sized}${suffix} is on its way! It will reflect in a few minutes.` +
+      (channelLink ? `\nJoin our channel: ${channelLink}` : ``)
+  },
 
   // USSD payment confirmed — sent to dialing/paying phone
   ussdPaymentConfirmed: (packageSize: string, network: string, maskedPhone: string) =>
