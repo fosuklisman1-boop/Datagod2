@@ -11,8 +11,11 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 const DATAKAZINA_API_URL = process.env.DATAKAZINA_API_URL || "https://reseller.dakazinabusinessconsult.com/api/v1"
 const DATAKAZINA_API_KEY = process.env.DATAKAZINA_API_KEY || ""
 
+// Allow the function up to 60s so a full batch can complete within one run
+export const maxDuration = 60
+
 // Rate limiting configuration (prevent 429 errors)
-const BATCH_SIZE = 10 // Process 10 orders at a time (reduced from 50)
+const BATCH_SIZE = 25 // 25 orders x 2s delay (+ request latency) fits inside the 60s budget
 const DELAY_BETWEEN_REQUESTS_MS = 2000 // 2 second delay between each status check
 const DELAY_ON_429_MS = 10000 // 10 second delay if we hit rate limit
 
