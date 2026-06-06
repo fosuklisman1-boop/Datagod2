@@ -12,12 +12,22 @@ import {
 } from "@/lib/mtn-production-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
-import { mtnConfig } from "@/lib/mtn-production-config"
 import crypto from "crypto"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
+
+/**
+ * Constant-time string comparison to avoid leaking the secret via timing.
+ * Returns false (without throwing) when lengths differ.
+ */
+function timingSafeEqualStr(a: string, b: string): boolean {
+    const aBuf = Buffer.from(a)
+    const bBuf = Buffer.from(b)
+    if (aBuf.length !== bBuf.length) return false
+    return crypto.timingSafeEqual(aBuf, bBuf)
+}
 
 /**
  * POST /api/webhooks/mtn/datakazina
@@ -29,22 +39,26 @@ export async function POST(request: NextRequest) {
     const startTime = Date.now()
 
     try {
-        // SECURITY: Verify webhook signature
-        const signature = request.headers.get("X-DataKazina-Signature") || request.headers.get("x-signature")
+        // SECURITY: DataKazina webhooks are unsigned (no HMAC), so we authenticate
+        // via a shared secret token embedded in the webhook URL we registered with
+        // DataKazina. Accept it as a `?token=` query param or `x-webhook-token`
+        // header. (The old HMAC check used the Sykes secret, which DataKazina never
+        // had, so it rejected every real webhook with 401.)
+        const webhookSecret = process.env.DATAKAZINA_WEBHOOK_SECRET
         const bodyText = await request.text()
 
-        if (mtnConfig.webhookSecret) {
-            const expectedSignature = crypto
-                .createHmac("sha256", mtnConfig.webhookSecret)
-                .update(bodyText)
-                .digest("hex")
+        if (webhookSecret) {
+            const providedToken =
+                request.nextUrl.searchParams.get("token") ||
+                request.headers.get("x-webhook-token") ||
+                ""
 
-            if (signature !== expectedSignature && signature !== `sha256=${expectedSignature}`) {
-                log("warn", "Webhook.DataKazina", "Invalid webhook signature", { traceId, signature })
-                return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+            if (!timingSafeEqualStr(providedToken, webhookSecret)) {
+                log("warn", "Webhook.DataKazina", "Invalid or missing webhook token", { traceId })
+                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
         } else {
-            log("warn", "Webhook.DataKazina", "Webhook secret not configured, skipping verification (INSECURE)", { traceId })
+            log("warn", "Webhook.DataKazina", "DATAKAZINA_WEBHOOK_SECRET not configured, skipping auth (INSECURE)", { traceId })
         }
 
         const contentType = request.headers.get("content-type") || ""
