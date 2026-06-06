@@ -241,7 +241,7 @@ export default function ShopStorefront() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center">
           <Store className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
           <p className="text-muted-foreground">Loading store...</p>
@@ -252,9 +252,9 @@ export default function ShopStorefront() {
 
   if (!shop) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+      <div className="min-h-screen bg-card p-4">
         <div className="max-w-2xl mx-auto pt-20">
-          <Alert className="border-red-300 bg-red-50">
+          <Alert className="border-border bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-700">
               Store not found. Please check the URL and try again.
@@ -273,7 +273,7 @@ export default function ShopStorefront() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="min-h-screen bg-card">
       {!globalOrderingEnabled && (
         <div className="max-w-7xl mx-auto px-4 pt-4">
           <Alert className="border-red-500 bg-red-50 shadow-md">
@@ -444,7 +444,7 @@ export default function ShopStorefront() {
                                 const totalPrice = pkg.price + shopPkg.profit_margin
 
                                 return (
-                                  <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+                                  <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-card backdrop-blur-xl border border-border">
                                     <CardHeader>
                                       <div className="flex items-start justify-between">
                                         <div className="flex-1">
@@ -542,7 +542,7 @@ export default function ShopStorefront() {
                           href={shopSettings.whatsapp_link}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="w-full flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                          className="w-full flex items-center gap-3 p-4 bg-green-50 border border-border rounded-lg hover:bg-green-100 transition-colors"
                         >
                           <MessageCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
                           <div className="flex-1 text-left">
@@ -568,7 +568,7 @@ export default function ShopStorefront() {
                       )}
 
                       {shop.location && (
-                        <div className="w-full flex items-center gap-3 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                        <div className="w-full flex items-center gap-3 p-4 bg-purple-50 border border-border rounded-lg">
                           <MapPin className="w-6 h-6 text-purple-600 flex-shrink-0" />
                           <div className="flex-1 text-left">
                             <p className="font-semibold text-purple-900">Location</p>
@@ -651,7 +651,7 @@ export default function ShopStorefront() {
               </div>
 
               {/* Order Summary */}
-              <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
+              <div className="p-4 bg-card rounded-lg border border-border">
                 <div className="flex justify-between items-end mb-3">
                   <span className="font-semibold text-foreground">Total Amount:</span>
                   <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
@@ -660,7 +660,7 @@ export default function ShopStorefront() {
                 </div>
               </div>
 
-              <Alert className="border-blue-300 bg-primary/5">
+              <Alert className="border-border bg-primary/5">
                 <AlertCircle className="h-4 w-4 text-primary" />
                 <AlertDescription className="text-xs text-primary">
                   You will be redirected to Paystack to complete your payment.
@@ -784,14 +784,14 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "completed":
-        return "bg-green-100 text-green-800 border-green-200"
+        return "bg-green-100 text-green-800 border-border"
       case "processing":
         return "bg-primary/10 text-primary border-primary/20"
       case "pending":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200"
+        return "bg-yellow-100 text-yellow-800 border-border"
       case "failed":
       case "cancelled":
-        return "bg-red-100 text-red-800 border-red-200"
+        return "bg-red-100 text-red-800 border-border"
       default:
         return "bg-muted text-foreground border-border"
     }

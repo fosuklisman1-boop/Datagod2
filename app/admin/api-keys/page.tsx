@@ -293,7 +293,7 @@ export default function AdminApiManagementPage() {
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="bg-gradient-to-br from-primary/5 to-white border-primary/20">
+          <Card className="bg-card to-white border-primary/20">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Active Keys</CardTitle>
               <Key className="w-4 h-4 text-primary" />
@@ -305,7 +305,7 @@ export default function AdminApiManagementPage() {
           </Card>
           <Card className={cn(
             "bg-gradient-to-br border",
-            parseFloat(healthScore) > 95 ? "from-green-50 to-white border-green-100" : "from-amber-50 to-white border-amber-100"
+            parseFloat(healthScore) > 95 ? "bg-success/10 border-border" : "bg-warning/10 border-border"
           )}>
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Status Health</CardTitle>
@@ -316,7 +316,7 @@ export default function AdminApiManagementPage() {
               <p className="text-xs text-muted-foreground mt-1">Based on recent requests</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-purple-50 to-white border-purple-100">
+          <Card className="bg-card to-white border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Recent Traffic</CardTitle>
               <Activity className="w-4 h-4 text-purple-600" />
@@ -368,7 +368,7 @@ export default function AdminApiManagementPage() {
                       ) : keys.length === 0 ? (
                         <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">No API keys found.</td></tr>
                       ) : keys.map((key) => (
-                        <tr key={key.id} className="group hover:bg-slate-50/50 transition-colors">
+                        <tr key={key.id} className="group hover:bg-muted/40 transition-colors">
                           <td className="py-4 pl-2">
                             <div className="font-semibold text-slate-900">{key.name}</div>
                             <div className="text-xs text-slate-500 font-mono mt-1">{key.key_prefix}... [ID: {key.id.substring(0,8)}]</div>
@@ -380,7 +380,7 @@ export default function AdminApiManagementPage() {
                                 checked={key.is_active} 
                                 onCheckedChange={() => toggleKey(key.id, key.is_active)}
                               />
-                              <Badge variant="secondary" className={key.is_active ? "bg-green-100 text-green-700 hover:bg-green-100 border-green-200" : "bg-slate-100 text-slate-600 hover:bg-slate-100 border-slate-200"}>
+                              <Badge variant="secondary" className={key.is_active ? "bg-green-100 text-green-700 hover:bg-green-100 border-border" : "bg-muted text-slate-600 hover:bg-muted border-border"}>
                                 {key.is_active ? "Active" : "Disabled"}
                               </Badge>
                             </div>
@@ -476,7 +476,7 @@ export default function AdminApiManagementPage() {
                       ) : logs.map((log) => (
                         <tr 
                           key={log.id} 
-                          className="hover:bg-slate-50/50 transition-colors cursor-pointer"
+                          className="hover:bg-muted/40 transition-colors cursor-pointer"
                           onClick={() => setSelectedLog(log)}
                         >
                           <td className="py-4 pl-2 text-slate-600 whitespace-nowrap">

@@ -161,7 +161,7 @@ export default function ResultsCheckerConfirmationPage() {
 
         {/* Awaiting stock notice */}
         {isPending && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 space-y-1">
+          <div className="bg-amber-50 border border-border rounded-xl p-4 text-sm text-amber-800 space-y-1">
             <p className="font-semibold">Your payment was received ✓</p>
             <p>We&apos;re currently out of <strong>{order.exam_board}</strong> vouchers. Your order is queued and will be fulfilled automatically as soon as new stock is uploaded — no action needed from you.</p>
             <p className="text-xs text-amber-600 mt-1">You&apos;ll receive your serial numbers &amp; PINs via SMS and email once ready.</p>

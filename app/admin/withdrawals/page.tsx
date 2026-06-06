@@ -344,7 +344,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Mobile Number</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-green-50 p-2 rounded border border-green-200">
+                                <div className="flex-1 bg-green-50 p-2 rounded border border-border">
                                   <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.phone || "N/A"}
                                   </p>
@@ -362,7 +362,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Network</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-orange-50 p-2 rounded border border-orange-200">
+                                <div className="flex-1 bg-orange-50 p-2 rounded border border-border">
                                   <p className="font-mono text-sm font-semibold text-foreground">
                                     {withdrawal.account_details?.network || "N/A"}
                                   </p>
@@ -386,7 +386,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Bank Name</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-purple-50 p-2 rounded border border-purple-200">
+                                <div className="flex-1 bg-purple-50 p-2 rounded border border-border">
                                   <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.bank_name || "N/A"}
                                   </p>
@@ -405,7 +405,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Account Number</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-orange-50 p-2 rounded border border-orange-200">
+                                <div className="flex-1 bg-orange-50 p-2 rounded border border-border">
                                   <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.account_number || "N/A"}
                                   </p>
@@ -450,7 +450,7 @@ export default function WithdrawalsPage() {
 
                       {/* Old approved — manual transfer still needed */}
                       {withdrawal.status === "approved" && !withdrawal.moolre_transfer_id && (
-                        <div className="mb-3 bg-yellow-50 p-3 rounded border border-yellow-200">
+                        <div className="mb-3 bg-yellow-50 p-3 rounded border border-border">
                           <p className="text-xs text-yellow-800 font-medium">Manual transfer required — this was approved before Moolre integration. Please transfer funds manually.</p>
                         </div>
                       )}
@@ -467,7 +467,7 @@ export default function WithdrawalsPage() {
                             variant="outline"
                             disabled={actionLoadingId === withdrawal.id}
                             onClick={() => resetProcessing(withdrawal.id)}
-                            className="w-full text-xs border-orange-300 text-orange-600 hover:bg-orange-50"
+                            className="w-full text-xs border-border text-orange-600 hover:bg-orange-50"
                           >
                             {actionLoadingId === withdrawal.id
                               ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Resetting...</>
@@ -478,7 +478,7 @@ export default function WithdrawalsPage() {
 
                       {/* Failed notice */}
                       {withdrawal.status === "failed" && (
-                        <div className="mb-3 bg-red-50 p-3 rounded border border-red-200">
+                        <div className="mb-3 bg-red-50 p-3 rounded border border-border">
                           <p className="text-xs text-red-700 font-medium">Transfer failed. Funds were NOT sent. The request can be re-approved after investigation.</p>
                         </div>
                       )}
@@ -509,7 +509,7 @@ export default function WithdrawalsPage() {
                               onClick={() => approveWithdrawal(withdrawal.id, true)}
                               disabled={actionLoadingId === withdrawal.id}
                               variant="outline"
-                              className="flex-1 text-sm border-blue-300 text-primary hover:bg-primary/5"
+                              className="flex-1 text-sm border-border text-primary hover:bg-primary/5"
                             >
                               {actionLoadingId === withdrawal.id ? (
                                 <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
@@ -522,7 +522,7 @@ export default function WithdrawalsPage() {
                               }}
                               variant="outline"
                               disabled={actionLoadingId === withdrawal.id}
-                              className="flex-1 text-sm border-red-300 text-red-600 hover:bg-red-50"
+                              className="flex-1 text-sm border-border text-red-600 hover:bg-red-50"
                             >
                               ✕ Reject
                             </Button>
@@ -532,7 +532,7 @@ export default function WithdrawalsPage() {
 
                       {/* Rejection Reason Display */}
                       {withdrawal.status === "rejected" && withdrawal.rejection_reason && (
-                        <div className="bg-red-50 p-3 rounded border border-red-200">
+                        <div className="bg-red-50 p-3 rounded border border-border">
                           <p className="text-xs font-semibold text-red-900 mb-1">Rejection Reason</p>
                           <p className="text-sm text-red-800">{withdrawal.rejection_reason}</p>
                         </div>
@@ -547,7 +547,7 @@ export default function WithdrawalsPage() {
 
         {/* Rejection Reason Modal */}
         {selectedWithdrawal && selectedWithdrawal.status === "pending" && (
-          <Card className="border-2 border-red-300 fixed inset-0 m-auto max-w-md max-h-96 z-50">
+          <Card className="border-2 border-border fixed inset-0 m-auto max-w-md max-h-96 z-50">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Reject Withdrawal</CardTitle>

@@ -419,7 +419,7 @@ export default function ProfilePage() {
 
         {/* Profile Header Card */}
         <Card className={`border-0 text-white ${isDealer
-            ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500"
+            ? "bg-card0 via-orange-500 to-yellow-500"
             : "bg-gradient-to-r from-primary to-purple-600"
           }`}>
           <CardContent className="pt-6">
@@ -617,7 +617,7 @@ export default function ProfilePage() {
                 <p className="font-semibold">Active Sessions</p>
                 <p className="text-sm text-muted-foreground">You have 1 active session</p>
               </div>
-              <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">
+              <Button variant="outline" className="text-red-600 border-border hover:bg-red-50">
                 <LogOut className="w-4 h-4 mr-2" />
                 Logout All Devices
               </Button>

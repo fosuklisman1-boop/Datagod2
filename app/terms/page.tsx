@@ -80,7 +80,7 @@ export default async function TermsPage() {
   const { intro, sections } = parseTerms(rawContent)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="min-h-screen bg-card">
       <nav className="bg-card border-b border-border shadow-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-bold text-foreground hover:text-violet-700 transition-colors">

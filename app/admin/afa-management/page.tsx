@@ -374,10 +374,10 @@ Occupation: ${submission.occupation || "N/A"}`
         </div>
 
         {/* Auto-Fulfillment Toggle Card */}
-        <Card className="border-l-4 border-l-purple-500 bg-gradient-to-br from-purple-50/60 to-primary/5 backdrop-blur-xl border border-purple-200/40">
+        <Card className="border-l-4 border-l-purple-500 bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-purple-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-purple-300/60">
+              <div className="bg-gradient-to-br from-purple-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <Zap className="h-5 w-5 text-purple-600" />
               </div>
               <div>
@@ -418,7 +418,7 @@ Occupation: ${submission.occupation || "N/A"}`
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
-                  <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                  <div className="p-3 bg-purple-50 rounded-lg border border-border">
                     <p className="font-medium text-purple-900 mb-1">🟢 When Enabled</p>
                     <ul className="text-xs space-y-1 text-purple-800">
                       <li>✓ Sykes API called on every new order</li>
@@ -426,7 +426,7 @@ Occupation: ${submission.occupation || "N/A"}`
                       <li>✓ fulfillment_status tracked automatically</li>
                     </ul>
                   </div>
-                  <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="p-3 bg-amber-50 rounded-lg border border-border">
                     <p className="font-medium text-amber-900 mb-1">⚪ When Disabled</p>
                     <ul className="text-xs space-y-1 text-amber-800">
                       <li>✓ Orders queue here for manual trigger</li>
@@ -441,7 +441,7 @@ Occupation: ${submission.occupation || "N/A"}`
         </Card>
 
         {/* Bulk Fulfillment Action */}
-        <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
+        <Card className="border-l-4 border-l-blue-500 bg-card backdrop-blur-xl border border-primary/20">
           <CardHeader>
             <CardTitle className="text-base">Bulk Fulfillment</CardTitle>
             <CardDescription>
@@ -494,10 +494,10 @@ Occupation: ${submission.occupation || "N/A"}`
         </Card>
 
         {/* AFA Price Settings */}
-        <Card className="border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40">
+        <Card className="border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-cyan-300/60">
+              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <Settings className="h-5 w-5 text-cyan-600" />
               </div>
               <div>
@@ -535,7 +535,7 @@ Occupation: ${submission.occupation || "N/A"}`
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-          <Card className="bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
+          <Card className="bg-card backdrop-blur-xl border border-primary/20">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-foreground">Total</CardTitle>
             </CardHeader>
@@ -544,7 +544,7 @@ Occupation: ${submission.occupation || "N/A"}`
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-yellow-50/60 to-amber-50/40 backdrop-blur-xl border border-yellow-200/40">
+          <Card className="bg-card backdrop-blur-xl border border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-foreground">Pending</CardTitle>
             </CardHeader>
@@ -553,7 +553,7 @@ Occupation: ${submission.occupation || "N/A"}`
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+          <Card className="bg-card backdrop-blur-xl border border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-foreground">Fulfilled</CardTitle>
             </CardHeader>
@@ -562,7 +562,7 @@ Occupation: ${submission.occupation || "N/A"}`
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-red-50/60 to-orange-50/40 backdrop-blur-xl border border-red-200/40">
+          <Card className="bg-card backdrop-blur-xl border border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-foreground">Failed</CardTitle>
             </CardHeader>
@@ -573,7 +573,7 @@ Occupation: ${submission.occupation || "N/A"}`
         </div>
 
         {/* Submissions List */}
-        <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
+        <Card className="border-l-4 border-l-blue-500 bg-card backdrop-blur-xl border border-primary/20">
           <CardHeader>
             <CardTitle>AFA Submissions</CardTitle>
             <CardDescription>View, manage, and fulfill AFA registration submissions</CardDescription>
@@ -658,7 +658,7 @@ Occupation: ${submission.occupation || "N/A"}`
                             variant="outline"
                             onClick={() => handleFulfillOrder(submission.id)}
                             disabled={fulfillingId === submission.id || bulkFulfilling}
-                            className="text-xs h-7 px-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+                            className="text-xs h-7 px-2 border-border text-purple-700 hover:bg-purple-50"
                           >
                             {fulfillingId === submission.id ? (
                               <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Fulfilling</>
@@ -737,9 +737,9 @@ Occupation: ${submission.occupation || "N/A"}`
                       {/* Fulfillment info tile */}
                       <div className={`bg-card border rounded p-3 ${
                         submission.fulfillment_status === "fulfilled"
-                          ? "border-green-300 bg-green-50"
+                          ? "border-border bg-green-50"
                           : submission.fulfillment_status === "failed"
-                          ? "border-red-300 bg-red-50"
+                          ? "border-border bg-red-50"
                           : "border-border"
                       }`}>
                         <p className="text-xs text-muted-foreground font-medium">Fulfillment</p>
@@ -773,7 +773,7 @@ Occupation: ${submission.occupation || "N/A"}`
 
                     {/* Fulfillment error alert for failed orders */}
                     {submission.fulfillment_status === "failed" && submission.fulfillment_error && (
-                      <Alert className="mt-3 border-red-200 bg-red-50">
+                      <Alert className="mt-3 border-border bg-red-50">
                         <AlertCircle className="h-4 w-4 text-red-600" />
                         <AlertDescription className="text-red-700 text-xs">
                           <strong>Fulfillment error:</strong> {submission.fulfillment_error}

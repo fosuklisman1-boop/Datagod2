@@ -155,9 +155,9 @@ export default function UssdShopPage() {
   }
 
   const statusBadge = (status: string, tokenBalance: number) => {
-    if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Suspended</Badge>
-    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-orange-100 text-orange-700 border-orange-200">No Sessions</Badge>
-    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-green-200">Active</Badge>
+    if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-border">Suspended</Badge>
+    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-orange-100 text-orange-700 border-border">No Sessions</Badge>
+    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-border">Active</Badge>
     return <Badge className="bg-muted text-muted-foreground border-border">Inactive</Badge>
   }
 
@@ -204,7 +204,7 @@ export default function UssdShopPage() {
         ) : (
           <>
             {/* Shop Code Card */}
-            <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/5">
+            <Card className="border-primary/20 bg-card">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base text-primary flex items-center justify-between">
                   <span className="flex items-center gap-2">
@@ -251,14 +251,14 @@ export default function UssdShopPage() {
                 </div>
 
                 {shopCode.token_balance === 0 && shopCode.activation_fee_paid && (
-                  <div className="mt-3 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
+                  <div className="mt-3 flex items-start gap-2 p-3 bg-red-50 border border-border rounded-lg text-sm text-red-700">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>Your session tokens are depleted. Top up below so customers can access your shop.</span>
                   </div>
                 )}
 
                 {!shopCode.activation_fee_paid && (
-                  <div className="mt-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg space-y-3">
+                  <div className="mt-3 p-4 bg-yellow-50 border border-border rounded-lg space-y-3">
                     <div className="flex items-start gap-2 text-sm text-yellow-800">
                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                       <div>
@@ -290,7 +290,7 @@ export default function UssdShopPage() {
 
             {/* Buy Sessions */}
             {shopCode.activation_fee_paid && (
-              <Card className="border-indigo-200 bg-indigo-50">
+              <Card className="border-border bg-indigo-50">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base text-indigo-800 flex items-center gap-2">
                     <Coins className="w-4 h-4" />
@@ -314,7 +314,7 @@ export default function UssdShopPage() {
                         placeholder={`Min ${minSessions}`}
                         value={sessionQty}
                         onChange={e => setSessionQty(e.target.value)}
-                        className="w-full border border-indigo-200 rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-indigo-400"
                       />
                     </div>
                     {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (

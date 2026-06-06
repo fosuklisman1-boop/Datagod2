@@ -20,7 +20,7 @@ export function Step5Shops() {
 
       <div className="space-y-4 mt-6">
         {/* Feature 1 */}
-        <div className="flex gap-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
+        <div className="flex gap-4 p-4 bg-orange-50 rounded-lg border border-border">
           <div className="flex-shrink-0">
             <Store className="w-6 h-6 text-orange-600 mt-1" />
           </div>
@@ -33,7 +33,7 @@ export function Step5Shops() {
         </div>
 
         {/* Feature 2 */}
-        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-green-200">
+        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-border">
           <div className="flex-shrink-0">
             <TrendingUp className="w-6 h-6 text-green-600 mt-1" />
           </div>
@@ -59,7 +59,7 @@ export function Step5Shops() {
         </div>
       </div>
 
-      <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-4 space-y-3">
         <h4 className="font-semibold text-foreground text-sm">Shop Benefits:</h4>
         <ul className="space-y-2 text-sm text-foreground">
           <li className="flex gap-2">
@@ -77,7 +77,7 @@ export function Step5Shops() {
         </ul>
       </div>
 
-      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 text-sm text-foreground">
+      <div className="bg-orange-50 border border-border rounded-lg p-4 text-sm text-foreground">
         <p className="font-semibold text-orange-900 mb-2">💡 Pro Tip:</p>
         <p>You can create multiple shops for different customer segments. Diversify your business!</p>
       </div>

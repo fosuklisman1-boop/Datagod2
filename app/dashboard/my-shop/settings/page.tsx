@@ -178,7 +178,7 @@ export default function ShopSettingsPage() {
             </div>
 
             {whatsappLink && (
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg mt-4">
+              <div className="p-3 bg-green-50 border border-border rounded-lg mt-4">
                 <p className="text-sm text-green-700">
                   <span className="font-semibold">Preview:</span>{" "}
                   <a

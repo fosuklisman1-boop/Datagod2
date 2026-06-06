@@ -388,7 +388,7 @@ export default function SubAgentsPage() {
 
             {newInviteUrl ? (
               <div className="space-y-4">
-                <Alert className="border-green-200 bg-green-50">
+                <Alert className="border-border bg-green-50">
                   <CheckCircle className="w-4 h-4 text-green-600" />
                   <AlertDescription className="text-green-800">
                     Invite created! Share this link with your sub-agent.

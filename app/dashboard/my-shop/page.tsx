@@ -599,7 +599,7 @@ export default function MyShopPage() {
           </div>
 
           {dbError && (
-            <Alert className="border-red-300 bg-red-50">
+            <Alert className="border-border bg-red-50">
               <AlertCircle className="h-4 w-4 text-red-600" />
               <AlertDescription className="text-red-700">
                 {dbError}
@@ -610,7 +610,7 @@ export default function MyShopPage() {
             </Alert>
           )}
 
-          <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+          <Card className="bg-card backdrop-blur-xl border border-border">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Store className="w-5 h-5 text-emerald-600" />
@@ -729,7 +729,7 @@ export default function MyShopPage() {
         </div>
 
         {/* Shop Info Card */}
-        <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40 hover:border-violet-300/60">
+        <Card className="bg-card backdrop-blur-xl border border-border hover:border-border">
           <CardHeader className="flex flex-col sm:flex-row items-start justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-4">
               {shop.logo_url && (
@@ -790,7 +790,7 @@ export default function MyShopPage() {
             </div>
 
             {!shop?.is_active && (
-              <Alert className="border-orange-300 bg-orange-50">
+              <Alert className="border-border bg-orange-50">
                 <AlertCircle className="h-4 w-4 text-orange-600" />
                 <AlertDescription className="text-xs text-orange-700">
                   Your shop is pending admin approval. Once approved, you'll be able to accept customer orders and process payments.
@@ -881,7 +881,7 @@ export default function MyShopPage() {
         </Card>
 
         {/* Airtime Profit Configuration Card */}
-        <Card className="bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur-xl border border-primary/20">
+        <Card className="bg-card backdrop-blur-xl border border-primary/20">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Megaphone className="w-5 h-5 text-primary" />
@@ -981,7 +981,7 @@ export default function MyShopPage() {
         </Card>
 
         {/* Results Checker Profit Markups Card */}
-        <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+        <Card className="bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <GraduationCap className="w-5 h-5 text-violet-600" />
@@ -1021,7 +1021,7 @@ export default function MyShopPage() {
                 </div>
               ))}
             </div>
-            <p className="text-xs text-violet-500/80 bg-violet-50/50 p-2 rounded-lg border border-violet-100/50">
+            <p className="text-xs text-violet-500/80 bg-violet-50/50 p-2 rounded-lg border border-border">
               This amount is added on top of the base voucher price. The maximum is set by the admin and enforced at checkout.
             </p>
             <Button
@@ -1035,7 +1035,7 @@ export default function MyShopPage() {
         </Card>
 
         {/* WhatsApp Configuration Card */}
-        <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+        <Card className="bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <MessageCircle className="w-5 h-5 text-green-600" />
@@ -1072,7 +1072,7 @@ export default function MyShopPage() {
             </div>
 
             {whatsappLink && (
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="p-3 bg-green-50 border border-border rounded-lg">
                 <p className="text-sm text-green-700">
                   <span className="font-semibold">Preview:</span>{" "}
                   <a
@@ -1090,7 +1090,7 @@ export default function MyShopPage() {
         </Card>
 
         {/* Storefront Announcement Card */}
-        <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40 hover:border-violet-300/60">
+        <Card className="bg-card backdrop-blur-xl border border-border hover:border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Megaphone className="w-5 h-5 text-violet-600" />
@@ -1175,7 +1175,7 @@ export default function MyShopPage() {
           <CardContent className="space-y-4">
             {/* Products */}
             <div>
-                <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+                <Card className="bg-card backdrop-blur-xl border border-border">
                   <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                       <CardTitle>Shop Products</CardTitle>
@@ -1249,7 +1249,7 @@ export default function MyShopPage() {
                                 const displayBasePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
 
                                 return (
-                                  <Card key={pkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
+                                  <Card key={pkg.id} className="border border-border bg-card">
                                     <CardContent className="p-4 space-y-3">
                                       <div>
                                         <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
@@ -1304,7 +1304,7 @@ export default function MyShopPage() {
                                           const isNegative = profit < 0
                                           return (
                                             <div className={`p-2 rounded-md text-xs space-y-1 ${isNegative
-                                              ? "bg-red-50 border border-red-200"
+                                              ? "bg-red-50 border border-border"
                                               : "bg-emerald-50"
                                               }`}>
                                               <p className={isNegative ? "text-red-700" : "text-emerald-700"}>
@@ -1384,7 +1384,7 @@ export default function MyShopPage() {
                           const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
                           const profit = shopPkg.profit_margin || 0
                           return (
-                            <Card key={shopPkg.id} className="border border-emerald-200/40 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
+                            <Card key={shopPkg.id} className="border border-border bg-card">
                               <CardContent className="p-4 space-y-3">
                                 <div>
                                   <p className="font-semibold text-emerald-900">{pkg?.network} - {pkg?.size}GB</p>

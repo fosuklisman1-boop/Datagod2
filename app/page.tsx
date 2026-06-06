@@ -165,9 +165,9 @@ function MockTrackOrder() {
   return (
     <div className="p-3 bg-muted/40 space-y-1.5">
       {[
-        { label: "3GB MTN Data", status: "Delivered", color: "text-green-600 bg-green-50 border-green-200" },
-        { label: "Airtime GHS 5", status: "Delivered", color: "text-green-600 bg-green-50 border-green-200" },
-        { label: "WAEC Voucher", status: "Pending", color: "text-yellow-600 bg-yellow-50 border-yellow-200" },
+        { label: "3GB MTN Data", status: "Delivered", color: "text-green-600 bg-green-50 border-border" },
+        { label: "Airtime GHS 5", status: "Delivered", color: "text-green-600 bg-green-50 border-border" },
+        { label: "WAEC Voucher", status: "Pending", color: "text-yellow-600 bg-yellow-50 border-border" },
       ].map((o) => (
         <div key={o.label} className="bg-card border border-border rounded-lg px-2.5 py-1.5 flex items-center justify-between">
           <span className="text-[10px] font-medium text-foreground">{o.label}</span>
@@ -181,7 +181,7 @@ function MockTrackOrder() {
 function MockVoucher() {
   return (
     <div className="p-3 bg-muted/40 text-center space-y-2">
-      <div className="bg-card border-2 border-dashed border-blue-300 rounded-xl p-3">
+      <div className="bg-card border-2 border-dashed border-border rounded-xl p-3">
         <GraduationCap className="w-6 h-6 text-primary mx-auto mb-1" />
         <p className="text-[10px] font-bold text-foreground">WAEC Results Checker</p>
         <p className="text-[10px] text-muted-foreground mt-1">PIN: <span className="font-mono font-bold text-foreground">****-****-****</span></p>
@@ -223,12 +223,12 @@ function MockWithdrawal() {
       </div>
 
       {/* Status row */}
-      <div className="bg-card border border-yellow-200 rounded-lg px-2.5 py-1.5 flex items-center justify-between">
+      <div className="bg-card border border-border rounded-lg px-2.5 py-1.5 flex items-center justify-between">
         <div>
           <p className="text-[10px] font-semibold text-foreground">GHS 50.00 → MoMo</p>
           <p className="text-[9px] text-muted-foreground">Requested · up to 3 business days</p>
         </div>
-        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 text-yellow-700">Pending</span>
+        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-50 border border-border text-yellow-700">Pending</span>
       </div>
     </div>
   )
@@ -250,9 +250,9 @@ function MockInviteProcess() {
       </div>
 
       {/* Step B — copy & share link */}
-      <div className="bg-card border border-green-200 rounded-lg p-2.5 space-y-1.5">
+      <div className="bg-card border border-border rounded-lg p-2.5 space-y-1.5">
         <p className="text-[9px] font-bold text-green-600 uppercase tracking-widest">Invite Link Generated!</p>
-        <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded px-2 py-1">
+        <div className="flex items-center gap-1.5 bg-green-50 border border-border rounded px-2 py-1">
           <Link2 className="w-3 h-3 text-green-600 flex-shrink-0" />
           <span className="text-[10px] text-foreground truncate font-mono">datagod.store/join/<span className="font-bold text-green-700">abc123</span></span>
           <Copy className="w-3 h-3 text-muted-foreground flex-shrink-0 ml-auto" />
@@ -550,7 +550,7 @@ export default function HomePage() {
                   />
                 </div>
               </div>
-              <div className="mt-8 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+              <div className="mt-8 p-4 bg-amber-50 border border-border rounded-xl text-sm text-amber-800">
                 <strong>Tip:</strong> You can also buy Airtime and WAEC/School Results Checker Vouchers from the same storefront — just tap the <em>Buy Airtime</em> or <em>Results Vouchers</em> tab at the top of the shop.
               </div>
             </TabsContent>
@@ -670,7 +670,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                   />
                 </div>
               </div>
-              <div className="mt-8 p-4 bg-purple-50 border border-purple-200 rounded-xl text-sm text-purple-800">
+              <div className="mt-8 p-4 bg-purple-50 border border-border rounded-xl text-sm text-purple-800">
                 <strong>Tip:</strong> Keep your WhatsApp number visible on your shop — customers trust sellers they can message directly. Use the Shop Settings page to configure your WhatsApp link.
               </div>
             </TabsContent>

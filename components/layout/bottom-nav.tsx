@@ -42,9 +42,9 @@ export function BottomNav() {
       : "text-primary"
 
   const fabGradient = isAdmin && onAdminPage
-    ? "bg-gradient-to-br from-violet-500 to-violet-700 ring-4 ring-violet-100 dark:ring-violet-900"
+    ? "bg-card0 to-violet-700 ring-4 ring-violet-100 dark:ring-violet-900"
     : isDealer
-      ? "bg-gradient-to-br from-fuchsia-500 to-purple-700 ring-4 ring-fuchsia-100 dark:ring-fuchsia-900"
+      ? "bg-card0 to-purple-700 ring-4 ring-fuchsia-100 dark:ring-fuchsia-900"
       : "bg-gradient-to-br from-primary to-violet-600 ring-4 ring-primary/15"
 
   const fabLabelColor = isAdmin && onAdminPage

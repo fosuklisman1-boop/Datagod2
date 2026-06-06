@@ -9,7 +9,7 @@ export function PopupBlockerAlert({ show = true }: PopupBlockerAlertProps) {
   if (!show) return null
 
   return (
-    <Alert className="border-orange-200 bg-orange-50 mb-4">
+    <Alert className="border-border bg-orange-50 mb-4">
       <AlertCircle className="h-4 w-4 text-orange-600" />
       <AlertDescription className="text-orange-800">
         <div className="font-semibold mb-1">Popup Blocker Detected</div>

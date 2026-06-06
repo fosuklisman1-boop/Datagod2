@@ -389,7 +389,7 @@ export default function AdminResultsCheckerPage() {
         </div>
 
         {lowStockBoards.length > 0 && (
-          <div className="flex items-center gap-2 px-4 py-3 bg-orange-50 border border-orange-200 rounded-lg text-orange-800 text-sm font-medium">
+          <div className="flex items-center gap-2 px-4 py-3 bg-orange-50 border border-border rounded-lg text-orange-800 text-sm font-medium">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             Low stock alert: {lowStockBoards.map(b => `${b} (${summary?.[b.toLowerCase() as keyof InventorySummary]?.available ?? 0} left)`).join(", ")}
           </div>
@@ -515,7 +515,7 @@ export default function AdminResultsCheckerPage() {
                         className={`px-5 py-2 rounded-lg font-bold text-sm border-2 transition-all ${
                           uploadBoard === b
                             ? "border-violet-600 bg-violet-50 text-violet-700 shadow-sm"
-                            : "border-border text-muted-foreground hover:border-violet-300"
+                            : "border-border text-muted-foreground hover:border-border"
                         }`}
                       >{b}</button>
                     ))}
@@ -605,7 +605,7 @@ export default function AdminResultsCheckerPage() {
 
                 {/* Parse errors */}
                 {parseErrors.length > 0 && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+                  <div className="bg-red-50 border border-border rounded-lg p-3 space-y-1">
                     <p className="text-sm font-semibold text-red-700">{parseErrors.length} row error{parseErrors.length > 1 ? "s" : ""}</p>
                     {parseErrors.slice(0, 5).map(e => (
                       <p key={e.row} className="text-xs text-red-600">Row {e.row}: {e.reason}</p>
@@ -616,7 +616,7 @@ export default function AdminResultsCheckerPage() {
 
                 {/* Upload result */}
                 {uploadResult && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                  <div className="bg-green-50 border border-border rounded-lg p-3 text-sm text-green-800">
                     <p className="font-semibold">Upload complete</p>
                     <p>{uploadResult.inserted} inserted · {uploadResult.skipped} duplicates skipped</p>
                     <p className="text-xs text-green-600 mt-1">Batch ID: {uploadResult.batchId}</p>

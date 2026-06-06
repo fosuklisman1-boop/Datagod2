@@ -281,8 +281,8 @@ export default function AdminUssdShopsPage() {
   }
 
   const statusBadge = (status: string) => {
-    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-green-200">Active</Badge>
-    if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Suspended</Badge>
+    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-border">Active</Badge>
+    if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-border">Suspended</Badge>
     return <Badge className="bg-muted text-muted-foreground border-border">Inactive</Badge>
   }
 
@@ -563,7 +563,7 @@ export default function AdminUssdShopsPage() {
                                 {!code.activation_fee_paid && (
                                   <Button
                                     size="sm" variant="outline"
-                                    className="h-7 text-xs border-green-300 text-green-700 hover:bg-green-50"
+                                    className="h-7 text-xs border-border text-green-700 hover:bg-green-50"
                                     onClick={() => { setActivateTarget(code); setShowActivate(true) }}
                                   >
                                     <CheckCircle className="w-3 h-3 mr-1" /> Activate
@@ -579,7 +579,7 @@ export default function AdminUssdShopsPage() {
                                 {code.activation_fee_paid && (
                                   <Button
                                     size="sm" variant="outline"
-                                    className={`h-7 text-xs ${code.status === 'active' ? 'border-yellow-300 text-yellow-700 hover:bg-yellow-50' : 'border-green-300 text-green-700 hover:bg-green-50'}`}
+                                    className={`h-7 text-xs ${code.status === 'active' ? 'border-border text-yellow-700 hover:bg-yellow-50' : 'border-border text-green-700 hover:bg-green-50'}`}
                                     onClick={() => handleStatusToggle(code)}
                                   >
                                     <PauseCircle className="w-3 h-3 mr-1" />
@@ -588,7 +588,7 @@ export default function AdminUssdShopsPage() {
                                 )}
                                 <Button
                                   size="sm" variant="outline"
-                                  className="h-7 text-xs border-red-200 text-red-600 hover:bg-red-50"
+                                  className="h-7 text-xs border-border text-red-600 hover:bg-red-50"
                                   onClick={() => handleDelete(code)}
                                 >
                                   <Trash2 className="w-3 h-3" />
@@ -632,7 +632,7 @@ export default function AdminUssdShopsPage() {
                         {codes.filter(c => c.status === 'active').map(code => (
                           <tr key={code.id} className="border-b last:border-0 hover:bg-accent">
                             <td className="py-3 pr-4">
-                              <code className="bg-green-50 text-green-800 font-mono font-bold text-base px-2 py-1 rounded border border-green-200">
+                              <code className="bg-green-50 text-green-800 font-mono font-bold text-base px-2 py-1 rounded border border-border">
                                 {code.code}
                               </code>
                             </td>
@@ -662,7 +662,7 @@ export default function AdminUssdShopsPage() {
                                 </Button>
                                 <Button
                                   size="sm" variant="outline"
-                                  className="h-7 text-xs border-yellow-300 text-yellow-700 hover:bg-yellow-50"
+                                  className="h-7 text-xs border-border text-yellow-700 hover:bg-yellow-50"
                                   onClick={() => handleStatusToggle(code)}
                                 >
                                   <PauseCircle className="w-3 h-3 mr-1" /> Suspend

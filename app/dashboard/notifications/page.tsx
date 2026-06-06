@@ -98,15 +98,15 @@ export default function NotificationsPage() {
       case "order_update":
         return "bg-primary/5 text-primary border-primary/20"
       case "complaint_resolved":
-        return "bg-green-50 text-green-700 border-green-200"
+        return "bg-green-50 text-green-700 border-border"
       case "payment_success":
-        return "bg-green-50 text-green-700 border-green-200"
+        return "bg-green-50 text-green-700 border-border"
       case "withdrawal_approved":
-        return "bg-green-50 text-green-700 border-green-200"
+        return "bg-green-50 text-green-700 border-border"
       case "withdrawal_rejected":
-        return "bg-red-50 text-red-700 border-red-200"
+        return "bg-red-50 text-red-700 border-border"
       case "balance_updated":
-        return "bg-purple-50 text-purple-700 border-purple-200"
+        return "bg-purple-50 text-purple-700 border-border"
       default:
         return "bg-muted/40 text-foreground border-border"
     }
@@ -231,7 +231,7 @@ export default function NotificationsPage() {
               <Card
                 key={notification.id}
                 className={`overflow-hidden transition-all hover:shadow-md ${
-                  !notification.read ? "border-blue-300 bg-primary/5" : ""
+                  !notification.read ? "border-border bg-primary/5" : ""
                 }`}
               >
                 <CardContent className="p-4">

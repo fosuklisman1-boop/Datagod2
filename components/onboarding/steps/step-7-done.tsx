@@ -28,7 +28,7 @@ export function Step7Done({ onComplete }: Step7Props) {
         </p>
       </div>
 
-      <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6 space-y-4 text-left">
+      <div className="bg-card rounded-lg p-6 space-y-4 text-left">
         <h4 className="font-semibold text-foreground text-center">Quick Next Steps:</h4>
         <div className="space-y-3">
           <div className="flex gap-3">

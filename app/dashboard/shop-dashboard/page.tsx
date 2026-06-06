@@ -378,7 +378,7 @@ export default function ShopDashboardPage() {
     return (
       <DashboardLayout>
         <div className="space-y-6">
-          <Alert className="border-red-300 bg-red-50">
+          <Alert className="border-border bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-700">
               Shop not found. Please create a shop first.
@@ -404,10 +404,10 @@ export default function ShopDashboardPage() {
         {/* Stats Cards */}
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {/* Available Balance */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
-              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-cyan-300/60">
+              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <DollarSign className="h-4 w-4 text-cyan-600" />
               </div>
             </CardHeader>
@@ -420,10 +420,10 @@ export default function ShopDashboardPage() {
           </Card>
 
           {/* Total Profit */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
-              <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-emerald-300/60">
+              <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <TrendingUp className="h-4 w-4 text-emerald-600" />
               </div>
             </CardHeader>
@@ -436,10 +436,10 @@ export default function ShopDashboardPage() {
           </Card>
 
           {/* Total Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/60 to-orange-50/40 backdrop-blur-xl border border-amber-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-              <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-amber-300/60">
+              <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <ShoppingCart className="h-4 w-4 text-amber-600" />
               </div>
             </CardHeader>
@@ -452,10 +452,10 @@ export default function ShopDashboardPage() {
           </Card>
 
           {/* Pending Withdrawals */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/60 to-pink-50/40 backdrop-blur-xl border border-rose-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-rose-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending Withdrawals</CardTitle>
-              <div className="bg-gradient-to-br from-rose-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-rose-300/60">
+              <div className="bg-gradient-to-br from-rose-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <CreditCard className="h-4 w-4 text-rose-600" />
               </div>
             </CardHeader>
@@ -472,7 +472,7 @@ export default function ShopDashboardPage() {
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 pt-2">
             {/* Total Customers */}
             <Link href="/dashboard/customers">
-              <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-primary/5 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40 cursor-pointer hover:border-indigo-300/80 group">
+              <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-card backdrop-blur-xl border border-border cursor-pointer hover:border-border group">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
                   <div className="w-4 h-4 text-indigo-600 group-hover:translate-x-1 transition-transform duration-300">
@@ -492,7 +492,7 @@ export default function ShopDashboardPage() {
             </Link>
 
             {/* Repeat Customers */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-gradient-to-br from-pink-50/60 to-rose-50/40 backdrop-blur-xl border border-pink-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
               </CardHeader>
@@ -509,7 +509,7 @@ export default function ShopDashboardPage() {
             </Card>
 
             {/* New This Month */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">New This Month</CardTitle>
               </CardHeader>
@@ -522,7 +522,7 @@ export default function ShopDashboardPage() {
             </Card>
 
             {/* Average LTV */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-card backdrop-blur-xl border border-primary/20">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Avg. LTV</CardTitle>
               </CardHeader>
@@ -535,7 +535,7 @@ export default function ShopDashboardPage() {
             </Card>
 
             {/* Customer Revenue */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-orange-500 bg-gradient-to-br from-orange-50/60 to-amber-50/40 backdrop-blur-xl border border-orange-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-orange-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Customer Revenue</CardTitle>
               </CardHeader>
@@ -552,7 +552,7 @@ export default function ShopDashboardPage() {
         {balance > 0 && !showWithdrawalForm && (
           <>
             {withdrawals.some(w => w.status === "pending" || w.status === "processing") ? (
-              <div className="w-full p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="w-full p-4 bg-yellow-50 border border-border rounded-lg">
                 <p className="text-yellow-800 text-sm font-medium">
                   {withdrawals.some(w => w.status === "processing")
                     ? "⏳ Your withdrawal is being transferred. It will complete automatically."
@@ -572,7 +572,7 @@ export default function ShopDashboardPage() {
 
         {/* Withdrawal Form */}
         {showWithdrawalForm && (
-          <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+          <Card className="bg-card backdrop-blur-xl border border-border">
             <CardHeader>
               <CardTitle>Request Withdrawal</CardTitle>
               <CardDescription>Withdraw your available profits</CardDescription>
@@ -654,7 +654,7 @@ export default function ShopDashboardPage() {
                         variant="outline"
                         disabled={!withdrawalForm.phone || isFetchingName}
                         onClick={() => handleValidateAccount(withdrawalForm.phone, withdrawalForm.network)}
-                        className="shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
+                        className="shrink-0 border-border text-violet-600 hover:bg-violet-50"
                       >
                         {isFetchingName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                       </Button>
@@ -730,7 +730,7 @@ export default function ShopDashboardPage() {
                         variant="outline"
                         disabled={!withdrawalForm.accountNumber || !withdrawalForm.bankSublistId || isFetchingBankName}
                         onClick={handleValidateBankAccount}
-                        className="shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
+                        className="shrink-0 border-border text-violet-600 hover:bg-violet-50"
                       >
                         {isFetchingBankName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                       </Button>
@@ -753,7 +753,7 @@ export default function ShopDashboardPage() {
               )}
 
               {withdrawalForm.amount && parseFloat(withdrawalForm.amount) > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                <div className="bg-amber-50 border border-border rounded-lg p-3 space-y-2">
                   <h4 className="font-semibold text-sm text-amber-900">Withdrawal Breakdown</h4>
                   <div className="text-sm space-y-1">
                     <div className="flex justify-between">
@@ -766,7 +766,7 @@ export default function ShopDashboardPage() {
                           <span className="text-amber-700">Withdrawal fee ({withdrawalFeePercentage}%):</span>
                           <span className="font-medium text-orange-600">-GHS {(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100).toFixed(2)}</span>
                         </div>
-                        <div className="border-t border-amber-200 pt-1 flex justify-between">
+                        <div className="border-t border-border pt-1 flex justify-between">
                           <span className="text-amber-900 font-semibold">You will receive:</span>
                           <span className="font-bold text-green-600">GHS {(parseFloat(withdrawalForm.amount) - (parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100)).toFixed(2)}</span>
                         </div>
@@ -776,7 +776,7 @@ export default function ShopDashboardPage() {
                 </div>
               )}
 
-              <Alert className="border-blue-300 bg-primary/5">
+              <Alert className="border-border bg-primary/5">
                 <AlertCircle className="h-4 w-4 text-primary" />
                 <AlertDescription className="text-xs text-primary">
                   Withdrawal requests are processed within 1-2 business days after approval.
@@ -826,7 +826,7 @@ export default function ShopDashboardPage() {
 
           {/* Orders Tab */}
           <TabsContent value="orders">
-            <Card className="bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40">
+            <Card className="bg-card backdrop-blur-xl border border-border">
               <CardHeader>
                 <CardTitle>Recent Orders</CardTitle>
                 <CardDescription>Orders from your shop customers</CardDescription>
@@ -839,7 +839,7 @@ export default function ShopDashboardPage() {
                     {orders.map((order) => (
                       <div
                         key={order.id}
-                        className="flex items-center justify-between p-3 bg-card/50 border border-cyan-200/40 rounded-lg hover:bg-card/70"
+                        className="flex items-center justify-between p-3 bg-card/50 border border-border rounded-lg hover:bg-card/70"
                       >
                         <div className="flex-1">
                           <p className="font-semibold">{order.customer_name}</p>
@@ -868,7 +868,7 @@ export default function ShopDashboardPage() {
 
           {/* Profit History Tab */}
           <TabsContent value="profits">
-            <Card className="bg-gradient-to-br from-amber-50/60 to-yellow-50/40 backdrop-blur-xl border border-amber-200/40">
+            <Card className="bg-card backdrop-blur-xl border border-border">
               <CardHeader>
                 <CardTitle>Profit History</CardTitle>
                 <CardDescription>Detailed breakdown of your profits by transaction</CardDescription>
@@ -883,7 +883,7 @@ export default function ShopDashboardPage() {
                       return (
                       <div
                         key={profit.id}
-                        className="flex items-center justify-between p-3 bg-card/50 border border-amber-200/40 rounded-lg hover:bg-card/70"
+                        className="flex items-center justify-between p-3 bg-card/50 border border-border rounded-lg hover:bg-card/70"
                       >
                         <div className="flex-1">
                           <p className="font-semibold">GHS {(profitAmount || 0).toFixed(2)}</p>
@@ -906,7 +906,7 @@ export default function ShopDashboardPage() {
 
           {/* Withdrawals Tab */}
           <TabsContent value="withdrawals">
-            <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+            <Card className="bg-card backdrop-blur-xl border border-border">
               <CardHeader>
                 <CardTitle>Withdrawal History</CardTitle>
                 <CardDescription>Your withdrawal requests and status</CardDescription>
@@ -919,7 +919,7 @@ export default function ShopDashboardPage() {
                     {withdrawals.map((withdrawal) => (
                       <div
                         key={withdrawal.id}
-                        className="flex items-center justify-between p-3 bg-card/50 border border-emerald-200/40 rounded-lg"
+                        className="flex items-center justify-between p-3 bg-card/50 border border-border rounded-lg"
                       >
                         <div className="flex-1">
                           <p className="font-semibold">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
@@ -954,7 +954,7 @@ export default function ShopDashboardPage() {
             <div className="space-y-6">
               {/* Stats Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
-                <Card className="bg-gradient-to-br from-primary/5 to-cyan-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">Total Orders</CardTitle>
                   </CardHeader>
@@ -963,7 +963,7 @@ export default function ShopDashboardPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">Completed</CardTitle>
                   </CardHeader>
@@ -972,7 +972,7 @@ export default function ShopDashboardPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-yellow-50/60 to-orange-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">Pending</CardTitle>
                   </CardHeader>
@@ -981,7 +981,7 @@ export default function ShopDashboardPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-red-50/60 to-pink-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">Failed</CardTitle>
                   </CardHeader>
@@ -990,7 +990,7 @@ export default function ShopDashboardPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-purple-50/60 to-violet-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle>
                   </CardHeader>
@@ -1001,7 +1001,7 @@ export default function ShopDashboardPage() {
               </div>
 
               {/* Orders Table */}
-              <Card className="bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40">
+              <Card className="bg-card backdrop-blur-xl border border-border">
                 <CardHeader>
                   <CardTitle>Recent Orders</CardTitle>
                   <CardDescription>
@@ -1019,12 +1019,12 @@ export default function ShopDashboardPage() {
                         placeholder="Search orders by customer phone number..."
                         value={searchPhoneNumber}
                         onChange={(e) => setSearchPhoneNumber(e.target.value)}
-                        className="bg-card/50 border-cyan-200/40"
+                        className="bg-card/50 border-border"
                       />
                     </div>
                   )}
                   {orders.length === 0 ? (
-                    <Alert className="border-blue-300 bg-primary/5">
+                    <Alert className="border-border bg-primary/5">
                       <AlertCircle className="h-4 w-4 text-primary" />
                       <AlertDescription className="text-primary">
                         Order analytics and management will show here once your first customer makes a purchase.
@@ -1033,7 +1033,7 @@ export default function ShopDashboardPage() {
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
-                        <thead className="border-b border-cyan-200/40">
+                        <thead className="border-b border-border">
                           <tr>
                             <th className="text-left py-3 px-4 font-semibold text-foreground">Order ID</th>
                             <th className="text-left py-3 px-4 font-semibold text-foreground">Customer</th>

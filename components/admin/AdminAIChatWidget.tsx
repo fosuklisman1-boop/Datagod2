@@ -233,7 +233,7 @@ export function AdminAIChatWidget() {
   }
 
   function buttonClass(style?: string) {
-    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-600 bg-gray-800 text-gray-100 hover:bg-gray-700 transition-colors"
   }
@@ -371,7 +371,7 @@ export function AdminAIChatWidget() {
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative flex items-center gap-2 bg-amber-600 border border-amber-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:bg-amber-500 hover:border-amber-300 transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-amber-600 border border-amber-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:bg-amber-500 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open admin AI assistant"
         >
           {isOpen

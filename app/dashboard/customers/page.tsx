@@ -177,7 +177,7 @@ export default function CustomersPage() {
         {/* Stats Cards */}
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {/* Total Customers */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-card backdrop-blur-xl border border-primary/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
               <Users className="h-4 w-4 text-primary" />
@@ -191,7 +191,7 @@ export default function CustomersPage() {
           </Card>
 
           {/* Repeat Customers */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-gradient-to-br from-purple-50/60 to-pink-50/40 backdrop-blur-xl border border-purple-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
               <TrendingUp className="h-4 w-4 text-purple-600" />
@@ -209,7 +209,7 @@ export default function CustomersPage() {
           </Card>
 
           {/* Avg Spend */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Avg Spend</CardTitle>
               <DollarSign className="h-4 w-4 text-emerald-600" />
@@ -339,7 +339,7 @@ export default function CustomersPage() {
                             </td>
                             <td className="px-4 py-3 text-center">
                               {customer.repeat_customer ? (
-                                <Badge className="bg-green-100 text-green-800 border-green-200">Repeat</Badge>
+                                <Badge className="bg-green-100 text-green-800 border-border">Repeat</Badge>
                               ) : (
                                 <Badge className="bg-primary/10 text-primary border-primary/20">New</Badge>
                               )}
@@ -484,10 +484,10 @@ export default function CustomersPage() {
                                   <Badge
                                     className={
                                       order.order_status === "completed"
-                                        ? "bg-green-100 text-green-800 border-green-200"
+                                        ? "bg-green-100 text-green-800 border-border"
                                         : order.order_status === "failed"
-                                          ? "bg-red-100 text-red-800 border-red-200"
-                                          : "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                          ? "bg-red-100 text-red-800 border-border"
+                                          : "bg-yellow-100 text-yellow-800 border-border"
                                     }
                                   >
                                     {order.order_status}

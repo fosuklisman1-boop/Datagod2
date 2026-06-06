@@ -160,7 +160,7 @@ export default function AdminSubscribersPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <Card className="bg-gradient-to-br from-amber-50 to-orange-50 border-amber-100">
+                    <Card className="bg-card border-border">
                         <CardHeader className="flex flex-row items-center justify-between pb-2">
                             <CardTitle className="text-sm font-medium text-amber-900">Active Dealers</CardTitle>
                             <Crown className="h-4 w-4 text-amber-600" />
@@ -180,7 +180,7 @@ export default function AdminSubscribersPage() {
                             <p className="text-xs text-muted-foreground mt-1 text-red-500">Accounts reverted to 'user'</p>
                         </CardContent>
                     </Card>
-                    <Card className="bg-gradient-to-br from-primary/5 to-primary/5 border-primary/20">
+                    <Card className="bg-card border-primary/20">
                         <CardHeader className="flex flex-row items-center justify-between pb-2">
                             <CardTitle className="text-sm font-medium text-blue-900">Total Subscription Revenue</CardTitle>
                             <ArrowUpDown className="h-4 w-4 text-primary" />
@@ -276,8 +276,8 @@ export default function AdminSubscribersPage() {
                                                             <Badge
                                                                 className={
                                                                     sub.status === "active"
-                                                                        ? "bg-green-100 text-green-700 hover:bg-green-100 border-green-200 w-fit"
-                                                                        : "bg-red-100 text-red-700 hover:bg-red-100 border-red-200 w-fit"
+                                                                        ? "bg-green-100 text-green-700 hover:bg-green-100 border-border w-fit"
+                                                                        : "bg-red-100 text-red-700 hover:bg-red-100 border-border w-fit"
                                                                 }
                                                             >
                                                                 {sub.status.toUpperCase()}

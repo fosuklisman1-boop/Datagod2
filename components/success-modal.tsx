@@ -88,7 +88,7 @@ export function SuccessModal({
           {actionLabel && onAction && (
             <Button
               onClick={onAction}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
+              className="w-full bg-card0 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
             >
               {actionLabel}
             </Button>

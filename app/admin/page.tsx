@@ -142,7 +142,7 @@ export default function AdminDashboardPage() {
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
             {/* Total Users */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-card backdrop-blur-xl border border-primary/20">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Users</CardTitle>
                 <Users className="h-4 w-4 text-primary" />
@@ -154,7 +154,7 @@ export default function AdminDashboardPage() {
             </Card>
 
             {/* Total Shops */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Shops</CardTitle>
                 <Store className="h-4 w-4 text-emerald-600" />
@@ -166,7 +166,7 @@ export default function AdminDashboardPage() {
             </Card>
 
             {/* Total Sub-Agents */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-gradient-to-br from-purple-50/60 to-fuchsia-50/40 backdrop-blur-xl border border-purple-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Sub-Agents</CardTitle>
                 <Users className="h-4 w-4 text-purple-600" />
@@ -178,7 +178,7 @@ export default function AdminDashboardPage() {
             </Card>
 
             {/* Total Orders */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/60 to-orange-50/40 backdrop-blur-xl border border-amber-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Orders</CardTitle>
                 <Package className="h-4 w-4 text-amber-600" />
@@ -190,7 +190,7 @@ export default function AdminDashboardPage() {
             </Card>
 
             {/* Total Revenue */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Revenue</CardTitle>
                 <TrendingUp className="h-4 w-4 text-violet-600" />
@@ -207,7 +207,7 @@ export default function AdminDashboardPage() {
         {stats && (
           <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:gap-4">
             {/* Total Wallet Balance */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Users Wallet Balance</CardTitle>
                 <Wallet className="h-4 w-4 text-green-600" />
@@ -219,7 +219,7 @@ export default function AdminDashboardPage() {
             </Card>
 
             {/* Total Profit Balance */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-gradient-to-br from-pink-50/60 to-rose-50/40 backdrop-blur-xl border border-pink-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Users Profit Balance</CardTitle>
                 <TrendingUp className="h-4 w-4 text-pink-600" />
@@ -234,7 +234,7 @@ export default function AdminDashboardPage() {
 
         {/* Pending Approvals Alert */}
         {stats && stats.pendingShops > 0 && (
-          <Card className="border-l-4 border-l-orange-500 bg-gradient-to-br from-orange-50/60 to-red-50/40 backdrop-blur-xl border border-orange-200/40">
+          <Card className="border-l-4 border-l-orange-500 bg-card backdrop-blur-xl border border-border">
             <CardContent className="pt-6 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <AlertCircle className="h-6 w-6 text-orange-600" />
@@ -264,10 +264,10 @@ export default function AdminDashboardPage() {
         {/* Management Sections */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
           {/* Package Management */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20 hover:border-blue-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-primary/20 hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-blue-400/30 to-cyan-400/20 backdrop-blur p-2 rounded-lg border border-blue-300/60">
+                <div className="bg-gradient-to-br from-blue-400/30 to-cyan-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Package className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Manage Packages</CardTitle>
@@ -293,10 +293,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* User Management */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40 hover:border-emerald-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-emerald-300/60">
+                <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Users className="h-5 w-5 text-emerald-600" />
                 </div>
                 <CardTitle>Manage Users</CardTitle>
@@ -322,10 +322,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Order Management */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-orange-50/60 to-amber-50/40 backdrop-blur-xl border border-orange-200/40 hover:border-orange-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-orange-400/30 to-amber-400/20 backdrop-blur p-2 rounded-lg border border-orange-300/60">
+                <div className="bg-gradient-to-br from-orange-400/30 to-amber-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Download className="h-5 w-5 text-orange-600" />
                 </div>
                 <CardTitle>Order Management</CardTitle>
@@ -351,10 +351,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Order Payment Status */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-indigo-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-indigo-300/60">
+                <div className="bg-gradient-to-br from-indigo-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Search className="h-5 w-5 text-indigo-600" />
                 </div>
                 <CardTitle>Order Payment Status</CardTitle>
@@ -380,10 +380,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Shop Approvals */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40 hover:border-violet-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-violet-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-violet-300/60">
+                <div className="bg-gradient-to-br from-violet-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Store className="h-5 w-5 text-violet-600" />
                 </div>
                 <CardTitle>Shop Approvals</CardTitle>
@@ -409,10 +409,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Withdrawal Approvals */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-amber-50/60 to-yellow-50/40 backdrop-blur-xl border border-amber-200/40 hover:border-amber-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-amber-400/30 to-yellow-400/20 backdrop-blur p-2 rounded-lg border border-amber-300/60">
+                <div className="bg-gradient-to-br from-amber-400/30 to-yellow-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Wallet className="h-5 w-5 text-amber-600" />
                 </div>
                 <CardTitle>Withdrawal Approvals</CardTitle>
@@ -438,10 +438,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Profits History */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-lime-50/60 to-green-50/40 backdrop-blur-xl border border-lime-200/40 hover:border-lime-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-lime-400/30 to-green-400/20 backdrop-blur p-2 rounded-lg border border-lime-300/60">
+                <div className="bg-gradient-to-br from-lime-400/30 to-green-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Banknote className="h-5 w-5 text-lime-600" />
                 </div>
                 <CardTitle>Profits History</CardTitle>
@@ -467,10 +467,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Order History */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-primary/5 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-indigo-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-indigo-300/60">
+                <div className="bg-gradient-to-br from-indigo-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <TrendingUp className="h-5 w-5 text-indigo-600" />
                 </div>
                 <CardTitle>Order History</CardTitle>
@@ -496,10 +496,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Sub-Agent Profits */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-fuchsia-50/60 to-purple-50/40 backdrop-blur-xl border border-fuchsia-200/40 hover:border-fuchsia-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-fuchsia-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-fuchsia-300/60">
+                <div className="bg-gradient-to-br from-fuchsia-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <TrendingUp className="h-5 w-5 text-fuchsia-600" />
                 </div>
                 <CardTitle>Sub-Agent Profits</CardTitle>
@@ -525,10 +525,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Dealer Subscriptions Management */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-amber-50/60 to-orange-50/40 backdrop-blur-xl border border-amber-200/40 hover:border-amber-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-amber-300/60">
+                <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Crown className="h-5 w-5 text-amber-600" />
                 </div>
                 <CardTitle>Dealer Subscriptions</CardTitle>
@@ -554,10 +554,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Complaints Management */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-red-50/60 to-pink-50/40 backdrop-blur-xl border border-red-200/40 hover:border-red-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-red-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-red-300/60">
+                <div className="bg-gradient-to-br from-red-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <MessageSquare className="h-5 w-5 text-red-600" />
                 </div>
                 <CardTitle>Customer Complaints</CardTitle>
@@ -583,10 +583,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* AFA Management */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-cyan-300/60">
+                <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Settings className="h-5 w-5 text-cyan-600" />
                 </div>
                 <CardTitle>AFA Management</CardTitle>
@@ -612,10 +612,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Broadcast Messaging */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-pink-50/60 to-rose-50/40 backdrop-blur-xl border border-pink-200/40 hover:border-pink-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-pink-400/30 to-rose-400/20 backdrop-blur p-2 rounded-lg border border-pink-300/60">
+                <div className="bg-gradient-to-br from-pink-400/30 to-rose-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Send className="h-5 w-5 text-pink-600" />
                 </div>
                 <CardTitle>Broadcast Messaging</CardTitle>
@@ -641,10 +641,10 @@ export default function AdminDashboardPage() {
           </Card>
 
           {/* Airtime Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-gradient-to-br from-orange-50/60 to-yellow-50/40 backdrop-blur-xl border border-orange-200/40 hover:border-orange-300/60">
+          <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-orange-400/30 to-yellow-400/20 backdrop-blur p-2 rounded-lg border border-orange-300/60">
+                <div className="bg-gradient-to-br from-orange-400/30 to-yellow-400/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Banknote className="h-5 w-5 text-orange-600" />
                 </div>
                 <CardTitle>Airtime Orders</CardTitle>
@@ -673,7 +673,7 @@ export default function AdminDashboardPage() {
 
         {/* Success Metrics */}
         {stats && (
-          <Card className="bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur-xl border border-indigo-200/40 hover:border-indigo-300/60 hover:shadow-2xl transition-all duration-300">
+          <Card className="bg-card backdrop-blur-xl border border-border hover:border-border hover:shadow-2xl transition-all duration-300">
             <CardHeader>
               <CardTitle>Platform Metrics</CardTitle>
             </CardHeader>

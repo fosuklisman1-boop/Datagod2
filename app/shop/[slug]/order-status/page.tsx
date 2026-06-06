@@ -149,14 +149,14 @@ export default function OrderStatusPage() {
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "completed":
-        return "bg-green-100 text-green-800 border-green-200"
+        return "bg-green-100 text-green-800 border-border"
       case "processing":
         return "bg-primary/10 text-primary border-primary/20"
       case "pending":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200"
+        return "bg-yellow-100 text-yellow-800 border-border"
       case "failed":
       case "cancelled":
-        return "bg-red-100 text-red-800 border-red-200"
+        return "bg-red-100 text-red-800 border-border"
       default:
         return "bg-muted text-foreground border-border"
     }
@@ -181,11 +181,11 @@ export default function OrderStatusPage() {
   const getPaymentStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "completed":
-        return "bg-green-50 border-green-200"
+        return "bg-green-50 border-border"
       case "pending":
-        return "bg-yellow-50 border-yellow-200"
+        return "bg-yellow-50 border-border"
       case "failed":
-        return "bg-red-50 border-red-200"
+        return "bg-red-50 border-border"
       default:
         return "bg-muted/40 border-border"
     }
@@ -241,7 +241,7 @@ export default function OrderStatusPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary/5 via-white to-purple-50 flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 flex flex-col items-center gap-4">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -254,8 +254,8 @@ export default function OrderStatusPage() {
 
   if (error && !shop) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary/5 via-white to-purple-50 flex items-center justify-center">
-        <Card className="w-full max-w-md border-red-200">
+      <div className="min-h-screen bg-card flex items-center justify-center">
+        <Card className="w-full max-w-md border-border">
           <CardContent className="pt-6">
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
@@ -268,7 +268,7 @@ export default function OrderStatusPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-white to-purple-50">
+    <div className="min-h-screen bg-card">
       {/* Header */}
       <div className="bg-card border-b border-border sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">

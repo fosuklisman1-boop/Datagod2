@@ -140,7 +140,7 @@ export default function SubAgentProfitsPage() {
 
                 {/* Stats Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <Card className="bg-gradient-to-br from-violet-50 to-purple-50 border-violet-200">
+                    <Card className="bg-card border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 bg-violet-100 rounded-lg">
@@ -154,7 +154,7 @@ export default function SubAgentProfitsPage() {
                         </CardContent>
                     </Card>
 
-                    <Card className="bg-gradient-to-br from-primary/5 to-cyan-50 border-primary/20">
+                    <Card className="bg-card border-primary/20">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 bg-primary/10 rounded-lg">
@@ -168,7 +168,7 @@ export default function SubAgentProfitsPage() {
                         </CardContent>
                     </Card>
 
-                    <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200">
+                    <Card className="bg-card border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 bg-green-100 rounded-lg">
@@ -182,7 +182,7 @@ export default function SubAgentProfitsPage() {
                         </CardContent>
                     </Card>
 
-                    <Card className="bg-gradient-to-br from-orange-50 to-amber-50 border-orange-200">
+                    <Card className="bg-card border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 bg-orange-100 rounded-lg">
@@ -313,7 +313,7 @@ export default function SubAgentProfitsPage() {
                                                             </p>
                                                         </div>
                                                         {subAgent.is_active ? (
-                                                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                                            <Badge variant="outline" className="bg-green-50 text-green-700 border-border">
                                                                 Active
                                                             </Badge>
                                                         ) : (

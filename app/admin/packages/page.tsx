@@ -204,7 +204,7 @@ export default function AdminPackagesPage() {
 
         {/* Add/Edit Form */}
         {showForm && (
-          <Card className="border-2 border-blue-300/50 bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl">
+          <Card className="border-2 border-border bg-card backdrop-blur-xl">
             <CardHeader>
               <CardTitle>{editingId ? "Edit Package" : "Add New Package"}</CardTitle>
             </CardHeader>
@@ -308,14 +308,14 @@ export default function AdminPackagesPage() {
         )}
 
         {/* Packages Table */}
-        <Card className="bg-gradient-to-br from-primary/5 to-cyan-50/40 backdrop-blur-xl border border-primary/20">
+        <Card className="bg-card backdrop-blur-xl border border-primary/20">
           <CardHeader>
             <CardTitle>All Packages ({formatCount(packages.length)})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gradient-to-r from-primary/10 to-cyan-100/60 backdrop-blur border-b border-primary/20">
+                <thead className="bg-card backdrop-blur border-b border-primary/20">
                   <tr>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Network</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Size</th>

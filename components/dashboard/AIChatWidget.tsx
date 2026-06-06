@@ -236,9 +236,9 @@ export function DashboardAIChatWidget() {
   }
 
   function buttonClass(style?: string) {
-    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
-    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
+    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
   }
 
   return (
@@ -362,7 +362,7 @@ export function DashboardAIChatWidget() {
 
       {!isOpen && (
         <div className={`transition-opacity duration-300 ${hintVisible ? "opacity-100" : "opacity-0"}`}>
-          <div className="bg-card/95 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg border border-violet-100">
+          <div className="bg-card/95 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg border border-border">
             <p className="text-xs font-semibold text-violet-600 whitespace-nowrap">{hints[hintIndex]}</p>
           </div>
         </div>
@@ -374,7 +374,7 @@ export function DashboardAIChatWidget() {
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative flex items-center gap-2 bg-indigo-700 border border-indigo-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:bg-indigo-600 hover:border-indigo-300 transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-indigo-700 border border-indigo-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:bg-indigo-600 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open AI assistant"
         >
           {isOpen

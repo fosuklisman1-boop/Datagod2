@@ -395,7 +395,7 @@ export default function AddToCatalogPage() {
                       <div
                         key={pkg.id}
                         className={`p-4 rounded-lg border transition-colors ${inCatalog
-                          ? "bg-green-50 border-green-200"
+                          ? "bg-green-50 border-border"
                           : "bg-card border-border hover:border-border"
                           }`}
                       >

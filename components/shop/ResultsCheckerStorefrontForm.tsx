@@ -365,7 +365,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         <div className="flex justify-end">
           <button
             onClick={() => triggerExcelDownload(vouchers, selectedBoard ?? "", orderRef)}
-            className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium border border-violet-200 hover:border-violet-300 rounded-full px-2.5 py-1 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium border border-border hover:border-border rounded-full px-2.5 py-1 transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
             Download receipt
@@ -485,12 +485,12 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           </div>
 
           {/* Price summary */}
-          <div className="bg-violet-50 rounded-xl p-4 space-y-2 text-sm border border-violet-100">
+          <div className="bg-violet-50 rounded-xl p-4 space-y-2 text-sm border border-border">
             <div className="flex justify-between text-muted-foreground">
               <span>{selectedBoard} voucher × {quantity}</span>
               <span>GHS {(boardInfo[selectedBoard]?.customerPrice ?? 0).toFixed(2)} × {quantity}</span>
             </div>
-            <div className="flex justify-between font-bold text-foreground text-lg border-t border-violet-200 pt-2">
+            <div className="flex justify-between font-bold text-foreground text-lg border-t border-border pt-2">
               <span>Total</span>
               <span>GHS {totalPrice.toFixed(2)}</span>
             </div>
@@ -502,7 +502,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
               on — both need the on-page MoMo number. OTP controls render only when
               OTP is required; with direct charge alone the number is charged as typed. */}
           {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-xl bg-purple-50 border border-purple-200 space-y-3">
+            <div className="p-4 rounded-xl bg-purple-50 border border-border space-y-3">
               <div>
                 <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from</Label>
                 <Input
@@ -541,7 +541,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   </div>
                 )
               ) : (
-                <div className="p-3 rounded-xl bg-green-50 border border-green-200 flex items-center gap-2">
+                <div className="p-3 rounded-xl bg-green-50 border border-border flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-green-600" />
                   <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                 </div>

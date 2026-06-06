@@ -728,10 +728,10 @@ export default function AdminOrdersPage() {
 
   const getNetworkColor = (network: string) => {
     const colors: { [key: string]: string } = {
-      "MTN": "bg-orange-100 text-orange-800 border-orange-200",
-      "Telecel": "bg-red-100 text-red-800 border-red-200",
-      "AT - iShare": "bg-indigo-100 text-indigo-800 border-indigo-200",
-      "AT - BigTime": "bg-purple-100 text-purple-800 border-purple-200",
+      "MTN": "bg-orange-100 text-orange-800 border-border",
+      "Telecel": "bg-red-100 text-red-800 border-border",
+      "AT - iShare": "bg-indigo-100 text-indigo-800 border-border",
+      "AT - BigTime": "bg-purple-100 text-purple-800 border-border",
     }
     return colors[network] || "bg-muted text-foreground border-border"
   }
@@ -914,9 +914,9 @@ export default function AdminOrdersPage() {
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold break-all max-w-[120px]">{order.id}</td>
                               <td className="px-2 sm:px-4 py-3">
                                 <Badge variant="outline" className={`text-xs capitalize ${
-                                  order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                                  order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                                  'bg-amber-50 text-amber-700 border-amber-200'
+                                  order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-border' :
+                                  order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-border' :
+                                  'bg-amber-50 text-amber-700 border-border'
                                 }`}>
                                   {order.type || 'Shop'}
                                 </Badge>
@@ -1087,7 +1087,7 @@ export default function AdminOrdersPage() {
                 </Card>
 
                 {/* Bulk Delete by Date Range */}
-                <Card className="border-red-200 bg-red-50">
+                <Card className="border-border bg-red-50">
                   <CardContent className="pt-4 pb-4">
                     <div className="flex flex-col sm:flex-row gap-2 items-end">
                       <div className="flex-1">
@@ -1147,7 +1147,7 @@ export default function AdminOrdersPage() {
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                           <div>
                             <CardTitle className="flex items-center gap-2">
-                              <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <Badge className="bg-emerald-100 text-emerald-800 border border-border">
                                 {batch.network}
                               </Badge>
                               <span className="text-muted-foreground">Batch</span>
@@ -1210,9 +1210,9 @@ export default function AdminOrdersPage() {
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
                                   <td className="px-2 sm:px-4 py-3">
                                     <Badge variant="outline" className={`text-xs capitalize ${
-                                       order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                                       order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                                       'bg-amber-50 text-amber-700 border-amber-200'
+                                       order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-border' :
+                                       order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-border' :
+                                       'bg-amber-50 text-amber-700 border-border'
                                      }`}>
                                        {order.type || 'Shop'}
                                      </Badge>
@@ -1226,11 +1226,11 @@ export default function AdminOrdersPage() {
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs">{order.phone_number}</td>
                                   <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">₵ {(order.price || 0).toFixed(2)}</td>
                                   <td className="px-2 sm:px-4 py-3 text-center">
-                                    <Badge className={`border text-xs ${order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
-                                      order.status === "failed" ? "bg-red-100 text-red-800 border-red-200" :
+                                    <Badge className={`border text-xs ${order.status === "completed" ? "bg-green-100 text-green-800 border-border" :
+                                      order.status === "failed" ? "bg-red-100 text-red-800 border-border" :
                                         order.status === "processing" ? "bg-primary/10 text-primary border-primary/20" :
                                           order.status ? "bg-muted text-foreground border-border" :
-                                            "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                            "bg-yellow-100 text-yellow-800 border-border"
                                       }`}>
                                       {order.status ? (order.status.charAt(0).toUpperCase() + order.status.slice(1)) : "Unknown"}
                                     </Badge>
@@ -1292,13 +1292,13 @@ export default function AdminOrdersPage() {
                   {/* Affected Networks */}
                   <div className="flex flex-wrap gap-2">
                     <span className="text-sm text-muted-foreground">Affected networks:</span>
-                    <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200">AT - iShare</Badge>
-                    <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
-                    <Badge className="bg-purple-100 text-purple-800 border border-purple-200">AT - BigTime</Badge>
+                    <Badge className="bg-indigo-100 text-indigo-800 border border-border">AT - iShare</Badge>
+                    <Badge className="bg-red-100 text-red-800 border border-border">Telecel</Badge>
+                    <Badge className="bg-purple-100 text-purple-800 border border-border">AT - BigTime</Badge>
                   </div>
 
                   {/* Status Description */}
-                  <Alert className={autoFulfillmentEnabled ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'}>
+                  <Alert className={autoFulfillmentEnabled ? 'border-border bg-green-50' : 'border-border bg-orange-50'}>
                     <AlertCircle className={`h-4 w-4 ${autoFulfillmentEnabled ? 'text-green-600' : 'text-orange-600'}`} />
                     <AlertDescription className={autoFulfillmentEnabled ? 'text-green-800' : 'text-orange-800'}>
                       {autoFulfillmentEnabled ? (
@@ -1337,7 +1337,7 @@ export default function AdminOrdersPage() {
                     </p>
                     <div className="flex flex-wrap gap-3 justify-center">
                       <a href="/dashboard/admin/fulfillment" target="_blank" rel="noopener noreferrer">
-                        <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white">
+                        <Button className="bg-card0 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white">
                           <Zap className="h-4 w-4 mr-2" />
                           Open Fulfillment Dashboard
                         </Button>
@@ -1370,7 +1370,7 @@ export default function AdminOrdersPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
-                      <Badge className="bg-orange-100 text-orange-800 border border-orange-200">
+                      <Badge className="bg-orange-100 text-orange-800 border border-border">
                         MTN & Codecraft
                       </Badge>
                       Pending Manual Fulfillment
@@ -1388,7 +1388,7 @@ export default function AdminOrdersPage() {
                         size="sm"
                         onClick={handleBulkManualFulfill}
                         disabled={loadingMTNOrders}
-                        className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold"
+                        className="bg-card0 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold"
                       >
                         {loadingMTNOrders ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1429,9 +1429,9 @@ export default function AdminOrdersPage() {
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge variant="outline" className={`text-xs capitalize ${
-                               order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                               order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                               'bg-amber-50 text-amber-700 border-amber-200'
+                               order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-border' :
+                               order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-border' :
+                               'bg-amber-50 text-amber-700 border-border'
                              }`}>
                                {order.type || 'Shop'}
                              </Badge>
@@ -1440,13 +1440,13 @@ export default function AdminOrdersPage() {
                             </Badge>
                             <Badge
                               className={`text-xs border ${order.status === "completed"
-                                ? "bg-green-100 text-green-800 border-green-200"
+                                ? "bg-green-100 text-green-800 border-border"
                                 : order.status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                  ? "bg-yellow-100 text-yellow-800 border-border"
                                   : order.status === "processing"
                                     ? "bg-primary/10 text-primary border-primary/20"
                                     : order.status === "failed"
-                                      ? "bg-red-100 text-red-800 border-red-200"
+                                      ? "bg-red-100 text-red-800 border-border"
                                       : "bg-muted text-foreground border-border"
                                 }`}
                             >
@@ -1456,12 +1456,12 @@ export default function AdminOrdersPage() {
                               Created: {new Date(order.created_at).toLocaleString()}
                             </span>
                             {mtnFulfillmentStatus[order.id] === "fulfilled" && (
-                              <Badge className="bg-green-100 text-green-800 border border-green-200">
+                              <Badge className="bg-green-100 text-green-800 border border-border">
                                 Fulfilled
                               </Badge>
                             )}
                             {mtnFulfillmentStatus[order.id] === "error" && (
-                              <Badge className="bg-red-100 text-red-800 border border-red-200">
+                              <Badge className="bg-red-100 text-red-800 border border-border">
                                 Error
                               </Badge>
                             )}

@@ -195,8 +195,8 @@ export function FeeSettings() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
           {/* Airtime Management */}
-          <Card className="border-orange-200 shadow-sm">
-            <CardHeader className="bg-orange-50/50 border-b border-orange-100">
+          <Card className="border-border shadow-sm">
+            <CardHeader className="bg-orange-50/50 border-b border-border">
               <CardTitle className="text-orange-900">Airtime Management</CardTitle>
               <CardDescription className="text-orange-700">Set network-specific fees and operational limits</CardDescription>
             </CardHeader>
@@ -341,7 +341,7 @@ export function FeeSettings() {
                   <input type="checkbox" className="w-4 h-4 rounded text-primary focus:ring-ring" checked={formData.announcement_enabled} onChange={(e) => handleInputChange("announcement_enabled", e.target.checked)} />
                 </div>
                 {formData.announcement_enabled && (
-                  <div className="space-y-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                  <div className="space-y-3 p-3 bg-amber-50 rounded-lg border border-border">
                     <Input placeholder="Title" value={formData.announcement_title} onChange={(e) => handleInputChange("announcement_title", e.target.value)} />
                     <textarea className="w-full text-sm p-3 rounded-md border border-border min-h-[100px]" placeholder="Message..." value={formData.announcement_message} onChange={(e) => handleInputChange("announcement_message", e.target.value)} />
                   </div>
@@ -354,7 +354,7 @@ export function FeeSettings() {
                   <input type="checkbox" className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500" checked={formData.storefront_announcement_enabled} onChange={(e) => handleInputChange("storefront_announcement_enabled", e.target.checked)} />
                 </div>
                 {formData.storefront_announcement_enabled && (
-                  <div className="space-y-3 p-3 bg-purple-50 rounded-lg border border-purple-100">
+                  <div className="space-y-3 p-3 bg-purple-50 rounded-lg border border-border">
                     <Input placeholder="Override Title" value={formData.storefront_announcement_title} onChange={(e) => handleInputChange("storefront_announcement_title", e.target.value)} />
                     <textarea className="w-full text-sm p-3 rounded-md border border-border min-h-[100px]" placeholder="Override Message..." value={formData.storefront_announcement_message} onChange={(e) => handleInputChange("storefront_announcement_message", e.target.value)} />
                   </div>
@@ -366,7 +366,7 @@ export function FeeSettings() {
       </div>
 
       {error && (
-        <div className="flex gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+        <div className="flex gap-3 p-4 bg-red-50 border border-border rounded-xl">
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
           <p className="text-sm text-red-700 font-medium">{error}</p>
         </div>

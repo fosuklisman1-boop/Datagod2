@@ -164,7 +164,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
 
         <div className="space-y-6">
           {/* Order Summary */}
-          <Card className="bg-gradient-to-br from-primary/5 to-cyan-50 border-primary/20">
+          <Card className="bg-card border-primary/20">
             <CardContent className="pt-4">
               <div className="space-y-2 text-sm">
                 <div className="grid grid-cols-2 gap-4">
@@ -229,7 +229,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
 
           {/* Image Uploads */}
           <div className="space-y-4">
-            <Alert className="border-blue-300 bg-primary/5">
+            <Alert className="border-border bg-primary/5">
               <AlertCircle className="h-4 w-4 text-primary" />
               <AlertDescription className="text-primary">
                 Upload screenshots or photos as evidence:
@@ -247,7 +247,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
 
               {balanceImage ? (
                 <div className="space-y-2">
-                  <div className="relative w-full h-40 bg-muted rounded-lg overflow-hidden border border-green-200">
+                  <div className="relative w-full h-40 bg-muted rounded-lg overflow-hidden border border-border">
                     <img
                       src={balanceImage.preview}
                       alt="Data Balance"
@@ -296,7 +296,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
 
               {momoReceiptImage ? (
                 <div className="space-y-2">
-                  <div className="relative w-full h-40 bg-muted rounded-lg overflow-hidden border border-green-200">
+                  <div className="relative w-full h-40 bg-muted rounded-lg overflow-hidden border border-border">
                     <img
                       src={momoReceiptImage.preview}
                       alt="MoMo Receipt"

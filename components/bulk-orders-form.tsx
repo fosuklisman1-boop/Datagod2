@@ -516,7 +516,7 @@ export function BulkOrdersForm() {
   }
 
   return (
-    <Card className="bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur-xl border border-primary/20 hover:border-blue-300/60 hover:shadow-2xl transition-all duration-300">
+    <Card className="bg-card backdrop-blur-xl border border-primary/20 hover:border-border hover:shadow-2xl transition-all duration-300">
       <CardHeader>
         <div className="flex items-center gap-2">
           <Download className="h-5 w-5 text-violet-600" />
@@ -549,14 +549,14 @@ export function BulkOrdersForm() {
           <Button
             variant={activeTab === "text" ? "default" : "outline"}
             onClick={() => setActiveTab("text")}
-            className={activeTab === "text" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-violet-300/40 text-foreground"}
+            className={activeTab === "text" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-border text-foreground"}
           >
             Text Input
           </Button>
           <Button
             variant={activeTab === "excel" ? "default" : "outline"}
             onClick={() => setActiveTab("excel")}
-            className={activeTab === "excel" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-violet-300/40 text-foreground"}
+            className={activeTab === "excel" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-border text-foreground"}
           >
             Excel Upload
           </Button>
@@ -572,7 +572,7 @@ export function BulkOrdersForm() {
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               rows={6}
-              className="font-mono text-sm bg-card/70 backdrop-blur border-violet-300/50 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/50"
+              className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-violet-400 focus:ring-2 focus:ring-violet-500/50"
             />
             <p className="text-xs text-muted-foreground">
               Format: Phone number followed by space and volume in GB
@@ -583,7 +583,7 @@ export function BulkOrdersForm() {
         {/* Excel Upload Tab */}
         {activeTab === "excel" && (
           <div className="space-y-4">
-            <div className="border-2 border-dashed border-violet-300 rounded-lg p-6 text-center hover:border-violet-500 transition-colors cursor-pointer">
+            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-violet-500 transition-colors cursor-pointer">
               <p className="text-muted-foreground mb-2">Click to upload Excel file or drag and drop</p>
               <p className="text-xs text-muted-foreground">CSV or XLSX files only</p>
               <Input
@@ -637,7 +637,7 @@ export function BulkOrdersForm() {
                       setTextInput(validLines)
                     }
                   }}
-                  className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                  className="text-amber-700 border-border hover:bg-amber-50"
                 >
                   🗑️ Clear Invalid
                 </Button>
@@ -648,7 +648,7 @@ export function BulkOrdersForm() {
                     setValidationResults(null)
                     setTextInput("")
                   }}
-                  className="text-rose-700 border-rose-300 hover:bg-rose-50"
+                  className="text-rose-700 border-border hover:bg-rose-50"
                 >
                   ✕ Clear All
                 </Button>
@@ -656,9 +656,9 @@ export function BulkOrdersForm() {
             </div>
 
             {/* Results Table */}
-            <div className="overflow-x-auto border rounded-lg bg-gradient-to-br from-primary/5 to-primary/5 backdrop-blur border-primary/20">
+            <div className="overflow-x-auto border rounded-lg bg-card backdrop-blur border-primary/20">
               <table className="w-full text-sm">
-                <thead className="bg-gradient-to-r from-primary/10 via-indigo-100/60 to-violet-100/60 backdrop-blur border-b border-primary/20">
+                <thead className="bg-card backdrop-blur border-b border-primary/20">
                   <tr>
                     <th className="px-4 py-2 text-left font-semibold text-foreground">#</th>
                     <th className="px-4 py-2 text-left font-semibold text-foreground">Phone Number</th>
@@ -692,8 +692,8 @@ export function BulkOrdersForm() {
                       <td className="px-4 py-2">
                         <span
                           className={`px-2 py-1 rounded text-xs font-semibold ${order.status === "valid"
-                              ? "bg-gradient-to-r from-emerald-100/80 to-teal-100/80 text-emerald-700 border border-emerald-200/60"
-                              : "bg-gradient-to-r from-rose-100/80 to-pink-100/80 text-rose-700 border border-rose-200/60"
+                              ? "bg-card text-emerald-700 border border-border"
+                              : "bg-card text-rose-700 border border-border"
                             }`}
                         >
                           {order.status === "valid" ? "✓ Valid" : "✕ Invalid"}
@@ -707,7 +707,7 @@ export function BulkOrdersForm() {
             </div>
 
             {/* Summary Statistics */}
-            <div className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl p-4 rounded-lg border border-violet-200/40">
+            <div className="bg-card backdrop-blur-xl p-4 rounded-lg border border-border">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">

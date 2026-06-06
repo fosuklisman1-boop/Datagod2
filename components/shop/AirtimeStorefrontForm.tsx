@@ -330,7 +330,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     <>
     <Card className="border-0 shadow-2xl overflow-hidden rounded-2xl w-full max-w-xl mx-auto">
       <div className="h-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600" />
-      <CardHeader className="bg-card border-b border-slate-50">
+      <CardHeader className="bg-card border-b border-border">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
@@ -341,7 +341,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               Secure instant top-up for any network
             </CardDescription>
           </div>
-          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-green-100 text-green-700 border-green-200">
+          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-green-100 text-green-700 border-border">
             <ShieldCheck className="w-3 h-3 mr-1" />
             Verified
           </div>
@@ -369,12 +369,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                       selectedNetwork === net.id
                         ? "border-violet-600 bg-violet-50 ring-4 ring-violet-100 shadow-lg scale-[1.05]"
                         : isAvail 
-                          ? "border-slate-100 bg-slate-50 hover:border-violet-200 hover:bg-slate-100"
-                          : "border-slate-50 bg-slate-50/50 grayscale opacity-60 cursor-not-allowed"
+                          ? "border-border bg-muted/40 hover:border-border hover:bg-muted"
+                          : "border-border bg-muted/40 grayscale opacity-60 cursor-not-allowed"
                     }`}
                   >
                     {!isAvail && (
-                      <div className="absolute top-1 right-1 bg-red-100 text-red-600 text-[8px] font-black px-1 rounded-sm border border-red-200">
+                      <div className="absolute top-1 right-1 bg-red-100 text-red-600 text-[8px] font-black px-1 rounded-sm border border-border">
                         OOS
                       </div>
                     )}
@@ -412,7 +412,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 <Input 
                   id="customerName"
                   placeholder="E.g John Doe"
-                  className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl"
+                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl"
                   value={formData.customerName}
                   onChange={e => setFormData({...formData, customerName: e.target.value})}
                 />
@@ -424,7 +424,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   type="email"
                   required
                   placeholder="john@example.com"
-                  className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl"
+                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl"
                   value={formData.customerEmail}
                   onChange={e => setFormData({...formData, customerEmail: e.target.value})}
                 />
@@ -439,7 +439,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   type="tel"
                   required
                   placeholder="024XXXXXXX"
-                  className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl font-mono text-lg"
+                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl font-mono text-lg"
                   value={formData.beneficiaryPhone}
                   onChange={e => {
                     setFormData({...formData, beneficiaryPhone: e.target.value})
@@ -455,7 +455,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   min="1"
                   required
                   placeholder="10.00"
-                  className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl font-bold text-lg"
+                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl font-bold text-lg"
                   value={formData.amount}
                   onChange={e => setFormData({...formData, amount: e.target.value})}
                 />
@@ -464,7 +464,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           </div>
 
           {/* Fee Toggle */}
-          <div className="p-4 bg-violet-50 rounded-2xl border border-violet-100 flex items-start gap-3 transition-all">
+          <div className="p-4 bg-violet-50 rounded-2xl border border-border flex items-start gap-3 transition-all">
             <input
               id="pay-sep"
               type="checkbox"
@@ -485,12 +485,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           {/* Price Summary */}
           <div className="group relative">
             <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-            <div className="relative p-6 bg-slate-50 rounded-2xl border border-slate-100">
+            <div className="relative p-6 bg-muted/40 rounded-2xl border border-border">
               <div className="flex justify-between items-center mb-1">
                 <span className="text-slate-500 font-semibold">Amount to Send:</span>
                 <span className="text-slate-900 font-bold">GHS {parseFloat(formData.amount || "0").toFixed(2)}</span>
               </div>
-              <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-200">
+              <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
                 <span className="text-slate-500 font-semibold">Recipient Gets:</span>
                 <span className="text-green-600 font-black">
                    GHS {calculateRecipientGets().toFixed(2)}
@@ -514,7 +514,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               on — both need the on-page MoMo number. OTP controls render only when
               OTP is required; with direct charge alone the number is charged as typed. */}
           {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 space-y-3">
+            <div className="p-4 rounded-2xl bg-purple-50 border border-border space-y-3">
               <div className="space-y-2">
                 <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</Label>
                 <Input
@@ -527,7 +527,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                     if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                   }}
                   disabled={otpRequired && otpVerified}
-                  className="bg-card border-purple-200 rounded-xl font-mono"
+                  className="bg-card border-border rounded-xl font-mono"
                 />
                 <p className="text-xs text-purple-700">
                   {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
@@ -554,7 +554,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   </div>
                 )
               ) : (
-                <div className="p-3 rounded-xl bg-green-50 border border-green-200 flex items-center gap-2">
+                <div className="p-3 rounded-xl bg-green-50 border border-border flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-green-600" />
                   <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                 </div>

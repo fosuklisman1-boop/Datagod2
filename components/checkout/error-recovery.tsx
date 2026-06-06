@@ -53,7 +53,7 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
 
       {/* Draft Info */}
       {isDraft && draftInfo && (
-        <Card className="bg-amber-50 border-amber-200">
+        <Card className="bg-amber-50 border-border">
           <CardContent className="pt-4 pb-4">
             <div className="space-y-2">
               <div className="flex items-start gap-2">

@@ -159,7 +159,7 @@ export default function JoinPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-primary/10">
+      <div className="min-h-screen flex items-center justify-center bg-card">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     )
@@ -167,7 +167,7 @@ export default function JoinPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-primary/10 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-card p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -186,7 +186,7 @@ export default function JoinPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-primary/10 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-card p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
@@ -204,7 +204,7 @@ export default function JoinPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 to-primary/10 py-8 px-4">
+    <div className="min-h-screen bg-card py-8 px-4">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center">

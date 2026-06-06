@@ -188,7 +188,7 @@ export default function AdminSubscriptionsPage() {
                 </div>
 
                 {showForm && (
-                    <Card className="mb-8 border-amber-200">
+                    <Card className="mb-8 border-border">
                         <CardHeader>
                             <CardTitle>{editingId ? "Edit Plan" : "New Subscription Plan"}</CardTitle>
                         </CardHeader>
@@ -279,7 +279,7 @@ export default function AdminSubscriptionsPage() {
                         </div>
                     ) : (
                         plans.map(plan => (
-                            <Card key={plan.id} className={plan.is_active ? "border-amber-200" : "opacity-60"}>
+                            <Card key={plan.id} className={plan.is_active ? "border-border" : "opacity-60"}>
                                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                                     <CardTitle className="text-lg font-bold">{plan.name}</CardTitle>
                                     <Badge variant={plan.is_active ? "default" : "secondary"}>

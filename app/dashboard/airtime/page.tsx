@@ -232,7 +232,7 @@ export default function AirtimePage() {
             ))}
           </div>
           {availableNetworks.length === 0 && !loadingOrders && (
-            <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-100 text-center font-medium">
+            <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-border text-center font-medium">
               Airtime services are temporarily unavailable. Please check back later.
             </div>
           )}

@@ -67,7 +67,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
 
         <div className="space-y-6 py-6">
           {/* Current Balance */}
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-6">
+          <div className="bg-card border border-border rounded-lg p-6">
             <p className="text-sm text-muted-foreground mb-2">Current Balance</p>
             <div className="flex items-center gap-3">
               <Wallet className="w-8 h-8 text-green-600" />

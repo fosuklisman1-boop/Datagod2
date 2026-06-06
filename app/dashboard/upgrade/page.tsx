@@ -371,7 +371,7 @@ export default function UpgradePage() {
         <DashboardLayout>
             <div className="p-6 max-w-6xl mx-auto">
                 <div className="text-center mb-12">
-                    <Badge className="mb-4 bg-amber-100 text-amber-700 hover:bg-amber-100 transition-colors py-1 px-4 border-amber-200">
+                    <Badge className="mb-4 bg-amber-100 text-amber-700 hover:bg-amber-100 transition-colors py-1 px-4 border-border">
                         PREMIUM MEMBERSHIP
                     </Badge>
                     <h1 className="text-4xl md:text-5xl font-extrabold mb-4 bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600 bg-clip-text text-transparent">
@@ -383,7 +383,7 @@ export default function UpgradePage() {
                 </div>
 
                 {!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin' && (
-                    <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl text-center">
+                    <div className="mb-8 p-4 bg-red-50 border border-border rounded-xl text-center">
                         <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
                         <h3 className="text-lg font-bold text-red-900">Upgrades Temporarily Disabled</h3>
                         <p className="text-red-700">Account upgrades are currently paused for system maintenance. Please check back later!</p>
@@ -391,7 +391,7 @@ export default function UpgradePage() {
                 )}
 
                 {(currentRole === 'dealer' || currentRole === 'admin') && (
-                    <div className="mb-12 p-6 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="mb-12 p-6 bg-card border border-border rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
                         <div className="flex items-center gap-4">
                             <div className="p-3 bg-amber-500 rounded-full text-white shadow-lg ring-4 ring-amber-100">
                                 <Crown className="w-8 h-8" />
@@ -409,11 +409,11 @@ export default function UpgradePage() {
                         </div>
                         <div className="flex gap-3">
                             {daysLeft !== null && daysLeft <= 7 && (
-                                <Badge className="bg-red-100 text-red-700 border-red-200 py-2 px-4 whitespace-nowrap">
+                                <Badge className="bg-red-100 text-red-700 border-border py-2 px-4 whitespace-nowrap">
                                     EXPIRES SOON
                                 </Badge>
                             )}
-                            <Button variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100" onClick={() => router.push('/dashboard')}>
+                            <Button variant="outline" className="border-border text-amber-700 hover:bg-amber-100" onClick={() => router.push('/dashboard')}>
                                 Go to Dashboard
                             </Button>
                         </div>
@@ -482,7 +482,7 @@ export default function UpgradePage() {
                                 <CardFooter className="pb-8 flex flex-col gap-3">
                                     <Button
                                         variant="outline"
-                                        className="w-full h-10 font-semibold border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400 transition-all"
+                                        className="w-full h-10 font-semibold border-border text-amber-700 hover:bg-amber-50 hover:border-amber-400 transition-all"
                                         onClick={handleViewPriceList}
                                     >
                                         {priceListLoading ? (
@@ -650,7 +650,7 @@ export default function UpgradePage() {
                 <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
                     <DialogContent showCloseButton={false} className="sm:max-w-md overflow-hidden p-0 border-0">
                         {/* Header Gradient */}
-                        <div className="bg-gradient-to-br from-amber-500 via-yellow-400 to-amber-600 px-6 pt-10 pb-8 text-center relative overflow-hidden">
+                        <div className="bg-card0 via-yellow-400 to-amber-600 px-6 pt-10 pb-8 text-center relative overflow-hidden">
                             {/* Decorative circles */}
                             <div className="absolute top-0 left-0 w-32 h-32 bg-card/10 rounded-full -translate-x-1/2 -translate-y-1/2" />
                             <div className="absolute bottom-0 right-0 w-24 h-24 bg-card/10 rounded-full translate-x-1/3 translate-y-1/3" />
@@ -734,7 +734,7 @@ export default function UpgradePage() {
                                         value={paymentPhone}
                                         onChange={(e) => { setPaymentPhone(e.target.value); if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() } }}
                                         disabled={walletOtp && otpVerified}
-                                        className="mt-1 w-full rounded-md border border-purple-200 bg-card px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                        className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
                                     />
                                 </div>
                                 {walletOtp && (!otpVerified ? (
@@ -757,7 +757,7 @@ export default function UpgradePage() {
                                         </div>
                                     )
                                 ) : (
-                                    <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+                                    <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
                                         <ShieldCheck className="w-5 h-5 text-green-600" />
                                         <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                                     </div>
@@ -765,7 +765,7 @@ export default function UpgradePage() {
                                 <Button
                                     onClick={confirmUpgrade}
                                     disabled={(walletOtp && !otpVerified) || (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, ""))) || processingId === upgradeFlow.plan?.id}
-                                    className="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white"
+                                    className="w-full bg-card0 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white"
                                 >
                                     {processingId === upgradeFlow.plan?.id ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting…</>) : `Pay GHS ${Number(upgradeFlow.plan?.price || 0).toFixed(2)}`}
                                 </Button>
@@ -792,7 +792,7 @@ export default function UpgradePage() {
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Welcome to the Dealer Club 🎉</DialogTitle></DialogHeader>
                                 <p className="text-sm text-muted-foreground">Your upgrade is active. Enjoy wholesale pricing and dealer tools.</p>
-                                <Button onClick={() => { setUpgradeFlow(null); router.refresh() }} className="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white">Done</Button>
+                                <Button onClick={() => { setUpgradeFlow(null); router.refresh() }} className="w-full bg-card0 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white">Done</Button>
                             </div>
                         )}
 

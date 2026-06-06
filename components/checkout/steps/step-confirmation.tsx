@@ -67,7 +67,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
 
       {/* Order Details */}
       {order && (
-        <Card className="border-2 border-green-200 bg-green-50/50">
+        <Card className="border-2 border-border bg-green-50/50">
           <CardContent className="pt-6 pb-6">
             <div className="space-y-4">
               {/* Order ID */}

@@ -100,7 +100,7 @@ export function HomeAIChatWidget() {
 
   function getButtonClass(style?: string) {
     if (style === "primary")   return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
-    if (style === "danger")    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+    if (style === "danger")    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
@@ -317,7 +317,7 @@ export function HomeAIChatWidget() {
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative flex items-center gap-2 bg-primary border border-blue-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:bg-primary hover:border-blue-300 transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-primary border border-blue-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:bg-primary hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open DATAGOD AI assistant"
         >
           {isOpen

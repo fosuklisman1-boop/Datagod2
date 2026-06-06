@@ -362,7 +362,7 @@ export default function DataPackagesPage() {
           </div>
           {wallet && (
             <Card className={`border w-full sm:w-auto ${isDealer
-              ? "bg-card border-amber-300/40 dark:border-amber-500/20"
+              ? "bg-card border-border dark:border-amber-500/20"
               : "bg-card border-border"
               }`}>
               <CardContent className="pt-4 sm:pt-6">
@@ -380,7 +380,7 @@ export default function DataPackagesPage() {
 
         {/* Search and Filters */}
         <Card className={`hover:shadow-md transition-all duration-300 border ${isDealer
-          ? "bg-card border-amber-300/40 dark:border-amber-500/20"
+          ? "bg-card border-border dark:border-amber-500/20"
           : "bg-card border-border"
           }`}>
           <CardHeader>
@@ -393,8 +393,8 @@ export default function DataPackagesPage() {
               <Input
                 placeholder="Search packages..."
                 className={`pl-10 focus:ring-2 transition-all bg-card/70 backdrop-blur ${isDealer
-                  ? "focus:ring-amber-500 border-amber-300/50 focus:border-amber-400"
-                  : "focus:ring-cyan-500 border-cyan-300/50 focus:border-cyan-400"
+                  ? "focus:ring-amber-500 border-border focus:border-amber-400"
+                  : "focus:ring-cyan-500 border-border focus:border-cyan-400"
                   }`}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -412,8 +412,8 @@ export default function DataPackagesPage() {
                   className={`text-xs sm:text-sm transition-all duration-200 ${selectedNetwork === network
                     ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 shadow-lg text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 shadow-lg text-white"
                     : isDealer
-                      ? "hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50/60 bg-amber-50/30 backdrop-blur border-amber-300/40 text-foreground"
-                      : "hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50/60 bg-cyan-50/30 backdrop-blur border-cyan-300/40 text-foreground"
+                      ? "hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50/60 bg-amber-50/30 backdrop-blur border-border text-foreground"
+                      : "hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50/60 bg-cyan-50/30 backdrop-blur border-border text-foreground"
                     }`}
                 >
                   {network}
@@ -429,7 +429,7 @@ export default function DataPackagesPage() {
                 onClick={() => setViewMode("grid")}
                 className={`transition-all duration-200 ${viewMode === "grid"
                   ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
-                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-amber-300/40 text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-cyan-300/40 text-foreground hover:text-cyan-700 hover:border-cyan-400"
+                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
                   }`}
               >
                 <Grid3x3 className="w-4 h-4 mr-2" />
@@ -441,7 +441,7 @@ export default function DataPackagesPage() {
                 onClick={() => setViewMode("list")}
                 className={`transition-all duration-200 ${viewMode === "list"
                   ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
-                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-amber-300/40 text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-cyan-300/40 text-foreground hover:text-cyan-700 hover:border-cyan-400"
+                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
                   }`}
               >
                 <List className="w-4 h-4 mr-2" />
@@ -456,7 +456,7 @@ export default function DataPackagesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPackages.map((pkg) => (
               <Card key={pkg.id} className={`hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border-l-4 border overflow-hidden flex flex-col w-full min-w-0 ${isDealer
-                ? "border-l-amber-500 bg-card border-border hover:border-amber-300/60"
+                ? "border-l-amber-500 bg-card border-border hover:border-border"
                 : "border-l-primary bg-card border-border hover:border-primary/40"
                 }`}>
                 {/* Logo Section */}
@@ -474,8 +474,8 @@ export default function DataPackagesPage() {
                   <div className="flex justify-between items-start gap-2">
                     <div>
                       <Badge className={`mb-2 text-xs sm:text-sm backdrop-blur transition-all bg-opacity-40 border border-opacity-60 ${isDealer
-                        ? "bg-gradient-to-r from-amber-400/40 to-orange-400/30 text-amber-900 group-hover:bg-gradient-to-r group-hover:from-amber-600 group-hover:to-orange-600 group-hover:text-white border-amber-300/60"
-                        : "bg-gradient-to-r from-cyan-400/40 to-blue-400/30 text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-primary/80 group-hover:text-white border-cyan-300/60"
+                        ? "bg-gradient-to-r from-amber-400/40 to-orange-400/30 text-amber-900 group-hover:bg-gradient-to-r group-hover:from-amber-600 group-hover:to-orange-600 group-hover:text-white border-border"
+                        : "bg-gradient-to-r from-cyan-400/40 to-blue-400/30 text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-primary/80 group-hover:text-white border-border"
                         }`}>{pkg.network}</Badge>
                       <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-amber-600" : "group-hover:text-cyan-600"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                     </div>
@@ -507,7 +507,7 @@ export default function DataPackagesPage() {
                     onClick={() => handlePurchase(pkg)}
                     disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                     className={`w-full shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
-                      ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600"
+                      ? "bg-card0 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600"
                       : "bg-gradient-to-r from-cyan-600 via-primary to-violet-600 hover:from-cyan-700 hover:via-primary/90 hover:to-violet-700"
                       }`}
                   >
@@ -528,7 +528,7 @@ export default function DataPackagesPage() {
           </div>
         ) : (
           <Card className={`hover:shadow-md transition-all duration-300 border w-full ${isDealer
-            ? "bg-card border-amber-300/40 dark:border-amber-500/20"
+            ? "bg-card border-border dark:border-amber-500/20"
             : "bg-card border-border"
             }`}>
             <CardContent className="p-0">

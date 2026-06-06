@@ -49,7 +49,7 @@ export default function OrderConfirmation() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-card flex items-center justify-center p-4">
         <p className="text-muted-foreground">Loading order details...</p>
       </div>
     )
@@ -57,9 +57,9 @@ export default function OrderConfirmation() {
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+      <div className="min-h-screen bg-card p-4">
         <div className="max-w-2xl mx-auto pt-20">
-          <Alert className="border-red-300 bg-red-50">
+          <Alert className="border-border bg-red-50">
             <AlertDescription className="text-red-700">
               Order not found. Please check your email for order confirmation.
             </AlertDescription>
@@ -70,7 +70,7 @@ export default function OrderConfirmation() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+    <div className="min-h-screen bg-card p-4">
       <div className="max-w-2xl mx-auto pt-8">
         {/* Success Message */}
         <div className="text-center mb-8">
@@ -86,7 +86,7 @@ export default function OrderConfirmation() {
         </div>
 
         {/* Order Details */}
-        <Card className="mb-6 bg-gradient-to-br from-green-50/60 to-emerald-50/40 border-2 border-green-200/40">
+        <Card className="mb-6 bg-card border-2 border-border">
           <CardHeader>
             <CardTitle>Order Confirmation</CardTitle>
             <CardDescription>Reference: {order.reference_code}</CardDescription>
@@ -169,7 +169,7 @@ export default function OrderConfirmation() {
             </div>
 
             {/* Next Steps */}
-            <Alert className="border-blue-300 bg-primary/5">
+            <Alert className="border-border bg-primary/5">
               <AlertDescription className="text-primary text-sm">
                 <strong>Next Steps:</strong>
                 <ul className="list-disc list-inside mt-2 space-y-1">
@@ -192,7 +192,7 @@ export default function OrderConfirmation() {
         </Card>
 
         {/* Support */}
-        <Card className="bg-gradient-to-br from-primary/5 to-cyan-50/40 border border-primary/20">
+        <Card className="bg-card border border-primary/20">
           <CardHeader>
             <CardTitle className="text-base">Need Help?</CardTitle>
           </CardHeader>

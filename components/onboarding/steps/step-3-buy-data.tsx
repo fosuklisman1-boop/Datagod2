@@ -33,7 +33,7 @@ export function Step3BuyData() {
         </div>
 
         {/* Step 2 */}
-        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-green-200">
+        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-border">
           <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-green-600 text-white rounded-full font-semibold text-sm">
             2
           </div>
@@ -46,7 +46,7 @@ export function Step3BuyData() {
         </div>
 
         {/* Step 3 */}
-        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-border">
           <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-purple-600 text-white rounded-full font-semibold text-sm">
             3
           </div>

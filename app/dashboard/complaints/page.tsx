@@ -123,7 +123,7 @@ export default function ComplaintsPage() {
         </div>
 
         {/* Header Banner */}
-        <Card className="bg-gradient-to-r from-orange-500 to-red-600 text-white border-0">
+        <Card className="bg-card0 to-red-600 text-white border-0">
           <CardContent className="pt-6">
             <div className="flex items-start gap-4">
               <AlertCircle className="w-8 h-8 flex-shrink-0 mt-1" />

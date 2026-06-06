@@ -167,13 +167,13 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
         </DialogHeader>
         <div className="space-y-4">
           {phoneExistsError && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="bg-amber-50 border border-border rounded-lg p-4">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                 <div className="space-y-2">
                   <p className="text-sm text-amber-800 font-medium">This phone number is already registered</p>
                   <p className="text-xs text-amber-700">If you believe this is your number, please contact support.</p>
-                  <Button onClick={handleContactSupport} variant="outline" size="sm" className="mt-2 border-amber-300 text-amber-800 hover:bg-amber-100">
+                  <Button onClick={handleContactSupport} variant="outline" size="sm" className="mt-2 border-border text-amber-800 hover:bg-amber-100">
                     <MessageCircle className="w-4 h-4 mr-2" />
                     Contact Support on WhatsApp
                   </Button>

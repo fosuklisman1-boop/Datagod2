@@ -686,7 +686,7 @@ export default function AdminComplaintsPage() {
           <CardContent>
             {/* Bulk action bar */}
             {selectedIds.size > 0 && (
-              <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-violet-50 border border-violet-200 rounded-lg">
+              <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-violet-50 border border-border rounded-lg">
                 <span className="text-sm font-medium text-violet-800">
                   {selectedIds.size} complaint{selectedIds.size !== 1 ? "s" : ""} selected
                 </span>
@@ -740,7 +740,7 @@ export default function AdminComplaintsPage() {
                 {filteredComplaints.filter(c => c && c.id).map((complaint) => (
                   <Card
                     key={complaint.id}
-                    className={`hover:shadow-md transition-shadow overflow-hidden ${selectedIds.has(complaint.id) ? "ring-2 ring-violet-400 border-violet-300" : ""}`}
+                    className={`hover:shadow-md transition-shadow overflow-hidden ${selectedIds.has(complaint.id) ? "ring-2 ring-violet-400 border-border" : ""}`}
                   >
                     <CardContent className="pt-6">
                       <div className="flex items-start justify-between gap-4">

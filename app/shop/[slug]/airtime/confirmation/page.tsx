@@ -93,7 +93,7 @@ export default function AirtimeConfirmationPage() {
   const isSuccess = order?.payment_status === "completed" || order?.status === "pending" || order?.status === "completed"
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 pb-20">
+    <div className="min-h-screen bg-muted/40 flex flex-col items-center justify-center p-4 pb-20">
       <div className="w-full max-w-md space-y-6">
         {/* Shop Branding */}
         <div className="flex flex-col items-center space-y-2 mb-4">

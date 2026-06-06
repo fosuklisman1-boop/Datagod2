@@ -258,7 +258,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
   return (
     <div className="space-y-4">
-      <Card className="w-full border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-primary/5 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
+      <Card className="w-full border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border hover:border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Zap className="h-5 w-5 text-cyan-600" />
@@ -270,7 +270,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       <CardContent className="space-y-6">
         {/* Error Alert */}
         {paymentStatus === "error" && errorMessage && (
-          <Alert className="bg-red-50 border-red-200">
+          <Alert className="bg-red-50 border-border">
             <AlertCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-800">{errorMessage}</AlertDescription>
           </Alert>
@@ -278,7 +278,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
         {/* Success Alert */}
         {paymentStatus === "success" && (
-          <Alert className="bg-green-50 border-green-200">
+          <Alert className="bg-green-50 border-border">
             <CheckCircle className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800">
               Payment completed successfully! Your wallet has been credited.
@@ -323,14 +323,14 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         {/* Email Display */}
         <div className="space-y-2">
           <p className="text-sm font-medium text-foreground">Email</p>
-          <div className="flex items-center gap-2 p-3 bg-card/40 backdrop-blur border border-cyan-200/40 rounded-lg">
+          <div className="flex items-center gap-2 p-3 bg-card/40 backdrop-blur border border-border rounded-lg">
             <span className="text-sm text-muted-foreground">{email || "Loading..."}</span>
           </div>
         </div>
 
         {/* Fee Breakdown */}
         {amount && parseFloat(amount) > 0 && (
-          <div className="p-4 bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200/50 rounded-lg space-y-2">
+          <div className="p-4 bg-card border border-border rounded-lg space-y-2">
             <p className="text-sm font-medium text-foreground">Payment Summary</p>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between text-muted-foreground">
@@ -341,7 +341,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <span>Paystack Fee ({paystackFeePercentage}%):</span>
                 <span>GHS {(parseFloat(amount || "0") * paystackFeePercentage / 100).toFixed(2)}</span>
               </div>
-              <div className="pt-1 border-t border-orange-200 flex justify-between font-semibold text-foreground">
+              <div className="pt-1 border-t border-border flex justify-between font-semibold text-foreground">
                 <span>Total Amount:</span>
                 <span>GHS {(parseFloat(amount || "0") * (1 + paystackFeePercentage / 100)).toFixed(2)}</span>
               </div>
@@ -375,7 +375,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             on — both need the on-page MoMo number. OTP controls render only when
             OTP is required; with direct charge alone the number is charged as typed. */}
         {(walletOtp || walletDirect) && (
-          <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
+          <div className="p-4 rounded-lg bg-purple-50 border border-border space-y-3">
             <div>
               <label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</label>
               <Input
@@ -414,7 +414,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 </div>
               )
             ) : (
-              <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+              <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-green-600" />
                 <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
               </div>

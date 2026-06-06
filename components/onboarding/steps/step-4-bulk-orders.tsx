@@ -20,7 +20,7 @@ export function Step4BulkOrders() {
 
       <div className="space-y-4 mt-6">
         {/* Feature 1 */}
-        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-green-200">
+        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-border">
           <div className="flex-shrink-0">
             <Upload className="w-6 h-6 text-green-600 mt-1" />
           </div>
@@ -46,7 +46,7 @@ export function Step4BulkOrders() {
         </div>
 
         {/* Feature 3 */}
-        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-border">
           <div className="flex-shrink-0">
             <Zap className="w-6 h-6 text-purple-600 mt-1" />
           </div>
@@ -69,7 +69,7 @@ export function Step4BulkOrders() {
         </div>
       </div>
 
-      <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-foreground">
+      <div className="bg-green-50 border border-border rounded-lg p-4 text-sm text-foreground">
         <p className="font-semibold text-green-900 mb-2">💡 Pro Tip:</p>
         <p>Bulk orders can save you up to 20% compared to individual purchases. Great for reselling!</p>
       </div>

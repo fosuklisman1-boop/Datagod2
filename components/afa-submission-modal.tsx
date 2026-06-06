@@ -213,8 +213,8 @@ export function AFASubmissionModal({
             ) : (
               <div className={`p-3 rounded-lg border ${
                 hasSufficientBalance
-                  ? "bg-green-50 border-green-200"
-                  : "bg-red-50 border-red-200"
+                  ? "bg-green-50 border-border"
+                  : "bg-red-50 border-border"
               }`}>
                 <div className="flex items-center gap-2">
                   {hasSufficientBalance ? (

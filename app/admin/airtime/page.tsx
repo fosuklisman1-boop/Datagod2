@@ -455,7 +455,7 @@ export default function AdminAirtimePage() {
                             </p>
                           </td>
                           <td className="px-4 py-3">
-                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-yellow-200 bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-red-200 bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
+                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-border bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-border bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
                                 {o.network}
                              </Badge>
                           </td>
@@ -483,7 +483,7 @@ export default function AdminAirtimePage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                                className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
                                 onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
                               >
                                 Complete
@@ -491,7 +491,7 @@ export default function AdminAirtimePage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-red-200"
+                                className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
                                 onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
                               >
                                 Fail
@@ -576,7 +576,7 @@ export default function AdminAirtimePage() {
                             </p>
                           </td>
                           <td className="px-4 py-3">
-                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-yellow-200 bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-red-200 bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
+                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-border bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-border bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
                                 {o.network}
                              </Badge>
                           </td>
@@ -604,7 +604,7 @@ export default function AdminAirtimePage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                                className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
                                 onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
                                 disabled={o.status === "completed"}
                               >
@@ -613,7 +613,7 @@ export default function AdminAirtimePage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-red-200"
+                                className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
                                 onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
                                 disabled={o.status === "failed"}
                               >
@@ -748,7 +748,7 @@ export default function AdminAirtimePage() {
                          <Button 
                            size="sm" 
                            variant="outline" 
-                           className="text-[10px] h-8 border-green-200 text-green-700 hover:bg-green-50"
+                           className="text-[10px] h-8 border-border text-green-700 hover:bg-green-50"
                            onClick={() => handleBulkStatusUpdate(batch.orders, "completed")}
                          >
                            <CheckCircle className="w-3 h-3 mr-1" /> Mark Batch Complete
@@ -756,7 +756,7 @@ export default function AdminAirtimePage() {
                          <Button 
                            size="sm" 
                            variant="outline" 
-                           className="text-[10px] h-8 border-red-200 text-red-700 hover:bg-red-50"
+                           className="text-[10px] h-8 border-border text-red-700 hover:bg-red-50"
                            onClick={() => handleBulkStatusUpdate(batch.orders, "failed")}
                          >
                            <AlertCircle className="w-3 h-3 mr-1" /> Mark Batch Failed

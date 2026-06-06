@@ -638,7 +638,7 @@ export default function OrderPaymentStatusPage() {
               <Button
                 onClick={handleBulkManualFulfill}
                 disabled={loadingMTNOrders}
-                className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold shadow-lg transform transition hover:scale-105"
+                className="bg-card0 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold shadow-lg transform transition hover:scale-105"
               >
                 {loadingMTNOrders ? (
                   <Loader2 className="h-5 w-5 mr-2 animate-spin" />
@@ -795,7 +795,7 @@ export default function OrderPaymentStatusPage() {
                     variant="outline"
                     onClick={handleBulkDownload}
                     disabled={bulkDownloading || !bulkDate}
-                    className="border-green-200 hover:bg-green-50 text-green-700 font-semibold"
+                    className="border-border hover:bg-green-50 text-green-700 font-semibold"
                   >
                     {bulkDownloading ? (
                       <>
@@ -814,7 +814,7 @@ export default function OrderPaymentStatusPage() {
                     variant="outline"
                     onClick={handleBulkDownloadFailed}
                     disabled={bulkDownloadingFailed || !bulkDate}
-                    className="border-red-200 hover:bg-red-50 text-red-700 font-semibold"
+                    className="border-border hover:bg-red-50 text-red-700 font-semibold"
                   >
                     {bulkDownloadingFailed ? (
                       <>
@@ -925,11 +925,11 @@ export default function OrderPaymentStatusPage() {
                           <td className="px-4 py-3 text-center">
                             <Badge
                               className={`text-xs border ${order.payment_status === "completed"
-                                ? "bg-green-100 text-green-800 border-green-200"
+                                ? "bg-green-100 text-green-800 border-border"
                                 : order.payment_status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                  ? "bg-yellow-100 text-yellow-800 border-border"
                                   : order.payment_status === "failed"
-                                    ? "bg-red-100 text-red-800 border-red-200"
+                                    ? "bg-red-100 text-red-800 border-border"
                                     : "bg-muted text-foreground border-border"
                                 }`}
                             >
@@ -939,13 +939,13 @@ export default function OrderPaymentStatusPage() {
                           <td className="px-4 py-3 text-center">
                             <Badge
                               className={`text-xs border ${order.status === "completed"
-                                ? "bg-green-100 text-green-800 border-green-200"
+                                ? "bg-green-100 text-green-800 border-border"
                                 : order.status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                  ? "bg-yellow-100 text-yellow-800 border-border"
                                   : order.status === "processing"
                                     ? "bg-primary/10 text-primary border-primary/20"
                                     : order.status === "failed"
-                                      ? "bg-red-100 text-red-800 border-red-200"
+                                      ? "bg-red-100 text-red-800 border-border"
                                       : "bg-muted text-foreground border-border"
                                 }`}
                             >

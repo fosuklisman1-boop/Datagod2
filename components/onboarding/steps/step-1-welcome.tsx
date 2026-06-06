@@ -24,7 +24,7 @@ export function Step1Welcome({ onNext, onSkip }: Step1Props) {
         </p>
       </div>
 
-      <div className="bg-gradient-to-br from-primary/5 to-purple-50 rounded-lg p-6 space-y-3 text-left">
+      <div className="bg-card rounded-lg p-6 space-y-3 text-left">
         <h4 className="font-semibold text-foreground">What you'll learn:</h4>
         <ul className="space-y-2 text-sm text-foreground">
           <li className="flex gap-2">

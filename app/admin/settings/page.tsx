@@ -793,7 +793,7 @@ export default function AdminSettingsPage() {
         </div>
 
         {/* Global Ordering Control - Emergency Switch */}
-        <Card className="mb-6 border-red-200 bg-red-50">
+        <Card className="mb-6 border-border bg-red-50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-red-700">
               <Power className="w-5 h-5" />
@@ -913,7 +913,7 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Global Storefront Announcement Override - HIGH VISIBILITY */}
-        <Card className="mb-6 border-violet-300 bg-violet-50/50 shadow-md">
+        <Card className="mb-6 border-border bg-violet-50/50 shadow-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-violet-800">
               <Megaphone className="w-5 h-5" />
@@ -921,10 +921,10 @@ export default function AdminSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-violet-900 font-medium bg-card/60 p-3 rounded-lg border border-violet-100">
+            <p className="text-sm text-violet-900 font-medium bg-card/60 p-3 rounded-lg border border-border">
               ⚠️ Toggling this ON will force an override announcement to appear on ALL storefronts across the entire platform. This takes priority over individual shop announcements.
             </p>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-card border border-violet-200 rounded-lg shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-card border border-border rounded-lg shadow-sm">
               <div className="flex-1">
                 <p className="font-bold text-foreground">Enable Global Storefront Override</p>
                 <p className="text-sm text-muted-foreground">Force this notice to ALL shop customers</p>
@@ -947,7 +947,7 @@ export default function AdminSettingsPage() {
                   placeholder="e.g. Platform-wide Alert"
                   value={storefrontAnnouncementTitle}
                   onChange={(e) => setStorefrontAnnouncementTitle(e.target.value)}
-                  className="w-full bg-card border-violet-200 focus:ring-violet-500"
+                  className="w-full bg-card border-border focus:ring-violet-500"
                   disabled={!storefrontAnnouncementEnabled}
                 />
               </div>
@@ -961,7 +961,7 @@ export default function AdminSettingsPage() {
                   placeholder="Enter the message customers will see on ALL shops..."
                   value={storefrontAnnouncementMessage}
                   onChange={(e) => setStorefrontAnnouncementMessage(e.target.value)}
-                  className="w-full min-h-[100px] resize-y bg-card border-violet-200 focus:ring-violet-500"
+                  className="w-full min-h-[100px] resize-y bg-card border-border focus:ring-violet-500"
                   disabled={!storefrontAnnouncementEnabled}
                 />
               </div>
@@ -992,7 +992,7 @@ export default function AdminSettingsPage() {
         <AirtimeSettingsCard />
 
         {/* USSD Settings */}
-        <Card className="mb-6 border-green-200 bg-green-50">
+        <Card className="mb-6 border-border bg-green-50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-green-800">
               <Power className="w-5 h-5" />
@@ -1130,7 +1130,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {previewWhatsappUrl && (
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="p-3 bg-green-50 border border-border rounded-lg">
                 <p className="text-xs font-semibold text-green-900 mb-2">WhatsApp Link Preview:</p>
                 <a
                   href={previewWhatsappUrl}
@@ -1413,7 +1413,7 @@ export default function AdminSettingsPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* MTN */}
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="p-4 bg-yellow-50 border border-border rounded-lg">
                 <Label htmlFor="priceAdjMtn" className="text-sm font-medium text-yellow-900">
                   MTN Price Adjustment
                 </Label>
@@ -1437,7 +1437,7 @@ export default function AdminSettingsPage() {
               </div>
 
               {/* Telecel */}
-              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="p-4 bg-red-50 border border-border rounded-lg">
                 <Label htmlFor="priceAdjTelecel" className="text-sm font-medium text-red-900">
                   Telecel Price Adjustment
                 </Label>
@@ -1485,7 +1485,7 @@ export default function AdminSettingsPage() {
               </div>
 
               {/* AT - BigTime */}
-              <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+              <div className="p-4 bg-purple-50 border border-border rounded-lg">
                 <Label htmlFor="priceAdjAtBigtime" className="text-sm font-medium text-purple-900">
                   AT - BigTime Price Adjustment
                 </Label>
@@ -1613,7 +1613,7 @@ export default function AdminSettingsPage() {
               Configure these webhook URLs in your payment provider settings for real-time transaction updates.
             </p>
             <div className="space-y-3">
-              <div className="p-4 border border-purple-200 bg-purple-50 rounded-lg space-y-2">
+              <div className="p-4 border border-border bg-purple-50 rounded-lg space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-foreground">Paystack Webhook</p>
@@ -1631,7 +1631,7 @@ export default function AdminSettingsPage() {
                     )}
                   </Button>
                 </div>
-                <div className="p-2 bg-card rounded border border-purple-200">
+                <div className="p-2 bg-card rounded border border-border">
                   <p className="text-xs text-foreground font-mono break-all">{`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`}</p>
                 </div>
               </div>
@@ -1693,7 +1693,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {announcementEnabled && announcementTitle && announcementMessage && (
-              <div className="p-3 sm:p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="p-3 sm:p-4 bg-green-50 border border-border rounded-lg">
                 <p className="text-xs sm:text-sm text-green-700">
                   <span className="font-semibold">✓ Active:</span> This announcement will be shown to users upon sign in.
                 </p>
@@ -1737,7 +1737,7 @@ export default function AdminSettingsPage() {
 
         {/* Checkout Phone-OTP Gate */}
         <Card className="mt-6 border-2 border-purple-500">
-          <CardHeader className="bg-gradient-to-r from-purple-50 to-fuchsia-50">
+          <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               🔐 Checkout Phone Verification (OTP)
             </CardTitle>
@@ -1747,7 +1747,7 @@ export default function AdminSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-purple-50 border-2 border-purple-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-purple-50 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Require Phone OTP at Checkout</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1770,7 +1770,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* Storefront Direct MoMo Charge — independent of the OTP toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-fuchsia-50 border-2 border-fuchsia-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-fuchsia-50 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Direct MoMo Charge at Checkout</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1799,7 +1799,7 @@ export default function AdminSettingsPage() {
 
         {/* Wallet & Upgrade Payment Protection */}
         <Card className="mt-6 border-2 border-primary">
-          <CardHeader className="bg-gradient-to-r from-primary/5 to-cyan-50">
+          <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               💳 Wallet &amp; Upgrade Payment Protection
             </CardTitle>
@@ -1811,7 +1811,7 @@ export default function AdminSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/5 border-2 border-blue-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/5 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Protect Top-ups &amp; Upgrades</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1834,7 +1834,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* Wallet/Upgrade Direct MoMo Charge — independent of the OTP toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-cyan-50 border-2 border-cyan-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-cyan-50 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Direct MoMo Charge for Top-ups &amp; Upgrades</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1863,7 +1863,7 @@ export default function AdminSettingsPage() {
 
         {/* Reset Phone Verifications */}
         <Card className="mt-6 border-2 border-red-500">
-          <CardHeader className="bg-gradient-to-r from-red-50 to-rose-50">
+          <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               📵 Reset Phone Verifications
             </CardTitle>
@@ -1874,7 +1874,7 @@ export default function AdminSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-red-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">
                   {verifiedCount === null ? "Verified numbers" : `${verifiedCount} number${verifiedCount === 1 ? "" : "s"} currently verified`}
@@ -1900,7 +1900,7 @@ export default function AdminSettingsPage() {
 
         {/* Cloudflare Turnstile Kill Switch */}
         <Card className="mt-6 border-2 border-orange-500">
-          <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50">
+          <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               🔒 Cloudflare Turnstile (CAPTCHA)
             </CardTitle>
@@ -1910,7 +1910,7 @@ export default function AdminSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-orange-50 border-2 border-orange-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-orange-50 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Turnstile Verification</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1941,13 +1941,13 @@ export default function AdminSettingsPage() {
 
         {/* Christmas Theme Settings */}
         <Card className="mt-6 border-2 border-red-500">
-          <CardHeader className="bg-gradient-to-r from-red-50 to-green-50">
+          <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               🎄 Christmas Theme 🎅
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-red-300 rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Enable Christmas Theme</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1971,7 +1971,7 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
-            <div className="p-4 bg-gradient-to-r from-red-100 to-green-100 border-2 border-green-400 rounded-lg">
+            <div className="p-4 bg-card border-2 border-green-400 rounded-lg">
               <p className="text-sm font-medium text-green-900">
                 <span className="font-bold">🎁 Theme Features:</span> Red and green color scheme, snowfall animation, Christmas decorations (🎄 🎅 ⛄ 🎁 ❄️), festive button effects, and more!
               </p>
@@ -2030,7 +2030,7 @@ export default function AdminSettingsPage() {
                 href="/terms"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-violet-600 border border-violet-200 rounded-md hover:bg-violet-50 transition-colors"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-violet-600 border border-border rounded-md hover:bg-violet-50 transition-colors"
               >
                 <ExternalLink className="w-4 h-4" />
                 Preview Public Page

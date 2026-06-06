@@ -439,7 +439,7 @@ export default function MTNFulfillmentLogsPage() {
                     No MTN fulfillment orders found
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-md border border-emerald-100/40">
+                  <div className="overflow-x-auto rounded-md border border-border">
                     <Table className="min-w-[700px] text-xs sm:text-sm">
                       <TableHeader>
                         <TableRow>
@@ -466,9 +466,9 @@ export default function MTNFulfillmentLogsPage() {
                             </TableCell>
                             <TableCell>
                               {log.provider === "datakazina" ? (
-                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">DataKazina</Badge>
+                                <Badge className="bg-emerald-100 text-emerald-800 border-border">DataKazina</Badge>
                               ) : log.provider === "xpress" ? (
-                                <Badge className="bg-purple-100 text-purple-800 border-purple-200">Xpress</Badge>
+                                <Badge className="bg-purple-100 text-purple-800 border-border">Xpress</Badge>
                               ) : (
                                 <Badge className="bg-primary/10 text-primary border-primary/20">Sykes</Badge>
                               )}

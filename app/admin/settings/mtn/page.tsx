@@ -296,7 +296,7 @@ export default function MTNSettingsPage() {
                     </ul>
                   </div>
 
-                  <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="p-4 bg-amber-50 rounded-lg border border-border">
                     <p className="font-medium text-amber-900 mb-2">⚪ When Disabled</p>
                     <ul className="space-y-1 text-amber-800 text-xs">
                       <li>✓ Orders go to Downloads tab</li>
@@ -339,7 +339,7 @@ export default function MTNSettingsPage() {
                 <div className="grid md:grid-cols-3 gap-4">
                   {/* Sykes Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.sykes.is_active
-                    ? 'bg-primary/5 border-blue-300 shadow-md'
+                    ? 'bg-primary/5 border-border shadow-md'
                     : 'bg-muted/40 border-border'
                     }`}>
                     <div className="flex items-center justify-between mb-2">
@@ -368,7 +368,7 @@ export default function MTNSettingsPage() {
 
                   {/* DataKazina Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.datakazina.is_active
-                    ? 'bg-green-50 border-green-300 shadow-md'
+                    ? 'bg-green-50 border-border shadow-md'
                     : 'bg-muted/40 border-border'
                     }`}>
                     <div className="flex items-center justify-between mb-2">
@@ -397,7 +397,7 @@ export default function MTNSettingsPage() {
 
                   {/* Xpress Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.xpress?.is_active
-                    ? 'bg-purple-50 border-purple-300 shadow-md'
+                    ? 'bg-purple-50 border-border shadow-md'
                     : 'bg-muted/40 border-border'
                     }`}>
                     <div className="flex items-center justify-between mb-2">
@@ -427,7 +427,7 @@ export default function MTNSettingsPage() {
 
                 {/* Low Balance Alerts */}
                 {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low) && (
-                  <Alert className="border-orange-200 bg-orange-50">
+                  <Alert className="border-border bg-orange-50">
                     <AlertCircle className="h-4 w-4 text-orange-600" />
                     <AlertDescription className="text-orange-700">
                       {balance.balances.sykes.alert && <p>• {balance.balances.sykes.alert}</p>}
@@ -486,7 +486,7 @@ export default function MTNSettingsPage() {
                   disabled={savingProvider || mtnProvider === "sykes"}
                   className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "sykes"
                       ? "bg-primary/5 border-primary shadow-md"
-                      : "bg-card border-border hover:border-blue-300"
+                      : "bg-card border-border hover:border-border"
                     } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -504,7 +504,7 @@ export default function MTNSettingsPage() {
                   disabled={savingProvider || mtnProvider === "datakazina"}
                   className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "datakazina"
                       ? "bg-green-50 border-green-500 shadow-md"
-                      : "bg-card border-border hover:border-green-300"
+                      : "bg-card border-border hover:border-border"
                     } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -522,7 +522,7 @@ export default function MTNSettingsPage() {
                   disabled={savingProvider || mtnProvider === "xpress"}
                   className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "xpress"
                       ? "bg-purple-50 border-purple-500 shadow-md"
-                      : "bg-card border-border hover:border-purple-300"
+                      : "bg-card border-border hover:border-border"
                     } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -542,7 +542,7 @@ export default function MTNSettingsPage() {
                 </div>
               )}
 
-              <Alert className="border-amber-200 bg-amber-50">
+              <Alert className="border-border bg-amber-50">
                 <AlertCircle className="h-4 w-4 text-amber-600" />
                 <AlertDescription className="text-amber-700 text-sm">
                   <strong>Note:</strong> Switching providers only affects NEW orders.
@@ -556,7 +556,7 @@ export default function MTNSettingsPage() {
         {/* Info Cards */}
         <div className="grid md:grid-cols-2 gap-4">
           {/* View Fulfillment Logs Card */}
-          <Card className="bg-purple-50 border-purple-200">
+          <Card className="bg-purple-50 border-border">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <FileText className="h-5 w-5 text-purple-600" />
@@ -597,7 +597,7 @@ export default function MTNSettingsPage() {
         </div>
 
         <div className="grid md:grid-cols-1 gap-4">
-          <Card className="bg-amber-50 border-amber-200">
+          <Card className="bg-amber-50 border-border">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertCircle className="h-5 w-5 text-amber-600" />

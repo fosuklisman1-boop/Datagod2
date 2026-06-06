@@ -303,7 +303,7 @@ export default function BroadcastPage() {
                 <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 bg-gradient-to-br from-pink-500 to-rose-600 rounded-lg text-white">
+                            <div className="p-2 bg-card0 to-rose-600 rounded-lg text-white">
                                 <Send className="w-6 h-6" />
                             </div>
                             <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
@@ -315,7 +315,7 @@ export default function BroadcastPage() {
                     <Button
                         variant="outline"
                         onClick={() => router.push("/admin/broadcast/history")}
-                        className="border-pink-200 hover:bg-pink-50 text-pink-700 font-semibold"
+                        className="border-border hover:bg-pink-50 text-pink-700 font-semibold"
                     >
                         <History className="w-4 h-4 mr-2" />
                         View History
@@ -325,7 +325,7 @@ export default function BroadcastPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Settings Section */}
                     <div className="space-y-6">
-                        <Card className="border-emerald-100/40 bg-card/50 backdrop-blur-sm">
+                        <Card className="border-border bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="text-lg flex items-center justify-between">
                                     <div className="flex items-center gap-2">
@@ -359,7 +359,7 @@ export default function BroadcastPage() {
                                         <div className="flex justify-end">
                                             <button
                                                 onClick={handleSelectAllRoles}
-                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium border border-emerald-300 hover:border-emerald-400 rounded px-2 py-0.5 transition-colors"
+                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium border border-border hover:border-emerald-400 rounded px-2 py-0.5 transition-colors"
                                             >
                                                 {selectedRoles.length === 4 ? "Deselect All" : "Select All"}
                                             </button>
@@ -414,7 +414,7 @@ export default function BroadcastPage() {
                             </CardContent>
                         </Card>
 
-                        <Card className="border-pink-100/40 bg-card/50 backdrop-blur-sm">
+                        <Card className="border-border bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="text-lg flex items-center gap-2">
                                     <MessageSquare className="w-5 h-5 text-pink-600" />
@@ -504,7 +504,7 @@ export default function BroadcastPage() {
                                         </div>
                                         <div className="h-2 bg-muted rounded-full overflow-hidden">
                                             <div
-                                                className="h-full bg-gradient-to-r from-pink-500 to-rose-600 transition-all duration-300"
+                                                className="h-full bg-card0 to-rose-600 transition-all duration-300"
                                                 style={{ width: `${progress.percentage}%` }}
                                             />
                                         </div>
@@ -523,7 +523,7 @@ export default function BroadcastPage() {
                         </Card>
 
                         {results && (
-                            <Card className="border-emerald-200 bg-emerald-50/50">
+                            <Card className="border-border bg-emerald-50/50">
                                 <CardHeader className="pb-2">
                                     <CardTitle className="text-sm flex items-center gap-2">
                                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />

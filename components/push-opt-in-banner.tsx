@@ -79,7 +79,7 @@ export function PushOptInBanner() {
       }}
       aria-live="polite"
     >
-      <div className="relative flex items-start gap-4 bg-card border border-violet-200 rounded-2xl shadow-2xl px-5 py-4">
+      <div className="relative flex items-start gap-4 bg-card border border-border rounded-2xl shadow-2xl px-5 py-4">
         <button
           onClick={() => setShow(false)}
           className="absolute top-3 right-3 p-1 text-muted-foreground hover:text-muted-foreground rounded-full hover:bg-accent transition-colors"

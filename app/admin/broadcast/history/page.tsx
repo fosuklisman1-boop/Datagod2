@@ -204,8 +204,8 @@ export default function MessagingHistoryPage() {
                                 <Card className="p-8 text-center text-muted-foreground">No broadcasts found</Card>
                             ) : (
                                 broadcasts.map(log => (
-                                    <Card key={log.id} className="overflow-hidden border-pink-100 shadow-sm hover:shadow-md transition-shadow">
-                                        <CardHeader className="bg-gradient-to-r from-pink-50 to-white pb-3">
+                                    <Card key={log.id} className="overflow-hidden border-border shadow-sm hover:shadow-md transition-shadow">
+                                        <CardHeader className="bg-card to-white pb-3">
                                             <div className="flex justify-between items-start">
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-2">
@@ -271,7 +271,7 @@ export default function MessagingHistoryPage() {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="p-3 bg-emerald-50/50 rounded-lg border border-emerald-100">
+                                                    <div className="p-3 bg-emerald-50/50 rounded-lg border border-border">
                                                         <p className="text-[10px] text-emerald-600 font-bold uppercase mb-1">SMS Delivery</p>
                                                         <div className="flex justify-between items-end">
                                                             <span className="text-xl font-bold text-emerald-700">{log.results?.sms?.sent || 0}</span>

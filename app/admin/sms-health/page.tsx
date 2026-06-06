@@ -76,7 +76,7 @@ export default function SmsHealthPage() {
         </div>
 
         {error && (
-          <Card className="border-red-300 bg-red-50">
+          <Card className="border-border bg-red-50">
             <CardContent className="pt-6 flex items-start gap-2">
               <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
               <div className="text-sm text-red-800">{error}</div>
@@ -109,7 +109,7 @@ export default function SmsHealthPage() {
 
             {/* OTP callout */}
             {otp && (
-              <Card className="border-violet-200 bg-violet-50/50">
+              <Card className="border-border bg-violet-50/50">
                 <CardContent className="pt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                   <span className="font-bold text-violet-900">OTP codes ({otp.total})</span>
                   <span className="text-green-700">✓ {otp.delivered} delivered</span>

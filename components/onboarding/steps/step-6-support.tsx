@@ -21,7 +21,7 @@ export function Step6Support() {
 
       <div className="space-y-4 mt-6">
         {/* Support Channel 1 */}
-        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-green-200">
+        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-border">
           <div className="flex-shrink-0">
             <MessageCircle className="w-6 h-6 text-green-600 mt-1" />
           </div>
@@ -58,7 +58,7 @@ export function Step6Support() {
         </div>
 
         {/* Support Channel 3 */}
-        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-border">
           <div className="flex-shrink-0">
             <HelpCircle className="w-6 h-6 text-purple-600 mt-1" />
           </div>
@@ -78,7 +78,7 @@ export function Step6Support() {
         </div>
       </div>
 
-      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-3">
+      <div className="bg-purple-50 border border-border rounded-lg p-4 space-y-3">
         <h4 className="font-semibold text-foreground text-sm">Common Issues:</h4>
         <ul className="space-y-2 text-sm text-foreground">
           <li className="flex gap-2">

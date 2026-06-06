@@ -92,7 +92,7 @@ export default function AirtimeSettingsPage() {
 
         {msg && (
           <div className={`p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 ${
-            msg.type === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"
+            msg.type === "success" ? "bg-green-50 text-green-700 border border-border" : "bg-red-50 text-red-700 border border-border"
           }`}>
             {msg.type === "success" ? <CheckCircle className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
             <span className="font-medium">{msg.text}</span>

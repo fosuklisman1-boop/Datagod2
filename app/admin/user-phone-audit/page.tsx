@@ -305,7 +305,7 @@ export default function UserPhoneAuditPage() {
           </DialogHeader>
 
           {withHistoryCount > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
+            <div className="bg-amber-50 border border-border rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>
                 <strong>{withHistoryCount}</strong> of these {(confirmTargets?.length || 0) > 1 ? "accounts have" : "account has"} a

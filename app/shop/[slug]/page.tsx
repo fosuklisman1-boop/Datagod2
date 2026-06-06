@@ -579,7 +579,7 @@ export default function ShopStorefront() {
   // Early return while verifying shop
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center">
           <img src="/favicon_custom.ico" alt="DATAGOD Logo" className="w-16 h-16 rounded-lg object-cover" />
           <p className="text-muted-foreground">Loading store...</p>
@@ -590,9 +590,9 @@ export default function ShopStorefront() {
 
   if (!shop) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+      <div className="min-h-screen bg-card p-4">
         <div className="max-w-2xl mx-auto pt-20">
-          <Alert className="border-red-300 bg-red-50">
+          <Alert className="border-border bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-700">
               Store not found. Please check the URL and try again.
@@ -611,7 +611,7 @@ export default function ShopStorefront() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="min-h-screen bg-card">
       {/* Breadcrumb Schema */}
       <script
         type="application/ld+json"
@@ -827,7 +827,7 @@ export default function ShopStorefront() {
                                     }`}
                                 >
                                   <div className="flex flex-col h-full relative">
-                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-violet-50' : 'bg-slate-50 group-hover:bg-slate-100'}`}>
+                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-violet-50' : 'bg-muted/40 group-hover:bg-muted'}`}>
                                       <img
                                         src={getNetworkLogo(network as string)}
                                         alt={network}
@@ -893,7 +893,7 @@ export default function ShopStorefront() {
                                               </CardTitle>
                                               <CardDescription className="text-sm font-medium text-muted-foreground mt-1">{pkg.description}</CardDescription>
                                             </div>
-                                            <Badge className={shopPkg.is_available ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200"}>
+                                            <Badge className={shopPkg.is_available ? "bg-green-100 text-green-700 border-border" : "bg-red-100 text-red-700 border-border"}>
                                               {shopPkg.is_available ? "Active" : "OOS"}
                                             </Badge>
                                           </div>
@@ -1059,7 +1059,7 @@ export default function ShopStorefront() {
                 </div>
 
                 {/* Order Summary */}
-                <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
+                <div className="p-4 bg-card rounded-lg border border-border">
                   <div className="flex justify-between items-end mb-3">
                     <span className="font-semibold text-foreground">Total Amount:</span>
                     <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
@@ -1068,7 +1068,7 @@ export default function ShopStorefront() {
                   </div>
                 </div>
 
-                <Alert className="border-blue-300 bg-primary/5">
+                <Alert className="border-border bg-primary/5">
                   <AlertCircle className="h-4 w-4 text-primary" />
                   <AlertDescription className="text-xs text-primary">
                     {directCharge
@@ -1084,7 +1084,7 @@ export default function ShopStorefront() {
                     send/verify controls render only when OTP is required; with
                     direct charge alone the number is simply charged as typed. */}
                 {(otpRequired || directCharge) && (
-                  <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
+                  <div className="p-4 rounded-lg bg-purple-50 border border-border space-y-3">
                     <div>
                       <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</Label>
                       <Input
@@ -1142,7 +1142,7 @@ export default function ShopStorefront() {
                         </div>
                       )
                     ) : (
-                      <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+                      <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
                         <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                         <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                       </div>
@@ -1350,7 +1350,7 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
           </CardTitle>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-xs text-violet-600 hover:text-violet-700 font-medium border border-violet-300 hover:border-violet-400 rounded px-2 py-0.5 transition-colors"
+            className="text-xs text-violet-600 hover:text-violet-700 font-medium border border-border hover:border-violet-400 rounded px-2 py-0.5 transition-colors"
           >
             {expanded ? "Hide" : "Read Terms"}
           </button>
@@ -1361,7 +1361,7 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
       {expanded && (
         <CardContent className="space-y-3 pt-0">
           {sections.map((s, i) => (
-            <div key={i} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+            <div key={i} className="p-3 bg-muted/40 rounded-lg border border-border">
               <p className="text-xs font-bold text-violet-700 mb-1">{s.title}</p>
               <p className="text-xs text-foreground leading-relaxed">{s.body}</p>
             </div>
@@ -1454,14 +1454,14 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "completed":
-        return "bg-green-100 text-green-800 border-green-200"
+        return "bg-green-100 text-green-800 border-border"
       case "processing":
         return "bg-primary/10 text-primary border-primary/20"
       case "pending":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200"
+        return "bg-yellow-100 text-yellow-800 border-border"
       case "failed":
       case "cancelled":
-        return "bg-red-100 text-red-800 border-red-200"
+        return "bg-red-100 text-red-800 border-border"
       default:
         return "bg-muted text-foreground border-border"
     }

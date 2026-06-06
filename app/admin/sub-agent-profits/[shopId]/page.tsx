@@ -179,7 +179,7 @@ export default function SubAgentProfitDetailPage() {
                 </Button>
 
                 {/* Parent Shop Header */}
-                <Card className="bg-gradient-to-r from-violet-50 via-purple-50 to-fuchsia-50 border-violet-200">
+                <Card className="bg-card border-border">
                     <CardHeader>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
@@ -249,7 +249,7 @@ export default function SubAgentProfitDetailPage() {
                         </CardContent>
                     </Card>
 
-                    <Card className="bg-green-50 border-green-200">
+                    <Card className="bg-green-50 border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-3">
                                 <TrendingUp className="h-5 w-5 text-green-600" />
@@ -300,7 +300,7 @@ export default function SubAgentProfitDetailPage() {
                                         )}
                                         className={`p-4 rounded-lg border cursor-pointer transition-all ${selectedSubAgent === sa.id
                                             ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
-                                            : "border-border hover:border-violet-300 hover:bg-accent"
+                                            : "border-border hover:border-border hover:bg-accent"
                                             }`}
                                     >
                                         <div className="flex items-start justify-between mb-3">
@@ -309,7 +309,7 @@ export default function SubAgentProfitDetailPage() {
                                                 <p className="text-xs text-muted-foreground">{sa.owner_email}</p>
                                             </div>
                                             {sa.is_active ? (
-                                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-xs">
+                                                <Badge variant="outline" className="bg-green-50 text-green-700 border-border text-xs">
                                                     Active
                                                 </Badge>
                                             ) : (

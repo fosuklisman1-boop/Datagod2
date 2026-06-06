@@ -136,7 +136,7 @@ function ResetPasswordForm() {
           </div>
 
           {error && (
-            <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md border border-red-100">
+            <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md border border-border">
               {error}
             </div>
           )}
@@ -169,7 +169,7 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-primary/5 to-purple-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-card flex items-center justify-center p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-4">

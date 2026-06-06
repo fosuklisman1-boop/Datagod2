@@ -37,7 +37,7 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
   const progressPercent = progress ?? ((currentStepIndex + 1) / steps.length) * 100
 
   return (
-    <Card className="border-0 bg-gradient-to-r from-primary/5 to-primary/10">
+    <Card className="border-0 bg-card">
       <CardContent className="pt-6 pb-6">
         <div className="space-y-4">
           {/* Progress Bar */}
