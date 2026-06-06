@@ -32,12 +32,24 @@ function sizeToMb(size: string): number {
 }
 
 async function shopOwnerIsDealer(shopId: string): Promise<boolean> {
-  const { data } = await supabase
+  // NOTE: user_shops.user_id references auth.users, not public.users, so a
+  // PostgREST embed (users!inner(role)) resolves to auth.users.role
+  // ('authenticated' for everyone) — never the app role. Look up the role
+  // explicitly from public.users by id, matching the web storefront
+  // (app/api/shop/public-packages/route.ts). Admins price like dealers too.
+  const { data: shop } = await supabase
     .from("user_shops")
-    .select("users!inner(role)")
+    .select("user_id")
     .eq("id", shopId)
     .single()
-  return (data as any)?.users?.role === 'dealer'
+  if (!shop?.user_id) return false
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", shop.user_id)
+    .single()
+  return user?.role === 'dealer' || user?.role === 'admin'
 }
 
 function basePrice(pkg: { price: number; dealer_price?: number | null }, isDealer: boolean): number {
