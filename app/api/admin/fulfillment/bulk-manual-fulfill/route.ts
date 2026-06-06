@@ -37,9 +37,6 @@ export async function POST(request: NextRequest) {
 
     for (const orderInfo of orders) {
       const { id, type } = orderInfo
-      // Honour the per-order provider chosen in the admin UI; fall back to the
-      // batch-wide provider, then to the admin-configured default (undefined).
-      const orderProvider = orderInfo.provider || provider
       try {
         if (type === "ussd" || type === "ussd_shop") {
           const table = type === "ussd_shop" ? "ussd_shop_orders" : "ussd_orders"
@@ -61,13 +58,12 @@ export async function POST(request: NextRequest) {
             ussdOrder.recipient_phone,
             ussdOrder.package_size ?? "",
             true,
-            table,
-            orderProvider
+            table
           )
           results.push({ ...result, orderId: id })
           if (result.success) { successCount++ } else { failureCount++ }
         } else {
-          const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk" | "api", orderProvider)
+          const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk" | "api", provider)
           results.push(result)
           if (result.success) { successCount++ } else { failureCount++ }
         }

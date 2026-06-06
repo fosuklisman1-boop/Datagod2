@@ -49,8 +49,7 @@ export async function POST(request: NextRequest) {
         ussdOrder.recipient_phone,
         ussdOrder.package_size ?? "",
         true, // forceManual — bypass auto-fulfillment setting check
-        table,
-        provider
+        table
       )
 
       if (result.success) {

@@ -479,9 +479,9 @@ export default function AdminComplaintsPage() {
       case "rejected":
         return "bg-red-100 text-red-800"
       case "in-progress":
-        return "bg-blue-100 text-blue-800"
+        return "bg-primary/10 text-primary"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
@@ -494,7 +494,7 @@ export default function AdminComplaintsPage() {
       case "low":
         return "bg-green-100 text-green-800"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
@@ -554,7 +554,7 @@ export default function AdminComplaintsPage() {
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
             Customer Complaints
           </h1>
-          <p className="text-gray-600 mt-1">View and rectify customer complaints</p>
+          <p className="text-muted-foreground mt-1">View and rectify customer complaints</p>
         </div>
 
         {/* Stats Cards */}
@@ -562,11 +562,11 @@ export default function AdminComplaintsPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Complaints</CardTitle>
-              <AlertCircle className="h-4 w-4 text-blue-600" />
+              <AlertCircle className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.total}</div>
-              <p className="text-xs text-gray-600">All complaints</p>
+              <p className="text-xs text-muted-foreground">All complaints</p>
             </CardContent>
           </Card>
 
@@ -577,7 +577,7 @@ export default function AdminComplaintsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.pending}</div>
-              <p className="text-xs text-gray-600">Awaiting action</p>
+              <p className="text-xs text-muted-foreground">Awaiting action</p>
             </CardContent>
           </Card>
 
@@ -588,7 +588,7 @@ export default function AdminComplaintsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.resolved}</div>
-              <p className="text-xs text-gray-600">Completed</p>
+              <p className="text-xs text-muted-foreground">Completed</p>
             </CardContent>
           </Card>
 
@@ -599,7 +599,7 @@ export default function AdminComplaintsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.rejected}</div>
-              <p className="text-xs text-gray-600">Not approved</p>
+              <p className="text-xs text-muted-foreground">Not approved</p>
             </CardContent>
           </Card>
         </div>
@@ -628,7 +628,7 @@ export default function AdminComplaintsPage() {
                   title="Filter by status"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  className="mt-1 w-full px-3 py-2 border border-border rounded-md text-sm"
                 >
                   <option value="all">All Statuses</option>
                   <option value="pending">Pending</option>
@@ -644,7 +644,7 @@ export default function AdminComplaintsPage() {
                   title="Filter by priority"
                   value={priorityFilter}
                   onChange={(e) => setPriorityFilter(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  className="mt-1 w-full px-3 py-2 border border-border rounded-md text-sm"
                 >
                   <option value="all">All Priorities</option>
                   <option value="low">Low</option>
@@ -686,7 +686,7 @@ export default function AdminComplaintsPage() {
           <CardContent>
             {/* Bulk action bar */}
             {selectedIds.size > 0 && (
-              <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-violet-50 border border-violet-200 rounded-lg">
+              <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-violet-50 border border-border rounded-lg">
                 <span className="text-sm font-medium text-violet-800">
                   {selectedIds.size} complaint{selectedIds.size !== 1 ? "s" : ""} selected
                 </span>
@@ -740,7 +740,7 @@ export default function AdminComplaintsPage() {
                 {filteredComplaints.filter(c => c && c.id).map((complaint) => (
                   <Card
                     key={complaint.id}
-                    className={`hover:shadow-md transition-shadow overflow-hidden ${selectedIds.has(complaint.id) ? "ring-2 ring-violet-400 border-violet-300" : ""}`}
+                    className={`hover:shadow-md transition-shadow overflow-hidden ${selectedIds.has(complaint.id) ? "ring-2 ring-violet-400 border-border" : ""}`}
                   >
                     <CardContent className="pt-6">
                       <div className="flex items-start justify-between gap-4">
@@ -753,12 +753,12 @@ export default function AdminComplaintsPage() {
                             {selectedIds.has(complaint.id) ? (
                               <CheckSquare className="w-5 h-5" />
                             ) : (
-                              <Square className="w-5 h-5 text-gray-400" />
+                              <Square className="w-5 h-5 text-muted-foreground" />
                             )}
                           </button>
                           <div className="flex-1 space-y-2 min-w-0">
-                            <h3 className="font-semibold text-gray-900">{complaint?.title || 'N/A'}</h3>
-                            <p className="text-sm text-gray-600">{complaint?.description || 'N/A'}</p>
+                            <h3 className="font-semibold text-foreground">{complaint?.title || 'N/A'}</h3>
+                            <p className="text-sm text-muted-foreground">{complaint?.description || 'N/A'}</p>
                             <div className="flex items-center gap-2 flex-wrap">
                               <Badge className={`inline-flex gap-1 ${getStatusColor(complaint?.status)}`}>
                                 {getStatusIcon(complaint?.status)}
@@ -768,12 +768,12 @@ export default function AdminComplaintsPage() {
                                 {(complaint?.priority || 'medium').charAt(0).toUpperCase() + (complaint?.priority || 'medium').slice(1)} Priority
                               </Badge>
                               {complaint?.user && (
-                                <span className="text-xs text-gray-600">
+                                <span className="text-xs text-muted-foreground">
                                   From: <span className="font-medium">{complaint.user.email}</span>
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                               Submitted: {complaint?.created_at ? new Date(complaint.created_at).toLocaleDateString() : 'N/A'}
                             </p>
                           </div>
@@ -835,7 +835,7 @@ export default function AdminComplaintsPage() {
                   value={bulkResolutionNotes}
                   onChange={(e) => setBulkResolutionNotes(e.target.value)}
                   placeholder="Explain how these complaints were resolved..."
-                  className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className="w-full mt-2 px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
                   rows={4}
                   disabled={isBulkProcessing}
                 />
@@ -884,17 +884,17 @@ export default function AdminComplaintsPage() {
               <div className="space-y-4 sm:space-y-6">
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-xs font-semibold text-gray-600 uppercase">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase">
                       Complaint Title
                     </Label>
                     <p className="text-lg font-semibold mt-1">{selectedComplaint?.title || 'N/A'}</p>
                   </div>
 
                   <div>
-                    <Label className="text-xs font-semibold text-gray-600 uppercase">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase">
                       Description
                     </Label>
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="text-sm text-muted-foreground mt-1">
                       {selectedComplaint?.description || 'N/A'}
                     </p>
                   </div>
@@ -902,11 +902,11 @@ export default function AdminComplaintsPage() {
                   {selectedComplaint.order_details && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                       <div>
-                        <Label className="text-xs font-semibold text-gray-600 uppercase">
+                        <Label className="text-xs font-semibold text-muted-foreground uppercase">
                           Phone Number
                         </Label>
                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-1">
-                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded break-all flex-1">
+                          <p className="text-sm font-mono bg-muted px-3 py-2 rounded break-all flex-1">
                             {selectedComplaint.order_details.phone || selectedComplaint.order_details.phoneNumber || 'N/A'}
                           </p>
                           <Button
@@ -923,11 +923,11 @@ export default function AdminComplaintsPage() {
                         </div>
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold text-gray-600 uppercase">
+                        <Label className="text-xs font-semibold text-muted-foreground uppercase">
                           Data Size
                         </Label>
                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-1">
-                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded flex-1">
+                          <p className="text-sm font-mono bg-muted px-3 py-2 rounded flex-1">
                             {selectedComplaint.order_details.package || selectedComplaint.order_details.packageName || 'N/A'}
                           </p>
                           <Button
@@ -945,10 +945,10 @@ export default function AdminComplaintsPage() {
                       </div>
                       {selectedComplaint.order_details.date && (
                         <div>
-                          <Label className="text-xs font-semibold text-gray-600 uppercase">
+                          <Label className="text-xs font-semibold text-muted-foreground uppercase">
                             Order Date & Time
                           </Label>
-                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded mt-1">
+                          <p className="text-sm font-mono bg-muted px-3 py-2 rounded mt-1">
                             {new Date(selectedComplaint.order_details.date).toLocaleDateString('en-GB', {
                               day: '2-digit',
                               month: 'short',
@@ -963,20 +963,20 @@ export default function AdminComplaintsPage() {
                       )}
                       {selectedComplaint.order_details.network && (
                         <div>
-                          <Label className="text-xs font-semibold text-gray-600 uppercase">
+                          <Label className="text-xs font-semibold text-muted-foreground uppercase">
                             Network
                           </Label>
-                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded mt-1">
+                          <p className="text-sm font-mono bg-muted px-3 py-2 rounded mt-1">
                             {selectedComplaint.order_details.network}
                           </p>
                         </div>
                       )}
                       {selectedComplaint.order_details.amount && (
                         <div>
-                          <Label className="text-xs font-semibold text-gray-600 uppercase">
+                          <Label className="text-xs font-semibold text-muted-foreground uppercase">
                             Amount
                           </Label>
-                          <p className="text-sm font-mono bg-gray-100 px-3 py-2 rounded mt-1">
+                          <p className="text-sm font-mono bg-muted px-3 py-2 rounded mt-1">
                             ₵ {selectedComplaint.order_details.amount.toFixed(2)}
                           </p>
                         </div>
@@ -986,7 +986,7 @@ export default function AdminComplaintsPage() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                       <div>
-                        <Label className="text-xs font-semibold text-gray-600 uppercase">
+                        <Label className="text-xs font-semibold text-muted-foreground uppercase">
                           Status
                         </Label>
                         <Badge
@@ -1001,7 +1001,7 @@ export default function AdminComplaintsPage() {
                       </div>
 
                       <div>
-                        <Label className="text-xs font-semibold text-gray-600 uppercase">
+                        <Label className="text-xs font-semibold text-muted-foreground uppercase">
                           Priority
                         </Label>
                         <Badge
@@ -1018,10 +1018,10 @@ export default function AdminComplaintsPage() {
                   {/* Timestamps */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                     <div>
-                      <Label className="text-xs font-semibold text-gray-600 uppercase">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase">
                         Submitted
                       </Label>
-                      <p className="text-sm mt-1 text-gray-700">
+                      <p className="text-sm mt-1 text-foreground">
                         {selectedComplaint?.created_at 
                           ? new Date(selectedComplaint.created_at).toLocaleString('en-GB', {
                               day: '2-digit',
@@ -1035,10 +1035,10 @@ export default function AdminComplaintsPage() {
                       </p>
                     </div>
                     <div>
-                      <Label className="text-xs font-semibold text-gray-600 uppercase">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase">
                         Last Updated
                       </Label>
-                      <p className="text-sm mt-1 text-gray-700">
+                      <p className="text-sm mt-1 text-foreground">
                         {selectedComplaint?.updated_at 
                           ? new Date(selectedComplaint.updated_at).toLocaleString('en-GB', {
                               day: '2-digit',
@@ -1055,11 +1055,11 @@ export default function AdminComplaintsPage() {
 
                   {selectedComplaint?.user && (
                     <div>
-                      <Label className="text-xs font-semibold text-gray-600 uppercase">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase">
                         Customer
                       </Label>
                       <p className="text-sm mt-1">
-                        <span className="text-gray-600">{selectedComplaint.user.email || 'N/A'}</span>
+                        <span className="text-muted-foreground">{selectedComplaint.user.email || 'N/A'}</span>
                       </p>
                     </div>
                   )}
@@ -1073,7 +1073,7 @@ export default function AdminComplaintsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                         {(evidenceUrls.balance_image_url || selectedComplaint.evidence.balance_image_url) && (
                           <div className="space-y-2">
-                            <p className="text-xs font-medium text-gray-600">Balance Screenshot</p>
+                            <p className="text-xs font-medium text-muted-foreground">Balance Screenshot</p>
                             <a 
                               href={evidenceUrls.balance_image_url || selectedComplaint.evidence.balance_image_url} 
                               target="_blank" 
@@ -1083,7 +1083,7 @@ export default function AdminComplaintsPage() {
                               <img 
                                 src={evidenceUrls.balance_image_url || selectedComplaint.evidence.balance_image_url} 
                                 alt="Balance Screenshot" 
-                                className="w-full h-32 sm:h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
+                                className="w-full h-32 sm:h-48 object-cover rounded-lg border border-border hover:opacity-90 cursor-pointer"
                                 onError={(e) => {
                                   console.error("Error loading balance image:", e)
                                 }}
@@ -1093,7 +1093,7 @@ export default function AdminComplaintsPage() {
                         )}
                         {(evidenceUrls.momo_receipt_url || selectedComplaint.evidence.momo_receipt_url) && (
                           <div className="space-y-2">
-                            <p className="text-xs font-medium text-gray-600">MoMo Receipt</p>
+                            <p className="text-xs font-medium text-muted-foreground">MoMo Receipt</p>
                             <a 
                               href={evidenceUrls.momo_receipt_url || selectedComplaint.evidence.momo_receipt_url} 
                               target="_blank" 
@@ -1103,7 +1103,7 @@ export default function AdminComplaintsPage() {
                               <img 
                                 src={evidenceUrls.momo_receipt_url || selectedComplaint.evidence.momo_receipt_url} 
                                 alt="MoMo Receipt" 
-                                className="w-full h-32 sm:h-48 object-cover rounded-lg border border-gray-200 hover:opacity-90 cursor-pointer"
+                                className="w-full h-32 sm:h-48 object-cover rounded-lg border border-border hover:opacity-90 cursor-pointer"
                                 onError={(e) => {
                                   console.error("Error loading momo receipt image:", e)
                                 }}
@@ -1112,7 +1112,7 @@ export default function AdminComplaintsPage() {
                           </div>
                         )}
                       </div>
-                      <p className="text-xs text-gray-500 mt-2">Click images to view full size</p>
+                      <p className="text-xs text-muted-foreground mt-2">Click images to view full size</p>
                     </div>
                   )}
                 </div>
@@ -1126,7 +1126,7 @@ export default function AdminComplaintsPage() {
                     value={resolutionNotes}
                     onChange={(e) => setResolutionNotes(e.target.value)}
                     placeholder="Explain how you resolved this complaint..."
-                    className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full mt-2 px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
                     rows={4}
                   />
                 </div>

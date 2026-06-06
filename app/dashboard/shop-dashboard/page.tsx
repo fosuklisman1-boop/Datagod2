@@ -383,7 +383,7 @@ export default function ShopDashboardPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <p className="text-gray-500">Loading dashboard...</p>
+          <p className="text-muted-foreground">Loading dashboard...</p>
         </div>
       </DashboardLayout>
     )
@@ -393,7 +393,7 @@ export default function ShopDashboardPage() {
     return (
       <DashboardLayout>
         <div className="space-y-6">
-          <Alert className="border-red-300 bg-red-50">
+          <Alert className="border-border bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-700">
               Shop not found. Please create a shop first.
@@ -413,32 +413,32 @@ export default function ShopDashboardPage() {
         {/* Header */}
         <div>
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Shop Dashboard</h1>
-          <p className="text-gray-500 mt-1">Track your profits and manage withdrawals</p>
+          <p className="text-muted-foreground mt-1">Track your profits and manage withdrawals</p>
         </div>
 
         {/* Stats Cards */}
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {/* Available Balance */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
-              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-cyan-300/60">
+              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <DollarSign className="h-4 w-4 text-cyan-600" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-primary/80 bg-clip-text text-transparent">
                 GHS {(balance || 0).toFixed(2)}
               </div>
-              <p className="text-xs text-gray-500">Ready to withdraw</p>
+              <p className="text-xs text-muted-foreground">Ready to withdraw</p>
             </CardContent>
           </Card>
 
           {/* Total Profit */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
-              <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-emerald-300/60">
+              <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <TrendingUp className="h-4 w-4 text-emerald-600" />
               </div>
             </CardHeader>
@@ -446,15 +446,15 @@ export default function ShopDashboardPage() {
               <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
                 GHS {(totalProfit || 0).toFixed(2)}
               </div>
-              <p className="text-xs text-gray-500">All time profit</p>
+              <p className="text-xs text-muted-foreground">All time profit</p>
             </CardContent>
           </Card>
 
           {/* Total Orders */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/60 to-orange-50/40 backdrop-blur-xl border border-amber-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-              <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-amber-300/60">
+              <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <ShoppingCart className="h-4 w-4 text-amber-600" />
               </div>
             </CardHeader>
@@ -462,15 +462,15 @@ export default function ShopDashboardPage() {
               <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
                 {orders.length}
               </div>
-              <p className="text-xs text-gray-500">All orders</p>
+              <p className="text-xs text-muted-foreground">All orders</p>
             </CardContent>
           </Card>
 
           {/* Pending Withdrawals */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/60 to-pink-50/40 backdrop-blur-xl border border-rose-200/40">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-rose-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending Withdrawals</CardTitle>
-              <div className="bg-gradient-to-br from-rose-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-rose-300/60">
+              <div className="bg-gradient-to-br from-rose-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-border">
                 <CreditCard className="h-4 w-4 text-rose-600" />
               </div>
             </CardHeader>
@@ -478,7 +478,7 @@ export default function ShopDashboardPage() {
               <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">
                 {pendingWithdrawals.length}
               </div>
-              <p className="text-xs text-gray-500">Awaiting approval</p>
+              <p className="text-xs text-muted-foreground">Awaiting approval</p>
             </CardContent>
           </Card>
         </div>
@@ -487,7 +487,7 @@ export default function ShopDashboardPage() {
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 pt-2">
             {/* Total Customers */}
             <Link href="/dashboard/customers">
-              <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/60 to-purple-50/40 backdrop-blur-xl border border-indigo-200/40 cursor-pointer hover:border-indigo-300/80 group">
+              <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-card backdrop-blur-xl border border-border cursor-pointer hover:border-border group">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
                   <div className="w-4 h-4 text-indigo-600 group-hover:translate-x-1 transition-transform duration-300">
@@ -501,13 +501,13 @@ export default function ShopDashboardPage() {
                   <div className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                     {customerStats.total_customers}
                   </div>
-                  <p className="text-xs text-gray-500">Click to view customers</p>
+                  <p className="text-xs text-muted-foreground">Click to view customers</p>
                 </CardContent>
               </Card>
             </Link>
 
             {/* Repeat Customers */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-gradient-to-br from-pink-50/60 to-rose-50/40 backdrop-blur-xl border border-pink-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
               </CardHeader>
@@ -515,7 +515,7 @@ export default function ShopDashboardPage() {
                 <div className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
                   {customerStats.repeat_customers}
                 </div>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   {customerStats.total_customers > 0 
                     ? `${(customerStats.repeat_percentage || 0).toFixed(1)}% of customers`
                     : "No customers yet"}
@@ -524,7 +524,7 @@ export default function ShopDashboardPage() {
             </Card>
 
             {/* New This Month */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">New This Month</CardTitle>
               </CardHeader>
@@ -532,25 +532,25 @@ export default function ShopDashboardPage() {
                 <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
                   {customerStats.new_customers_month}
                 </div>
-                <p className="text-xs text-gray-500">Recent acquisitions</p>
+                <p className="text-xs text-muted-foreground">Recent acquisitions</p>
               </CardContent>
             </Card>
 
             {/* Average LTV */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/60 to-cyan-50/40 backdrop-blur-xl border border-blue-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-card backdrop-blur-xl border border-primary/20">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Avg. LTV</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">
                   GHS {(customerStats.average_ltv || 0).toFixed(2)}
                 </div>
-                <p className="text-xs text-gray-500">Per customer</p>
+                <p className="text-xs text-muted-foreground">Per customer</p>
               </CardContent>
             </Card>
 
             {/* Customer Revenue */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-orange-500 bg-gradient-to-br from-orange-50/60 to-amber-50/40 backdrop-blur-xl border border-orange-200/40">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-orange-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Customer Revenue</CardTitle>
               </CardHeader>
@@ -558,7 +558,7 @@ export default function ShopDashboardPage() {
                 <div className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
                   GHS {(customerStats.total_revenue || 0).toFixed(2)}
                 </div>
-                <p className="text-xs text-gray-500">Total from customers</p>
+                <p className="text-xs text-muted-foreground">Total from customers</p>
               </CardContent>
             </Card>
         </div>
@@ -567,7 +567,7 @@ export default function ShopDashboardPage() {
         {balance > 0 && !showWithdrawalForm && (
           <>
             {withdrawals.some(w => w.status === "pending" || w.status === "processing") ? (
-              <div className="w-full p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="w-full p-4 bg-yellow-50 border border-border rounded-lg">
                 <p className="text-yellow-800 text-sm font-medium">
                   {withdrawals.some(w => w.status === "processing")
                     ? "⏳ Your withdrawal is being transferred. It will complete automatically."
@@ -587,7 +587,7 @@ export default function ShopDashboardPage() {
 
         {/* Withdrawal Form */}
         {showWithdrawalForm && (
-          <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+          <Card className="bg-card backdrop-blur-xl border border-border">
             <CardHeader>
               <CardTitle>Request Withdrawal</CardTitle>
               <CardDescription>Withdraw your available profits</CardDescription>
@@ -605,7 +605,7 @@ export default function ShopDashboardPage() {
                   max={balance}
                   className="mt-1"
                 />
-                <p className="text-xs text-gray-600 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Available: GHS {(balance || 0).toFixed(2)} | Minimum: GHS 5.00
                 </p>
               </div>
@@ -620,7 +620,7 @@ export default function ShopDashboardPage() {
                     setBankVerified(false)
                     if (e.target.value === "bank_transfer") fetchBanks()
                   }}
-                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                 >
                   <option value="mobile_money">Mobile Money</option>
                   <option value="bank_transfer">Bank Transfer</option>
@@ -641,7 +641,7 @@ export default function ShopDashboardPage() {
                           handleValidateAccount(withdrawalForm.phone, newNetwork)
                         }
                       }}
-                      className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                     >
                       <option value="MTN">MTN</option>
                       <option value="Telecel">Telecel</option>
@@ -669,12 +669,12 @@ export default function ShopDashboardPage() {
                         variant="outline"
                         disabled={!withdrawalForm.phone || isFetchingName}
                         onClick={() => handleValidateAccount(withdrawalForm.phone, withdrawalForm.network)}
-                        className="shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
+                        className="shrink-0 border-border text-violet-600 hover:bg-violet-50"
                       >
                         {isFetchingName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Enter your number and click <span className="font-medium text-violet-600">Verify</span> to confirm the account name before submitting.
                     </p>
                     {nameVerified && withdrawalForm.accountName && (
@@ -696,7 +696,7 @@ export default function ShopDashboardPage() {
                   <div>
                     <Label>Bank *</Label>
                     {loadingBanks ? (
-                      <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+                      <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" /> Loading banks...
                       </div>
                     ) : banks.length > 0 ? (
@@ -712,7 +712,7 @@ export default function ShopDashboardPage() {
                           })
                           setBankVerified(false)
                         }}
-                        className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                       >
                         <option value="">Select a bank...</option>
                         {banks.map(b => (
@@ -745,12 +745,12 @@ export default function ShopDashboardPage() {
                         variant="outline"
                         disabled={!withdrawalForm.accountNumber || !withdrawalForm.bankSublistId || isFetchingBankName}
                         onClick={handleValidateBankAccount}
-                        className="shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
+                        className="shrink-0 border-border text-violet-600 hover:bg-violet-50"
                       >
                         {isFetchingBankName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Select your bank, enter account number, then click <span className="font-medium text-violet-600">Verify</span> to confirm.
                     </p>
                     {bankVerified && withdrawalForm.accountName && (
@@ -768,7 +768,7 @@ export default function ShopDashboardPage() {
               )}
 
               {withdrawalForm.amount && parseFloat(withdrawalForm.amount) > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                <div className="bg-amber-50 border border-border rounded-lg p-3 space-y-2">
                   <h4 className="font-semibold text-sm text-amber-900">Withdrawal Breakdown</h4>
                   <div className="text-sm space-y-1">
                     <div className="flex justify-between">
@@ -781,7 +781,7 @@ export default function ShopDashboardPage() {
                           <span className="text-amber-700">Withdrawal fee ({withdrawalFeePercentage}%):</span>
                           <span className="font-medium text-orange-600">-GHS {(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100).toFixed(2)}</span>
                         </div>
-                        <div className="border-t border-amber-200 pt-1 flex justify-between">
+                        <div className="border-t border-border pt-1 flex justify-between">
                           <span className="text-amber-900 font-semibold">You will receive:</span>
                           <span className="font-bold text-green-600">GHS {(parseFloat(withdrawalForm.amount) - (parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100)).toFixed(2)}</span>
                         </div>
@@ -791,9 +791,9 @@ export default function ShopDashboardPage() {
                 </div>
               )}
 
-              <Alert className="border-blue-300 bg-blue-50">
-                <AlertCircle className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-xs text-blue-700">
+              <Alert className="border-border bg-primary/5">
+                <AlertCircle className="h-4 w-4 text-primary" />
+                <AlertDescription className="text-xs text-primary">
                   Withdrawal requests are processed within 1-2 business days after approval.
                 </AlertDescription>
               </Alert>
@@ -832,7 +832,7 @@ export default function ShopDashboardPage() {
 
         {/* Tabs for Orders, Profits, and Withdrawals */}
         <Tabs defaultValue="orders" className="space-y-4">
-          <TabsList className="bg-white/40 backdrop-blur border border-white/20 flex-wrap h-auto gap-1">
+          <TabsList className="bg-card/40 backdrop-blur border border-white/20 flex-wrap h-auto gap-1">
             <TabsTrigger value="orders">Recent Orders ({orders.length})</TabsTrigger>
             <TabsTrigger value="profits">Profit History ({profits.length})</TabsTrigger>
             <TabsTrigger value="withdrawals">Withdrawals ({withdrawals.length})</TabsTrigger>
@@ -841,25 +841,25 @@ export default function ShopDashboardPage() {
 
           {/* Orders Tab */}
           <TabsContent value="orders">
-            <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+            <Card className="bg-card backdrop-blur-xl border border-border">
               <CardHeader>
                 <CardTitle>Recent Orders</CardTitle>
                 <CardDescription>Orders from your shop customers</CardDescription>
               </CardHeader>
               <CardContent>
                 {orders.length === 0 ? (
-                  <p className="text-gray-600 text-center py-8">No orders yet. Share your shop link to start receiving orders!</p>
+                  <p className="text-muted-foreground text-center py-8">No orders yet. Share your shop link to start receiving orders!</p>
                 ) : (
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {orders.map((order) => (
                       <div
                         key={order.id}
-                        className="flex items-center justify-between p-3 bg-white/50 border border-cyan-200/40 rounded-lg hover:bg-white/70"
+                        className="flex items-center justify-between p-3 bg-card/50 border border-border rounded-lg hover:bg-card/70"
                       >
                         <div className="flex-1">
                           <p className="font-semibold">{order.customer_name}</p>
-                          <p className="text-sm text-gray-600">{order.network} - {order.volume_gb}GB</p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-sm text-muted-foreground">{order.network} - {order.volume_gb}GB</p>
+                          <p className="text-xs text-muted-foreground">
                             {new Date(order.created_at).toLocaleDateString()} {new Date(order.created_at).toLocaleTimeString()}
                           </p>
                         </div>
@@ -883,14 +883,14 @@ export default function ShopDashboardPage() {
 
           {/* Profit History Tab */}
           <TabsContent value="profits">
-            <Card className="bg-gradient-to-br from-amber-50/60 to-yellow-50/40 backdrop-blur-xl border border-amber-200/40">
+            <Card className="bg-card backdrop-blur-xl border border-border">
               <CardHeader>
                 <CardTitle>Profit History</CardTitle>
                 <CardDescription>Detailed breakdown of your profits by transaction</CardDescription>
               </CardHeader>
               <CardContent>
                 {profits.length === 0 ? (
-                  <p className="text-gray-600 text-center py-8">No profit history yet. Complete orders to start earning!</p>
+                  <p className="text-muted-foreground text-center py-8">No profit history yet. Complete orders to start earning!</p>
                 ) : (
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {profits.map((profit: any) => {
@@ -898,12 +898,12 @@ export default function ShopDashboardPage() {
                       return (
                       <div
                         key={profit.id}
-                        className="flex items-center justify-between p-3 bg-white/50 border border-amber-200/40 rounded-lg hover:bg-white/70"
+                        className="flex items-center justify-between p-3 bg-card/50 border border-border rounded-lg hover:bg-card/70"
                       >
                         <div className="flex-1">
                           <p className="font-semibold">GHS {(profitAmount || 0).toFixed(2)}</p>
-                          <p className="text-sm text-gray-600">{profit.profit_type || "Order Profit"}</p>
-                          <p className="text-xs text-gray-500">{new Date(profit.created_at).toLocaleDateString()}</p>
+                          <p className="text-sm text-muted-foreground">{profit.profit_type || "Order Profit"}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(profit.created_at).toLocaleDateString()}</p>
                         </div>
                         <div className="text-right">
                           <Badge className="bg-emerald-600">
@@ -921,35 +921,35 @@ export default function ShopDashboardPage() {
 
           {/* Withdrawals Tab */}
           <TabsContent value="withdrawals">
-            <Card className="bg-gradient-to-br from-emerald-50/60 to-teal-50/40 backdrop-blur-xl border border-emerald-200/40">
+            <Card className="bg-card backdrop-blur-xl border border-border">
               <CardHeader>
                 <CardTitle>Withdrawal History</CardTitle>
                 <CardDescription>Your withdrawal requests and status</CardDescription>
               </CardHeader>
               <CardContent>
                 {withdrawals.length === 0 ? (
-                  <p className="text-gray-600 text-center py-8">No withdrawals yet.</p>
+                  <p className="text-muted-foreground text-center py-8">No withdrawals yet.</p>
                 ) : (
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {withdrawals.map((withdrawal) => (
                       <div
                         key={withdrawal.id}
-                        className="flex items-center justify-between p-3 bg-white/50 border border-emerald-200/40 rounded-lg"
+                        className="flex items-center justify-between p-3 bg-card/50 border border-border rounded-lg"
                       >
                         <div className="flex-1">
                           <p className="font-semibold">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
-                          <p className="text-sm text-gray-600">{withdrawal.withdrawal_method}</p>
-                          <p className="text-xs text-gray-500">{new Date(withdrawal.created_at).toLocaleDateString()}</p>
+                          <p className="text-sm text-muted-foreground">{withdrawal.withdrawal_method}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(withdrawal.created_at).toLocaleDateString()}</p>
                         </div>
                         <Badge className={
                           withdrawal.status === "completed"
                             ? "bg-green-600"
                             : withdrawal.status === "processing"
-                            ? "bg-blue-500"
+                            ? "bg-primary"
                             : withdrawal.status === "pending"
                             ? "bg-amber-600"
                             : withdrawal.status === "approved"
-                            ? "bg-blue-600"
+                            ? "bg-primary"
                             : withdrawal.status === "failed"
                             ? "bg-red-600"
                             : "bg-gray-500"
@@ -969,45 +969,45 @@ export default function ShopDashboardPage() {
             <div className="space-y-6">
               {/* Stats Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
-                <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total Orders</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-bold text-blue-600">{orderStats.total}</p>
+                    <p className="text-3xl font-bold text-primary">{orderStats.total}</p>
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Completed</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Completed</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-3xl font-bold text-green-600">{orderStats.completed}</p>
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-yellow-50/60 to-orange-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Pending</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Pending</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-3xl font-bold text-orange-600">{orderStats.pending}</p>
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-red-50/60 to-pink-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Failed</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Failed</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-3xl font-bold text-red-600">{orderStats.failed}</p>
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-purple-50/60 to-violet-50/40">
+                <Card className="bg-card">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Total Revenue</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-3xl font-bold text-purple-600">GHS {orderStats.totalRevenue.toFixed(2)}</p>
@@ -1016,7 +1016,7 @@ export default function ShopDashboardPage() {
               </div>
 
               {/* Orders Table */}
-              <Card className="bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40">
+              <Card className="bg-card backdrop-blur-xl border border-border">
                 <CardHeader>
                   <CardTitle>Recent Orders</CardTitle>
                   <CardDescription>
@@ -1028,36 +1028,36 @@ export default function ShopDashboardPage() {
                 <CardContent className="space-y-4">
                   {orders.length > 0 && (
                     <div className="flex gap-2">
-                      <Search className="w-5 h-5 text-gray-400 mt-2.5" />
+                      <Search className="w-5 h-5 text-muted-foreground mt-2.5" />
                       <Input
                         type="text"
                         placeholder="Search orders by customer phone number..."
                         value={searchPhoneNumber}
                         onChange={(e) => setSearchPhoneNumber(e.target.value)}
-                        className="bg-white/50 border-cyan-200/40"
+                        className="bg-card/50 border-border"
                       />
                     </div>
                   )}
                   {orders.length === 0 ? (
-                    <Alert className="border-blue-300 bg-blue-50">
-                      <AlertCircle className="h-4 w-4 text-blue-600" />
-                      <AlertDescription className="text-blue-700">
+                    <Alert className="border-border bg-primary/5">
+                      <AlertCircle className="h-4 w-4 text-primary" />
+                      <AlertDescription className="text-primary">
                         Order analytics and management will show here once your first customer makes a purchase.
                       </AlertDescription>
                     </Alert>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
-                        <thead className="border-b border-cyan-200/40">
+                        <thead className="border-b border-border">
                           <tr>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Order ID</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Network</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Volume</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
-                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Profit</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+                            <th className="text-left py-3 px-4 font-semibold text-foreground">Order ID</th>
+                            <th className="text-left py-3 px-4 font-semibold text-foreground">Customer</th>
+                            <th className="text-left py-3 px-4 font-semibold text-foreground">Network</th>
+                            <th className="text-left py-3 px-4 font-semibold text-foreground">Volume</th>
+                            <th className="text-left py-3 px-4 font-semibold text-foreground">Status</th>
+                            <th className="text-right py-3 px-4 font-semibold text-foreground">Profit</th>
+                            <th className="text-left py-3 px-4 font-semibold text-foreground">Date</th>
+                            <th className="text-left py-3 px-4 font-semibold text-foreground">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-cyan-100/40">
@@ -1068,17 +1068,17 @@ export default function ShopDashboardPage() {
                             )
                             .map((order: any) => (
                               <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">
-                                <td className="py-3 px-4 font-mono text-xs text-gray-600">{order.reference_code}</td>
+                                <td className="py-3 px-4 font-mono text-xs text-muted-foreground">{order.reference_code}</td>
                                 <td className="py-3 px-4">
                                   <div>
-                                    <p className="font-medium text-gray-900">{order.customer_name || "N/A"}</p>
-                                    <p className="text-xs text-gray-500">{order.customer_phone}</p>
+                                    <p className="font-medium text-foreground">{order.customer_name || "N/A"}</p>
+                                    <p className="text-xs text-muted-foreground">{order.customer_phone}</p>
                                   </div>
                                 </td>
                                 <td className="py-3 px-4">
                                   <Badge variant="outline">{order.network}</Badge>
                                 </td>
-                                <td className="py-3 px-4 text-gray-900">{order.volume_gb} GB</td>
+                                <td className="py-3 px-4 text-foreground">{order.volume_gb} GB</td>
                                 <td className="py-3 px-4">
                                   <Badge className={
                                     order.order_status === "completed" ? "bg-green-600" :
@@ -1091,9 +1091,9 @@ export default function ShopDashboardPage() {
                                 <td className="py-3 px-4 text-right font-semibold text-purple-600">
                                   GHS {(order.profit_amount || 0).toFixed(2)}
                                 </td>
-                                <td className="py-3 px-4 text-xs text-gray-500">
+                                <td className="py-3 px-4 text-xs text-muted-foreground">
                                   <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                                  <div className="text-xs text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</div>
+                                  <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
                                 </td>
                                 <td className="py-3 px-4">
                                   {order.order_status === "completed" &&

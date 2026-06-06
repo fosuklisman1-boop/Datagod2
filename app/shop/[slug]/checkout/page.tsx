@@ -92,10 +92,10 @@ export default function CheckoutPage() {
   // Loading state
   if (isLoadingShop) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-muted/40 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-12 w-12 text-primary animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading shop...</p>
+          <p className="text-muted-foreground">Loading shop...</p>
         </div>
       </div>
     )
@@ -104,7 +104,7 @@ export default function CheckoutPage() {
   // Shop error state
   if (shopError || !shopData) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-muted/40 p-4">
         <div className="max-w-2xl mx-auto pt-8">
           <Link href={shopHome}>
             <Button variant="ghost" className="mb-6">
@@ -122,7 +122,7 @@ export default function CheckoutPage() {
 
           <Card>
             <CardContent className="pt-12 pb-12 text-center">
-              <p className="text-gray-600 mb-4">Unable to proceed with checkout</p>
+              <p className="text-muted-foreground mb-4">Unable to proceed with checkout</p>
               <Link href={shopHome}>
                 <Button>Return to Shop</Button>
               </Link>
@@ -135,7 +135,7 @@ export default function CheckoutPage() {
 
   // Main checkout UI
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-muted/40">
       <div className="max-w-4xl mx-auto p-4 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -145,8 +145,8 @@ export default function CheckoutPage() {
               Back to {shopData.name}
             </Button>
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900">{shopData.name} Checkout</h1>
-          <p className="text-gray-600 mt-2">Complete your order in a few simple steps</p>
+          <h1 className="text-3xl font-bold text-foreground">{shopData.name} Checkout</h1>
+          <p className="text-muted-foreground mt-2">Complete your order in a few simple steps</p>
         </div>
 
         {/* Progress Indicator */}
@@ -245,7 +245,7 @@ export default function CheckoutPage() {
         </Card>
 
         {/* Footer Info */}
-        <div className="mt-8 text-center text-sm text-gray-600">
+        <div className="mt-8 text-center text-sm text-muted-foreground">
           <p>Your information is secure and encrypted</p>
           <p className="mt-2">
             Questions? <a href="#" className="text-primary hover:underline">Contact Support</a>

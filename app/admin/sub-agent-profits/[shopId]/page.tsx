@@ -135,8 +135,8 @@ export default function SubAgentProfitDetailPage() {
         const n = network?.toLowerCase() || ""
         if (n.includes("mtn")) return "bg-yellow-100 text-yellow-800"
         if (n.includes("telecel") || n.includes("vodafone")) return "bg-red-100 text-red-800"
-        if (n.includes("at") || n.includes("airteltigo")) return "bg-blue-100 text-blue-800"
-        return "bg-gray-100 text-gray-800"
+        if (n.includes("at") || n.includes("airteltigo")) return "bg-primary/10 text-primary"
+        return "bg-muted text-foreground"
     }
 
     if (authLoading || loading) {
@@ -153,7 +153,7 @@ export default function SubAgentProfitDetailPage() {
         return (
             <DashboardLayout>
                 <div className="text-center py-12">
-                    <p className="text-gray-500">Shop not found</p>
+                    <p className="text-muted-foreground">Shop not found</p>
                     <Button
                         className="mt-4"
                         onClick={() => router.push("/admin/sub-agent-profits")}
@@ -179,7 +179,7 @@ export default function SubAgentProfitDetailPage() {
                 </Button>
 
                 {/* Parent Shop Header */}
-                <Card className="bg-gradient-to-r from-violet-50 via-purple-50 to-fuchsia-50 border-violet-200">
+                <Card className="bg-card border-border">
                     <CardHeader>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
@@ -192,7 +192,7 @@ export default function SubAgentProfitDetailPage() {
                                         {parentShop.is_active ? (
                                             <Badge className="bg-green-100 text-green-700">Active</Badge>
                                         ) : (
-                                            <Badge className="bg-gray-100 text-gray-600">Inactive</Badge>
+                                            <Badge className="bg-muted text-muted-foreground">Inactive</Badge>
                                         )}
                                     </CardTitle>
                                     <CardDescription className="text-base">
@@ -202,7 +202,7 @@ export default function SubAgentProfitDetailPage() {
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-sm text-gray-500">Available Balance</p>
+                                <p className="text-sm text-muted-foreground">Available Balance</p>
                                 <p className="text-3xl font-bold text-green-600">
                                     GHS {parentShop.available_balance.toFixed(2)}
                                 </p>
@@ -216,9 +216,9 @@ export default function SubAgentProfitDetailPage() {
                     <Card>
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-3">
-                                <Users className="h-5 w-5 text-blue-500" />
+                                <Users className="h-5 w-5 text-primary" />
                                 <div>
-                                    <p className="text-sm text-gray-500">Sub-Agents</p>
+                                    <p className="text-sm text-muted-foreground">Sub-Agents</p>
                                     <p className="text-xl font-bold">{summary?.total_sub_agents || 0}</p>
                                 </div>
                             </div>
@@ -230,7 +230,7 @@ export default function SubAgentProfitDetailPage() {
                             <div className="flex items-center gap-3">
                                 <ShoppingCart className="h-5 w-5 text-orange-500" />
                                 <div>
-                                    <p className="text-sm text-gray-500">Total Orders</p>
+                                    <p className="text-sm text-muted-foreground">Total Orders</p>
                                     <p className="text-xl font-bold">{summary?.total_orders || 0}</p>
                                 </div>
                             </div>
@@ -242,14 +242,14 @@ export default function SubAgentProfitDetailPage() {
                             <div className="flex items-center gap-3">
                                 <DollarSign className="h-5 w-5 text-cyan-500" />
                                 <div>
-                                    <p className="text-sm text-gray-500">Order Value</p>
+                                    <p className="text-sm text-muted-foreground">Order Value</p>
                                     <p className="text-xl font-bold">GHS {(summary?.total_order_value || 0).toFixed(2)}</p>
                                 </div>
                             </div>
                         </CardContent>
                     </Card>
 
-                    <Card className="bg-green-50 border-green-200">
+                    <Card className="bg-green-50 border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-3">
                                 <TrendingUp className="h-5 w-5 text-green-600" />
@@ -268,7 +268,7 @@ export default function SubAgentProfitDetailPage() {
                             <div className="flex items-center gap-3">
                                 <CheckCircle className="h-5 w-5 text-violet-500" />
                                 <div>
-                                    <p className="text-sm text-gray-500">Profit Records</p>
+                                    <p className="text-sm text-muted-foreground">Profit Records</p>
                                     <p className="text-xl font-bold">{summary?.profit_records_count || 0}</p>
                                 </div>
                             </div>
@@ -280,7 +280,7 @@ export default function SubAgentProfitDetailPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <Users className="h-5 w-5 text-blue-500" />
+                            <Users className="h-5 w-5 text-primary" />
                             Sub-Agents
                         </CardTitle>
                         <CardDescription>
@@ -289,7 +289,7 @@ export default function SubAgentProfitDetailPage() {
                     </CardHeader>
                     <CardContent>
                         {subAgents.length === 0 ? (
-                            <p className="text-gray-500 text-center py-4">No sub-agents found</p>
+                            <p className="text-muted-foreground text-center py-4">No sub-agents found</p>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {subAgents.map((sa) => (
@@ -300,16 +300,16 @@ export default function SubAgentProfitDetailPage() {
                                         )}
                                         className={`p-4 rounded-lg border cursor-pointer transition-all ${selectedSubAgent === sa.id
                                             ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
-                                            : "border-gray-200 hover:border-violet-300 hover:bg-gray-50"
+                                            : "border-border hover:border-border hover:bg-accent"
                                             }`}
                                     >
                                         <div className="flex items-start justify-between mb-3">
                                             <div>
-                                                <p className="font-semibold text-gray-900">{sa.shop_name}</p>
-                                                <p className="text-xs text-gray-500">{sa.owner_email}</p>
+                                                <p className="font-semibold text-foreground">{sa.shop_name}</p>
+                                                <p className="text-xs text-muted-foreground">{sa.owner_email}</p>
                                             </div>
                                             {sa.is_active ? (
-                                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-xs">
+                                                <Badge variant="outline" className="bg-green-50 text-green-700 border-border text-xs">
                                                     Active
                                                 </Badge>
                                             ) : (
@@ -317,12 +317,12 @@ export default function SubAgentProfitDetailPage() {
                                             )}
                                         </div>
                                         <div className="grid grid-cols-3 gap-2 text-sm">
-                                            <div className="text-center p-2 bg-gray-50 rounded">
-                                                <p className="text-gray-500 text-xs">Orders</p>
+                                            <div className="text-center p-2 bg-muted/40 rounded">
+                                                <p className="text-muted-foreground text-xs">Orders</p>
                                                 <p className="font-bold">{sa.total_orders}</p>
                                             </div>
-                                            <div className="text-center p-2 bg-gray-50 rounded">
-                                                <p className="text-gray-500 text-xs">Value</p>
+                                            <div className="text-center p-2 bg-muted/40 rounded">
+                                                <p className="text-muted-foreground text-xs">Value</p>
                                                 <p className="font-bold">GHS {sa.total_order_value.toFixed(0)}</p>
                                             </div>
                                             <div className="text-center p-2 bg-green-50 rounded">
@@ -368,33 +368,33 @@ export default function SubAgentProfitDetailPage() {
                         {filteredHistory.length === 0 ? (
                             <div className="text-center py-8">
                                 <ShoppingCart className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-                                <p className="text-gray-500">No profit transactions found</p>
+                                <p className="text-muted-foreground">No profit transactions found</p>
                             </div>
                         ) : (
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 border-b">
+                                    <thead className="bg-muted/40 border-b">
                                         <tr>
-                                            <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
-                                            <th className="px-4 py-3 text-left font-semibold text-gray-900">Reference</th>
-                                            <th className="px-4 py-3 text-left font-semibold text-gray-900">Sub-Agent</th>
-                                            <th className="px-4 py-3 text-left font-semibold text-gray-900">Customer</th>
-                                            <th className="px-4 py-3 text-left font-semibold text-gray-900">Network</th>
-                                            <th className="px-4 py-3 text-right font-semibold text-gray-900">Order Total</th>
-                                            <th className="px-4 py-3 text-right font-semibold text-blue-600">Sub-Agent Profit</th>
+                                            <th className="px-4 py-3 text-left font-semibold text-foreground">Date</th>
+                                            <th className="px-4 py-3 text-left font-semibold text-foreground">Reference</th>
+                                            <th className="px-4 py-3 text-left font-semibold text-foreground">Sub-Agent</th>
+                                            <th className="px-4 py-3 text-left font-semibold text-foreground">Customer</th>
+                                            <th className="px-4 py-3 text-left font-semibold text-foreground">Network</th>
+                                            <th className="px-4 py-3 text-right font-semibold text-foreground">Order Total</th>
+                                            <th className="px-4 py-3 text-right font-semibold text-primary">Sub-Agent Profit</th>
                                             <th className="px-4 py-3 text-right font-semibold text-green-600">Parent Profit</th>
-                                            <th className="px-4 py-3 text-center font-semibold text-gray-900">Status</th>
+                                            <th className="px-4 py-3 text-center font-semibold text-foreground">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
                                         {filteredHistory.map((item) => (
-                                            <tr key={item.id} className="hover:bg-gray-50">
-                                                <td className="px-4 py-3 text-gray-600">
+                                            <tr key={item.id} className="hover:bg-accent">
+                                                <td className="px-4 py-3 text-muted-foreground">
                                                     <div className="flex items-center gap-1">
                                                         <Calendar className="h-3 w-3" />
                                                         {new Date(item.created_at).toLocaleDateString()}
                                                     </div>
-                                                    <p className="text-xs text-gray-400">
+                                                    <p className="text-xs text-muted-foreground">
                                                         {new Date(item.created_at).toLocaleTimeString()}
                                                     </p>
                                                 </td>
@@ -406,23 +406,23 @@ export default function SubAgentProfitDetailPage() {
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     <div className="flex items-center gap-1">
-                                                        <Phone className="h-3 w-3 text-gray-400" />
+                                                        <Phone className="h-3 w-3 text-muted-foreground" />
                                                         {item.customer_phone}
                                                     </div>
                                                     {item.customer_name && (
-                                                        <p className="text-xs text-gray-500">{item.customer_name}</p>
+                                                        <p className="text-xs text-muted-foreground">{item.customer_name}</p>
                                                     )}
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     <Badge className={getNetworkColor(item.network)}>
                                                         {item.network}
                                                     </Badge>
-                                                    <span className="text-xs text-gray-500 ml-1">{item.volume_gb}GB</span>
+                                                    <span className="text-xs text-muted-foreground ml-1">{item.volume_gb}GB</span>
                                                 </td>
                                                 <td className="px-4 py-3 text-right font-medium">
                                                     GHS {item.order_total.toFixed(2)}
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-medium text-blue-600">
+                                                <td className="px-4 py-3 text-right font-medium text-primary">
                                                     +GHS {(item.sub_agent_profit_amount || 0).toFixed(2)}
                                                 </td>
                                                 <td className="px-4 py-3 text-right font-bold text-green-600">
@@ -440,7 +440,7 @@ export default function SubAgentProfitDetailPage() {
                                                             Missing
                                                         </Badge>
                                                     ) : (
-                                                        <Badge className="bg-gray-100 text-gray-600">
+                                                        <Badge className="bg-muted text-muted-foreground">
                                                             {item.profit_status}
                                                         </Badge>
                                                     )}

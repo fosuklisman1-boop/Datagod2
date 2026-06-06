@@ -67,13 +67,13 @@ export default function ComplaintsPage() {
       case "pending":
         return "bg-yellow-100 text-yellow-800"
       case "in_review":
-        return "bg-blue-100 text-blue-800"
+        return "bg-primary/10 text-primary"
       case "resolved":
         return "bg-green-100 text-green-800"
       case "rejected":
         return "bg-red-100 text-red-800"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
@@ -86,7 +86,7 @@ export default function ComplaintsPage() {
       case "low":
         return "text-green-600"
       default:
-        return "text-gray-600"
+        return "text-muted-foreground"
     }
   }
 
@@ -118,12 +118,12 @@ export default function ComplaintsPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">My Complaints</h1>
-          <p className="text-gray-600 mt-1">Track and manage your complaint submissions</p>
+          <h1 className="text-3xl font-bold text-foreground">My Complaints</h1>
+          <p className="text-muted-foreground mt-1">Track and manage your complaint submissions</p>
         </div>
 
         {/* Header Banner */}
-        <Card className="bg-gradient-to-r from-orange-500 to-red-600 text-white border-0">
+        <Card className="bg-card0 to-red-600 text-white border-0">
           <CardContent className="pt-6">
             <div className="flex items-start gap-4">
               <AlertCircle className="w-8 h-8 flex-shrink-0 mt-1" />
@@ -145,11 +145,11 @@ export default function ComplaintsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Complaints</CardTitle>
-              <AlertCircle className="h-4 w-4 text-blue-600" />
+              <AlertCircle className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.total}</div>
-              <p className="text-xs text-gray-600">All time</p>
+              <p className="text-xs text-muted-foreground">All time</p>
             </CardContent>
           </Card>
 
@@ -160,7 +160,7 @@ export default function ComplaintsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.pending}</div>
-              <p className="text-xs text-gray-600">Awaiting review</p>
+              <p className="text-xs text-muted-foreground">Awaiting review</p>
             </CardContent>
           </Card>
 
@@ -171,7 +171,7 @@ export default function ComplaintsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.resolved}</div>
-              <p className="text-xs text-gray-600">Completed</p>
+              <p className="text-xs text-muted-foreground">Completed</p>
             </CardContent>
           </Card>
 
@@ -182,7 +182,7 @@ export default function ComplaintsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.rejected}</div>
-              <p className="text-xs text-gray-600">Not approved</p>
+              <p className="text-xs text-muted-foreground">Not approved</p>
             </CardContent>
           </Card>
         </div>
@@ -202,7 +202,7 @@ export default function ComplaintsPage() {
                   placeholder="Search complaints..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  className="px-3 py-2 border border-border rounded-md text-sm"
                 />
               </div>
             </div>
@@ -210,31 +210,31 @@ export default function ComplaintsPage() {
             {/* Loading State */}
             {loading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-gray-500" />
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
               </div>
             ) : filteredComplaints.length === 0 ? (
               <div className="text-center py-8">
                 <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                <p className="text-gray-500">No complaints found</p>
+                <p className="text-muted-foreground">No complaints found</p>
               </div>
             ) : (
               /* Table */
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
+                  <thead className="bg-muted/40 border-b">
                     <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Ticket ID</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Title</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Priority</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Date Submitted</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Ticket ID</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Title</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Priority</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Status</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Date Submitted</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredComplaints.map((complaint) => (
-                      <tr key={complaint.id} className="border-b hover:bg-gray-50">
-                        <td className="px-6 py-3 text-sm text-gray-900 font-mono">{complaint.id.slice(0, 8)}</td>
-                        <td className="px-6 py-3 text-sm text-gray-900">{complaint.title}</td>
+                      <tr key={complaint.id} className="border-b hover:bg-accent">
+                        <td className="px-6 py-3 text-sm text-foreground font-mono">{complaint.id.slice(0, 8)}</td>
+                        <td className="px-6 py-3 text-sm text-foreground">{complaint.title}</td>
                         <td className="px-6 py-3 text-sm">
                           <span className={`font-medium ${getPriorityColor(complaint.priority)}`}>
                             {complaint.priority}
@@ -245,7 +245,7 @@ export default function ComplaintsPage() {
                             {complaint.status}
                           </Badge>
                         </td>
-                        <td className="px-6 py-3 text-sm text-gray-600">
+                        <td className="px-6 py-3 text-sm text-muted-foreground">
                           {new Date(complaint.created_at).toLocaleDateString()}
                         </td>
                       </tr>
@@ -258,7 +258,7 @@ export default function ComplaintsPage() {
             {/* Summary */}
             {!loading && filteredComplaints.length > 0 && (
               <div className="flex justify-between items-center pt-4">
-                <p className="text-sm text-gray-600">Showing {filteredComplaints.length} of {complaints.length} complaints</p>
+                <p className="text-sm text-muted-foreground">Showing {filteredComplaints.length} of {complaints.length} complaints</p>
               </div>
             )}
           </CardContent>
@@ -268,7 +268,7 @@ export default function ComplaintsPage() {
         <div className="flex justify-center">
           <Button 
             onClick={() => router.push("/dashboard/my-orders")}
-            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-8"
+            className="bg-gradient-to-r from-primary to-purple-600 hover:from-primary hover:to-purple-700 px-8"
           >
             Submit New Complaint
           </Button>

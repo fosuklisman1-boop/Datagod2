@@ -369,14 +369,14 @@ export default function WalletPage() {
       <div className="space-y-6 px-2 sm:px-4">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Wallet</h1>
-          <p className="text-gray-600 mt-1 text-sm sm:text-base">Manage your account balance and funds</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Wallet</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">Manage your account balance and funds</p>
         </div>
 
         {/* Balance Card */}
         <Card className={`text-white border-0 ${isDealer
-          ? "bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500"
-          : "bg-gradient-to-r from-blue-600 to-purple-600"
+          ? "bg-card0 via-orange-500 to-yellow-500"
+          : "bg-gradient-to-r from-primary to-violet-600"
           }`}>
           <CardHeader>
             <CardTitle className="text-white">Current Balance</CardTitle>
@@ -384,23 +384,23 @@ export default function WalletPage() {
           <CardContent className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className={`${isDealer ? "text-amber-100" : "text-blue-100"} text-sm`}>Available Balance</p>
+                <p className={`${isDealer ? "text-amber-100" : "text-primary-foreground/80"} text-sm`}>Available Balance</p>
                 <p className="text-2xl sm:text-3xl md:text-4xl font-bold">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
               </div>
-              <Wallet className={`w-16 h-16 opacity-50 ${isDealer ? "text-amber-100" : "text-blue-100"}`} />
+              <Wallet className={`w-16 h-16 opacity-50 ${isDealer ? "text-amber-100" : "text-primary-foreground/80"}`} />
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
               {walletTopupsEnabled || isDealer ? (
                 <Button
                   onClick={() => setShowTopUp(!showTopUp)}
-                  className={`bg-white hover:bg-gray-100 w-full sm:w-auto ${isDealer ? "text-amber-600" : "text-blue-600"
+                  className={`bg-card hover:bg-accent w-full sm:w-auto ${isDealer ? "text-amber-600" : "text-primary"
                     }`}
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Add Funds
                 </Button>
               ) : (
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-3 w-full text-sm text-white/90">
+                <div className="bg-card/10 backdrop-blur-sm border border-white/20 rounded-lg p-3 w-full text-sm text-white/90">
                   ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
                 </div>
               )}
@@ -417,13 +417,13 @@ export default function WalletPage() {
 
         {/* Pending Payments Alert */}
         {pendingPayments.length > 0 && (
-          <Card className="border-yellow-300 bg-yellow-50">
+          <Card className="border-warning/40 bg-warning/10">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2 text-yellow-800">
+              <CardTitle className="text-lg flex items-center gap-2 text-warning">
                 <AlertCircle className="w-5 h-5" />
                 Pending Payments ({pendingPayments.length})
               </CardTitle>
-              <CardDescription className="text-yellow-700">
+              <CardDescription>
                 These payments are still processing. If you completed payment on Paystack, click &quot;Verify&quot; to credit your wallet.
               </CardDescription>
             </CardHeader>
@@ -431,18 +431,18 @@ export default function WalletPage() {
               {pendingPayments.map((payment) => (
                 <div
                   key={payment.id}
-                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-white border border-yellow-200"
+                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-card border border-warning/30"
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-gray-900">
+                      <span className="font-semibold text-foreground">
                         GHS {(payment.amount || 0).toFixed(2)}
                       </span>
-                      <Badge className="bg-yellow-100 text-yellow-800 text-xs">
+                      <Badge className="bg-warning/15 text-warning text-xs">
                         {payment.status}
                       </Badge>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {new Date(payment.created_at).toLocaleString()} · Ref: {payment.reference?.slice(-10) || "—"}
                     </p>
                   </div>
@@ -450,7 +450,7 @@ export default function WalletPage() {
                     size="sm"
                     onClick={() => verifyPendingPayment(payment)}
                     disabled={verifyingId === payment.id}
-                    className="bg-yellow-600 hover:bg-yellow-700 text-white w-full sm:w-auto"
+                    className="bg-warning text-warning-foreground hover:bg-warning/90 w-full sm:w-auto"
                   >
                     {verifyingId === payment.id ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -466,37 +466,37 @@ export default function WalletPage() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Credited</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">GHS {walletData.totalCredited.toFixed(2)}</div>
-              <p className="text-xs text-gray-600">All deposits</p>
+            <CardContent className="p-5">
+              <div className="w-9 h-9 rounded-xl grid place-items-center bg-success/10 text-success">
+                <TrendingUp className="h-4 w-4" />
+              </div>
+              <p className="text-xs font-medium text-muted-foreground mt-3">Total Credited</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">GHS {walletData.totalCredited.toFixed(2)}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">All deposits</p>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Spent</CardTitle>
-              <TrendingDown className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">GHS {walletData.totalDebited.toFixed(2)}</div>
-              <p className="text-xs text-gray-600">All purchases</p>
+            <CardContent className="p-5">
+              <div className="w-9 h-9 rounded-xl grid place-items-center bg-destructive/10 text-destructive">
+                <TrendingDown className="h-4 w-4" />
+              </div>
+              <p className="text-xs font-medium text-muted-foreground mt-3">Total Spent</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">GHS {walletData.totalDebited.toFixed(2)}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">All purchases</p>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
-              <Wallet className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">GHS {Math.max(0, walletData.balance).toFixed(2)}</div>
-              <p className="text-xs text-gray-600">Ready to use</p>
+            <CardContent className="p-5">
+              <div className="w-9 h-9 rounded-xl grid place-items-center bg-primary/10 text-primary">
+                <Wallet className="h-4 w-4" />
+              </div>
+              <p className="text-xs font-medium text-muted-foreground mt-3">Available Balance</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Ready to use</p>
             </CardContent>
           </Card>
         </div>
@@ -517,47 +517,31 @@ export default function WalletPage() {
               </Alert>
             ) : (
               <>
-                <div className="overflow-x-auto rounded-md border border-gray-100">
-                  <table className="min-w-[600px] w-full text-xs sm:text-sm">
-                    <thead className="bg-gray-50 border-b">
-                      <tr>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Date</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Description</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Amount</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Type</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Reference</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {transactions.map((transaction) => (
-                        <tr key={transaction.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            {new Date(transaction.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3">{transaction.description}</td>
-                          <td className={`px-4 py-3 font-semibold ${transaction.type.includes("credit") ? "text-green-600" : "text-red-600"
-                            }`}>
-                            {transaction.type.includes("credit") ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge className={
-                              transaction.type.includes("credit")
-                                ? "bg-green-100 text-green-800"
-                                : "bg-red-100 text-red-800"
-                            }>
-                              {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-gray-600">
-                            {transaction.reference?.slice(-8) || "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="divide-y divide-border">
+                  {transactions.map((transaction) => {
+                    const credit = transaction.type.includes("credit")
+                    return (
+                      <div key={transaction.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${credit ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                            {credit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">{transaction.description}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(transaction.created_at).toLocaleDateString()} · {transaction.reference?.slice(-8) || "—"}
+                            </p>
+                          </div>
+                        </div>
+                        <p className={`whitespace-nowrap font-semibold tabular-nums ${credit ? "text-success" : "text-destructive"}`}>
+                          {credit ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
+                        </p>
+                      </div>
+                    )
+                  })}
                 </div>
-                <div className="mt-4 flex justify-between items-center">
-                  <p className="text-sm text-gray-600">Showing {transactions.length} transaction(s)</p>
+                <div className="mt-4">
+                  <p className="text-sm text-muted-foreground">Showing {transactions.length} transaction(s)</p>
                 </div>
               </>
             )}

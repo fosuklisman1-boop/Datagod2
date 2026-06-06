@@ -49,17 +49,17 @@ export default function OrderConfirmation() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
-        <p className="text-gray-600">Loading order details...</p>
+      <div className="min-h-screen bg-card flex items-center justify-center p-4">
+        <p className="text-muted-foreground">Loading order details...</p>
       </div>
     )
   }
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+      <div className="min-h-screen bg-card p-4">
         <div className="max-w-2xl mx-auto pt-20">
-          <Alert className="border-red-300 bg-red-50">
+          <Alert className="border-border bg-red-50">
             <AlertDescription className="text-red-700">
               Order not found. Please check your email for order confirmation.
             </AlertDescription>
@@ -70,7 +70,7 @@ export default function OrderConfirmation() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+    <div className="min-h-screen bg-card p-4">
       <div className="max-w-2xl mx-auto pt-8">
         {/* Success Message */}
         <div className="text-center mb-8">
@@ -79,14 +79,14 @@ export default function OrderConfirmation() {
               <CheckCircle className="w-12 h-12 text-white" />
             </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2">Order Placed Successfully!</h1>
-          <p className="text-gray-600">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mb-2">Order Placed Successfully!</h1>
+          <p className="text-muted-foreground">
             Your order has been received and is being processed.
           </p>
         </div>
 
         {/* Order Details */}
-        <Card className="mb-6 bg-gradient-to-br from-green-50/60 to-emerald-50/40 border-2 border-green-200/40">
+        <Card className="mb-6 bg-card border-2 border-border">
           <CardHeader>
             <CardTitle>Order Confirmation</CardTitle>
             <CardDescription>Reference: {order.reference_code}</CardDescription>
@@ -94,27 +94,27 @@ export default function OrderConfirmation() {
           <CardContent className="space-y-6">
             {/* Order Info */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="p-3 bg-white/50 rounded-lg">
-                <p className="text-xs text-gray-600">Order Number</p>
+              <div className="p-3 bg-card/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Order Number</p>
                 <div className="flex items-center gap-2 mt-1">
                   <p className="font-mono font-semibold text-sm">{order.reference_code}</p>
                   <button
                     onClick={() => copyToClipboard(order.reference_code)}
                     title="Copy reference code"
-                    className="hover:bg-gray-200 p-1 rounded"
+                    className="hover:bg-muted p-1 rounded"
                   >
-                    <Copy className="w-4 h-4 text-gray-600" />
+                    <Copy className="w-4 h-4 text-muted-foreground" />
                   </button>
                 </div>
               </div>
-              <div className="p-3 bg-white/50 rounded-lg">
-                <p className="text-xs text-gray-600">Order Status</p>
+              <div className="p-3 bg-card/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Order Status</p>
                 <Badge className="mt-1 bg-amber-100 text-amber-700">
                   {order.order_status}
                 </Badge>
               </div>
-              <div className="p-3 bg-white/50 rounded-lg">
-                <p className="text-xs text-gray-600">Payment Status</p>
+              <div className="p-3 bg-card/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Payment Status</p>
                 <Badge className={`mt-1 ${
                   order.payment_status === "completed"
                     ? "bg-green-100 text-green-700"
@@ -123,12 +123,12 @@ export default function OrderConfirmation() {
                   {order.payment_status}
                 </Badge>
               </div>
-              <div className="p-3 bg-white/50 rounded-lg">
-                <p className="text-xs text-gray-600">Order Date</p>
+              <div className="p-3 bg-card/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Order Date</p>
                 <p className="font-semibold text-sm mt-1">
                   {new Date(order.created_at).toLocaleDateString()}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   {new Date(order.created_at).toLocaleTimeString()}
                 </p>
               </div>
@@ -137,13 +137,13 @@ export default function OrderConfirmation() {
             {/* Package Details */}
             <div className="border-t border-white/20 pt-4">
               <h3 className="font-semibold mb-3">Package Details</h3>
-              <div className="space-y-2 p-3 bg-white/50 rounded-lg">
+              <div className="space-y-2 p-3 bg-card/50 rounded-lg">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Network:</span>
+                  <span className="text-muted-foreground">Network:</span>
                   <span className="font-semibold">{order.network}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Volume:</span>
+                  <span className="text-muted-foreground">Volume:</span>
                   <span className="font-semibold">{order.volume_gb}GB</span>
                 </div>
               </div>
@@ -152,25 +152,25 @@ export default function OrderConfirmation() {
             {/* Customer Info */}
             <div className="border-t border-white/20 pt-4">
               <h3 className="font-semibold mb-3">Delivery Information</h3>
-              <div className="space-y-2 p-3 bg-white/50 rounded-lg text-sm">
+              <div className="space-y-2 p-3 bg-card/50 rounded-lg text-sm">
                 <div>
-                  <p className="text-xs text-gray-600">Customer Name</p>
+                  <p className="text-xs text-muted-foreground">Customer Name</p>
                   <p className="font-semibold">{order.customer_name}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-600">Phone Number</p>
+                  <p className="text-xs text-muted-foreground">Phone Number</p>
                   <p className="font-semibold font-mono">{order.customer_phone}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-600">Email</p>
+                  <p className="text-xs text-muted-foreground">Email</p>
                   <p className="font-semibold">{order.customer_email}</p>
                 </div>
               </div>
             </div>
 
             {/* Next Steps */}
-            <Alert className="border-blue-300 bg-blue-50">
-              <AlertDescription className="text-blue-700 text-sm">
+            <Alert className="border-border bg-primary/5">
+              <AlertDescription className="text-primary text-sm">
                 <strong>Next Steps:</strong>
                 <ul className="list-disc list-inside mt-2 space-y-1">
                   <li>Your order is being processed</li>
@@ -192,11 +192,11 @@ export default function OrderConfirmation() {
         </Card>
 
         {/* Support */}
-        <Card className="bg-gradient-to-br from-blue-50/60 to-cyan-50/40 border border-blue-200/40">
+        <Card className="bg-card border border-primary/20">
           <CardHeader>
             <CardTitle className="text-base">Need Help?</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-gray-600">
+          <CardContent className="text-sm text-muted-foreground">
             <p>If you encounter any issues with your order, please contact the shop owner:</p>
             {shopOwner.email && (
               <p className="mt-2 font-semibold">Email: {shopOwner.email}</p>
@@ -205,7 +205,7 @@ export default function OrderConfirmation() {
               <p className={shopOwner.email ? "" : "mt-2"}>Phone: {shopOwner.phone}</p>
             )}
             {!shopOwner.email && !shopOwner.phone && (
-              <p className="mt-2 text-gray-500">Contact details not available.</p>
+              <p className="mt-2 text-muted-foreground">Contact details not available.</p>
             )}
           </CardContent>
         </Card>

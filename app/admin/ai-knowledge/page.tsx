@@ -143,7 +143,7 @@ export default function AIKnowledgePage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">AI Knowledge Base</h1>
-            <p className="text-sm text-gray-500 mt-1">Entries the AI searches when answering user questions</p>
+            <p className="text-sm text-muted-foreground mt-1">Entries the AI searches when answering user questions</p>
           </div>
           {!showForm && (
             <Button onClick={() => setShowForm(true)} className="gap-2">
@@ -164,7 +164,7 @@ export default function AIKnowledgePage() {
                   <select
                     value={form.category}
                     onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white"
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card"
                   >
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -180,7 +180,7 @@ export default function AIKnowledgePage() {
                         className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                           form.contexts?.includes(ctx)
                             ? "bg-violet-600 text-white border-violet-600"
-                            : "bg-white text-gray-500 border-gray-300"
+                            : "bg-card text-muted-foreground border-border"
                         }`}
                       >
                         {ctx}
@@ -206,7 +206,7 @@ export default function AIKnowledgePage() {
                   onChange={e => setForm(f => ({ ...f, answer: e.target.value }))}
                   rows={4}
                   placeholder="Write the full answer the AI should give..."
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-violet-400 resize-none"
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 outline-none focus:border-violet-400 resize-none"
                 />
               </div>
 
@@ -223,10 +223,10 @@ export default function AIKnowledgePage() {
         )}
 
         {loading ? (
-          <div className="text-sm text-gray-400 py-8 text-center">Loading...</div>
+          <div className="text-sm text-muted-foreground py-8 text-center">Loading...</div>
         ) : entries.length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-gray-400 text-sm">
+            <CardContent className="py-12 text-center text-muted-foreground text-sm">
               No entries yet. Add your first knowledge base entry above.
             </CardContent>
           </Card>
@@ -234,39 +234,39 @@ export default function AIKnowledgePage() {
           <div className="space-y-6">
             {[...grouped, ...(uncategorised.length ? [{ cat: "other", items: uncategorised }] : [])].map(({ cat, items }) => (
               <div key={cat}>
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">{cat}</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{cat}</h2>
                 <div className="space-y-2">
                   {items.map(entry => (
                     <Card key={entry.id} className={entry.is_active ? "" : "opacity-50"}>
                       <CardContent className="py-3 px-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900">{entry.question}</p>
-                            <p className="text-sm text-gray-500 mt-1 line-clamp-2">{entry.answer}</p>
+                            <p className="text-sm font-medium text-foreground">{entry.question}</p>
+                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{entry.answer}</p>
                             <div className="flex gap-1 mt-2 flex-wrap">
                               {entry.contexts.map(ctx => (
                                 <Badge key={ctx} variant="secondary" className="text-xs">{ctx}</Badge>
                               ))}
-                              {!entry.is_active && <Badge variant="outline" className="text-xs text-gray-400">disabled</Badge>}
+                              {!entry.is_active && <Badge variant="outline" className="text-xs text-muted-foreground">disabled</Badge>}
                             </div>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <button
                               onClick={() => toggleActive(entry)}
                               title={entry.is_active ? "Disable" : "Enable"}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                             >
                               <Check size={15} />
                             </button>
                             <button
                               onClick={() => startEdit(entry)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                             >
                               <Edit size={15} />
                             </button>
                             <button
                               onClick={() => remove(entry.id)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors"
                             >
                               <Trash2 size={15} />
                             </button>

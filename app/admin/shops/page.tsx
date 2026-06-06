@@ -209,21 +209,21 @@ export default function AdminShopsPage() {
         {/* Header */}
         <div>
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">Shop Management</h1>
-          <p className="text-gray-500 mt-1">Approve or reject shop creation requests</p>
+          <p className="text-muted-foreground mt-1">Approve or reject shop creation requests</p>
         </div>
 
         {/* Tabs */}
         <Tabs defaultValue="pending" className="space-y-4">
-          <TabsList className="bg-gradient-to-r from-violet-100 to-purple-100 backdrop-blur p-1 rounded-lg">
+          <TabsList className="bg-card backdrop-blur p-1 rounded-lg">
             <TabsTrigger
               value="pending"
-              className="data-[state=active]:bg-white data-[state=active]:shadow-md transition-all"
+              className="data-[state=active]:bg-card data-[state=active]:shadow-md transition-all"
             >
               Pending ({pendingShops.length})
             </TabsTrigger>
             <TabsTrigger
               value="all"
-              className="data-[state=active]:bg-white data-[state=active]:shadow-md transition-all"
+              className="data-[state=active]:bg-card data-[state=active]:shadow-md transition-all"
             >
               All Shops ({allShops.length})
             </TabsTrigger>
@@ -232,26 +232,26 @@ export default function AdminShopsPage() {
           {/* Pending Shops Tab */}
           <TabsContent value="pending" className="space-y-4">
             {pendingShops.length === 0 ? (
-              <Card className="bg-gradient-to-br from-green-50/60 to-emerald-50/40 backdrop-blur-xl border border-green-200/40">
+              <Card className="bg-card backdrop-blur-xl border border-border">
                 <CardContent className="pt-12 pb-12 text-center">
                   <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-4" />
-                  <p className="text-lg font-semibold text-gray-900">No Pending Approvals</p>
-                  <p className="text-gray-500">All shops have been reviewed</p>
+                  <p className="text-lg font-semibold text-foreground">No Pending Approvals</p>
+                  <p className="text-muted-foreground">All shops have been reviewed</p>
                 </CardContent>
               </Card>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {pendingShops.map((shop) => (
-                  <Card key={shop.id} className="border-l-4 border-l-orange-500 bg-gradient-to-br from-orange-50/60 to-yellow-50/40 backdrop-blur-xl border border-orange-200/40 hover:border-orange-300/60 hover:shadow-lg transition-all">
+                  <Card key={shop.id} className="border-l-4 border-l-orange-500 bg-card backdrop-blur-xl border border-border hover:border-border hover:shadow-lg transition-all">
                     <CardContent className="pt-6">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-lg font-bold text-gray-900">{shop.shop_name}</h3>
+                            <h3 className="text-lg font-bold text-foreground">{shop.shop_name}</h3>
                             <Badge className="bg-orange-600">Pending</Badge>
                           </div>
-                          <p className="text-sm text-gray-600 mb-2">{shop.description || "No description"}</p>
-                          <div className="flex gap-4 text-xs text-gray-600">
+                          <p className="text-sm text-muted-foreground mb-2">{shop.description || "No description"}</p>
+                          <div className="flex gap-4 text-xs text-muted-foreground">
                             <span>Slug: <code className="font-mono">{shop.shop_slug}</code></span>
                             <span>Created: {new Date(shop.created_at).toLocaleDateString()}</span>
                           </div>
@@ -261,7 +261,7 @@ export default function AdminShopsPage() {
                             size="sm"
                             onClick={() => handleViewDetails(shop)}
                             variant="outline"
-                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            className="text-primary hover:text-primary hover:bg-primary/5"
                           >
                             <Eye className="w-4 h-4 mr-1" />
                             Details
@@ -298,23 +298,23 @@ export default function AdminShopsPage() {
                 placeholder="Search shops by name or slug..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-white/50 backdrop-blur border-violet-200"
+                className="bg-card/50 backdrop-blur border-border"
               />
             </div>
-            <Card className="bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+            <Card className="bg-card backdrop-blur-xl border border-border">
               <CardHeader>
                 <CardTitle>All Shops</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <table className="min-w-[600px] w-full text-xs sm:text-sm">
-                    <thead className="bg-gradient-to-r from-violet-100/60 to-purple-100/60 backdrop-blur border-b border-violet-200/40">
+                    <thead className="bg-card backdrop-blur border-b border-border">
                       <tr>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Shop Name</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Slug</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Created</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Shop Name</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Slug</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Status</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Created</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-violet-100/40">
@@ -325,8 +325,8 @@ export default function AdminShopsPage() {
                         )
                         .map((shop) => (
                         <tr key={shop.id} className="hover:bg-violet-100/30 backdrop-blur transition-colors">
-                          <td className="px-6 py-4 font-medium text-gray-900">{shop.shop_name}</td>
-                          <td className="px-6 py-4 text-sm text-gray-600"><code className="font-mono">{shop.shop_slug}</code></td>
+                          <td className="px-6 py-4 font-medium text-foreground">{shop.shop_name}</td>
+                          <td className="px-6 py-4 text-sm text-muted-foreground"><code className="font-mono">{shop.shop_slug}</code></td>
                           <td className="px-6 py-4">
                             {shop.is_blocked ? (
                               <Badge className="bg-red-600">Blocked</Badge>
@@ -336,7 +336,7 @@ export default function AdminShopsPage() {
                               <Badge className="bg-orange-600">Pending</Badge>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">{new Date(shop.created_at).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 text-sm text-muted-foreground">{new Date(shop.created_at).toLocaleDateString()}</td>
                           <td className="px-6 py-4">
                             <Button
                               size="sm"
@@ -370,11 +370,11 @@ export default function AdminShopsPage() {
                   <h3 className="font-semibold mb-3">Shop Information</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <div>
-                      <p className="text-gray-600">Name</p>
+                      <p className="text-muted-foreground">Name</p>
                       <p className="font-semibold">{shopDetails.shop.shop_name}</p>
                     </div>
                     <div>
-                      <p className="text-gray-600">Slug (Shop URL)</p>
+                      <p className="text-muted-foreground">Slug (Shop URL)</p>
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-mono text-sm break-all">{shopDetails.shop.shop_slug}</p>
                         <Button
@@ -382,7 +382,7 @@ export default function AdminShopsPage() {
                           variant="outline"
                           disabled={rotateLoading}
                           onClick={() => handleRotateSlug(selectedShop!.id)}
-                          className="h-7 px-2 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+                          className="h-7 px-2 text-xs border-border text-amber-700 hover:bg-amber-50"
                           title="Generate a new URL and break the old one (anti-attack)"
                         >
                           {rotateLoading ? "Rotating…" : "🔄 Rotate URL"}
@@ -390,7 +390,7 @@ export default function AdminShopsPage() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-gray-600">Status</p>
+                      <p className="text-muted-foreground">Status</p>
                       {shopDetails.shop.is_blocked ? (
                         <Badge className="bg-red-600">Blocked</Badge>
                       ) : shopDetails.shop.is_active ? (
@@ -400,7 +400,7 @@ export default function AdminShopsPage() {
                       )}
                     </div>
                     <div>
-                      <p className="text-gray-600">Created</p>
+                      <p className="text-muted-foreground">Created</p>
                       <p className="font-semibold">{new Date(shopDetails.shop.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -410,23 +410,23 @@ export default function AdminShopsPage() {
                 <div>
                   <h3 className="font-semibold mb-3">Orders & Revenue</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                    <div className="bg-blue-50 p-3 rounded-lg text-center">
-                      <p className="text-gray-600 text-[10px] uppercase font-bold tracking-wider mb-1">Total Orders</p>
-                      <p className="text-xl font-bold text-blue-600 font-mono italic">{shopDetails.orders.length}</p>
+                    <div className="bg-primary/5 p-3 rounded-lg text-center">
+                      <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider mb-1">Total Orders</p>
+                      <p className="text-xl font-bold text-primary font-mono italic">{shopDetails.orders.length}</p>
                     </div>
-                    <div className="bg-emerald-50 p-3 rounded-lg text-center hover:shadow-inner transition-all border border-emerald-100/50">
-                      <p className="text-gray-600 text-[10px] uppercase font-bold tracking-wider mb-1">Total Revenue</p>
+                    <div className="bg-emerald-50 p-3 rounded-lg text-center hover:shadow-inner transition-all border border-border">
+                      <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider mb-1">Total Revenue</p>
                       <p className="text-xl font-bold text-emerald-600 font-mono tracking-tighter tabular-nums">GHS {(shopDetails.orders.reduce((sum: number, o: any) => sum + (o.total_price || 0), 0)).toFixed(2)}</p>
                     </div>
                     <div className="bg-purple-50 p-3 rounded-lg text-center ring-1 ring-purple-100 ring-offset-2">
-                      <p className="text-gray-600 text-[10px] uppercase font-bold tracking-wider mb-1">Profit Balance</p>
+                      <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider mb-1">Profit Balance</p>
                       <p className="text-xl font-bold text-purple-600 font-mono tracking-tighter tabular-nums underline decoration-purple-200 decoration-wavy underline-offset-4">GHS {Number(shopDetails.available_balance || 0).toFixed(2)}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Manual Balance Adjustment */}
-                <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50/80 via-white to-violet-50/80 border border-indigo-100/50 shadow-sm transition-all duration-300 hover:shadow-md group">
+                <div className="p-4 rounded-xl bg-card border border-border shadow-sm transition-all duration-300 hover:shadow-md group">
                   <h3 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
                     <div className="p-1 rounded bg-indigo-100 group-hover:bg-indigo-200 transition-colors">
                       <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
@@ -440,7 +440,7 @@ export default function AdminShopsPage() {
                         <Input
                           type="number"
                           placeholder="0.00"
-                          className="font-mono h-9 border-indigo-100 focus:border-indigo-300 focus:ring-indigo-200 transition-all bg-white/50"
+                          className="font-mono h-9 border-border focus:border-border focus:ring-indigo-200 transition-all bg-card/50"
                           id="manual-adj-amount"
                         />
                       </div>
@@ -448,7 +448,7 @@ export default function AdminShopsPage() {
                         <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Description / Reason</label>
                         <Input
                           placeholder="Reason for adjustment..."
-                          className="h-9 border-indigo-100 focus:border-indigo-300 focus:ring-indigo-200 transition-all bg-white/50"
+                          className="h-9 border-border focus:border-border focus:ring-indigo-200 transition-all bg-card/50"
                           id="manual-adj-notes"
                         />
                       </div>
@@ -479,7 +479,7 @@ export default function AdminShopsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1 border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
+                        className="flex-1 border-border text-rose-600 hover:bg-rose-50 hover:border-border h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
                         onClick={async () => {
                           const amount = (document.getElementById("manual-adj-amount") as HTMLInputElement).value
                           const notes = (document.getElementById("manual-adj-notes") as HTMLInputElement).value
@@ -505,7 +505,7 @@ export default function AdminShopsPage() {
 
                 {/* Block / Unblock — only for active shops */}
                 {selectedShop?.is_active && (
-                  <div className="p-4 rounded-xl bg-gradient-to-br from-red-50/80 via-white to-rose-50/80 border border-red-100/50 shadow-sm space-y-3">
+                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm space-y-3">
                     <h3 className="text-sm font-bold text-red-900 flex items-center gap-2">
                       <ShieldOff className="w-3.5 h-3.5 text-red-600" />
                       Temporary Block
@@ -531,7 +531,7 @@ export default function AdminShopsPage() {
                           placeholder="Reason for blocking (required)..."
                           value={blockReason}
                           onChange={(e) => setBlockReason(e.target.value)}
-                          className="text-sm border-red-100 focus:border-red-300 resize-none h-20"
+                          className="text-sm border-border focus:border-border resize-none h-20"
                         />
                         <Button
                           size="sm"

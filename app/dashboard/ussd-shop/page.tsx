@@ -155,23 +155,23 @@ export default function UssdShopPage() {
   }
 
   const statusBadge = (status: string, tokenBalance: number) => {
-    if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Suspended</Badge>
-    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-orange-100 text-orange-700 border-orange-200">No Sessions</Badge>
-    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-green-200">Active</Badge>
-    return <Badge className="bg-gray-100 text-gray-600 border-gray-200">Inactive</Badge>
+    if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-border">Suspended</Badge>
+    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-orange-100 text-orange-700 border-border">No Sessions</Badge>
+    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-border">Active</Badge>
+    return <Badge className="bg-muted text-muted-foreground border-border">Inactive</Badge>
   }
 
   const orderStatusBadge = (status: string) => {
     if (status === 'completed') return <Badge className="bg-green-100 text-green-800 text-xs">Completed</Badge>
     if (status === 'failed') return <Badge className="bg-red-100 text-red-800 text-xs">Failed</Badge>
-    if (status === 'processing') return <Badge className="bg-blue-100 text-blue-800 text-xs">Processing</Badge>
-    return <Badge className="bg-gray-100 text-gray-600 text-xs">Pending</Badge>
+    if (status === 'processing') return <Badge className="bg-primary/10 text-primary text-xs">Processing</Badge>
+    return <Badge className="bg-muted text-muted-foreground text-xs">Pending</Badge>
   }
 
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64 text-gray-500">Loading...</div>
+        <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>
       </DashboardLayout>
     )
   }
@@ -182,11 +182,11 @@ export default function UssdShopPage() {
 
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <Smartphone className="w-5 h-5 text-blue-600" />
+            <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
+              <Smartphone className="w-5 h-5 text-primary" />
               USSD Storefront
             </h1>
-            <p className="text-sm text-gray-500 mt-1">Let your customers buy data bundles by dialing a USSD code</p>
+            <p className="text-sm text-muted-foreground mt-1">Let your customers buy data bundles by dialing a USSD code</p>
           </div>
           <Button variant="outline" size="sm" onClick={loadData}>
             <RefreshCw className="w-4 h-4" />
@@ -194,19 +194,19 @@ export default function UssdShopPage() {
         </div>
 
         {!shopCode ? (
-          <Card className="border-dashed border-2 border-gray-200">
-            <CardContent className="py-12 text-center text-gray-400">
+          <Card className="border-dashed border-2 border-border">
+            <CardContent className="py-12 text-center text-muted-foreground">
               <Hash className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p className="font-medium text-gray-600">No USSD code assigned yet</p>
+              <p className="font-medium text-muted-foreground">No USSD code assigned yet</p>
               <p className="text-sm mt-1">Contact admin to get your shop's USSD code set up.</p>
             </CardContent>
           </Card>
         ) : (
           <>
             {/* Shop Code Card */}
-            <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50">
+            <Card className="border-primary/20 bg-card">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base text-blue-800 flex items-center justify-between">
+                <CardTitle className="text-base text-primary flex items-center justify-between">
                   <span className="flex items-center gap-2">
                     <Hash className="w-4 h-4" />
                     Your Shop Code
@@ -216,27 +216,27 @@ export default function UssdShopPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-4 mt-1">
-                  <div className="bg-white border-2 border-blue-200 rounded-xl px-6 py-4 flex-1 text-center shadow-sm">
-                    <span className="text-4xl font-black tracking-widest text-blue-700 font-mono">
+                  <div className="bg-card border-2 border-primary/20 rounded-xl px-6 py-4 flex-1 text-center shadow-sm">
+                    <span className="text-4xl font-black tracking-widest text-primary font-mono">
                       {shopCode.code}
                     </span>
-                    <p className="text-xs text-gray-400 mt-1">Enter this code on the USSD prompt</p>
+                    <p className="text-xs text-muted-foreground mt-1">Enter this code on the USSD prompt</p>
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={copyCode}
-                    className="shrink-0 border-blue-200 text-blue-700 hover:bg-blue-100"
+                    className="shrink-0 border-primary/20 text-primary hover:bg-primary/10"
                   >
                     {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                   </Button>
                 </div>
 
-                <div className="flex items-center gap-3 mt-4 pt-4 border-t border-blue-100">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Coins className="w-4 h-4 text-blue-500" />
+                <div className="flex items-center gap-3 mt-4 pt-4 border-t border-primary/20">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Coins className="w-4 h-4 text-primary" />
                     <span>
-                      <strong className={shopCode.token_balance <= 5 ? 'text-red-600' : 'text-gray-800'}>
+                      <strong className={shopCode.token_balance <= 5 ? 'text-red-600' : 'text-foreground'}>
                         {shopCode.token_balance}
                       </strong>
                       {' '}session{shopCode.token_balance !== 1 ? 's' : ''} remaining
@@ -251,14 +251,14 @@ export default function UssdShopPage() {
                 </div>
 
                 {shopCode.token_balance === 0 && shopCode.activation_fee_paid && (
-                  <div className="mt-3 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
+                  <div className="mt-3 flex items-start gap-2 p-3 bg-red-50 border border-border rounded-lg text-sm text-red-700">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>Your session tokens are depleted. Top up below so customers can access your shop.</span>
                   </div>
                 )}
 
                 {!shopCode.activation_fee_paid && (
-                  <div className="mt-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg space-y-3">
+                  <div className="mt-3 p-4 bg-yellow-50 border border-border rounded-lg space-y-3">
                     <div className="flex items-start gap-2 text-sm text-yellow-800">
                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                       <div>
@@ -266,7 +266,7 @@ export default function UssdShopPage() {
                         <p className="text-yellow-700 mt-0.5">
                           One-time fee: <strong>GHS {activationFee.toFixed(2)}</strong>
                           {walletBalance !== null && (
-                            <span className="ml-2 text-gray-500">· Wallet: GHS {walletBalance.toFixed(2)}</span>
+                            <span className="ml-2 text-muted-foreground">· Wallet: GHS {walletBalance.toFixed(2)}</span>
                           )}
                         </p>
                       </div>
@@ -290,7 +290,7 @@ export default function UssdShopPage() {
 
             {/* Buy Sessions */}
             {shopCode.activation_fee_paid && (
-              <Card className="border-indigo-200 bg-indigo-50">
+              <Card className="border-border bg-indigo-50">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base text-indigo-800 flex items-center gap-2">
                     <Coins className="w-4 h-4" />
@@ -314,7 +314,7 @@ export default function UssdShopPage() {
                         placeholder={`Min ${minSessions}`}
                         value={sessionQty}
                         onChange={e => setSessionQty(e.target.value)}
-                        className="w-full border border-indigo-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-indigo-400"
                       />
                     </div>
                     {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (
@@ -333,7 +333,7 @@ export default function UssdShopPage() {
                     Buy with Wallet
                   </Button>
                   {walletBalance !== null && (
-                    <p className="text-xs text-gray-500">Wallet balance: GHS {walletBalance.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground">Wallet balance: GHS {walletBalance.toFixed(2)}</p>
                   )}
                 </CardContent>
               </Card>
@@ -347,35 +347,35 @@ export default function UssdShopPage() {
                   <CardDescription>Share these instructions with your customers</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="bg-gray-50 rounded-xl p-4 space-y-3 font-mono text-sm">
-                    <p className="text-gray-500 text-xs font-sans uppercase tracking-wide mb-4">Step-by-step</p>
+                  <div className="bg-muted/40 rounded-xl p-4 space-y-3 font-mono text-sm">
+                    <p className="text-muted-foreground text-xs font-sans uppercase tracking-wide mb-4">Step-by-step</p>
                     <div className="flex items-start gap-3">
-                      <span className="bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">1</span>
+                      <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">1</span>
                       <div>
-                        <p className="text-gray-700 font-sans">Dial the USSD code</p>
-                        <p className="text-blue-700 font-bold text-lg mt-0.5">{dialCode}</p>
+                        <p className="text-foreground font-sans">Dial the USSD code</p>
+                        <p className="text-primary font-bold text-lg mt-0.5">{dialCode}</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
-                      <span className="bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">2</span>
+                      <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">2</span>
                       <div>
-                        <p className="text-gray-700 font-sans">Enter your shop code when prompted</p>
-                        <p className="text-blue-700 font-bold text-lg mt-0.5">{shopCode.code}</p>
+                        <p className="text-foreground font-sans">Enter your shop code when prompted</p>
+                        <p className="text-primary font-bold text-lg mt-0.5">{shopCode.code}</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
-                      <span className="bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">3</span>
-                      <p className="text-gray-700 font-sans">Select a network, pick a bundle, and enter the recipient's number</p>
+                      <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">3</span>
+                      <p className="text-foreground font-sans">Select a network, pick a bundle, and enter the recipient's number</p>
                     </div>
                     <div className="flex items-start gap-3">
-                      <span className="bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">4</span>
-                      <p className="text-gray-700 font-sans">Approve the MoMo prompt on their phone to complete payment</p>
+                      <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">4</span>
+                      <p className="text-foreground font-sans">Approve the MoMo prompt on their phone to complete payment</p>
                     </div>
                   </div>
 
-                  <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                    <p className="text-sm font-medium text-blue-800 mb-1">Share with your customers:</p>
-                    <p className="text-sm text-blue-700">
+                  <div className="mt-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                    <p className="text-sm font-medium text-primary mb-1">Share with your customers:</p>
+                    <p className="text-sm text-primary">
                       "Dial <strong>{dialCode}</strong> on your phone, enter shop code <strong>{shopCode.code}</strong>, and buy your data bundle instantly!"
                     </p>
                   </div>
@@ -391,7 +391,7 @@ export default function UssdShopPage() {
               </CardHeader>
               <CardContent>
                 {orders.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400 text-sm">
+                  <div className="text-center py-8 text-muted-foreground text-sm">
                     No orders yet. Share your shop code with customers to get started.
                   </div>
                 ) : (
@@ -399,15 +399,15 @@ export default function UssdShopPage() {
                     {orders.map(order => (
                       <div key={order.id} className="flex items-center justify-between py-2 border-b last:border-0">
                         <div>
-                          <p className="text-sm font-medium text-gray-800">
-                            {order.package_size} <span className="text-gray-400">{order.network}</span>
+                          <p className="text-sm font-medium text-foreground">
+                            {order.package_size} <span className="text-muted-foreground">{order.network}</span>
                           </p>
-                          <p className="text-xs text-gray-400">
+                          <p className="text-xs text-muted-foreground">
                             To: {order.recipient_phone} · {new Date(order.created_at).toLocaleDateString()}
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-medium text-gray-800">GHS {Number(order.amount).toFixed(2)}</p>
+                          <p className="text-sm font-medium text-foreground">GHS {Number(order.amount).toFixed(2)}</p>
                           {orderStatusBadge(order.order_status)}
                         </div>
                       </div>

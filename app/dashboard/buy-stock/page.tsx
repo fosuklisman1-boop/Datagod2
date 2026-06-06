@@ -315,7 +315,7 @@ export default function BuyStockPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       </DashboardLayout>
     )
@@ -350,7 +350,7 @@ export default function BuyStockPage() {
             <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
               Buy Stock
             </h1>
-            <p className="text-gray-500 mt-1">Purchase data packages at wholesale prices</p>
+            <p className="text-muted-foreground mt-1">Purchase data packages at wholesale prices</p>
           </div>
 
           {/* Wallet Balance */}
@@ -358,7 +358,7 @@ export default function BuyStockPage() {
             <CardContent className="p-4 flex items-center gap-3">
               <Wallet className="w-5 h-5 text-green-600" />
               <div>
-                <p className="text-xs text-gray-500">Wallet Balance</p>
+                <p className="text-xs text-muted-foreground">Wallet Balance</p>
                 <p className="text-lg font-bold text-green-600">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
               </div>
             </CardContent>
@@ -406,7 +406,7 @@ export default function BuyStockPage() {
         {/* Packages */}
         {filteredPackages.length === 0 ? (
           <Card>
-            <CardContent className="p-8 text-center text-gray-500">
+            <CardContent className="p-8 text-center text-muted-foreground">
               No packages available. Your parent shop needs to add packages to their catalog.
             </CardContent>
           </Card>
@@ -423,7 +423,7 @@ export default function BuyStockPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-500 text-sm">Price:</span>
+                    <span className="text-muted-foreground text-sm">Price:</span>
                     <span className="font-bold text-lg text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
                   </div>
 
@@ -458,7 +458,7 @@ export default function BuyStockPage() {
                   <div className="flex items-center gap-4 flex-1">
                     <Badge variant="outline">{pkg.network}</Badge>
                     <span className="font-medium">{pkg.size}</span>
-                    <span className="text-gray-500 text-sm hidden sm:block">{pkg.description}</span>
+                    <span className="text-muted-foreground text-sm hidden sm:block">{pkg.description}</span>
                   </div>
                   <div className="flex items-center gap-4">
                     <span className="font-bold text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>

@@ -145,7 +145,7 @@ export default function AFARegistrationsAdminPage() {
       case "pending":
         return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
       case "processing":
-        return <Badge className="bg-blue-100 text-blue-800">Processing</Badge>
+        return <Badge className="bg-primary/10 text-primary">Processing</Badge>
       case "completed":
         return <Badge className="bg-green-100 text-green-800">Completed</Badge>
       case "cancelled":
@@ -174,12 +174,12 @@ export default function AFARegistrationsAdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+    <div className="min-h-screen bg-muted/40 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">AFA Registrations</h1>
-          <p className="text-gray-600 mt-1">Manage MTN AFA registration submissions</p>
+          <h1 className="text-3xl font-bold text-foreground">AFA Registrations</h1>
+          <p className="text-muted-foreground mt-1">Manage MTN AFA registration submissions</p>
         </div>
 
         {/* Stats */}
@@ -282,31 +282,31 @@ export default function AFARegistrationsAdminPage() {
               </div>
             ) : filteredSubmissions.length === 0 ? (
               <div className="text-center py-8">
-                <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-600">No submissions found</p>
+                <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground">No submissions found</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
+                  <thead className="bg-muted/40 border-b">
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Order Code</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Name</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Phone</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Amount</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Order Code</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Name</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Phone</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Amount</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Status</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Date</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {filteredSubmissions.map((submission) => (
-                      <tr key={submission.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-semibold text-blue-600">
+                      <tr key={submission.id} className="hover:bg-accent">
+                        <td className="px-4 py-3 text-sm font-semibold text-primary">
                           {submission.order_code}
                         </td>
                         <td className="px-4 py-3 text-sm">{submission.full_name}</td>
-                        <td className="px-4 py-3 text-sm font-mono text-gray-600">
+                        <td className="px-4 py-3 text-sm font-mono text-muted-foreground">
                           {submission.phone_number.substring(0, 3)}...
                         </td>
                         <td className="px-4 py-3 text-sm font-semibold">
@@ -315,7 +315,7 @@ export default function AFARegistrationsAdminPage() {
                         <td className="px-4 py-3 text-sm">
                           {getStatusBadge(submission.status)}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
                           {formatDate(submission.created_at)}
                         </td>
                         <td className="px-4 py-3 text-sm">
@@ -359,7 +359,7 @@ export default function AFARegistrationsAdminPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Order Code */}
                 <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-2">
+                  <label className="text-sm font-medium text-foreground block mb-2">
                     Order Code
                   </label>
                   <div className="flex gap-2">
@@ -386,7 +386,7 @@ export default function AFARegistrationsAdminPage() {
 
                 {/* Transaction Code */}
                 <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-2">
+                  <label className="text-sm font-medium text-foreground block mb-2">
                     Transaction Code
                   </label>
                   <div className="flex gap-2">
@@ -416,7 +416,7 @@ export default function AFARegistrationsAdminPage() {
 
                 {/* Full Name */}
                 <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-2">
+                  <label className="text-sm font-medium text-foreground block mb-2">
                     Full Name
                   </label>
                   <div className="flex gap-2">
@@ -443,7 +443,7 @@ export default function AFARegistrationsAdminPage() {
 
                 {/* Amount */}
                 <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-2">
+                  <label className="text-sm font-medium text-foreground block mb-2">
                     Amount
                   </label>
                   <div className="flex gap-2">
@@ -474,7 +474,7 @@ export default function AFARegistrationsAdminPage() {
                 {/* Phone Number */}
                 <div className="md:col-span-2">
                   <div className="flex justify-between items-center mb-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className="text-sm font-medium text-foreground">
                       Phone Number
                     </label>
                     <Button
@@ -524,7 +524,7 @@ export default function AFARegistrationsAdminPage() {
                 {/* Email */}
                 {selectedSubmission.user_email && (
                   <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-gray-700 block mb-2">
+                    <label className="text-sm font-medium text-foreground block mb-2">
                       User Email
                     </label>
                     <div className="flex gap-2">
@@ -555,7 +555,7 @@ export default function AFARegistrationsAdminPage() {
 
                 {/* Date */}
                 <div className="md:col-span-2">
-                  <label className="text-sm font-medium text-gray-700 block mb-2">
+                  <label className="text-sm font-medium text-foreground block mb-2">
                     Submitted Date
                   </label>
                   <Input

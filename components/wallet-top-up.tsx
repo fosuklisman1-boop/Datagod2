@@ -258,7 +258,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
   return (
     <div className="space-y-4">
-      <Card className="w-full border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-blue-50/40 backdrop-blur-xl border border-cyan-200/40 hover:border-cyan-300/60">
+      <Card className="w-full border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border hover:border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Zap className="h-5 w-5 text-cyan-600" />
@@ -270,7 +270,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       <CardContent className="space-y-6">
         {/* Error Alert */}
         {paymentStatus === "error" && errorMessage && (
-          <Alert className="bg-red-50 border-red-200">
+          <Alert className="bg-red-50 border-border">
             <AlertCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-800">{errorMessage}</AlertDescription>
           </Alert>
@@ -278,7 +278,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
         {/* Success Alert */}
         {paymentStatus === "success" && (
-          <Alert className="bg-green-50 border-green-200">
+          <Alert className="bg-green-50 border-border">
             <CheckCircle className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800">
               Payment completed successfully! Your wallet has been credited.
@@ -288,7 +288,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
         {/* Amount Input */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700">Amount (GHS)</label>
+          <label className="text-sm font-medium text-foreground">Amount (GHS)</label>
           <Input
             type="number"
             value={amount}
@@ -299,12 +299,12 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             disabled={isLoading}
             className="text-lg"
           />
-          <p className="text-xs text-gray-500">Minimum: GHS 5.00</p>
+          <p className="text-xs text-muted-foreground">Minimum: GHS 5.00</p>
         </div>
 
         {/* Quick Amount Buttons */}
         <div className="space-y-2">
-          <p className="text-sm font-medium text-gray-700">Quick amounts</p>
+          <p className="text-sm font-medium text-foreground">Quick amounts</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 sm:gap-2">
             {quickAmounts.map((quickAmount) => (
               <Button
@@ -322,18 +322,18 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
         {/* Email Display */}
         <div className="space-y-2">
-          <p className="text-sm font-medium text-gray-700">Email</p>
-          <div className="flex items-center gap-2 p-3 bg-white/40 backdrop-blur border border-cyan-200/40 rounded-lg">
-            <span className="text-sm text-gray-600">{email || "Loading..."}</span>
+          <p className="text-sm font-medium text-foreground">Email</p>
+          <div className="flex items-center gap-2 p-3 bg-card/40 backdrop-blur border border-border rounded-lg">
+            <span className="text-sm text-muted-foreground">{email || "Loading..."}</span>
           </div>
         </div>
 
         {/* Fee Breakdown */}
         {amount && parseFloat(amount) > 0 && (
-          <div className="p-4 bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200/50 rounded-lg space-y-2">
-            <p className="text-sm font-medium text-gray-700">Payment Summary</p>
+          <div className="p-4 bg-card border border-border rounded-lg space-y-2">
+            <p className="text-sm font-medium text-foreground">Payment Summary</p>
             <div className="space-y-1 text-sm">
-              <div className="flex justify-between text-gray-600">
+              <div className="flex justify-between text-muted-foreground">
                 <span>Wallet Top Up:</span>
                 <span>GHS {parseFloat(amount || "0").toFixed(2)}</span>
               </div>
@@ -341,7 +341,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <span>Paystack Fee ({paystackFeePercentage}%):</span>
                 <span>GHS {(parseFloat(amount || "0") * paystackFeePercentage / 100).toFixed(2)}</span>
               </div>
-              <div className="pt-1 border-t border-orange-200 flex justify-between font-semibold text-gray-900">
+              <div className="pt-1 border-t border-border flex justify-between font-semibold text-foreground">
                 <span>Total Amount:</span>
                 <span>GHS {(parseFloat(amount || "0") * (1 + paystackFeePercentage / 100)).toFixed(2)}</span>
               </div>
@@ -359,7 +359,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                   ? "bg-green-100 text-green-800"
                   : paymentStatus === "error"
                     ? "bg-red-100 text-red-800"
-                    : "bg-blue-100 text-blue-800"
+                    : "bg-primary/10 text-primary"
               }
             >
               {paymentStatus === "success"
@@ -375,7 +375,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             on — both need the on-page MoMo number. OTP controls render only when
             OTP is required; with direct charge alone the number is charged as typed. */}
         {(walletOtp || walletDirect) && (
-          <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
+          <div className="p-4 rounded-lg bg-purple-50 border border-border space-y-3">
             <div>
               <label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</label>
               <Input
@@ -388,7 +388,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                   if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                 }}
                 disabled={(walletOtp && otpVerified) || isLoading}
-                className="mt-1 bg-white font-mono"
+                className="mt-1 bg-card font-mono"
               />
               <p className="text-xs text-purple-700 mt-1">
                 {walletOtp ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
@@ -403,18 +403,18 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <div className="space-y-2">
                   <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                    className="text-center text-lg tracking-[0.4em] font-mono bg-white" />
+                    className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
                   <div className="flex gap-2">
                     <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">
                       {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                     </Button>
                     <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
                   </div>
-                  <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                  <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
                 </div>
               )
             ) : (
-              <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+              <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-green-600" />
                 <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
               </div>
@@ -426,7 +426,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         <Button
           onClick={handleTopUp}
           disabled={isLoading || !amount || (walletOtp && !otpVerified) || (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-          className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-semibold py-6 text-lg"
+          className="w-full bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 text-white font-semibold py-6 text-lg"
         >
           {isLoading ? (
             <>
@@ -442,8 +442,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         </Button>
 
         {/* Security Notice */}
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-xs text-blue-800">
+        <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
+          <p className="text-xs text-primary">
             <strong>🔒 Secure:</strong> Your payment is processed securely by Paystack. We never
             store your card details.
           </p>
@@ -454,24 +454,24 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     {/* Live Mobile Money prompt modal (direct-charge flow) */}
     {momoModal && (
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
-        <Card className="w-full max-w-md bg-white rounded-2xl">
+        <Card className="w-full max-w-md bg-card rounded-2xl">
           {momoModal.state === "awaiting" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Approve the prompt on your phone</h3>
-                <p className="text-sm text-gray-600 mt-1">
+                <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
+                <p className="text-sm text-muted-foreground mt-1">
                   We sent a Mobile Money prompt to{" "}
                   <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the top-up of{" "}
                   <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
                 </p>
               </div>
-              <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
               </div>
-              <p className="text-xs text-gray-400">Keep this page open. This can take up to a minute.</p>
+              <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
             </CardContent>
           )}
 
@@ -481,15 +481,15 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <CheckCircle className="w-9 h-9 text-green-600" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Wallet topped up 🎉</h3>
-                <p className="text-sm text-gray-600 mt-1">Your wallet has been credited with GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}.</p>
+                <h3 className="text-lg font-bold text-foreground">Wallet topped up 🎉</h3>
+                <p className="text-sm text-muted-foreground mt-1">Your wallet has been credited with GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}.</p>
               </div>
               <Button
                 onClick={() => {
                   setMomoModal(null); setAmount(""); setPaymentPhone("")
                   setOtpSent(false); setOtpVerified(false); setOtpCode(""); setPaymentStatus("idle")
                 }}
-                className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white"
+                className="w-full bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 text-white"
               >
                 Done
               </Button>
@@ -502,8 +502,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <AlertCircle className="w-9 h-9 text-red-600" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Top-up not completed</h3>
-                <p className="text-sm text-gray-600 mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
+                <h3 className="text-lg font-bold text-foreground">Top-up not completed</h3>
+                <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
               </div>
               <Button variant="outline" onClick={() => { setMomoModal(null); setPaymentStatus("idle") }} className="w-full">Close</Button>
             </CardContent>

@@ -330,7 +330,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     <>
     <Card className="border-0 shadow-2xl overflow-hidden rounded-2xl w-full max-w-xl mx-auto">
       <div className="h-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600" />
-      <CardHeader className="bg-white border-b border-slate-50">
+      <CardHeader className="bg-card border-b border-border">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
@@ -341,14 +341,14 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               Secure instant top-up for any network
             </CardDescription>
           </div>
-          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-green-100 text-green-700 border-green-200">
+          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-green-100 text-green-700 border-border">
             <ShieldCheck className="w-3 h-3 mr-1" />
             Verified
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="pt-8 bg-white">
+      <CardContent className="pt-8 bg-card">
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Network Selection */}
           <div className="space-y-4">
@@ -369,12 +369,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                       selectedNetwork === net.id
                         ? "border-violet-600 bg-violet-50 ring-4 ring-violet-100 shadow-lg scale-[1.05]"
                         : isAvail 
-                          ? "border-slate-100 bg-slate-50 hover:border-violet-200 hover:bg-slate-100"
-                          : "border-slate-50 bg-slate-50/50 grayscale opacity-60 cursor-not-allowed"
+                          ? "border-border bg-muted/40 hover:border-border hover:bg-muted"
+                          : "border-border bg-muted/40 grayscale opacity-60 cursor-not-allowed"
                     }`}
                   >
                     {!isAvail && (
-                      <div className="absolute top-1 right-1 bg-red-100 text-red-600 text-[8px] font-black px-1 rounded-sm border border-red-200">
+                      <div className="absolute top-1 right-1 bg-red-100 text-red-600 text-[8px] font-black px-1 rounded-sm border border-border">
                         OOS
                       </div>
                     )}
@@ -412,7 +412,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 <Input 
                   id="customerName"
                   placeholder="E.g John Doe"
-                  className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl"
+                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl"
                   value={formData.customerName}
                   onChange={e => setFormData({...formData, customerName: e.target.value})}
                 />
@@ -424,7 +424,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   type="email"
                   required
                   placeholder="john@example.com"
-                  className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl"
+                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl"
                   value={formData.customerEmail}
                   onChange={e => setFormData({...formData, customerEmail: e.target.value})}
                 />
@@ -439,7 +439,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   type="tel"
                   required
                   placeholder="024XXXXXXX"
-                  className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl font-mono text-lg"
+                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl font-mono text-lg"
                   value={formData.beneficiaryPhone}
                   onChange={e => {
                     setFormData({...formData, beneficiaryPhone: e.target.value})
@@ -455,7 +455,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   min="1"
                   required
                   placeholder="10.00"
-                  className="bg-slate-50 border-slate-200 focus:ring-violet-500 focus:border-violet-500 rounded-xl font-bold text-lg"
+                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl font-bold text-lg"
                   value={formData.amount}
                   onChange={e => setFormData({...formData, amount: e.target.value})}
                 />
@@ -464,13 +464,13 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           </div>
 
           {/* Fee Toggle */}
-          <div className="p-4 bg-violet-50 rounded-2xl border border-violet-100 flex items-start gap-3 transition-all">
+          <div className="p-4 bg-violet-50 rounded-2xl border border-border flex items-start gap-3 transition-all">
             <input
               id="pay-sep"
               type="checkbox"
               checked={paySeparately}
               onChange={(e) => setPaySeparately(e.target.checked)}
-              className="mt-1 h-5 w-5 text-violet-600 border-gray-300 rounded focus:ring-violet-500 cursor-pointer"
+              className="mt-1 h-5 w-5 text-violet-600 border-border rounded focus:ring-violet-500 cursor-pointer"
             />
             <label htmlFor="pay-sep" className="flex-1 cursor-pointer">
               <span className="text-violet-900 font-bold text-sm block">Pay fee separately</span>
@@ -485,12 +485,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           {/* Price Summary */}
           <div className="group relative">
             <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-            <div className="relative p-6 bg-slate-50 rounded-2xl border border-slate-100">
+            <div className="relative p-6 bg-muted/40 rounded-2xl border border-border">
               <div className="flex justify-between items-center mb-1">
                 <span className="text-slate-500 font-semibold">Amount to Send:</span>
                 <span className="text-slate-900 font-bold">GHS {parseFloat(formData.amount || "0").toFixed(2)}</span>
               </div>
-              <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-200">
+              <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
                 <span className="text-slate-500 font-semibold">Recipient Gets:</span>
                 <span className="text-green-600 font-black">
                    GHS {calculateRecipientGets().toFixed(2)}
@@ -514,7 +514,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               on — both need the on-page MoMo number. OTP controls render only when
               OTP is required; with direct charge alone the number is charged as typed. */}
           {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 space-y-3">
+            <div className="p-4 rounded-2xl bg-purple-50 border border-border space-y-3">
               <div className="space-y-2">
                 <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</Label>
                 <Input
@@ -527,7 +527,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                     if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                   }}
                   disabled={otpRequired && otpVerified}
-                  className="bg-white border-purple-200 rounded-xl font-mono"
+                  className="bg-card border-border rounded-xl font-mono"
                 />
                 <p className="text-xs text-purple-700">
                   {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
@@ -543,18 +543,18 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   <div className="space-y-2">
                     <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
                       onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      className="text-center text-lg tracking-[0.4em] font-mono bg-white" />
+                      className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
                     <div className="flex gap-2">
                       <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
                         {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                       </Button>
                       <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
                     </div>
-                    <p className="text-xs text-gray-500">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                    <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
                   </div>
                 )
               ) : (
-                <div className="p-3 rounded-xl bg-green-50 border border-green-200 flex items-center gap-2">
+                <div className="p-3 rounded-xl bg-green-50 border border-border flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-green-600" />
                   <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
                 </div>
@@ -592,24 +592,24 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     {/* Live Mobile Money prompt modal (direct-charge flow). */}
     {momoModal && (
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
-        <Card className="w-full max-w-md bg-white rounded-2xl">
+        <Card className="w-full max-w-md bg-card rounded-2xl">
           {momoModal.state === "awaiting" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Approve the prompt on your phone</h3>
-                <p className="text-sm text-gray-600 mt-1">
+                <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
+                <p className="text-sm text-muted-foreground mt-1">
                   We sent a Mobile Money prompt to{" "}
                   <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
                   <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
                 </p>
               </div>
-              <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
               </div>
-              <p className="text-xs text-gray-400">Keep this page open. This can take up to a minute.</p>
+              <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
             </CardContent>
           )}
 
@@ -619,16 +619,16 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 <CheckCircle2 className="w-9 h-9 text-green-600" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Payment successful 🎉</h3>
-                <p className="text-sm text-gray-600 mt-1">Your airtime order is confirmed and is being processed.</p>
+                <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
+                <p className="text-sm text-muted-foreground mt-1">Your airtime order is confirmed and is being processed.</p>
               </div>
-              <div className="text-left p-4 rounded-lg bg-gray-50 border border-gray-200 space-y-1.5 text-sm">
-                <div className="flex justify-between"><span className="text-gray-500">Item</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Recipient</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
+              <div className="text-left p-4 rounded-lg bg-muted/40 border border-border space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Item</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Recipient</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
                 {momoModal.summary?.reference && (
-                  <div className="flex justify-between"><span className="text-gray-500">Reference</span><span className="font-mono text-xs">{momoModal.summary.reference}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{momoModal.summary.reference}</span></div>
                 )}
               </div>
               <Button
@@ -650,8 +650,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 <AlertCircle className="w-9 h-9 text-red-600" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Payment not completed</h3>
-                <p className="text-sm text-gray-600 mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
+                <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
+                <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
               </div>
               <Button variant="outline" onClick={() => setMomoModal(null)} className="w-full rounded-xl">Close</Button>
             </CardContent>

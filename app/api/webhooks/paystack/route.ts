@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
-import { getJoinCommunityLink } from "@/lib/app-settings"
 import { sendPushToUser } from "@/lib/push-service"
 import { getInternalBaseUrl } from "@/lib/internal-url"
 
@@ -235,10 +234,9 @@ export async function POST(request: NextRequest) {
 
         // SMS to recipient
         try {
-          const channelLink = await getJoinCommunityLink()
           await sendSMS({
             phone: ussdOrder.recipient_phone,
-            message: SMSTemplates.ussdOrderConfirmed(ussdOrder.package_size, ussdOrder.network, channelLink),
+            message: SMSTemplates.ussdOrderConfirmed(ussdOrder.package_size, ussdOrder.network),
             type: 'order_confirmation',
             reference: ussdOrderId,
           })
@@ -425,7 +423,7 @@ export async function POST(request: NextRequest) {
             .eq("id", ussdShopOrder.id)
         }
 
-        // SMS to recipient (USSD shop orders intentionally omit the channel link)
+        // SMS to recipient
         try {
           await sendSMS({
             phone: ussdShopOrder.recipient_phone,

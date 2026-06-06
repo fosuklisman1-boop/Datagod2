@@ -220,7 +220,7 @@ export default function AdminProfitsHistoryPage() {
       case "pending":
         return <Badge className="bg-yellow-500 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" />Pending</Badge>
       case "withdrawn":
-        return <Badge className="bg-blue-500 hover:bg-blue-600"><Banknote className="w-3 h-3 mr-1" />Withdrawn</Badge>
+        return <Badge className="bg-primary hover:bg-primary/90"><Banknote className="w-3 h-3 mr-1" />Withdrawn</Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
     }
@@ -305,10 +305,10 @@ export default function AdminProfitsHistoryPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Withdrawn</CardTitle>
-              <Banknote className="h-4 w-4 text-blue-500" />
+              <Banknote className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{formatCurrency(stats.withdrawnProfit)}</div>
+              <div className="text-2xl font-bold text-primary">{formatCurrency(stats.withdrawnProfit)}</div>
               <p className="text-xs text-muted-foreground">{stats.withdrawnCount} withdrawn</p>
             </CardContent>
           </Card>
@@ -435,7 +435,7 @@ export default function AdminProfitsHistoryPage() {
                               profit.is_parent_profit ? (
                                 <Badge className="bg-purple-500 hover:bg-purple-600">Parent</Badge>
                               ) : (
-                                <Badge className="bg-blue-500 hover:bg-blue-600">Sub-Agent</Badge>
+                                <Badge className="bg-primary hover:bg-primary/90">Sub-Agent</Badge>
                               )
                             ) : (
                               <Badge variant="secondary">Direct</Badge>
@@ -464,7 +464,7 @@ export default function AdminProfitsHistoryPage() {
                           <TableCell>
                             {profit.order_volume_gb ? `${profit.order_volume_gb} GB` : "-"}
                           </TableCell>
-                          <TableCell className="text-blue-600">
+                          <TableCell className="text-primary">
                             {profit.is_subagent_order ? formatCurrency(profit.sub_agent_profit) : "-"}
                           </TableCell>
                           <TableCell className="text-purple-600">
@@ -479,7 +479,7 @@ export default function AdminProfitsHistoryPage() {
                           <TableCell className="font-medium text-green-600">
                             +{formatCurrency(profit.profit_amount)}
                           </TableCell>
-                          <TableCell className="font-medium text-blue-600">
+                          <TableCell className="font-medium text-primary">
                             {profit.profit_balance_after != null
                               ? formatCurrency(profit.profit_balance_after)
                               : "-"

@@ -241,10 +241,10 @@ export default function ShopStorefront() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center">
-          <Store className="w-12 h-12 mx-auto text-gray-400 mb-2" />
-          <p className="text-gray-600">Loading store...</p>
+          <Store className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
+          <p className="text-muted-foreground">Loading store...</p>
         </div>
       </div>
     )
@@ -252,9 +252,9 @@ export default function ShopStorefront() {
 
   if (!shop) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+      <div className="min-h-screen bg-card p-4">
         <div className="max-w-2xl mx-auto pt-20">
-          <Alert className="border-red-300 bg-red-50">
+          <Alert className="border-border bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-700">
               Store not found. Please check the URL and try again.
@@ -273,7 +273,7 @@ export default function ShopStorefront() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="min-h-screen bg-card">
       {!globalOrderingEnabled && (
         <div className="max-w-7xl mx-auto px-4 pt-4">
           <Alert className="border-red-500 bg-red-50 shadow-md">
@@ -306,8 +306,8 @@ export default function ShopStorefront() {
             />
           )}
           <div className="flex-1 pt-2">
-            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 break-words">{shop.shop_name || shop.name || "Store"}</h1>
-            <p className="text-gray-600 mt-2 break-words">{shop.description || "Welcome to our store"}</p>
+            <h1 className="text-3xl md:text-4xl font-bold text-foreground break-words">{shop.shop_name || shop.name || "Store"}</h1>
+            <p className="text-muted-foreground mt-2 break-words">{shop.description || "Welcome to our store"}</p>
             <div className="flex flex-wrap gap-3 mt-4">
               {shopSettings?.whatsapp_link && (
                 <a
@@ -338,7 +338,7 @@ export default function ShopStorefront() {
                         onClick={() => setActiveTab(tab.id)}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${activeTab === tab.id
                             ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600"
-                            : "text-gray-700 hover:bg-gray-100"
+                            : "text-foreground hover:bg-accent"
                           }`}
                       >
                         {tab.icon}
@@ -357,19 +357,19 @@ export default function ShopStorefront() {
                 <CardContent className="space-y-3 text-sm">
                   {shop.phone && (
                     <div className="flex items-start gap-2">
-                      <Phone className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                      <span className="text-gray-700">{shop.phone}</span>
+                      <Phone className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <span className="text-foreground">{shop.phone}</span>
                     </div>
                   )}
                   {shop.location && (
                     <div className="flex items-start gap-2">
-                      <MapPin className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                      <span className="text-gray-700">{shop.location}</span>
+                      <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <span className="text-foreground">{shop.location}</span>
                     </div>
                   )}
                   <div className="flex items-start gap-2 pt-2 border-t">
-                    <Clock className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                    <div className="text-gray-700">
+                    <Clock className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <div className="text-foreground">
                       <p>24/7 Support</p>
                     </div>
                   </div>
@@ -388,10 +388,10 @@ export default function ShopStorefront() {
                   <h2 className="text-2xl font-bold mb-6">Select a Network</h2>
 
                   {packages.length === 0 ? (
-                    <Card className="bg-white border-2 border-dashed border-gray-300">
+                    <Card className="bg-card border-2 border-dashed border-border">
                       <CardContent className="pt-12 pb-12 text-center">
-                        <Store className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                        <p className="text-gray-600">No packages available at the moment</p>
+                        <Store className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                        <p className="text-muted-foreground">No packages available at the moment</p>
                       </CardContent>
                     </Card>
                   ) : (
@@ -411,7 +411,7 @@ export default function ShopStorefront() {
                                 }`}
                             >
                               <div className="flex flex-col h-full relative">
-                                <div className="h-40 w-full flex items-center justify-center bg-gray-100 relative overflow-hidden">
+                                <div className="h-40 w-full flex items-center justify-center bg-muted relative overflow-hidden">
                                   <img
                                     src={getNetworkLogo(network as string)}
                                     alt={network}
@@ -419,10 +419,10 @@ export default function ShopStorefront() {
                                   />
                                 </div>
 
-                                <div className="flex-1 p-4 bg-white flex flex-col justify-between">
+                                <div className="flex-1 p-4 bg-card flex flex-col justify-between">
                                   <div>
-                                    <h3 className="text-lg font-bold text-gray-900 uppercase">{network}</h3>
-                                    <p className="text-xs text-gray-600 mt-2">{availableCount} plans available</p>
+                                    <h3 className="text-lg font-bold text-foreground uppercase">{network}</h3>
+                                    <p className="text-xs text-muted-foreground mt-2">{availableCount} plans available</p>
                                   </div>
                                 </div>
                               </div>
@@ -433,7 +433,7 @@ export default function ShopStorefront() {
 
                       {/* Packages Grid */}
                       {selectedNetwork && (
-                        <div className="py-8 border-t border-gray-200">
+                        <div className="py-8 border-t border-border">
                           <h2 className="text-2xl font-bold mb-6">{selectedNetwork} Packages</h2>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -444,7 +444,7 @@ export default function ShopStorefront() {
                                 const totalPrice = pkg.price + shopPkg.profit_margin
 
                                 return (
-                                  <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-gradient-to-br from-violet-50/60 to-purple-50/40 backdrop-blur-xl border border-violet-200/40">
+                                  <Card key={shopPkg.id} className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-card backdrop-blur-xl border border-border">
                                     <CardHeader>
                                       <div className="flex items-start justify-between">
                                         <div className="flex-1">
@@ -458,7 +458,7 @@ export default function ShopStorefront() {
                                     </CardHeader>
                                     <CardContent className="space-y-4">
                                       <div className="flex justify-between items-end pt-4 border-t border-white/20">
-                                        <span className="font-semibold text-gray-700">Price:</span>
+                                        <span className="font-semibold text-foreground">Price:</span>
                                         <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
                                           GHS {totalPrice.toFixed(2)}
                                         </span>
@@ -494,32 +494,32 @@ export default function ShopStorefront() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div>
-                      <h3 className="font-semibold text-gray-900 mb-2">Store Name</h3>
-                      <p className="text-gray-700">{shop.shop_name || shop.name}</p>
+                      <h3 className="font-semibold text-foreground mb-2">Store Name</h3>
+                      <p className="text-foreground">{shop.shop_name || shop.name}</p>
                     </div>
 
                     <div>
-                      <h3 className="font-semibold text-gray-900 mb-2">Description</h3>
-                      <p className="text-gray-700 whitespace-pre-wrap">{shop.description || "No description available"}</p>
+                      <h3 className="font-semibold text-foreground mb-2">Description</h3>
+                      <p className="text-foreground whitespace-pre-wrap">{shop.description || "No description available"}</p>
                     </div>
 
                     {shop.location && (
                       <div>
-                        <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                        <h3 className="font-semibold text-foreground mb-2 flex items-center gap-2">
                           <MapPin className="w-4 h-4" />
                           Location
                         </h3>
-                        <p className="text-gray-700">{shop.location}</p>
+                        <p className="text-foreground">{shop.location}</p>
                       </div>
                     )}
 
                     {shop.phone && (
                       <div>
-                        <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                        <h3 className="font-semibold text-foreground mb-2 flex items-center gap-2">
                           <Phone className="w-4 h-4" />
                           Phone
                         </h3>
-                        <p className="text-gray-700">{shop.phone}</p>
+                        <p className="text-foreground">{shop.phone}</p>
                       </div>
                     )}
                   </CardContent>
@@ -542,7 +542,7 @@ export default function ShopStorefront() {
                           href={shopSettings.whatsapp_link}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="w-full flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                          className="w-full flex items-center gap-3 p-4 bg-green-50 border border-border rounded-lg hover:bg-green-100 transition-colors"
                         >
                           <MessageCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
                           <div className="flex-1 text-left">
@@ -556,19 +556,19 @@ export default function ShopStorefront() {
                       {shop.phone && (
                         <a
                           href={`tel:${shop.phone}`}
-                          className="w-full flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                          className="w-full flex items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-lg hover:bg-primary/10 transition-colors"
                         >
-                          <Phone className="w-6 h-6 text-blue-600 flex-shrink-0" />
+                          <Phone className="w-6 h-6 text-primary flex-shrink-0" />
                           <div className="flex-1 text-left">
                             <p className="font-semibold text-blue-900">Phone</p>
-                            <p className="text-sm text-blue-700">{shop.phone}</p>
+                            <p className="text-sm text-primary">{shop.phone}</p>
                           </div>
-                          <ArrowRight className="w-4 h-4 text-blue-600" />
+                          <ArrowRight className="w-4 h-4 text-primary" />
                         </a>
                       )}
 
                       {shop.location && (
-                        <div className="w-full flex items-center gap-3 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                        <div className="w-full flex items-center gap-3 p-4 bg-purple-50 border border-border rounded-lg">
                           <MapPin className="w-6 h-6 text-purple-600 flex-shrink-0" />
                           <div className="flex-1 text-left">
                             <p className="font-semibold text-purple-900">Location</p>
@@ -578,8 +578,8 @@ export default function ShopStorefront() {
                       )}
                     </div>
 
-                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <p className="text-sm text-gray-700">
+                    <div className="p-4 bg-muted/40 rounded-lg border border-border">
+                      <p className="text-sm text-foreground">
                         <span className="font-semibold">Response Time:</span> We typically respond within 24 hours
                       </p>
                     </div>
@@ -608,8 +608,8 @@ export default function ShopStorefront() {
       {/* Checkout Modal */}
       {checkoutOpen && selectedPackage && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-md bg-white">
-            <CardHeader className="border-b border-gray-200">
+          <Card className="w-full max-w-md bg-card">
+            <CardHeader className="border-b border-border">
               <CardTitle>Checkout</CardTitle>
               <CardDescription>
                 {selectedPackage.packages.network} - {selectedPackage.packages.size}GB
@@ -645,24 +645,24 @@ export default function ShopStorefront() {
                   placeholder="0201234567 or 0551234567"
                   className="mt-1"
                 />
-                <p className="text-xs text-gray-600 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Format: 10 digits starting with 02 or 05 (e.g., 0201234567)
                 </p>
               </div>
 
               {/* Order Summary */}
-              <div className="p-4 bg-gradient-to-br from-violet-50/60 to-purple-50/40 rounded-lg border border-violet-200/40">
+              <div className="p-4 bg-card rounded-lg border border-border">
                 <div className="flex justify-between items-end mb-3">
-                  <span className="font-semibold text-gray-700">Total Amount:</span>
+                  <span className="font-semibold text-foreground">Total Amount:</span>
                   <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
                     GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
                   </span>
                 </div>
               </div>
 
-              <Alert className="border-blue-300 bg-blue-50">
-                <AlertCircle className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-xs text-blue-700">
+              <Alert className="border-border bg-primary/5">
+                <AlertCircle className="h-4 w-4 text-primary" />
+                <AlertDescription className="text-xs text-primary">
                   You will be redirected to Paystack to complete your payment.
                 </AlertDescription>
               </Alert>
@@ -784,16 +784,16 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "completed":
-        return "bg-green-100 text-green-800 border-green-200"
+        return "bg-green-100 text-green-800 border-border"
       case "processing":
-        return "bg-blue-100 text-blue-800 border-blue-200"
+        return "bg-primary/10 text-primary border-primary/20"
       case "pending":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200"
+        return "bg-yellow-100 text-yellow-800 border-border"
       case "failed":
       case "cancelled":
-        return "bg-red-100 text-red-800 border-red-200"
+        return "bg-red-100 text-red-800 border-border"
       default:
-        return "bg-gray-100 text-gray-800 border-gray-200"
+        return "bg-muted text-foreground border-border"
     }
   }
 
@@ -837,11 +837,11 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
       {searched && (
         <>
           {orders.length === 0 ? (
-            <div className="text-center space-y-4 p-8 bg-gray-50 rounded-lg">
-              <AlertCircle className="w-12 h-12 text-gray-400 mx-auto" />
+            <div className="text-center space-y-4 p-8 bg-muted/40 rounded-lg">
+              <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto" />
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">No orders found</h3>
-                <p className="text-gray-600 text-sm">
+                <h3 className="text-lg font-semibold text-foreground">No orders found</h3>
+                <p className="text-muted-foreground text-sm">
                   We couldn't find any orders with phone number: <span className="font-mono font-semibold">{phoneNumber}</span>
                 </p>
               </div>
@@ -849,7 +849,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-gray-900">
+                <h3 className="text-lg font-bold text-foreground">
                   Found {orders.length} Order{orders.length !== 1 ? "s" : ""}
                 </h3>
                 <Badge variant="outline">{orders.length}</Badge>
@@ -861,7 +861,7 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                     <div className="flex items-start justify-between">
                       <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2">
-                          <Package className="w-4 h-4 text-blue-600" />
+                          <Package className="w-4 h-4 text-primary" />
                           <CardTitle className="text-base">{order.network}</CardTitle>
                           <Badge className="text-xs" variant="outline">{order.volume_gb}GB</Badge>
                         </div>
@@ -878,32 +878,32 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
                   <CardContent className="space-y-3">
                     <div className="grid grid-cols-4 gap-4">
                       <div className="space-y-1">
-                        <p className="text-xs text-gray-600">Total</p>
-                        <p className="font-semibold text-gray-900">₵ {order.total_price.toFixed(2)}</p>
+                        <p className="text-xs text-muted-foreground">Total</p>
+                        <p className="font-semibold text-foreground">₵ {order.total_price.toFixed(2)}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-gray-600">Customer</p>
-                        <p className="font-semibold text-gray-900">{order.customer_name}</p>
+                        <p className="text-xs text-muted-foreground">Customer</p>
+                        <p className="font-semibold text-foreground">{order.customer_name}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-gray-600">Date</p>
-                        <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-muted-foreground">Date</p>
+                        <p className="text-sm text-foreground">{new Date(order.created_at).toLocaleDateString()}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-gray-600">Time</p>
-                        <p className="text-sm text-gray-900">{new Date(order.created_at).toLocaleTimeString()}</p>
+                        <p className="text-xs text-muted-foreground">Time</p>
+                        <p className="text-sm text-foreground">{new Date(order.created_at).toLocaleTimeString()}</p>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 pt-2 border-t">
                       <div className="space-y-1">
-                        <p className="text-xs text-gray-600">Order Status</p>
+                        <p className="text-xs text-muted-foreground">Order Status</p>
                         <Badge className={`text-xs border ${getStatusColor(order.order_status)}`}>
                           {order.order_status?.charAt(0).toUpperCase() + order.order_status?.slice(1)}
                         </Badge>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-gray-600">Payment Status</p>
+                        <p className="text-xs text-muted-foreground">Payment Status</p>
                         <Badge className={`text-xs border ${getStatusColor(order.payment_status)}`}>
                           {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1)}
                         </Badge>

@@ -20,24 +20,24 @@ export function Step7Done({ onComplete }: Step7Props) {
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-3xl font-bold text-gray-900">
+        <h3 className="text-3xl font-bold text-foreground">
           You're All Set!
         </h3>
-        <p className="text-lg text-gray-600 max-w-lg mx-auto">
+        <p className="text-lg text-muted-foreground max-w-lg mx-auto">
           You now know the essentials of DATAGOD. Time to explore and start buying data!
         </p>
       </div>
 
-      <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6 space-y-4 text-left">
-        <h4 className="font-semibold text-gray-900 text-center">Quick Next Steps:</h4>
+      <div className="bg-card rounded-lg p-6 space-y-4 text-left">
+        <h4 className="font-semibold text-foreground text-center">Quick Next Steps:</h4>
         <div className="space-y-3">
           <div className="flex gap-3">
             <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 bg-green-500 text-white rounded-full text-sm font-bold">
               1
             </span>
             <div>
-              <p className="font-semibold text-gray-900">Fund Your Wallet</p>
-              <p className="text-sm text-gray-600">Top up with your preferred payment method</p>
+              <p className="font-semibold text-foreground">Fund Your Wallet</p>
+              <p className="text-sm text-muted-foreground">Top up with your preferred payment method</p>
             </div>
           </div>
           <div className="flex gap-3">
@@ -45,8 +45,8 @@ export function Step7Done({ onComplete }: Step7Props) {
               2
             </span>
             <div>
-              <p className="font-semibold text-gray-900">Buy Your First Data</p>
-              <p className="text-sm text-gray-600">Select a network and package to purchase</p>
+              <p className="font-semibold text-foreground">Buy Your First Data</p>
+              <p className="text-sm text-muted-foreground">Select a network and package to purchase</p>
             </div>
           </div>
           <div className="flex gap-3">
@@ -54,15 +54,15 @@ export function Step7Done({ onComplete }: Step7Props) {
               3
             </span>
             <div>
-              <p className="font-semibold text-gray-900">Explore Advanced Features</p>
-              <p className="text-sm text-gray-600">Try bulk orders or create your own shop</p>
+              <p className="font-semibold text-foreground">Explore Advanced Features</p>
+              <p className="text-sm text-muted-foreground">Try bulk orders or create your own shop</p>
             </div>
           </div>
         </div>
       </div>
 
       <div className="space-y-3 pt-4">
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-muted-foreground">
           Questions? Our support team is always ready to help via WhatsApp or email.
         </p>
         <Button
@@ -75,7 +75,7 @@ export function Step7Done({ onComplete }: Step7Props) {
         </Button>
       </div>
 
-      <div className="text-xs text-gray-500 pt-2">
+      <div className="text-xs text-muted-foreground pt-2">
         You can revisit this tour anytime from settings
       </div>
     </div>

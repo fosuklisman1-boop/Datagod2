@@ -174,19 +174,19 @@ export function FeeSettings() {
     }
   }
 
-  if (!user) return <div className="text-center text-gray-500">Please log in as Admin</div>
-  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
+  if (!user) return <div className="text-center text-muted-foreground">Please log in as Admin</div>
+  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">System Settings</h1>
-          <p className="text-gray-500 mt-1">Manage global fees, announcements, and airtime configuration</p>
+          <h1 className="text-3xl font-bold text-foreground">System Settings</h1>
+          <p className="text-muted-foreground mt-1">Manage global fees, announcements, and airtime configuration</p>
         </div>
         <div className="flex gap-3">
           <Button onClick={loadSettings} variant="outline" disabled={loading || saving}>Reset</Button>
-          <Button onClick={handleSave} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90">
             {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</> : "Save All Changes"}
           </Button>
         </div>
@@ -195,21 +195,21 @@ export function FeeSettings() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
           {/* Airtime Management */}
-          <Card className="border-orange-200 shadow-sm">
-            <CardHeader className="bg-orange-50/50 border-b border-orange-100">
+          <Card className="border-border shadow-sm">
+            <CardHeader className="bg-orange-50/50 border-b border-border">
               <CardTitle className="text-orange-900">Airtime Management</CardTitle>
               <CardDescription className="text-orange-700">Set network-specific fees and operational limits</CardDescription>
             </CardHeader>
             <CardContent className="pt-6 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* MTN */}
-                <div className="space-y-4 p-4 rounded-xl bg-gray-50/50 border border-gray-100">
+                <div className="space-y-4 p-4 rounded-xl bg-muted/40 border border-border">
                   <div className="flex items-center justify-between border-b pb-2">
-                    <h4 className="font-bold text-gray-900">MTN Ghana</h4>
+                    <h4 className="font-bold text-foreground">MTN Ghana</h4>
                     <select 
                       value={airtimeData.airtime_enabled_mtn}
                       onChange={(e) => handleAirtimeChange("airtime_enabled_mtn", e.target.value)}
-                      className="text-xs font-semibold px-2 py-1 rounded bg-white border"
+                      className="text-xs font-semibold px-2 py-1 rounded bg-card border"
                     >
                       <option value="true">Active</option>
                       <option value="false">Disabled</option>
@@ -217,24 +217,24 @@ export function FeeSettings() {
                   </div>
                   <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-500">Customer Fee (GHS)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Customer Fee (GHS)</label>
                       <Input type="number" step="0.1" value={airtimeData.airtime_fee_mtn_customer} onChange={(e) => handleAirtimeChange("airtime_fee_mtn_customer", e.target.value)} />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-500">Dealer/Sub-Agent Fee (GHS)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Dealer/Sub-Agent Fee (GHS)</label>
                       <Input type="number" step="0.1" value={airtimeData.airtime_fee_mtn_dealer} onChange={(e) => handleAirtimeChange("airtime_fee_mtn_dealer", e.target.value)} />
                     </div>
                   </div>
                 </div>
 
                 {/* Telecel */}
-                <div className="space-y-4 p-4 rounded-xl bg-gray-50/50 border border-gray-100">
+                <div className="space-y-4 p-4 rounded-xl bg-muted/40 border border-border">
                   <div className="flex items-center justify-between border-b pb-2">
-                    <h4 className="font-bold text-gray-900">Telecel (Vodafone)</h4>
+                    <h4 className="font-bold text-foreground">Telecel (Vodafone)</h4>
                     <select 
                       value={airtimeData.airtime_enabled_telecel}
                       onChange={(e) => handleAirtimeChange("airtime_enabled_telecel", e.target.value)}
-                      className="text-xs font-semibold px-2 py-1 rounded bg-white border"
+                      className="text-xs font-semibold px-2 py-1 rounded bg-card border"
                     >
                       <option value="true">Active</option>
                       <option value="false">Disabled</option>
@@ -242,24 +242,24 @@ export function FeeSettings() {
                   </div>
                   <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-500">Customer Fee (GHS)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Customer Fee (GHS)</label>
                       <Input type="number" step="0.1" value={airtimeData.airtime_fee_telecel_customer} onChange={(e) => handleAirtimeChange("airtime_fee_telecel_customer", e.target.value)} />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-500">Dealer/Sub-Agent Fee (GHS)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Dealer/Sub-Agent Fee (GHS)</label>
                       <Input type="number" step="0.1" value={airtimeData.airtime_fee_telecel_dealer} onChange={(e) => handleAirtimeChange("airtime_fee_telecel_dealer", e.target.value)} />
                     </div>
                   </div>
                 </div>
 
                 {/* AT */}
-                <div className="space-y-4 p-4 rounded-xl bg-gray-50/50 border border-gray-100">
+                <div className="space-y-4 p-4 rounded-xl bg-muted/40 border border-border">
                   <div className="flex items-center justify-between border-b pb-2">
-                    <h4 className="font-bold text-gray-900">AT (AirtelTigo)</h4>
+                    <h4 className="font-bold text-foreground">AT (AirtelTigo)</h4>
                     <select 
                       value={airtimeData.airtime_enabled_at}
                       onChange={(e) => handleAirtimeChange("airtime_enabled_at", e.target.value)}
-                      className="text-xs font-semibold px-2 py-1 rounded bg-white border"
+                      className="text-xs font-semibold px-2 py-1 rounded bg-card border"
                     >
                       <option value="true">Active</option>
                       <option value="false">Disabled</option>
@@ -267,11 +267,11 @@ export function FeeSettings() {
                   </div>
                   <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-500">Customer Fee (GHS)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Customer Fee (GHS)</label>
                       <Input type="number" step="0.1" value={airtimeData.airtime_fee_at_customer} onChange={(e) => handleAirtimeChange("airtime_fee_at_customer", e.target.value)} />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-500">Dealer/Sub-Agent Fee (GHS)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Dealer/Sub-Agent Fee (GHS)</label>
                       <Input type="number" step="0.1" value={airtimeData.airtime_fee_at_dealer} onChange={(e) => handleAirtimeChange("airtime_fee_at_dealer", e.target.value)} />
                     </div>
                   </div>
@@ -282,11 +282,11 @@ export function FeeSettings() {
                    <h4 className="font-bold text-white border-b border-gray-700 pb-2">Purchase Limits</h4>
                    <div className="grid grid-cols-1 gap-4 pt-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-400">Min Amount (GHS)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Min Amount (GHS)</label>
                       <Input type="number" className="bg-gray-900 border-gray-700 text-white" value={airtimeData.airtime_min_amount} onChange={(e) => handleAirtimeChange("airtime_min_amount", e.target.value)} />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-400">Max Amount (GHS)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Max Amount (GHS)</label>
                       <Input type="number" className="bg-gray-900 border-gray-700 text-white" value={airtimeData.airtime_max_amount} onChange={(e) => handleAirtimeChange("airtime_max_amount", e.target.value)} />
                     </div>
                   </div>
@@ -297,24 +297,24 @@ export function FeeSettings() {
 
           {/* Payment Fees */}
           <Card className="shadow-sm">
-            <CardHeader className="bg-gray-50/50 border-b border-gray-100">
+            <CardHeader className="bg-muted/40 border-b border-border">
               <CardTitle>Platform Fees</CardTitle>
               <CardDescription>Configure processing fees for wallet top-ups</CardDescription>
             </CardHeader>
             <CardContent className="pt-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Paystack Fee (%)</label>
+                  <label className="text-sm font-medium text-foreground">Paystack Fee (%)</label>
                   <div className="flex items-center gap-2">
                     <Input type="number" value={formData.paystack_fee_percentage} onChange={(e) => handleInputChange("paystack_fee_percentage", parseFloat(e.target.value))} />
-                    <span className="text-gray-500">%</span>
+                    <span className="text-muted-foreground">%</span>
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Wallet Top-up Extra Fee (%)</label>
+                  <label className="text-sm font-medium text-foreground">Wallet Top-up Extra Fee (%)</label>
                   <div className="flex items-center gap-2">
                     <Input type="number" value={formData.wallet_topup_fee_percentage} onChange={(e) => handleInputChange("wallet_topup_fee_percentage", parseFloat(e.target.value))} />
-                    <span className="text-gray-500">%</span>
+                    <span className="text-muted-foreground">%</span>
                   </div>
                 </div>
               </div>
@@ -331,32 +331,32 @@ export function FeeSettings() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-gray-500">Join Community Link</label>
+                <label className="text-xs font-bold uppercase text-muted-foreground">Join Community Link</label>
                 <Input type="url" value={formData.join_community_link} onChange={(e) => handleInputChange("join_community_link", e.target.value)} />
               </div>
 
               <div className="space-y-4 pt-4 border-t">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-gray-700 font-medium">Internal Announcement</label>
-                  <input type="checkbox" className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" checked={formData.announcement_enabled} onChange={(e) => handleInputChange("announcement_enabled", e.target.checked)} />
+                  <label className="text-sm font-semibold text-foreground font-medium">Internal Announcement</label>
+                  <input type="checkbox" className="w-4 h-4 rounded text-primary focus:ring-ring" checked={formData.announcement_enabled} onChange={(e) => handleInputChange("announcement_enabled", e.target.checked)} />
                 </div>
                 {formData.announcement_enabled && (
-                  <div className="space-y-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                  <div className="space-y-3 p-3 bg-amber-50 rounded-lg border border-border">
                     <Input placeholder="Title" value={formData.announcement_title} onChange={(e) => handleInputChange("announcement_title", e.target.value)} />
-                    <textarea className="w-full text-sm p-3 rounded-md border border-gray-300 min-h-[100px]" placeholder="Message..." value={formData.announcement_message} onChange={(e) => handleInputChange("announcement_message", e.target.value)} />
+                    <textarea className="w-full text-sm p-3 rounded-md border border-border min-h-[100px]" placeholder="Message..." value={formData.announcement_message} onChange={(e) => handleInputChange("announcement_message", e.target.value)} />
                   </div>
                 )}
               </div>
 
               <div className="space-y-4 pt-4 border-t">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-gray-700 font-medium">Storefront Override</label>
+                  <label className="text-sm font-semibold text-foreground font-medium">Storefront Override</label>
                   <input type="checkbox" className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500" checked={formData.storefront_announcement_enabled} onChange={(e) => handleInputChange("storefront_announcement_enabled", e.target.checked)} />
                 </div>
                 {formData.storefront_announcement_enabled && (
-                  <div className="space-y-3 p-3 bg-purple-50 rounded-lg border border-purple-100">
+                  <div className="space-y-3 p-3 bg-purple-50 rounded-lg border border-border">
                     <Input placeholder="Override Title" value={formData.storefront_announcement_title} onChange={(e) => handleInputChange("storefront_announcement_title", e.target.value)} />
-                    <textarea className="w-full text-sm p-3 rounded-md border border-gray-300 min-h-[100px]" placeholder="Override Message..." value={formData.storefront_announcement_message} onChange={(e) => handleInputChange("storefront_announcement_message", e.target.value)} />
+                    <textarea className="w-full text-sm p-3 rounded-md border border-border min-h-[100px]" placeholder="Override Message..." value={formData.storefront_announcement_message} onChange={(e) => handleInputChange("storefront_announcement_message", e.target.value)} />
                   </div>
                 )}
               </div>
@@ -366,7 +366,7 @@ export function FeeSettings() {
       </div>
 
       {error && (
-        <div className="flex gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+        <div className="flex gap-3 p-4 bg-red-50 border border-border rounded-xl">
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
           <p className="text-sm text-red-700 font-medium">{error}</p>
         </div>

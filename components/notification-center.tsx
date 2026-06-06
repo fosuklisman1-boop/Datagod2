@@ -126,7 +126,7 @@ export function NotificationCenter() {
       {/* Notification Bell */}
       <button
         onClick={() => setOpen(!open)}
-        className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+        className="relative p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-full transition-colors"
       >
         <Bell className="w-6 h-6" />
         {unreadCount > 0 && (
@@ -138,10 +138,10 @@ export function NotificationCenter() {
 
       {/* Notification Panel */}
       {open && (
-        <div className="absolute right-0 top-12 w-80 sm:w-96 max-h-[60vh] sm:max-h-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50 flex flex-col">
+        <div className="absolute right-0 top-12 w-80 sm:w-96 max-h-[60vh] sm:max-h-96 bg-card rounded-lg shadow-lg border border-border z-50 flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between p-3 sm:p-4 border-b border-gray-200">
-            <h2 className="text-base sm:text-lg font-semibold text-gray-900">Notifications</h2>
+          <div className="flex items-center justify-between p-3 sm:p-4 border-b border-border">
+            <h2 className="text-base sm:text-lg font-semibold text-foreground">Notifications</h2>
             <div className="flex gap-1 sm:gap-2">
               {unreadCount > 0 && (
                 <Button
@@ -157,7 +157,7 @@ export function NotificationCenter() {
               <button
                 onClick={() => setOpen(false)}
                 title="Close notifications"
-                className="p-1 hover:bg-gray-100 rounded"
+                className="p-1 hover:bg-accent rounded"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -166,7 +166,7 @@ export function NotificationCenter() {
 
           {/* Push opt-in banner — only shown when permission hasn't been decided */}
           {pushPermission === 'default' && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-violet-50 border-b border-violet-100">
+            <div className="flex items-center gap-3 px-4 py-3 bg-violet-50 border-b border-border">
               <BellRing className="w-5 h-5 text-violet-500 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-violet-800">Get push notifications</p>
@@ -185,15 +185,15 @@ export function NotificationCenter() {
           {/* Notifications List */}
           <div className="overflow-y-auto flex-1">
             {loading ? (
-              <div className="flex items-center justify-center h-32 text-gray-500">
+              <div className="flex items-center justify-center h-32 text-muted-foreground">
                 Loading...
               </div>
             ) : notifications.length === 0 ? (
-              <div className="flex items-center justify-center h-32 text-gray-500">
+              <div className="flex items-center justify-center h-32 text-muted-foreground">
                 No notifications yet
               </div>
             ) : (
-              <div className="divide-y divide-gray-200">
+              <div className="divide-y divide-border">
                 {notifications.map((notification) => (
                   <NotificationItem
                     key={notification.id}
@@ -209,10 +209,10 @@ export function NotificationCenter() {
 
           {/* View All Link */}
           {notifications.length > 0 && (
-            <div className="border-t border-gray-200 p-3 sm:p-4 text-center">
+            <div className="border-t border-border p-3 sm:p-4 text-center">
               <Link
                 href="/dashboard/notifications"
-                className="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium"
+                className="text-xs sm:text-sm text-primary hover:text-primary font-medium"
                 onClick={() => setOpen(false)}
               >
                 View all notifications
@@ -239,7 +239,7 @@ function NotificationItem({
   const getTypeColor = (type: string) => {
     switch (type) {
       case "order_update":
-        return "bg-blue-50 border-l-4 border-blue-500"
+        return "bg-primary/5 border-l-4 border-primary"
       case "complaint_resolved":
         return "bg-green-50 border-l-4 border-green-500"
       case "payment_success":
@@ -251,7 +251,7 @@ function NotificationItem({
       case "balance_updated":
         return "bg-purple-50 border-l-4 border-purple-500"
       default:
-        return "bg-gray-50 border-l-4 border-gray-500"
+        return "bg-muted/40 border-l-4 border-gray-500"
     }
   }
 
@@ -261,7 +261,7 @@ function NotificationItem({
       case "withdrawal_approved":
         return <div className="w-2 h-2 bg-green-500 rounded-full" />
       case "order_update":
-        return <div className="w-2 h-2 bg-blue-500 rounded-full" />
+        return <div className="w-2 h-2 bg-primary rounded-full" />
       case "withdrawal_rejected":
         return <div className="w-2 h-2 bg-red-500 rounded-full" />
       default:
@@ -288,8 +288,8 @@ function NotificationItem({
   return (
     <div
       className={cn(
-        "p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer",
-        !notification.read && "bg-blue-50"
+        "p-3 sm:p-4 hover:bg-accent transition-colors cursor-pointer",
+        !notification.read && "bg-primary/5"
       )}
     >
       <div className="flex gap-2 sm:gap-3">
@@ -300,16 +300,16 @@ function NotificationItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900 text-xs sm:text-sm">{notification.title}</p>
-              <p className="text-gray-600 text-xs sm:text-sm mt-1 line-clamp-2">
+              <p className="font-semibold text-foreground text-xs sm:text-sm">{notification.title}</p>
+              <p className="text-muted-foreground text-xs sm:text-sm mt-1 line-clamp-2">
                 {notification.message}
               </p>
-              <p className="text-xs text-gray-400 mt-1">{formatTime(notification.created_at)}</p>
+              <p className="text-xs text-muted-foreground mt-1">{formatTime(notification.created_at)}</p>
             </div>
 
             {/* Unread indicator */}
             {!notification.read && (
-              <div className="w-2 h-2 bg-blue-600 rounded-full mt-1 flex-shrink-0" />
+              <div className="w-2 h-2 bg-primary rounded-full mt-1 flex-shrink-0" />
             )}
           </div>
 
@@ -318,7 +318,7 @@ function NotificationItem({
             {!notification.read && (
               <button
                 onClick={() => onMarkAsRead(notification.id)}
-                className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1 border border-gray-300 hover:border-gray-400 rounded px-1.5 py-0.5 transition-colors"
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 border border-border hover:border-gray-400 rounded px-1.5 py-0.5 transition-colors"
               >
                 <Check className="w-3 h-3" />
                 <span className="hidden sm:inline">Mark read</span>
@@ -329,7 +329,7 @@ function NotificationItem({
               <Link
                 href={notification.action_url}
                 onClick={onClose}
-                className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                className="text-xs text-primary hover:text-primary font-medium"
               >
                 View
               </Link>
@@ -338,7 +338,7 @@ function NotificationItem({
             <button
               onClick={() => onDelete(notification.id)}
               title="Delete notification"
-              className="text-xs text-gray-500 hover:text-red-600 ml-auto sm:ml-0 flex items-center gap-1 border border-gray-300 hover:border-red-300 rounded px-1.5 py-0.5 transition-colors"
+              className="text-xs text-muted-foreground hover:text-red-600 ml-auto sm:ml-0 flex items-center gap-1 border border-border hover:border-border rounded px-1.5 py-0.5 transition-colors"
             >
               <Trash2 className="w-3 h-3" />
             </button>

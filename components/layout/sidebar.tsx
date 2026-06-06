@@ -227,7 +227,7 @@ export function Sidebar() {
           variant="ghost"
           size="icon"
           className={cn(
-            "fixed top-4 left-4 z-50 md:hidden bg-blue-600 text-white hover:bg-blue-700 transition-opacity duration-300",
+            "fixed top-4 left-4 z-50 md:hidden bg-primary text-primary-foreground hover:bg-primary/90 transition-opacity duration-300",
             isOpen && "opacity-0 pointer-events-none"
           )}
         >
@@ -248,8 +248,8 @@ export function Sidebar() {
         className={cn(
           "h-screen flex flex-col fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out",
           userRole === 'dealer'
-            ? "bg-gradient-to-b from-[#FFD700] via-[#FFC107] to-[#FFA000] text-black"
-            : "bg-gradient-to-b from-blue-600 to-blue-700 text-white",
+            ? "bg-gradient-to-b from-[#1d1140] via-[#37146b] to-[#7c1bd6] text-white"
+            : "bg-sidebar text-sidebar-foreground border-r border-sidebar-border",
           isOpen ? "w-64" : "w-20",
           isMobile && !isOpen && "-translate-x-full"
         )}
@@ -257,7 +257,7 @@ export function Sidebar() {
         {/* Logo Section */}
         <div className={cn(
           "p-6 border-b",
-          userRole === 'dealer' ? "border-amber-600/20" : "border-blue-500"
+          userRole === 'dealer' ? "border-white/10" : "border-sidebar-border"
         )}>
           <Link href="/dashboard" className="flex items-center gap-3">
             <div className="bg-white p-2 rounded-lg flex-shrink-0 relative">
@@ -273,7 +273,7 @@ export function Sidebar() {
                 <h1 className="text-xl font-bold">DATAGOD</h1>
                 <p className={cn(
                   "text-xs",
-                  userRole === 'dealer' ? "text-amber-900" : "text-blue-100"
+                  userRole === 'dealer' ? "text-purple-100" : "text-muted-foreground"
                 )}>{user?.email || "User"}</p>
               </div>
             )}
@@ -289,7 +289,7 @@ export function Sidebar() {
               size="icon"
               className={cn(
                 "w-full flex justify-center",
-                userRole === 'dealer' ? "text-black hover:bg-amber-400/50" : "text-white hover:bg-blue-500"
+                userRole === 'dealer' ? "text-white hover:bg-white/10" : "text-sidebar-foreground hover:bg-accent"
               )}
               title={isOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
@@ -308,7 +308,7 @@ export function Sidebar() {
             // Show loading skeleton while fetching role
             <div className="space-y-2">
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-10 bg-blue-500/30 rounded animate-pulse" />
+                <div key={i} className="h-10 bg-muted rounded animate-pulse" />
               ))}
             </div>
           ) : (
@@ -330,8 +330,8 @@ export function Sidebar() {
                     className={cn(
                       "w-full justify-start gap-3 transition-all duration-200",
                       userRole === 'dealer'
-                        ? (isActive ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                        : (isActive ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                        ? (isActive ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                        : (isActive ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                       !isOpen && "justify-center",
                       isLoading && "opacity-70"
                     )}
@@ -364,12 +364,12 @@ export function Sidebar() {
           {!roleLoading && (
             <div className={cn(
               "pt-4 mt-4 border-t",
-              userRole === 'dealer' ? "border-amber-600/20" : "border-blue-400"
+              userRole === 'dealer' ? "border-white/10" : "border-sidebar-border"
             )}>
               {isOpen && (
                 <p className={cn(
                   "text-xs font-semibold px-3 mb-2",
-                  userRole === 'dealer' ? "text-amber-900/70" : "text-blue-100"
+                  userRole === 'dealer' ? "text-purple-200/80" : "text-muted-foreground"
                 )}>SHOP</p>
               )}
               {shopItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
@@ -383,8 +383,8 @@ export function Sidebar() {
                       className={cn(
                         "w-full justify-start gap-3 transition-all duration-200",
                         userRole === 'dealer'
-                          ? (isActive ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                          : (isActive ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                          ? (isActive ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                          : (isActive ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                         !isOpen && "justify-center",
                         isLoading && "opacity-70"
                       )}
@@ -408,12 +408,12 @@ export function Sidebar() {
           {isAdmin && (
             <div className={cn(
               "pt-4 mt-4 border-t",
-              userRole === 'dealer' ? "border-amber-600/20" : "border-blue-400"
+              userRole === 'dealer' ? "border-white/10" : "border-sidebar-border"
             )}>
               {isOpen && (
                 <p className={cn(
                   "text-xs font-semibold px-3 mb-2",
-                  userRole === 'dealer' ? "text-amber-900/70" : "text-blue-100"
+                  userRole === 'dealer' ? "text-purple-200/80" : "text-muted-foreground"
                 )}>ADMIN</p>
               )}
               <Link href="/admin" onClick={() => handleNavigation("/admin")}>
@@ -422,8 +422,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin" && "opacity-70"
                   )}
@@ -444,8 +444,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/settings" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/settings" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/settings" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/settings" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/settings" && "opacity-70"
                   )}
@@ -467,8 +467,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/settings/mtn" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/settings/mtn" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/settings/mtn" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/settings/mtn" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/settings/mtn" && "opacity-70"
                   )}
@@ -490,8 +490,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/sms-health" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/sms-health" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/sms-health" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/sms-health" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/sms-health" && "opacity-70"
                   )}
@@ -513,8 +513,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/ai-settings" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/ai-settings" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/ai-settings" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/ai-settings" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/ai-settings" && "opacity-70"
                   )}
@@ -536,8 +536,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/scheduled-tasks" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/scheduled-tasks" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/scheduled-tasks" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/scheduled-tasks" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/scheduled-tasks" && "opacity-70"
                   )}
@@ -559,8 +559,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/subscriptions" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/subscriptions" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/subscriptions" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/subscriptions" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/subscriptions" && "opacity-70"
                   )}
@@ -581,8 +581,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/subscribers" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/subscribers" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/subscribers" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/subscribers" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/subscribers" && "opacity-70"
                   )}
@@ -603,8 +603,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/orders" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/orders" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/orders" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/orders" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/orders" && "opacity-70"
                   )}
@@ -635,8 +635,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/api-keys" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/api-keys" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/api-keys" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/api-keys" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/api-keys" && "opacity-70"
                   )}
@@ -658,8 +658,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/rate-limits" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/rate-limits" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/rate-limits" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/rate-limits" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/rate-limits" && "opacity-70"
                   )}
@@ -681,8 +681,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/withdrawal-history" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/withdrawal-history" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/withdrawal-history" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/withdrawal-history" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/withdrawal-history" && "opacity-70"
                   )}
@@ -704,8 +704,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/phone-verification" ? "bg-black text-amber-500 shadow-lg dark:bg-amber-500/20 dark:text-amber-400" : "text-black hover:bg-black/10 dark:text-amber-200 dark:hover:bg-amber-500/10")
-                      : (pathname === "/admin/phone-verification" ? "bg-blue-500 text-white dark:bg-teal-500/15 dark:text-teal-400" : "text-white hover:bg-blue-500 dark:text-slate-400 dark:hover:bg-white/5"),
+                      ? (pathname === "/admin/phone-verification" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/phone-verification" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/phone-verification" && "opacity-70"
                   )}
@@ -727,8 +727,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/user-phone-audit" ? "bg-black text-amber-500 shadow-lg dark:bg-amber-500/20 dark:text-amber-400" : "text-black hover:bg-black/10 dark:text-amber-200 dark:hover:bg-amber-500/10")
-                      : (pathname === "/admin/user-phone-audit" ? "bg-blue-500 text-white dark:bg-teal-500/15 dark:text-teal-400" : "text-white hover:bg-blue-500 dark:text-slate-400 dark:hover:bg-white/5"),
+                      ? (pathname === "/admin/user-phone-audit" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/user-phone-audit" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/user-phone-audit" && "opacity-70"
                   )}
@@ -750,8 +750,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/airtime" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/airtime" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/airtime" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/airtime" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/airtime" && "opacity-70"
                   )}
@@ -772,8 +772,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/airtime/settings" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/airtime/settings" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/airtime/settings" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/airtime/settings" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/airtime/settings" && "opacity-70"
                   )}
@@ -794,8 +794,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/results-checker" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/results-checker" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/results-checker" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/results-checker" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/results-checker" && "opacity-70"
                   )}
@@ -816,8 +816,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/transactions" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/transactions" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/transactions" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/transactions" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/transactions" && "opacity-70"
                   )}
@@ -838,8 +838,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/payment-attempts" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/payment-attempts" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/payment-attempts" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/payment-attempts" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/payment-attempts" && "opacity-70"
                   )}
@@ -860,8 +860,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/payment-reverify" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/payment-reverify" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/payment-reverify" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/payment-reverify" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/payment-reverify" && "opacity-70"
                   )}
@@ -882,8 +882,8 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-start gap-3 transition-all duration-200",
                     userRole === 'dealer'
-                      ? (pathname === "/admin/ussd-shops" ? "bg-black text-amber-500 shadow-lg" : "text-black hover:bg-black/10")
-                      : (pathname === "/admin/ussd-shops" ? "bg-blue-500 text-white" : "text-white hover:bg-blue-500"),
+                      ? (pathname === "/admin/ussd-shops" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/ussd-shops" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
                     !isOpen && "justify-center",
                     loadingPath === "/admin/ussd-shops" && "opacity-70"
                   )}
@@ -907,7 +907,7 @@ export function Sidebar() {
         < div className={
           cn(
             "p-4 pb-24 md:pb-4 border-t space-y-2",
-            userRole === 'dealer' ? "border-amber-600/20" : "border-blue-500"
+            userRole === 'dealer' ? "border-white/10" : "border-sidebar-border"
           )
         }>
           {joinCommunityLink && (
@@ -930,7 +930,7 @@ export function Sidebar() {
             variant="ghost"
             className={cn(
               "w-full justify-start gap-3",
-              userRole === 'dealer' ? "text-black hover:bg-red-500/20" : "text-white hover:bg-red-600",
+              userRole === 'dealer' ? "text-white hover:bg-red-500/30" : "text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive",
               !isOpen && "justify-center"
             )}
             onClick={handleLogout}

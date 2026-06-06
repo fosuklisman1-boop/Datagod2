@@ -313,7 +313,7 @@ export default function MTNFulfillmentLogsPage() {
       case "pending":
         return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" /> Pending</Badge>
       case "processing":
-        return <Badge className="bg-blue-500"><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Processing</Badge>
+        return <Badge className="bg-primary"><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Processing</Badge>
       case "retrying":
         return <Badge className="bg-yellow-500"><RefreshCw className="w-3 h-3 mr-1" /> Retrying</Badge>
       case "error":
@@ -411,7 +411,7 @@ export default function MTNFulfillmentLogsPage() {
         <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-6">
           <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold">{summary.total}</div><div className="text-xs sm:text-sm text-muted-foreground">Total Orders</div></CardContent></Card>
           <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-yellow-500">{summary.pending}</div><div className="text-xs sm:text-sm text-muted-foreground">Pending</div></CardContent></Card>
-          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-blue-500">{summary.processing}</div><div className="text-xs sm:text-sm text-muted-foreground">Processing</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-primary">{summary.processing}</div><div className="text-xs sm:text-sm text-muted-foreground">Processing</div></CardContent></Card>
           <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-green-500">{summary.completed}</div><div className="text-xs sm:text-sm text-muted-foreground">Completed</div></CardContent></Card>
           <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-red-500">{summary.failed}</div><div className="text-xs sm:text-sm text-muted-foreground">Failed</div></CardContent></Card>
           <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-orange-500">{summary.retrying}</div><div className="text-xs sm:text-sm text-muted-foreground">Retrying</div></CardContent></Card>
@@ -446,7 +446,7 @@ export default function MTNFulfillmentLogsPage() {
                     No MTN fulfillment orders found
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-md border border-emerald-100/40">
+                  <div className="overflow-x-auto rounded-md border border-border">
                     <Table className="min-w-[700px] text-xs sm:text-sm">
                       <TableHeader>
                         <TableRow>
@@ -473,11 +473,11 @@ export default function MTNFulfillmentLogsPage() {
                             </TableCell>
                             <TableCell>
                               {log.provider === "datakazina" ? (
-                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">DataKazina</Badge>
+                                <Badge className="bg-emerald-100 text-emerald-800 border-border">DataKazina</Badge>
                               ) : log.provider === "xpress" ? (
-                                <Badge className="bg-purple-100 text-purple-800 border-purple-200">Xpress</Badge>
+                                <Badge className="bg-purple-100 text-purple-800 border-border">Xpress</Badge>
                               ) : (
-                                <Badge className="bg-blue-100 text-blue-800 border-blue-200">Sykes</Badge>
+                                <Badge className="bg-primary/10 text-primary border-primary/20">Sykes</Badge>
                               )}
                             </TableCell>
                             <TableCell>

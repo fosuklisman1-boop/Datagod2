@@ -38,11 +38,11 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  pending:   "bg-yellow-100 text-yellow-800 border-yellow-200",
-  approved:  "bg-blue-100 text-blue-800 border-blue-200",
-  completed: "bg-green-100 text-green-800 border-green-200",
-  rejected:  "bg-red-100 text-red-800 border-red-200",
-  cancelled: "bg-gray-100 text-gray-700 border-gray-200",
+  pending:   "bg-yellow-100 text-yellow-800 border-border",
+  approved:  "bg-primary/10 text-primary border-primary/20",
+  completed: "bg-green-100 text-green-800 border-border",
+  rejected:  "bg-red-100 text-red-800 border-border",
+  cancelled: "bg-muted text-foreground border-border",
 }
 
 const GHS = (n: number | null | undefined) =>
@@ -133,7 +133,7 @@ export default function WithdrawalHistoryPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       </DashboardLayout>
     )
@@ -146,10 +146,10 @@ export default function WithdrawalHistoryPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
-              <History className="w-6 h-6 text-blue-500" />
+              <History className="w-6 h-6 text-primary" />
               Withdrawal History
             </h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               All withdrawal requests from shop owners with balance snapshots.
             </p>
           </div>
@@ -158,7 +158,7 @@ export default function WithdrawalHistoryPage() {
               variant="outline"
               onClick={recalibrateBalances}
               disabled={recalibrating}
-              className="border-orange-300 text-orange-600 hover:bg-orange-50"
+              className="border-border text-orange-600 hover:bg-orange-50"
             >
               {recalibrating ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -177,16 +177,16 @@ export default function WithdrawalHistoryPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { label: "Total", value: stats.total, color: "text-gray-800" },
+            { label: "Total", value: stats.total, color: "text-foreground" },
             { label: "Pending", value: stats.pending, color: "text-yellow-600" },
-            { label: "Approved", value: stats.approved, color: "text-blue-600" },
+            { label: "Approved", value: stats.approved, color: "text-primary" },
             { label: "Completed", value: stats.completed, color: "text-green-600" },
             { label: "Rejected", value: stats.rejected, color: "text-red-600" },
-            { label: "Total Value", value: `GHS ${stats.totalAmount.toFixed(2)}`, color: "text-gray-800" },
+            { label: "Total Value", value: `GHS ${stats.totalAmount.toFixed(2)}`, color: "text-foreground" },
           ].map(s => (
             <Card key={s.label}>
               <CardContent className="pt-4 pb-3">
-                <p className="text-xs text-gray-500">{s.label}</p>
+                <p className="text-xs text-muted-foreground">{s.label}</p>
                 <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
               </CardContent>
             </Card>
@@ -198,7 +198,7 @@ export default function WithdrawalHistoryPage() {
           <CardContent className="pt-4 pb-4">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   placeholder="Search by shop name or reference..."
                   className="pl-9"
@@ -235,10 +235,10 @@ export default function WithdrawalHistoryPage() {
           <CardContent>
             {loading ? (
               <div className="flex items-center justify-center py-16">
-                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
               </div>
             ) : filtered.length === 0 ? (
-              <div className="text-center py-16 text-gray-500">
+              <div className="text-center py-16 text-muted-foreground">
                 <TrendingDown className="w-10 h-10 mx-auto mb-3 text-gray-300" />
                 <p>No withdrawals found.</p>
               </div>
@@ -247,28 +247,28 @@ export default function WithdrawalHistoryPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left">
-                      <th className="pb-3 pr-4 font-medium text-gray-600">Shop</th>
-                      <th className="pb-3 pr-4 font-medium text-gray-600">Reference</th>
-                      <th className="pb-3 pr-4 font-medium text-gray-600">Amount</th>
-                      <th className="pb-3 pr-4 font-medium text-gray-600">Method</th>
-                      <th className="pb-3 pr-4 font-medium text-gray-600">Status</th>
-                      <th className="pb-3 pr-4 font-medium text-gray-600">Balance Before</th>
-                      <th className="pb-3 pr-4 font-medium text-gray-600">Balance After</th>
-                      <th className="pb-3 font-medium text-gray-600">Date</th>
+                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Shop</th>
+                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Reference</th>
+                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Amount</th>
+                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Method</th>
+                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Status</th>
+                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Balance Before</th>
+                      <th className="pb-3 pr-4 font-medium text-muted-foreground">Balance After</th>
+                      <th className="pb-3 font-medium text-muted-foreground">Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {filtered.map(w => {
                       const isPending = w.status === "pending"
                       return (
-                        <tr key={w.id} className="hover:bg-gray-50">
+                        <tr key={w.id} className="hover:bg-accent">
                           {/* Shop */}
                           <td className="py-3 pr-4">
-                            <p className="font-medium text-gray-900">
+                            <p className="font-medium text-foreground">
                               {w.user_shops?.shop_name || "Unknown Shop"}
                             </p>
                             {w.current_available_balance != null && (
-                              <p className="text-xs text-gray-400">
+                              <p className="text-xs text-muted-foreground">
                                 Current: {GHS(w.current_available_balance)}
                               </p>
                             )}
@@ -276,23 +276,23 @@ export default function WithdrawalHistoryPage() {
 
                           {/* Reference */}
                           <td className="py-3 pr-4">
-                            <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+                            <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
                               {w.reference_code}
                             </code>
                           </td>
 
                           {/* Amount */}
                           <td className="py-3 pr-4">
-                            <p className="font-semibold text-gray-900">{GHS(w.amount)}</p>
+                            <p className="font-semibold text-foreground">{GHS(w.amount)}</p>
                             {w.fee_amount > 0 && (
-                              <p className="text-xs text-gray-400">
+                              <p className="text-xs text-muted-foreground">
                                 Fee: {GHS(w.fee_amount)} · Net: {GHS(w.net_amount)}
                               </p>
                             )}
                           </td>
 
                           {/* Method */}
-                          <td className="py-3 pr-4 text-gray-600 capitalize text-xs">
+                          <td className="py-3 pr-4 text-muted-foreground capitalize text-xs">
                             {w.withdrawal_method?.replace(/_/g, " ") || "—"}
                           </td>
 
@@ -310,7 +310,7 @@ export default function WithdrawalHistoryPage() {
 
                           {/* Balance Before */}
                           <td className="py-3 pr-4">
-                            <span className="font-mono text-sm text-gray-700">
+                            <span className="font-mono text-sm text-foreground">
                               {GHS(w.balance_before)}
                             </span>
                           </td>
@@ -318,10 +318,10 @@ export default function WithdrawalHistoryPage() {
                           {/* Balance After */}
                           <td className="py-3 pr-4">
                             {isPending ? (
-                              <span className="text-xs text-gray-400 italic">Pending approval</span>
+                              <span className="text-xs text-muted-foreground italic">Pending approval</span>
                             ) : w.balance_after != null ? (
                               <span className="flex items-center gap-1.5">
-                                <span className="font-mono text-sm text-gray-700">{GHS(w.balance_after)}</span>
+                                <span className="font-mono text-sm text-foreground">{GHS(w.balance_after)}</span>
                                 {w.balance_before != null && (
                                   <span className={`text-xs font-medium ${w.balance_after < w.balance_before ? "text-red-500" : "text-green-600"}`}>
                                     ({w.balance_after < w.balance_before ? "-" : "+"}{GHS(Math.abs(w.balance_after - w.balance_before))})
@@ -329,12 +329,12 @@ export default function WithdrawalHistoryPage() {
                                 )}
                               </span>
                             ) : (
-                              <span className="text-xs text-gray-400">—</span>
+                              <span className="text-xs text-muted-foreground">—</span>
                             )}
                           </td>
 
                           {/* Date */}
-                          <td className="py-3 text-xs text-gray-500">
+                          <td className="py-3 text-xs text-muted-foreground">
                             {new Date(w.created_at).toLocaleDateString("en-GB", {
                               day: "2-digit", month: "short", year: "numeric"
                             })}

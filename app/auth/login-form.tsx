@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { authService } from "@/lib/auth"
@@ -14,7 +13,7 @@ import { supabase } from "@/lib/supabase"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import GoogleAuthButton from "@/components/GoogleAuthButton"
 import { useCommunityLink } from "@/hooks/use-community-link"
-import { MessageCircle } from "lucide-react"
+import { MessageCircle, Mail, Lock, Eye, EyeOff, Check } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export default function LoginForm() {
@@ -27,6 +26,7 @@ export default function LoginForm() {
     email: "",
     password: "",
   })
+  const [showPassword, setShowPassword] = useState(false)
 
   // Get redirect URL from query params (default to /dashboard)
   useEffect(() => {
@@ -87,108 +87,139 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 via-purple-50 to-fuchsia-50 p-4">
-      <Card className="w-full max-w-md shadow-xl border border-white/40 bg-white/70 backdrop-blur-xl">
-        <CardHeader className="space-y-2 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="bg-white p-3 rounded-lg shadow-lg">
-              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-8 h-8 rounded-lg object-cover" />
+    <div className="min-h-screen lg:grid lg:grid-cols-[1.05fr_1fr]">
+      {/* Brand panel (desktop only) */}
+      <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-violet-600 p-12 text-white">
+        <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-white/10" />
+        <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-white/10" />
+        <Link href="/" className="relative flex items-center gap-3">
+          <div className="rounded-xl bg-white/15 p-2">
+            <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-lg object-cover" />
+          </div>
+          <span className="text-xl font-extrabold tracking-tight">DATAGOD</span>
+        </Link>
+        <div className="relative">
+          <h2 className="mb-3 text-3xl font-extrabold tracking-tight">Welcome back.</h2>
+          <p className="max-w-sm leading-relaxed text-white/90">
+            Buy data &amp; airtime in seconds, run your own shop, and get paid — all in one place.
+          </p>
+          <ul className="mt-6 space-y-3 text-sm">
+            {["Instant delivery on all networks", "Resell & earn with your own storefront", "Secure wallet & fast withdrawals"].map((t) => (
+              <li key={t} className="flex items-center gap-3">
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-white/20">
+                  <Check className="h-3 w-3" />
+                </span>
+                {t}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="relative text-sm text-white/80">
+          <span className="block text-2xl font-extrabold text-white">₵2M+</span> in bundles delivered to date
+        </p>
+      </div>
+
+      {/* Form panel */}
+      <div className="flex min-h-screen items-center justify-center bg-background px-6 py-10 sm:px-10 lg:min-h-0">
+        <div className="w-full max-w-md">
+          {/* Logo (mobile only) */}
+          <div className="mb-8 flex items-center justify-center gap-2 lg:hidden">
+            <div className="rounded-lg bg-card p-2 shadow-sm">
+              <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-md object-cover" />
+            </div>
+            <span className="text-lg font-extrabold tracking-tight">DATAGOD</span>
+          </div>
+
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Sign in</h1>
+          <p className="mt-1 mb-6 text-sm text-muted-foreground">Welcome back — please enter your details.</p>
+
+          {/* Google first */}
+          <GoogleAuthButton redirectTo={redirectTo} />
+
+          <div className="relative my-5">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-background px-2 text-muted-foreground">or continue with email</span>
             </div>
           </div>
-          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Welcome Back</CardTitle>
-          <CardDescription className="text-gray-600">Sign in to your DATAGOD account</CardDescription>
-        </CardHeader>
-        <CardContent>
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email Field */}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="Enter your email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-              />
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={formData.email}
+                  onChange={handleChange}
+                  required
+                  className="pl-9"
+                />
+              </div>
             </div>
 
-            {/* Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                placeholder="Enter your password"
-                value={formData.password}
-                onChange={handleChange}
-                required
-              />
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Link href="/auth/forgot-password" className="text-xs font-medium text-primary hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={formData.password}
+                  onChange={handleChange}
+                  required
+                  className="pl-9 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
-            {/* Sign In Button */}
-            <Button
-              type="submit"
-              className="w-full bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
-              disabled={isLoading}
-            >
-              {isLoading ? "Signing in..." : "Sign In"}
+            <Button type="submit" className="w-full font-semibold" disabled={isLoading}>
+              {isLoading ? "Signing in..." : "Sign in"}
             </Button>
-
-            {/* Google OAuth */}
-            <div className="relative my-1">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-gray-200" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white/70 px-2 text-gray-400">or</span>
-              </div>
-            </div>
-            <GoogleAuthButton redirectTo={redirectTo} />
-
-            {/* Forgot Password Link */}
-            <div className="text-center">
-              <Link href="/auth/forgot-password" className="text-sm text-blue-600 hover:underline">
-                Forgot your password?
-              </Link>
-            </div>
-
-            {/* Create Account Link */}
-            <div className="text-center text-sm text-gray-600">
-              Don't have an account?{" "}
-              <Link href="/auth/signup" className="text-blue-600 hover:underline font-medium">
-                Create an account
-              </Link>
-            </div>
-
-            {/* Guest Purchase Button */}
-            <div className="text-center">
-              <GuestPurchaseButton variant="secondary" className="w-full mb-3" />
-            </div>
-
-            {/* Join Community */}
-            {communityLoading ? (
-              <Skeleton className="h-10 w-full rounded-md" />
-            ) : communityLink ? (
-              <a href={communityLink} target="_blank" rel="noopener noreferrer">
-                <Button type="button" className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white">
-                  <MessageCircle className="w-4 h-4" />
-                  Join Community
-                </Button>
-              </a>
-            ) : null}
-
-            {/* Back to Home Link */}
-            <div className="text-center">
-              <Link href="/" className="text-sm text-gray-600 hover:underline">
-                Back to Home
-              </Link>
-            </div>
           </form>
-        </CardContent>
-      </Card>
+
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            Don&apos;t have an account?{" "}
+            <Link href="/auth/signup" className="font-medium text-primary hover:underline">Create an account</Link>
+          </p>
+
+          <div className="mt-4">
+            <GuestPurchaseButton variant="secondary" className="w-full" />
+          </div>
+
+          {communityLoading ? (
+            <Skeleton className="mt-3 h-10 w-full rounded-md" />
+          ) : communityLink ? (
+            <a href={communityLink} target="_blank" rel="noopener noreferrer" className="mt-3 block">
+              <Button type="button" className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white">
+                <MessageCircle className="h-4 w-4" /> Join Community
+              </Button>
+            </a>
+          ) : null}
+
+          <div className="mt-6 text-center">
+            <Link href="/" className="text-sm text-muted-foreground hover:underline">Back to Home</Link>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

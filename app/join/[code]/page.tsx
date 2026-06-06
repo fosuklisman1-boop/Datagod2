@@ -151,23 +151,23 @@ export default function JoinPage() {
     const colors: { [key: string]: string } = {
       "MTN": "bg-yellow-100 text-yellow-800",
       "Telecel": "bg-red-100 text-red-800",
-      "AT - iShare": "bg-blue-100 text-blue-800",
+      "AT - iShare": "bg-primary/10 text-primary",
       "AT - BigTime": "bg-purple-100 text-purple-800",
     }
-    return colors[network] || "bg-gray-100 text-gray-800"
+    return colors[network] || "bg-muted text-foreground"
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="min-h-screen flex items-center justify-center bg-card">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-card p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -186,7 +186,7 @@ export default function JoinPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-card p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
@@ -196,7 +196,7 @@ export default function JoinPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="text-center">
-            <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" />
+            <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
           </CardContent>
         </Card>
       </div>
@@ -204,14 +204,14 @@ export default function JoinPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
+    <div className="min-h-screen bg-card py-8 px-4">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center">
-          <Store className="w-12 h-12 text-blue-600 mx-auto mb-4" />
-          <h1 className="text-3xl font-bold text-gray-900">Join as Sub-Agent</h1>
-          <p className="text-gray-600 mt-2">
-            You&apos;ve been invited by <span className="font-semibold text-blue-600">{inviteData?.shop_name}</span>
+          <Store className="w-12 h-12 text-primary mx-auto mb-4" />
+          <h1 className="text-3xl font-bold text-foreground">Join as Sub-Agent</h1>
+          <p className="text-muted-foreground mt-2">
+            You&apos;ve been invited by <span className="font-semibold text-primary">{inviteData?.shop_name}</span>
           </p>
         </div>
 
@@ -255,12 +255,12 @@ export default function JoinPage() {
                   <div key={idx} className="p-3 border rounded-lg text-center">
                     <Badge className={getNetworkColor(pkg.network)}>{pkg.network}</Badge>
                     <div className="font-semibold mt-1">{pkg.size}GB</div>
-                    <div className="text-blue-600 font-bold">GHS {(pkg.wholesale_price || 0).toFixed(2)}</div>
+                    <div className="text-primary font-bold">GHS {(pkg.wholesale_price || 0).toFixed(2)}</div>
                   </div>
                 ))}
               </div>
               {wholesalePackages.length > 6 && (
-                <p className="text-sm text-gray-500 mt-2 text-center">
+                <p className="text-sm text-muted-foreground mt-2 text-center">
                   + {wholesalePackages.length - 6} more packages
                 </p>
               )}
@@ -328,7 +328,7 @@ export default function JoinPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -364,17 +364,17 @@ export default function JoinPage() {
               <div className="space-y-2">
                 <Label htmlFor="shop_slug">Shop URL</Label>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">yoursite.com/shop/</span>
+                  <span className="text-sm text-muted-foreground">yoursite.com/shop/</span>
                   <Input
                     id="shop_slug"
                     name="shop_slug"
                     value={formData.shop_slug}
                     readOnly
                     placeholder="auto-generated-from-name"
-                    className="flex-1 bg-gray-50"
+                    className="flex-1 bg-muted/40"
                   />
                 </div>
-                <p className="text-xs text-gray-500">Automatically generated from your shop name</p>
+                <p className="text-xs text-muted-foreground">Automatically generated from your shop name</p>
               </div>
 
               <Alert>
@@ -386,7 +386,7 @@ export default function JoinPage() {
 
               <Button 
                 type="submit" 
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 text-lg" 
+                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 text-lg" 
                 disabled={submitting}
               >
                 {submitting ? (
@@ -402,9 +402,9 @@ export default function JoinPage() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-sm text-gray-500">
+        <p className="text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link href="/login" className="text-blue-600 hover:underline">
+          <Link href="/login" className="text-primary hover:underline">
             Log in
           </Link>
         </p>

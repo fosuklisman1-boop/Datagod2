@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en" data-direction="fintech" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DATAGOD · UI Redesign Preview</title>
+<style>
+/* ===========================================================================
+   DATAGOD — UI Redesign Preview
+   Three directions (Fintech / Bold Telco / Minimal) × two themes (Light / Dark)
+   driven entirely by CSS custom properties — this is exactly the token model
+   the real migration would use (one set of semantic tokens, swap the values).
+   =========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+:root {
+  /* layout */
+  --sidebar-w: 248px;
+  --header-h: 64px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+
+  /* defaults (overridden per direction/theme below) */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f9fafb;
+  --elevated: #ffffff;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  --border: #e7eaee;
+  --border-strong: #d3d8df;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(79,70,229,.10);
+  --accent-text: #4f46e5;
+  --sidebar-bg: #ffffff;
+  --sidebar-fg: #334155;
+  --sidebar-active-bg: rgba(79,70,229,.10);
+  --sidebar-active-fg: #4f46e5;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 6px 20px -6px rgba(16,24,40,.10);
+  --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
+  --pad: 22px;
+  --gap: 18px;
+  --hero: linear-gradient(135deg, #4f46e5, #7c3aed);
+  --hero-fg: #ffffff;
+  --success: #16a34a;
+  --success-soft: rgba(22,163,74,.12);
+  --warn: #d97706;
+  --warn-soft: rgba(217,119,6,.14);
+  --danger: #dc2626;
+  --mtn: #ffcc00;  --mtn-fg:#1a1a1a;
+  --telecel: #e3001b; --telecel-fg:#ffffff;
+  --at: #0a5bd3; --at-fg:#ffffff;
+}
+
+/* ===================== DIRECTION: FINTECH ===================== */
+[data-direction="fintech"] {
+  --accent: #4f46e5; --accent-text:#4f46e5; --accent-soft:rgba(79,70,229,.10);
+  --radius: 16px; --radius-sm: 11px;
+  --hero: linear-gradient(135deg,#4f46e5,#7c3aed);
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 10px 26px -10px rgba(16,24,40,.14);
+}
+[data-direction="fintech"][data-theme="dark"] {
+  --bg:#0b0f17; --surface:#121826; --surface-2:#0e1320; --elevated:#151c2c;
+  --text:#e9edf5; --text-muted:#9aa6bd; --text-faint:#6b778f;
+  --border:#222b3d; --border-strong:#2c374d;
+  --accent:#8b86ff; --accent-text:#a8a4ff; --accent-soft:rgba(139,134,255,.14);
+  --sidebar-bg:#0e1320; --sidebar-fg:#aeb8cd; --sidebar-active-bg:rgba(139,134,255,.16); --sidebar-active-fg:#c4c0ff;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 30px -12px rgba(0,0,0,.6);
+  --hero: linear-gradient(135deg,#4f46e5,#7c3aed);
+}
+
+/* ===================== DIRECTION: BOLD TELCO ===================== */
+[data-direction="telco"] {
+  --bg:#fdf6f8; --surface:#ffffff; --surface-2:#fff7f2;
+  --accent:#e3001b; --accent-text:#c40018; --accent-soft:rgba(227,0,27,.10); --accent-fg:#ffffff;
+  --radius: 20px; --radius-sm: 14px;
+  --sidebar-bg: linear-gradient(180deg,#1d1140,#37146b);
+  --sidebar-fg:#dccff7; --sidebar-active-bg:rgba(255,255,255,.16); --sidebar-active-fg:#ffffff;
+  --hero: linear-gradient(120deg,#7c1bd6 0%, #e3001b 60%, #ff8a00 120%);
+  --shadow: 0 2px 4px rgba(80,10,40,.06), 0 16px 40px -14px rgba(124,27,214,.30);
+  --pad: 22px; --gap: 18px;
+}
+[data-direction="telco"][data-theme="dark"] {
+  --bg:#150a1f; --surface:#21122e; --surface-2:#1a0e26; --elevated:#28163a;
+  --text:#fbeefb; --text-muted:#c9aede; --text-faint:#9a7fb0;
+  --border:#3a2150; --border-strong:#4a2c63;
+  --accent:#ff5470; --accent-text:#ff7d92; --accent-soft:rgba(255,84,112,.16);
+  --sidebar-bg: linear-gradient(180deg,#0f0719,#2a0f52);
+  --sidebar-fg:#d6c2ef; --sidebar-active-bg:rgba(255,255,255,.12); --sidebar-active-fg:#ffffff;
+  --shadow: 0 2px 6px rgba(0,0,0,.5), 0 18px 44px -16px rgba(124,27,214,.5);
+}
+
+/* ===================== DIRECTION: MINIMAL / LINEAR ===================== */
+[data-direction="minimal"] {
+  --bg:#fbfbfc; --surface:#ffffff; --surface-2:#f7f8f9;
+  --text:#1c2024; --text-muted:#6b7280; --text-faint:#9ca3af;
+  --border:#ececef; --border-strong:#dfe1e5;
+  --accent:#5b5bd6; --accent-text:#4f4fd0; --accent-soft:rgba(91,91,214,.08); --accent-fg:#ffffff;
+  --radius: 8px; --radius-sm: 6px;
+  --sidebar-bg:#fafafa; --sidebar-fg:#3f4651; --sidebar-active-bg:#eceef0; --sidebar-active-fg:#1c2024;
+  --hero: linear-gradient(135deg,#2b2b35,#3a3a48);
+  --hero-fg:#f4f4f6;
+  --shadow: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-sm: 0 1px 1px rgba(0,0,0,.04);
+  --pad: 16px; --gap: 12px;
+}
+[data-direction="minimal"][data-theme="dark"] {
+  --bg:#0c0c0f; --surface:#141417; --surface-2:#101013; --elevated:#17171b;
+  --text:#e6e6ea; --text-muted:#9b9ba6; --text-faint:#6c6c78;
+  --border:#222227; --border-strong:#2c2c33;
+  --accent:#8e8eff; --accent-text:#a3a3ff; --accent-soft:rgba(142,142,255,.12);
+  --sidebar-bg:#0e0e11; --sidebar-fg:#9b9ba6; --sidebar-active-bg:#1c1c21; --sidebar-active-fg:#e6e6ea;
+  --hero: linear-gradient(135deg,#1c1c22,#26262f);
+  --shadow: 0 1px 2px rgba(0,0,0,.5);
+}
+
+/* ===================== BASE LAYOUT ===================== */
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  transition: background .25s ease, color .25s ease;
+}
+
+/* Control bar */
+.controls {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 18px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.controls .brand { font-weight: 800; letter-spacing:-.02em; margin-right:4px; }
+.controls .brand span { color: var(--accent-text); }
+.seg { display:inline-flex; background: var(--surface-2); border:1px solid var(--border); border-radius: var(--radius-pill); padding:3px; }
+.seg button {
+  border:0; background:transparent; cursor:pointer; font:inherit; font-size:13px; font-weight:600;
+  color: var(--text-muted); padding:6px 14px; border-radius: var(--radius-pill); transition: all .18s ease;
+}
+.seg button.active { background: var(--accent); color: var(--accent-fg); box-shadow: var(--shadow-sm); }
+.controls .spacer { flex:1; }
+.controls .hint { font-size:12px; color: var(--text-faint); }
+
+/* App shell */
+.app { display:flex; min-height: calc(100vh - 56px); }
+
+/* Sidebar */
+.sidebar {
+  width: var(--sidebar-w); flex-shrink:0;
+  background: var(--sidebar-bg); color: var(--sidebar-fg);
+  border-right: 1px solid var(--border);
+  padding: 16px 12px; display:flex; flex-direction:column; gap:4px;
+  position: sticky; top: 56px; height: calc(100vh - 56px); overflow:auto;
+  transition: background .25s ease;
+}
+.logo { display:flex; align-items:center; gap:10px; padding:8px 10px 16px; }
+.logo .mark {
+  width:34px; height:34px; border-radius:10px; display:grid; place-items:center;
+  background: var(--accent); color: var(--accent-fg); font-weight:900; font-size:15px;
+  box-shadow: var(--shadow-sm);
+}
+[data-direction="telco"] .logo .mark { background: var(--hero); }
+.logo .name { font-weight:800; font-size:16px; letter-spacing:-.01em; color: var(--sidebar-fg); }
+[data-direction="telco"] .logo .name, [data-direction="telco"] .nav-group-label { color:#fff; }
+.logo .name b { color: var(--accent-text); }
+[data-direction="telco"] .logo .name b { color:#ffd0d6; }
+
+.nav-group-label { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color: var(--text-faint); padding:14px 12px 6px; font-weight:700; }
+.nav-item {
+  display:flex; align-items:center; gap:11px; padding:9px 12px; border-radius: var(--radius-sm);
+  color: var(--sidebar-fg); text-decoration:none; font-size:14px; font-weight:500; cursor:pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.nav-item:hover { background: var(--sidebar-active-bg); }
+.nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-fg); font-weight:600; }
+.nav-item .ico { width:18px; height:18px; flex-shrink:0; opacity:.9; }
+.nav-item .badge { margin-left:auto; background: var(--danger); color:#fff; font-size:11px; font-weight:700; border-radius:999px; padding:1px 7px; }
+[data-direction="minimal"] .nav-item { padding:7px 10px; font-size:13.5px; }
+
+/* Main */
+.main { flex:1; min-width:0; display:flex; flex-direction:column; }
+.topbar {
+  height: var(--header-h); display:flex; align-items:center; gap:14px;
+  padding: 0 var(--pad); border-bottom:1px solid var(--border); background: var(--surface);
+}
+.topbar h1 { font-size:18px; font-weight:700; letter-spacing:-.01em; margin:0; }
+.search {
+  display:flex; align-items:center; gap:8px; background: var(--surface-2); border:1px solid var(--border);
+  border-radius: var(--radius-pill); padding:8px 14px; color: var(--text-faint); font-size:13px; min-width:220px;
+}
+[data-direction="minimal"] .search { border-radius: var(--radius-sm); }
+.icon-btn {
+  width:38px; height:38px; display:grid; place-items:center; border-radius: var(--radius-sm);
+  border:1px solid var(--border); background: var(--surface-2); color: var(--text-muted); cursor:pointer; position:relative;
+}
+.icon-btn .dot { position:absolute; top:8px; right:9px; width:7px; height:7px; border-radius:999px; background: var(--danger); border:2px solid var(--surface); }
+.avatar { width:38px; height:38px; border-radius: var(--radius-pill); background: var(--hero); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px; }
+
+.content { padding: var(--pad); display:flex; flex-direction:column; gap: var(--gap); max-width:1180px; width:100%; margin:0 auto; }
+.greeting { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.greeting h2 { margin:0; font-size:22px; font-weight:700; letter-spacing:-.02em; }
+.greeting p { margin:2px 0 0; color: var(--text-muted); font-size:13.5px; }
+
+/* Cards */
+.card { background: var(--surface); border:1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card.pad { padding: var(--pad); }
+[data-direction="minimal"] .card { box-shadow: none; }
+
+.grid { display:grid; gap: var(--gap); }
+.grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.grid.cols-2-1 { grid-template-columns: 1.4fr 1fr; }
+.grid.cols-3net { grid-template-columns: repeat(3,1fr); }
+@media (max-width: 880px){ .grid.cols-3,.grid.cols-2-1,.grid.cols-3net{ grid-template-columns:1fr; } }
+
+/* Wallet hero */
+.wallet {
+  background: var(--hero); color: var(--hero-fg); border:0;
+  border-radius: var(--radius); padding: var(--pad); position:relative; overflow:hidden;
+  box-shadow: var(--shadow);
+}
+.wallet::after{ content:""; position:absolute; right:-40px; top:-50px; width:200px; height:200px; border-radius:50%; background:rgba(255,255,255,.12); }
+.wallet .label { font-size:13px; opacity:.85; font-weight:600; }
+.wallet .amount { font-size:34px; font-weight:800; letter-spacing:-.02em; margin:6px 0 16px; }
+.wallet .actions { display:flex; gap:10px; position:relative; z-index:1; }
+.btn {
+  border:0; cursor:pointer; font:inherit; font-weight:600; font-size:13.5px;
+  padding:10px 16px; border-radius: var(--radius-sm); display:inline-flex; align-items:center; gap:7px;
+  transition: transform .12s ease, filter .15s ease;
+}
+.btn:active{ transform: translateY(1px); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); }
+.btn.on-hero { background:#fff; color:#1a1530; }
+.btn.ghost-hero { background:rgba(255,255,255,.16); color:#fff; }
+.btn.ghost { background: var(--surface-2); color: var(--text); border:1px solid var(--border); }
+
+/* Stat cards */
+.stat { padding:16px var(--pad); }
+.stat .k { font-size:12.5px; color: var(--text-muted); font-weight:600; display:flex; align-items:center; gap:7px; }
+.stat .v { font-size:24px; font-weight:800; letter-spacing:-.02em; margin-top:8px; }
+.stat .d { font-size:12px; margin-top:4px; font-weight:600; }
+.up { color: var(--success); } .down{ color: var(--danger); }
+.chip-ic { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; background: var(--accent-soft); color: var(--accent-text); }
+
+/* Network quick-buy */
+.section-title { font-size:15px; font-weight:700; margin:4px 2px; letter-spacing:-.01em; }
+.net {
+  display:flex; align-items:center; gap:14px; padding:18px; border-radius: var(--radius);
+  border:1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); cursor:pointer;
+  transition: transform .14s ease, box-shadow .18s ease;
+}
+.net:hover{ transform: translateY(-2px); }
+[data-direction="minimal"] .net{ box-shadow:none; }
+.net .badge2 { width:48px; height:48px; border-radius:14px; display:grid; place-items:center; font-weight:900; font-size:14px; flex-shrink:0; }
+.net.mtn .badge2{ background:var(--mtn); color:var(--mtn-fg);}
+.net.tel .badge2{ background:var(--telecel); color:var(--telecel-fg);}
+.net.at  .badge2{ background:var(--at); color:var(--at-fg);}
+.net .nm{ font-weight:700; font-size:15px; }
+.net .sub{ font-size:12px; color: var(--text-muted); margin-top:2px; }
+.net .arrow{ margin-left:auto; color: var(--text-faint); }
+/* Bold Telco makes the whole tile colorful */
+[data-direction="telco"] .net.mtn{ background:linear-gradient(135deg,#fff6d6,#ffe79a); border-color:#ffe08a; }
+[data-direction="telco"] .net.tel{ background:linear-gradient(135deg,#ffe2e6,#ffc2cb); border-color:#ffb3bd; }
+[data-direction="telco"] .net.at { background:linear-gradient(135deg,#dceaff,#b6d2ff); border-color:#a9caff; }
+[data-direction="telco"][data-theme="dark"] .net.mtn{ background:linear-gradient(135deg,#3a3410,#4d4413); border-color:#5a4f16; }
+[data-direction="telco"][data-theme="dark"] .net.tel{ background:linear-gradient(135deg,#3d1018,#54151f); border-color:#5e1822; }
+[data-direction="telco"][data-theme="dark"] .net.at { background:linear-gradient(135deg,#0e2447,#13315e); border-color:#163a6e; }
+
+/* Table */
+.table-head { display:flex; align-items:center; justify-content:space-between; padding: 16px var(--pad) 6px; }
+.table-head h3 { margin:0; font-size:15px; font-weight:700; }
+.table-head a { color: var(--accent-text); font-size:13px; font-weight:600; text-decoration:none; cursor:pointer; }
+table { width:100%; border-collapse:collapse; font-size:13.5px; }
+th { text-align:left; color: var(--text-faint); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; padding:10px var(--pad); border-bottom:1px solid var(--border); }
+td { padding:13px var(--pad); border-bottom:1px solid var(--border); }
+tr:last-child td{ border-bottom:0; }
+tbody tr:hover{ background: var(--surface-2); }
+.tag { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; }
+.tag.ok{ background: var(--success-soft); color: var(--success); }
+.tag.pend{ background: var(--warn-soft); color: var(--warn); }
+.netdot{ width:9px;height:9px;border-radius:999px; display:inline-block; margin-right:7px; vertical-align:middle; }
+.mono{ font-variant-numeric: tabular-nums; }
+
+/* Admin-ish density note row */
+.notebar{ font-size:12.5px; color: var(--text-muted); display:flex; gap:8px; align-items:center; padding:0 2px; }
+.notebar b{ color: var(--text); }
+
+.foot { text-align:center; color: var(--text-faint); font-size:12px; padding:18px; }
+svg { display:block; }
+
+/* Elements that only exist in one mode — hidden by default (desktop) */
+.hamburger { display:none; }
+.bottomnav { display:none; }
+.order-list { display:none; }
+
+/* ============================ MOBILE MODE ============================ */
+[data-device="mobile"] body { background: #0a0a0c; }
+[data-device="mobile"] .controls { background: rgba(20,20,24,.9); border-color:#26262c; }
+[data-device="mobile"] .controls .brand,
+[data-device="mobile"] .controls .hint { color:#cfcfd6; }
+
+[data-device="mobile"] .app {
+  display:block; width: 390px; height: 800px; margin: 26px auto;
+  border: 11px solid #0d0d11; border-radius: 46px; overflow:hidden;
+  box-shadow: 0 30px 70px -20px rgba(0,0,0,.7), 0 0 0 2px #2a2a31;
+  background: var(--bg); position: relative;
+}
+[data-device="mobile"] .sidebar { display:none; }
+[data-device="mobile"] .main { height: 100%; display:flex; flex-direction:column; }
+
+/* faux notch */
+[data-device="mobile"] .app::before {
+  content:""; position:absolute; top:0; left:50%; transform:translateX(-50%);
+  width:140px; height:26px; background:#0d0d11; border-radius:0 0 16px 16px; z-index:30;
+}
+[data-device="mobile"] .topbar {
+  height: 58px; padding: 6px 14px 0; position: sticky; top:0; z-index:20;
+  background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px);
+}
+[data-device="mobile"] .topbar h1 { font-size:16px; }
+[data-device="mobile"] .hamburger { display:grid; width:34px; height:34px; }
+[data-device="mobile"] .topbar .search { display:none; }
+
+[data-device="mobile"] .content {
+  flex:1; overflow:auto; padding:16px 14px 92px; gap:14px; -webkit-overflow-scrolling:touch;
+}
+[data-device="mobile"] .greeting h2 { font-size:18px; }
+[data-device="mobile"] .greeting p { font-size:12.5px; }
+[data-device="mobile"] .greeting > .btn { display:none; }
+[data-device="mobile"] .grid.cols-2-1,
+[data-device="mobile"] .grid.cols-3net,
+[data-device="mobile"] .grid.cols-3 { grid-template-columns: 1fr; }
+[data-device="mobile"] .wallet .amount { font-size:28px; margin:6px 0 14px; }
+[data-device="mobile"] .wallet .actions { flex-wrap:wrap; }
+[data-device="mobile"] .wallet .actions .btn { flex:1; justify-content:center; }
+
+/* swap table for the card list on phones */
+[data-device="mobile"] .order-table { display:none; }
+[data-device="mobile"] .order-list { display:block; }
+.olist { display:flex; flex-direction:column; gap:14px; }
+.orow { display:flex; align-items:center; gap:12px; }
+.oicon { width:42px; height:42px; border-radius:12px; display:grid; place-items:center; font-weight:900; font-size:12px; flex-shrink:0; }
+.omid { min-width:0; flex:1; }
+.otop { font-weight:700; font-size:14px; }
+.osub { color: var(--text-muted); font-size:12px; font-weight:500; }
+.oright { text-align:right; display:flex; flex-direction:column; gap:5px; align-items:flex-end; }
+.oamt { font-weight:700; font-size:13.5px; }
+
+/* bottom tab bar */
+[data-device="mobile"] .bottomnav {
+  display:flex; align-items:center; justify-content:space-around;
+  position:absolute; left:0; right:0; bottom:0; height:72px; padding-bottom:10px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(12px);
+  border-top:1px solid var(--border); z-index:25;
+}
+.tab { display:flex; flex-direction:column; align-items:center; gap:4px; color: var(--text-faint); font-size:10.5px; font-weight:600; cursor:pointer; text-decoration:none; flex:1; }
+.tab svg { width:21px; height:21px; }
+.tab.active { color: var(--accent-text); }
+.tab.fab { position:relative; }
+.fabbtn { width:54px; height:54px; margin-top:-24px; border-radius:50%; background: var(--hero); color:#fff; display:grid; place-items:center; box-shadow: var(--shadow), 0 0 0 5px var(--accent-soft); }
+.fablabel { color: var(--accent-text); font-weight:700; margin-top:2px; }
+[data-device="mobile"] .foot { display:none; }
+</style>
+</head>
+<body>
+
+<!-- ======================= CONTROL BAR ======================= -->
+<div class="controls">
+  <span class="brand">DATA<span>GOD</span></span>
+  <div class="seg" id="dirSeg">
+    <button data-dir="fintech" class="active">Modern Fintech</button>
+    <button data-dir="telco">Bold Telco</button>
+    <button data-dir="minimal">Minimal</button>
+  </div>
+  <div class="seg" id="themeSeg">
+    <button data-theme="light" class="active">☀︎ Light</button>
+    <button data-theme="dark">☾ Dark</button>
+  </div>
+  <div class="seg" id="deviceSeg">
+    <button data-device="desktop" class="active">🖥 Desktop</button>
+    <button data-device="mobile">📱 Mobile</button>
+  </div>
+  <span class="spacer"></span>
+  <span class="hint">Preview — switch direction &amp; theme to compare. Not the live app.</span>
+</div>
+
+<!-- ======================= APP SHELL ======================= -->
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="mark">DG</div>
+      <div class="name">DATA<b>GOD</b></div>
+    </div>
+    <a class="nav-item active">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Dashboard
+    </a>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/></svg>
+      Data Packages
+    </a>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+      Buy Airtime
+    </a>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.4 12.5A2 2 0 0 0 9.4 17h8.4a2 2 0 0 0 2-1.6L21 7H6"/></svg>
+      My Orders
+      <span class="badge">3</span>
+    </a>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M16 12h2"/></svg>
+      Wallet
+    </a>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      Transactions
+    </a>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+      Profile
+    </a>
+
+    <div class="nav-group-label">Shop</div>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/></svg>
+      My Shop
+    </a>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l5-5 4 3 7-8"/></svg>
+      Shop Dashboard
+    </a>
+    <a class="nav-item">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M2 21a7 7 0 0 1 14 0"/><circle cx="18" cy="9" r="2.5"/></svg>
+      Sub-Agents
+    </a>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <button class="icon-btn hamburger">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <h1>Dashboard</h1>
+      <span style="flex:1"></span>
+      <div class="search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>
+        Search orders, numbers…
+      </div>
+      <button class="icon-btn"><span class="dot"></span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+      </button>
+      <div class="avatar">KF</div>
+    </div>
+
+    <div class="content">
+      <div class="greeting">
+        <div>
+          <h2>Welcome back, Kofi 👋</h2>
+          <p>Here's what's happening with your account today.</p>
+        </div>
+        <button class="btn primary">+ Buy Data</button>
+      </div>
+
+      <!-- Wallet + stats -->
+      <div class="grid cols-2-1">
+        <div class="wallet">
+          <div class="label">Wallet Balance</div>
+          <div class="amount mono">GHS 1,240.00</div>
+          <div class="actions">
+            <button class="btn on-hero">＋ Top Up</button>
+            <button class="btn ghost-hero">↗ Withdraw</button>
+            <button class="btn ghost-hero">⇄ Transfer</button>
+          </div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr;">
+          <div class="card stat">
+            <div class="k"><span class="chip-ic">✓</span> Orders today</div>
+            <div class="v mono">28</div>
+            <div class="d up">▲ 12% vs yesterday</div>
+          </div>
+          <div class="card stat">
+            <div class="k"><span class="chip-ic">⏱</span> Pending</div>
+            <div class="v mono">3</div>
+            <div class="d" style="color:var(--text-muted)">Awaiting fulfillment</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Network quick buy -->
+      <div>
+        <div class="section-title">Quick buy</div>
+        <div class="grid cols-3net">
+          <div class="net mtn">
+            <div class="badge2">MTN</div>
+            <div><div class="nm">MTN Data</div><div class="sub">From GHS 4.50 · instant</div></div>
+            <div class="arrow">→</div>
+          </div>
+          <div class="net tel">
+            <div class="badge2">TEL</div>
+            <div><div class="nm">Telecel</div><div class="sub">From GHS 5.00 · instant</div></div>
+            <div class="arrow">→</div>
+          </div>
+          <div class="net at">
+            <div class="badge2">AT</div>
+            <div><div class="nm">AT iShare</div><div class="sub">From GHS 3.80 · instant</div></div>
+            <div class="arrow">→</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent orders (mobile: card list) -->
+      <div class="order-list">
+        <div class="section-title">Recent orders</div>
+        <div class="card pad olist">
+          <div class="orow">
+            <div class="oicon" style="background:var(--mtn);color:var(--mtn-fg)">MTN</div>
+            <div class=" omid"><div class="otop">5 GB <span class="osub">· #10231</span></div><div class="osub">024 •• 4821</div></div>
+            <div class="oright"><div class="oamt mono">GHS 24.00</div><span class="tag ok">● Delivered</span></div>
+          </div>
+          <div class="orow">
+            <div class="oicon" style="background:var(--at);color:var(--at-fg)">AT</div>
+            <div class="omid"><div class="otop">2 GB <span class="osub">· #10230</span></div><div class="osub">026 •• 1190</div></div>
+            <div class="oright"><div class="oamt mono">GHS 9.50</div><span class="tag pend">● Processing</span></div>
+          </div>
+          <div class="orow">
+            <div class="oicon" style="background:var(--telecel);color:var(--telecel-fg)">TEL</div>
+            <div class="omid"><div class="otop">10 GB <span class="osub">· #10229</span></div><div class="osub">050 •• 7634</div></div>
+            <div class="oright"><div class="oamt mono">GHS 42.00</div><span class="tag ok">● Delivered</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent orders (desktop: table) -->
+      <div class="card order-table">
+        <div class="table-head">
+          <h3>Recent orders</h3>
+          <a>View all →</a>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Order</th><th>Network</th><th>Bundle</th><th>Recipient</th><th>Amount</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">#10231</td>
+              <td><span class="netdot" style="background:var(--mtn)"></span>MTN</td>
+              <td>5 GB</td><td class="mono">024 •• 4821</td><td class="mono">GHS 24.00</td>
+              <td><span class="tag ok">● Delivered</span></td>
+            </tr>
+            <tr>
+              <td class="mono">#10230</td>
+              <td><span class="netdot" style="background:var(--at)"></span>AT</td>
+              <td>2 GB</td><td class="mono">026 •• 1190</td><td class="mono">GHS 9.50</td>
+              <td><span class="tag pend">● Processing</span></td>
+            </tr>
+            <tr>
+              <td class="mono">#10229</td>
+              <td><span class="netdot" style="background:var(--telecel)"></span>Telecel</td>
+              <td>10 GB</td><td class="mono">050 •• 7634</td><td class="mono">GHS 42.00</td>
+              <td><span class="tag ok">● Delivered</span></td>
+            </tr>
+            <tr>
+              <td class="mono">#10228</td>
+              <td><span class="netdot" style="background:var(--mtn)"></span>MTN</td>
+              <td>1 GB</td><td class="mono">024 •• 9087</td><td class="mono">GHS 4.50</td>
+              <td><span class="tag ok">● Delivered</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="notebar">
+        <b>Same data, three skins.</b> Everything above is driven by ~30 CSS tokens — the real migration swaps token <i>values</i>, not component markup.
+      </div>
+    </div>
+
+    <div class="foot">DATAGOD redesign preview · use the toggles up top to compare directions &amp; light/dark</div>
+
+    <!-- Mobile bottom tab bar — matches current app: Home · Wallet · Data(FAB) · Orders · Shop -->
+    <nav class="bottomnav">
+      <a class="tab active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+        <span>Home</span>
+      </a>
+      <a class="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M16 12h2"/></svg>
+        <span>Wallet</span>
+      </a>
+      <a class="tab fab">
+        <span class="fabbtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="26" height="26"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/></svg>
+        </span>
+        <span class="fablabel">Data</span>
+      </a>
+      <a class="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.4 12.5A2 2 0 0 0 9.4 17h8.4a2 2 0 0 0 2-1.6L21 7H6"/></svg>
+        <span>Orders</span>
+      </a>
+      <a class="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/></svg>
+        <span>Shop</span>
+      </a>
+    </nav>
+  </div>
+</div>
+
+<script>
+  const root = document.documentElement;
+  document.getElementById('dirSeg').addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    root.setAttribute('data-direction', b.dataset.dir);
+    [...e.currentTarget.children].forEach(x=>x.classList.toggle('active', x===b));
+  });
+  document.getElementById('themeSeg').addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    root.setAttribute('data-theme', b.dataset.theme);
+    [...e.currentTarget.children].forEach(x=>x.classList.toggle('active', x===b));
+  });
+  document.getElementById('deviceSeg').addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    root.setAttribute('data-device', b.dataset.device);
+    [...e.currentTarget.children].forEach(x=>x.classList.toggle('active', x===b));
+  });
+  // default device
+  root.setAttribute('data-device','desktop');
+</script>
+</body>
+</html>

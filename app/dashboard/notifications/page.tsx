@@ -96,19 +96,19 @@ export default function NotificationsPage() {
   const getTypeColor = (type: string) => {
     switch (type) {
       case "order_update":
-        return "bg-blue-50 text-blue-700 border-blue-200"
+        return "bg-primary/5 text-primary border-primary/20"
       case "complaint_resolved":
-        return "bg-green-50 text-green-700 border-green-200"
+        return "bg-green-50 text-green-700 border-border"
       case "payment_success":
-        return "bg-green-50 text-green-700 border-green-200"
+        return "bg-green-50 text-green-700 border-border"
       case "withdrawal_approved":
-        return "bg-green-50 text-green-700 border-green-200"
+        return "bg-green-50 text-green-700 border-border"
       case "withdrawal_rejected":
-        return "bg-red-50 text-red-700 border-red-200"
+        return "bg-red-50 text-red-700 border-border"
       case "balance_updated":
-        return "bg-purple-50 text-purple-700 border-purple-200"
+        return "bg-purple-50 text-purple-700 border-border"
       default:
-        return "bg-gray-50 text-gray-700 border-gray-200"
+        return "bg-muted/40 text-foreground border-border"
     }
   }
 
@@ -135,44 +135,44 @@ export default function NotificationsPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <Bell className="w-8 h-8 text-blue-600" />
+          <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
+            <Bell className="w-8 h-8 text-primary" />
             Notifications
           </h1>
-          <p className="text-gray-600 mt-1">Manage your notifications and stay updated</p>
+          <p className="text-muted-foreground mt-1">Manage your notifications and stay updated</p>
         </div>
 
         {/* Stats Cards */}
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-700">Total Notifications</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Total Notifications</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-gray-900">{notifications.length}</div>
-              <p className="text-xs text-gray-500 mt-1">All time</p>
+              <div className="text-2xl font-bold text-foreground">{notifications.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">All time</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-700">Unread</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Unread</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{unreadCount}</div>
-              <p className="text-xs text-gray-500 mt-1">Need attention</p>
+              <p className="text-xs text-muted-foreground mt-1">Need attention</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-700">Read</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground">Read</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
                 {notifications.length - unreadCount}
               </div>
-              <p className="text-xs text-gray-500 mt-1">Viewed</p>
+              <p className="text-xs text-muted-foreground mt-1">Viewed</p>
             </CardContent>
           </Card>
         </div>
@@ -207,7 +207,7 @@ export default function NotificationsPage() {
         {/* Notifications List */}
         {loading ? (
           <Card>
-            <CardContent className="pt-6 text-center text-gray-500">
+            <CardContent className="pt-6 text-center text-muted-foreground">
               Loading notifications...
             </CardContent>
           </Card>
@@ -216,8 +216,8 @@ export default function NotificationsPage() {
             <CardContent className="pt-12 pb-12 text-center">
               <div className="flex flex-col items-center gap-3">
                 <Bell className="w-12 h-12 text-gray-300" />
-                <h3 className="font-semibold text-gray-700">No notifications</h3>
-                <p className="text-gray-500 text-sm">
+                <h3 className="font-semibold text-foreground">No notifications</h3>
+                <p className="text-muted-foreground text-sm">
                   {filter === "unread"
                     ? "You're all caught up! All notifications have been read."
                     : "No notifications yet. Check back later."}
@@ -231,7 +231,7 @@ export default function NotificationsPage() {
               <Card
                 key={notification.id}
                 className={`overflow-hidden transition-all hover:shadow-md ${
-                  !notification.read ? "border-blue-300 bg-blue-50" : ""
+                  !notification.read ? "border-border bg-primary/5" : ""
                 }`}
               >
                 <CardContent className="p-4">
@@ -246,7 +246,7 @@ export default function NotificationsPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-gray-900">
+                            <h3 className="font-semibold text-foreground">
                               {notification.title}
                             </h3>
                             <span
@@ -257,11 +257,11 @@ export default function NotificationsPage() {
                               {notification.type.replace(/_/g, " ")}
                             </span>
                             {!notification.read && (
-                              <span className="w-2 h-2 bg-blue-600 rounded-full" />
+                              <span className="w-2 h-2 bg-primary rounded-full" />
                             )}
                           </div>
-                          <p className="text-gray-600 text-sm mt-1">{notification.message}</p>
-                          <p className="text-xs text-gray-400 mt-2">
+                          <p className="text-muted-foreground text-sm mt-1">{notification.message}</p>
+                          <p className="text-xs text-muted-foreground mt-2">
                             {formatDate(notification.created_at)}
                           </p>
                         </div>
