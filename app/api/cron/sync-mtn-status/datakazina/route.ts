@@ -11,11 +11,8 @@ const supabase = createClient(supabaseUrl, serviceRoleKey)
 const DATAKAZINA_API_URL = process.env.DATAKAZINA_API_URL || "https://reseller.dakazinabusinessconsult.com/api/v1"
 const DATAKAZINA_API_KEY = process.env.DATAKAZINA_API_KEY || ""
 
-// Allow the function up to 60s so a full batch can complete within one run
-export const maxDuration = 60
-
 // Rate limiting configuration (prevent 429 errors)
-const BATCH_SIZE = 25 // 25 orders x 2s delay (+ request latency) fits inside the 60s budget
+const BATCH_SIZE = 10 // Process 10 orders at a time (reduced from 50)
 const DELAY_BETWEEN_REQUESTS_MS = 2000 // 2 second delay between each status check
 const DELAY_ON_429_MS = 10000 // 10 second delay if we hit rate limit
 
@@ -45,7 +42,7 @@ export async function GET(request: NextRequest) {
         // 1. Get all pending/processing DataKazina orders (limited batch)
         const { data: pendingOrders, error: fetchError } = await supabase
             .from("mtn_fulfillment_tracking")
-            .select("id, mtn_order_id, status, shop_order_id, order_id, order_type")
+            .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type")
             .eq("provider", "datakazina")
             .in("status", ["pending", "processing"])
             .order("created_at", { ascending: true })
@@ -119,12 +116,18 @@ export async function GET(request: NextRequest) {
                             })
                             .eq("id", order.id)
 
-                        // Update original order record
+                        // Update original order record (order_type-aware across all 5 types)
                         const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
                         if (order.order_type === "bulk" && order.order_id) {
-                            await supabase.from("orders").update({ status: orderTableStatus }).eq("id", order.order_id)
+                            await supabase.from("orders").update({ status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
+                        } else if (order.order_type === "api" && (order.api_order_id || order.order_id)) {
+                            await supabase.from("api_orders").update({ status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.api_order_id || order.order_id)
+                        } else if (order.order_type === "ussd" && order.order_id) {
+                            await supabase.from("ussd_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
+                        } else if (order.order_type === "ussd_shop" && order.order_id) {
+                            await supabase.from("ussd_shop_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
                         } else if (order.shop_order_id) {
-                            await supabase.from("shop_orders").update({ order_status: orderTableStatus }).eq("id", order.shop_order_id)
+                            await supabase.from("shop_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.shop_order_id)
                         }
 
                         console.log(`[CRON-DATAKAZINA] ✅ Order ${order.mtn_order_id} updated: ${oldStatus} -> ${newStatus}`)

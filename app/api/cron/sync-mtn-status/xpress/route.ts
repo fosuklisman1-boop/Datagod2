@@ -7,12 +7,8 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-// Allow the function up to 60s so a full batch can complete within one run
-export const maxDuration = 60
-
-// Xpress allows 60 req/min; we stay well below that.
-// 35 orders x 1.5s delay (+ request latency) fits inside the 60s budget.
-const BATCH_SIZE = 35
+// Xpress allows 60 req/min; we stay well below that
+const BATCH_SIZE = 15
 const DELAY_BETWEEN_REQUESTS_MS = 1500
 const DELAY_ON_429_MS = 10000
 

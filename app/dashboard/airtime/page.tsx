@@ -2,13 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@supabase/supabase-js"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { supabase } from "@/lib/supabase"
 
 const NETWORKS = ["MTN", "Telecel", "AT"]
 const NETWORK_COLORS: Record<string, string> = {

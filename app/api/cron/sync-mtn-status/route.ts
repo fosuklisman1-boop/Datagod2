@@ -202,7 +202,7 @@ export async function GET(request: NextRequest) {
       .not("mtn_order_id", "is", null)
       .not("mtn_order_id", "like", "FAILED_INIT_%")
       .order("updated_at", { ascending: true })
-      .limit(600)
+      .limit(500)
 
     if (fetchError) {
       console.error("[CRON] Error fetching pending orders:", fetchError)

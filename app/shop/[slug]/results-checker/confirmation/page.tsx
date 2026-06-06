@@ -28,6 +28,7 @@ export default function ResultsCheckerConfirmationPage() {
 
   useEffect(() => {
     if (orderId) pollOrder()
+    else setLoading(false) // no orderId in URL — show error state instead of spinning forever
   }, [orderId])
 
   const pollOrder = async () => {
