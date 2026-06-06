@@ -68,8 +68,12 @@ export class DataKazinaProvider implements MTNProvider {
             const normalized_phone = normalizePhoneNumber(order.recipient_phone)
             const network_id = NETWORK_ID_MAP[order.network]
 
-            // Generate unique reference for DataKazina
-            const incoming_api_ref = `dk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+            // Send our order UUID as the reference so DataKazina echoes it back
+            // (disguised) in the webhook `reference`, enabling order correlation
+            // via extractOrderIdFromReference. Fall back to a generated ref when
+            // no order UUID was supplied (e.g. ad-hoc/legacy callers).
+            const incoming_api_ref =
+                order.client_ref || `dk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
 
             // Map to DataKazina format
             const requestBody = {

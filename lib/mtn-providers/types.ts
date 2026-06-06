@@ -10,6 +10,12 @@ export interface MTNOrderRequest {
     network: "MTN" | "Telecel" | "AirtelTigo"
     size_gb: number
     traceId?: string
+    /**
+     * Our order UUID, sent to the provider as a client reference. DataKazina
+     * echoes it back (disguised) in the webhook `reference` field, letting us
+     * recover the order via extractOrderIdFromReference.
+     */
+    client_ref?: string
 }
 
 export interface MTNOrderResponse {

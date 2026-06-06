@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import {
     updateDataKazinaOrderFromPayload,
+    extractOrderIdFromReference,
     DataKazinaWebhookPayload,
 } from "@/lib/mtn-fulfillment"
 import {
@@ -100,12 +101,27 @@ export async function POST(request: NextRequest) {
         const isFailed = ["failed", "error", "cancelled", "rejected"].includes(status)
 
         if (isCompleted || isFailed) {
-            // Get order details for notification
-            const { data: tracking } = await supabase
+            // Get order details for notification. Mirror the matcher's resolution:
+            // try mtn_order_id first, then fall back to the decoded reference UUID
+            // so notifications fire even when only the reference matched.
+            const notifyColumns = "shop_order_id, order_id, order_type, recipient_phone, size_gb"
+            let { data: tracking } = await supabase
                 .from("mtn_fulfillment_tracking")
-                .select("shop_order_id, order_id, order_type, recipient_phone, size_gb")
+                .select(notifyColumns)
                 .eq("mtn_order_id", String(mtnOrderId))
-                .single()
+                .maybeSingle()
+
+            if (!tracking) {
+                const decodedOrderId = extractOrderIdFromReference(payload.reference)
+                if (decodedOrderId) {
+                    const { data: byReference } = await supabase
+                        .from("mtn_fulfillment_tracking")
+                        .select(notifyColumns)
+                        .or(`shop_order_id.eq.${decodedOrderId},order_id.eq.${decodedOrderId},api_order_id.eq.${decodedOrderId}`)
+                        .maybeSingle()
+                    if (byReference) tracking = byReference
+                }
+            }
 
             if (tracking) {
                 if (isCompleted) {

@@ -19,6 +19,10 @@ export interface MTNOrderRequest {
   size_gb: number
   traceId?: string
   provider?: string // Force a specific provider
+  // Our order UUID, sent to the provider as a client reference. DataKazina
+  // echoes it back (disguised) in the webhook `reference` field, letting us
+  // recover the order via extractOrderIdFromReference.
+  client_ref?: string
 }
 
 export interface MTNOrderResponse {
@@ -911,6 +915,26 @@ export async function updateMTNOrderFromWebhook(
 }
 
 /**
+ * Decode the order UUID hidden inside DataKazina's webhook `reference` field.
+ *
+ * DataKazina embeds the `incoming_api_ref` we sent at order time, but disguised:
+ *   "498" prefix + <our UUID, dashes stripped (32 hex)> + <10-digit suffix>
+ * and the whole 45-char hex string is re-dashed as 11-4-4-4-22 (NOT standard UUID).
+ *
+ * Stripping all dashes, skipping the 3-char prefix, and taking the next 32 hex
+ * chars recovers our original UUID. Returns null if the value isn't in this shape.
+ */
+export function extractOrderIdFromReference(value: unknown): string | null {
+  if (!value) return null
+  const hexOnly = String(value).replace(/-/g, "").toLowerCase()
+  // Skip DataKazina's 3-char "498" prefix, then take the next 32 hex chars.
+  const m = hexOnly.match(/^.{3}([0-9a-f]{32})/)
+  if (!m) return null
+  const h = m[1]
+  return `${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20, 32)}`
+}
+
+/**
  * Update DataKazina order status from webhook payload
  */
 export async function updateDataKazinaOrderFromPayload(
@@ -953,25 +977,58 @@ export async function updateDataKazinaOrderFromPayload(
       "failed": 3,
     }
 
-    // Get the tracking record to check current status
-    const { data: currentTracking } = await supabase
-      .from("mtn_fulfillment_tracking")
-      .select("status, shop_order_id, order_id, api_order_id, order_type")
-      .eq("mtn_order_id", String(mtnOrderId))
-      .single()
+    const trackingColumns = "id, status, shop_order_id, order_id, api_order_id, order_type"
 
-    const currentPriority = statusPriority[currentTracking?.status || "pending"] || 0
+    // Resolve the tracking record. Primary path: order_code is stored as
+    // mtn_order_id at order-creation time, so match on it directly.
+    let { data: tracking } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select(trackingColumns)
+      .eq("mtn_order_id", String(mtnOrderId))
+      .maybeSingle()
+
+    // Fallback path: decode the disguised order UUID out of DataKazina's
+    // `reference` field and match it against the order-id columns (the UUID we
+    // sent as incoming_api_ref is the order id, not the stored mtn_order_id).
+    if (!tracking) {
+      const decodedOrderId = extractOrderIdFromReference(payload.reference)
+      if (decodedOrderId) {
+        const { data: byReference } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .select(trackingColumns)
+          .or(
+            `shop_order_id.eq.${decodedOrderId},order_id.eq.${decodedOrderId},api_order_id.eq.${decodedOrderId}`
+          )
+          .maybeSingle()
+        if (byReference) {
+          tracking = byReference
+          console.log(
+            `[MTN-DK] Matched order via decoded reference: ${payload.reference} -> ${decodedOrderId}`
+          )
+        }
+      }
+    }
+
+    if (!tracking) {
+      console.warn(
+        `[MTN] No tracking record found for DataKazina webhook (mtnOrderId=${mtnOrderId}, reference=${payload.reference})`
+      )
+      return false
+    }
+
+    const currentPriority = statusPriority[tracking.status || "pending"] || 0
     const newPriority = statusPriority[newStatus] || 0
 
     if (newPriority < currentPriority) {
-      console.log(`[MTN-DK] Preventing status regression: ${currentTracking?.status} -> ${newStatus} (blocked)`)
+      console.log(`[MTN-DK] Preventing status regression: ${tracking.status} -> ${newStatus} (blocked)`)
       return true // Still return true as it's a valid webhook, just not an update
     }
 
     // Tracking keeps "failed"; order tables see "pending" to allow re-fulfillment
     const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
 
-    // Update tracking table
+    // Update tracking table (keyed on the resolved row id so the reference
+    // fallback updates the right record even when mtn_order_id didn't match)
     const { error: trackingError } = await supabase
       .from("mtn_fulfillment_tracking")
       .update({
@@ -982,21 +1039,9 @@ export async function updateDataKazinaOrderFromPayload(
         webhook_received_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("mtn_order_id", String(mtnOrderId))
+      .eq("id", tracking.id)
 
     if (trackingError) throw trackingError
-
-    // Get the tracking record to update the corresponding order table
-    const { data: tracking } = await supabase
-      .from("mtn_fulfillment_tracking")
-      .select("shop_order_id, order_id, api_order_id, order_type")
-      .eq("mtn_order_id", String(mtnOrderId))
-      .single()
-
-    if (!tracking) {
-      console.warn(`[MTN] No tracking record found for DataKazina MTN order ${mtnOrderId}`)
-      return false
-    }
 
     // Update the corresponding order table based on order_type
     if (tracking.order_type === "bulk" && tracking.order_id) {
@@ -1116,6 +1161,8 @@ export async function retryMTNOrder(
       network: tracking.network,
       size_gb: tracking.size_gb,
       provider: providerName,
+      // echoed back in DataKazina's webhook reference for order correlation
+      client_ref: tracking.shop_order_id || tracking.order_id || tracking.api_order_id || undefined,
     }
 
     // The atomic lock above already moved this record to "processing". If the API

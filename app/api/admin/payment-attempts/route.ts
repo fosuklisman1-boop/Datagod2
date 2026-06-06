@@ -596,6 +596,7 @@ export async function PATCH(request: NextRequest) {
                   recipient_phone: normalizedPhone,
                   network: "MTN" as const,
                   size_gb: sizeGb,
+                  client_ref: attempt.order_id ? String(attempt.order_id) : undefined, // echoed back in DataKazina's webhook reference
                 }
                 const mtnResult = await createMTNOrder(mtnRequest)
                 console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ MTN API response for order ${attempt.order_id}:`, mtnResult)

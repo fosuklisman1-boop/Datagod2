@@ -249,6 +249,7 @@ export async function processManualFulfillment(
       network: "MTN",
       size_gb: volumeGb,
       provider: finalProvider,
+      client_ref: orderId, // echoed back in DataKazina's webhook reference
     }
 
     // A thrown error here (provider timeout, network drop, 500) must NOT leave the

@@ -3,6 +3,7 @@ import {
   isValidPhoneFormat,
   getNetworkFromPhone,
   validatePhoneNetworkMatch,
+  extractOrderIdFromReference,
 } from "@/lib/mtn-fulfillment"
 
 describe("MTN Fulfillment Service", () => {
@@ -93,6 +94,29 @@ describe("MTN Fulfillment Service", () => {
     it("should work across different formats", () => {
       expect(validatePhoneNetworkMatch("233241234567", "MTN")).toBe(true)
       expect(validatePhoneNetworkMatch("024-123-4567", "MTN")).toBe(true)
+    })
+  })
+
+  describe("extractOrderIdFromReference", () => {
+    it("should decode the order UUID from a DataKazina webhook reference", () => {
+      // "498" prefix + UUID (dashes stripped) + 10-digit suffix, re-dashed 11-4-4-4-22
+      expect(
+        extractOrderIdFromReference("49892a44c02-47f4-47bb-9785-86dee73e89c20558395818")
+      ).toBe("92a44c02-47f4-47bb-9785-86dee73e89c2")
+    })
+
+    it("should be insensitive to dashing and casing", () => {
+      expect(
+        extractOrderIdFromReference("49892A44C0247F447BB978586DEE73E89C20558395818")
+      ).toBe("92a44c02-47f4-47bb-9785-86dee73e89c2")
+    })
+
+    it("should return null for empty or non-matching values", () => {
+      expect(extractOrderIdFromReference(null)).toBe(null)
+      expect(extractOrderIdFromReference(undefined)).toBe(null)
+      expect(extractOrderIdFromReference("")).toBe(null)
+      expect(extractOrderIdFromReference("ORDER-758918")).toBe(null)
+      expect(extractOrderIdFromReference("498abc")).toBe(null) // too short
     })
   })
 })

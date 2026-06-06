@@ -64,6 +64,7 @@ export async function fulfillUssdOrder(
         recipient_phone: normalizedPhone,
         network: "MTN",
         size_gb: sizeGb,
+        client_ref: orderId, // echoed back in DataKazina's webhook reference
         ...(provider ? { provider } : {}),
       }
       const mtnResponse = await createMTNOrder(orderRequest)

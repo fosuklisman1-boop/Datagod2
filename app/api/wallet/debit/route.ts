@@ -361,6 +361,7 @@ export async function POST(request: NextRequest) {
                     recipient_phone: normalizedPhone,
                     network: "MTN" as const,
                     size_gb: sizeGb,
+                    client_ref: orderId, // echoed back in DataKazina's webhook reference
                   }
                   const mtnResult = await createMTNOrder(mtnRequest)
 

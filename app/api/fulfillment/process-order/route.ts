@@ -262,6 +262,7 @@ async function handleMTNAutoFulfillment(
       recipient_phone: phoneNumber,
       network: network as "MTN" | "Telecel" | "AirtelTigo",
       size_gb: volumeGb,
+      client_ref: shopOrderId, // echoed back in DataKazina's webhook reference
     }
 
     // ATOMIC LOCK: Claim the order before hitting the API

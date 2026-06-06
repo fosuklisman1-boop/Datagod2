@@ -222,6 +222,7 @@ export async function POST(request: NextRequest) {
             recipient_phone: normalizePhoneNumber(cleanRecipient),
             network: "MTN" as const,
             size_gb: volumeGb,
+            client_ref: orderId ? String(orderId) : undefined, // echoed back in DataKazina's webhook reference
           }
           const mtnResult = await createMTNOrder(mtnRequest)
           if (orderId && mtnResult.order_id) {

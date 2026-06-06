@@ -360,6 +360,7 @@ export async function POST(request: NextRequest) {
                   recipient_phone: normalizedPhone,
                   network: "MTN" as const,
                   size_gb: sizeGb,
+                  client_ref: order?.id ? String(order.id) : undefined, // echoed back in DataKazina's webhook reference
                 }
 
                 // Call MTN API
