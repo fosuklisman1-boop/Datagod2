@@ -1103,7 +1103,19 @@ export async function retryMTNOrder(
       provider: providerName,
     }
 
-    const result = await createMTNOrder(order)
+    // The atomic lock above already moved this record to "processing". If the API
+    // call throws, treat it as a normal failure so the block below reverts the
+    // tracking to "retrying"/"failed" — otherwise it would be stuck in "processing".
+    let result: MTNOrderResponse
+    try {
+      result = await createMTNOrder(order)
+    } catch (apiErr) {
+      console.error(`[MTN] Retry API threw for tracking ${trackingId}:`, apiErr)
+      result = {
+        success: false,
+        message: apiErr instanceof Error ? apiErr.message : "MTN API error (exception)",
+      }
+    }
 
     if (result.success && result.order_id) {
       // Update tracking with new MTN order ID
