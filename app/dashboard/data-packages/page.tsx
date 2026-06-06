@@ -361,9 +361,9 @@ export default function DataPackagesPage() {
             <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
           </div>
           {wallet && (
-            <Card className={`backdrop-blur-xl border w-full sm:w-auto ${isDealer
-              ? "bg-gradient-to-br from-amber-50/60 to-orange-50/40 border-amber-200/40"
-              : "bg-gradient-to-br from-emerald-50/60 to-teal-50/40 border-emerald-200/40"
+            <Card className={`border w-full sm:w-auto ${isDealer
+              ? "bg-card border-amber-300/40 dark:border-amber-500/20"
+              : "bg-card border-border"
               }`}>
               <CardContent className="pt-4 sm:pt-6">
                 <p className="text-xs sm:text-sm text-muted-foreground">Wallet Balance</p>
@@ -379,9 +379,9 @@ export default function DataPackagesPage() {
         </div>
 
         {/* Search and Filters */}
-        <Card className={`hover:shadow-2xl transition-all duration-300 backdrop-blur-xl border hover:border-opacity-60 ${isDealer
-          ? "bg-gradient-to-br from-amber-50/60 to-orange-50/40 border-amber-200/40 hover:border-amber-300"
-          : "bg-gradient-to-br from-cyan-50/60 to-primary/5 border-cyan-200/40 hover:border-cyan-300/60"
+        <Card className={`hover:shadow-md transition-all duration-300 border ${isDealer
+          ? "bg-card border-amber-300/40 dark:border-amber-500/20"
+          : "bg-card border-border"
           }`}>
           <CardHeader>
             <CardTitle>Search & Filter</CardTitle>
@@ -455,9 +455,9 @@ export default function DataPackagesPage() {
         {viewMode === "grid" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPackages.map((pkg) => (
-              <Card key={pkg.id} className={`hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 cursor-pointer group border-l-4 backdrop-blur-xl border border-opacity-40 hover:border-opacity-60 overflow-hidden flex flex-col w-full min-w-0 ${isDealer
-                ? "border-l-amber-500 bg-gradient-to-br from-amber-50/60 to-orange-50/40 border-amber-200/40 hover:border-amber-300/60"
-                : "border-l-cyan-500 bg-gradient-to-br from-cyan-50/60 to-primary/5 border-cyan-200/40 hover:border-cyan-300/60"
+              <Card key={pkg.id} className={`hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border-l-4 border overflow-hidden flex flex-col w-full min-w-0 ${isDealer
+                ? "border-l-amber-500 bg-card border-border hover:border-amber-300/60"
+                : "border-l-primary bg-card border-border hover:border-primary/40"
                 }`}>
                 {/* Logo Section */}
                 <div className="h-16 sm:h-20 md:h-32 w-full bg-muted flex items-center justify-center overflow-hidden">
@@ -527,16 +527,16 @@ export default function DataPackagesPage() {
             ))}
           </div>
         ) : (
-          <Card className={`hover:shadow-2xl transition-all duration-300 backdrop-blur-xl border hover:border-opacity-60 w-full ${isDealer
-            ? "bg-gradient-to-br from-amber-50/60 to-orange-50/40 border-amber-200/40 hover:border-amber-300/60"
-            : "bg-gradient-to-br from-cyan-50/60 to-primary/5 border-cyan-200/40 hover:border-cyan-300/60"
+          <Card className={`hover:shadow-md transition-all duration-300 border w-full ${isDealer
+            ? "bg-card border-amber-300/40 dark:border-amber-500/20"
+            : "bg-card border-border"
             }`}>
             <CardContent className="p-0">
               <div className="overflow-x-auto w-full">
                 <table className="min-w-[600px] sm:min-w-full w-full text-xs sm:text-sm">
-                  <thead className={`backdrop-blur border-b ${isDealer
-                    ? "bg-gradient-to-r from-amber-100/60 via-orange-100/60 to-yellow-100/60 border-amber-200/40"
-                    : "bg-gradient-to-r from-cyan-100/60 via-primary/10 to-violet-100/60 border-cyan-200/40"
+                  <thead className={`border-b ${isDealer
+                    ? "bg-muted/40 border-border"
+                    : "bg-muted/40 border-border"
                     }`}>
                     <tr>
                       <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Logo</th>
