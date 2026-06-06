@@ -57,7 +57,7 @@ function Step({
 
 function MockNetworkPicker() {
   return (
-    <div className="p-3 bg-slate-50">
+    <div className="p-3 bg-muted/40">
       <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Select Network</p>
       <div className="grid grid-cols-4 gap-2">
         {[
@@ -78,7 +78,7 @@ function MockNetworkPicker() {
 
 function MockPackageCard() {
   return (
-    <div className="p-3 bg-slate-50 flex gap-2">
+    <div className="p-3 bg-muted/40 flex gap-2">
       {[{ size: "1GB", price: "5.00" }, { size: "3GB", price: "12.00" }, { size: "5GB", price: "18.00" }].map((p) => (
         <div key={p.size} className="flex-1 bg-card border border-border rounded-xl p-2 text-center shadow-sm">
           <p className="text-sm font-black text-foreground">{p.size}</p>
@@ -92,7 +92,7 @@ function MockPackageCard() {
 
 function MockCheckout() {
   return (
-    <div className="p-3 bg-slate-50 space-y-2">
+    <div className="p-3 bg-muted/40 space-y-2">
       <div className="bg-card border border-border rounded-lg px-3 py-1.5 flex items-center gap-2">
         <Phone className="w-3 h-3 text-muted-foreground" />
         <span className="text-[11px] text-muted-foreground">0201234567</span>
@@ -109,7 +109,7 @@ function MockCheckout() {
 
 function MockPaystack() {
   return (
-    <div className="p-3 bg-slate-50 text-center space-y-2">
+    <div className="p-3 bg-muted/40 text-center space-y-2">
       <div className="inline-flex items-center gap-1.5 bg-card border border-border rounded-full px-3 py-1 shadow-sm">
         <Lock className="w-3 h-3 text-green-600" />
         <span className="text-[10px] font-semibold text-foreground">Secured by Paystack</span>
@@ -136,7 +136,7 @@ function MockSuccess() {
 
 function MockWallet() {
   return (
-    <div className="p-3 bg-slate-50 space-y-2">
+    <div className="p-3 bg-muted/40 space-y-2">
       <div className="bg-gradient-to-r from-primary to-purple-600 rounded-xl p-3 text-white">
         <p className="text-[10px] opacity-80">Wallet Balance</p>
         <p className="text-lg font-black">GHS 50.00</p>
@@ -150,7 +150,7 @@ function MockWallet() {
 
 function MockShopLink() {
   return (
-    <div className="p-3 bg-slate-50">
+    <div className="p-3 bg-muted/40">
       <div className="bg-card border border-border rounded-lg px-3 py-2 flex items-center gap-2">
         <Store className="w-3 h-3 text-purple-600 flex-shrink-0" />
         <span className="text-[11px] text-muted-foreground truncate">datagod.store/shop/<span className="font-bold text-purple-600">your-shop</span></span>
@@ -163,7 +163,7 @@ function MockShopLink() {
 
 function MockTrackOrder() {
   return (
-    <div className="p-3 bg-slate-50 space-y-1.5">
+    <div className="p-3 bg-muted/40 space-y-1.5">
       {[
         { label: "3GB MTN Data", status: "Delivered", color: "text-green-600 bg-green-50 border-green-200" },
         { label: "Airtime GHS 5", status: "Delivered", color: "text-green-600 bg-green-50 border-green-200" },
@@ -180,7 +180,7 @@ function MockTrackOrder() {
 
 function MockVoucher() {
   return (
-    <div className="p-3 bg-slate-50 text-center space-y-2">
+    <div className="p-3 bg-muted/40 text-center space-y-2">
       <div className="bg-card border-2 border-dashed border-blue-300 rounded-xl p-3">
         <GraduationCap className="w-6 h-6 text-primary mx-auto mb-1" />
         <p className="text-[10px] font-bold text-foreground">WAEC Results Checker</p>
@@ -194,7 +194,7 @@ function MockVoucher() {
 
 function MockWithdrawal() {
   return (
-    <div className="p-3 bg-slate-50 space-y-2">
+    <div className="p-3 bg-muted/40 space-y-2">
       {/* Method selector */}
       <div className="flex gap-2">
         <div className="flex-1 border-2 border-primary bg-primary/5 rounded-lg p-2 text-center">
@@ -236,7 +236,7 @@ function MockWithdrawal() {
 
 function MockInviteProcess() {
   return (
-    <div className="p-3 bg-slate-50 space-y-2">
+    <div className="p-3 bg-muted/40 space-y-2">
       {/* Step A — generate invite */}
       <div className="bg-card border border-border rounded-lg p-2.5 space-y-1.5">
         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Dashboard → Sub-Agents</p>
@@ -288,7 +288,7 @@ function MockInviteProcess() {
 
 function MockProfitMargin() {
   return (
-    <div className="p-3 bg-slate-50 space-y-1.5">
+    <div className="p-3 bg-muted/40 space-y-1.5">
       {[
         { size: "1GB MTN", base: "3.00", profit: "2.00", sell: "5.00" },
         { size: "3GB MTN", base: "8.00", profit: "4.00", sell: "12.00" },
@@ -312,7 +312,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-white to-purple-50">
+    <div className="min-h-screen bg-background">
       {/* Organization + Website Schema */}
       <script
         type="application/ld+json"
@@ -357,40 +357,84 @@ export default function HomePage() {
 
       {/* Hero Section */}
       <section className="max-w-6xl mx-auto px-2 sm:px-6 py-8 sm:py-20">
-        <div className="text-center space-y-4 sm:space-y-6 mb-8 sm:mb-16">
-          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-foreground">
-            Your Data Hub Solution
-          </h2>
-          <p className="text-base sm:text-xl text-muted-foreground max-w-2xl mx-auto">
-            Buy data packages from multiple networks, manage your wallet, and track your orders all in one place.
-          </p>
-          <div className="flex flex-col gap-3 sm:gap-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+        <div className="grid items-center gap-10 lg:grid-cols-2 mb-10 sm:mb-14">
+          {/* Left: copy + CTAs */}
+          <div className="text-center lg:text-left space-y-5">
+            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+              <Zap className="h-3.5 w-3.5 text-primary" /> Instant delivery · all networks
+            </span>
+            <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-foreground leading-[1.1]">
+              Buy data &amp; airtime in{" "}
+              <span className="bg-gradient-to-r from-primary to-violet-600 bg-clip-text text-transparent">10 seconds.</span>
+            </h2>
+            <p className="text-base sm:text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0">
+              Instant bundles for MTN, Telecel and AT — pay from your wallet, or open your own shop and resell to earn. Built for Ghana.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
               <GuestPurchaseButton variant="secondary" className="w-full sm:w-auto" />
-              <Link href="/auth/login">
-                <Button size="lg" className="bg-gradient-to-r from-primary to-purple-600 gap-2 w-full sm:w-auto">
-                  Login to Dashboard
+              <Link href="/auth/signup">
+                <Button size="lg" className="gap-2 w-full sm:w-auto">
+                  Get started
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
               <Button size="lg" variant="outline" className="w-full sm:w-auto gap-2" onClick={scrollToGuide}>
-                Learn More
+                How it works
                 <ChevronDown className="w-4 h-4" />
               </Button>
             </div>
+            {/* Trust stats */}
+            <div className="flex justify-center lg:justify-start gap-8 pt-1">
+              <div><div className="text-2xl font-extrabold text-foreground">3</div><div className="text-xs text-muted-foreground">networks</div></div>
+              <div><div className="text-2xl font-extrabold text-foreground">500k+</div><div className="text-xs text-muted-foreground">orders delivered</div></div>
+              <div><div className="text-2xl font-extrabold text-foreground">~8s</div><div className="text-xs text-muted-foreground">avg delivery</div></div>
+            </div>
             {communityLoading ? (
-              <div className="flex justify-center">
+              <div className="flex justify-center lg:justify-start">
                 <Skeleton className="h-11 w-full sm:w-64 rounded-md" />
               </div>
             ) : communityLink ? (
-              <a href={communityLink} target="_blank" rel="noopener noreferrer" className="flex justify-center">
-                <Button size="lg" className="w-full sm:w-auto sm:px-24 gap-2 bg-green-600 hover:bg-green-700 text-white">
+              <a href={communityLink} target="_blank" rel="noopener noreferrer" className="flex justify-center lg:justify-start">
+                <Button size="lg" className="w-full sm:w-auto gap-2 bg-green-600 hover:bg-green-700 text-white">
                   <MessageCircle className="w-4 h-4" />
                   Join Community
                 </Button>
               </a>
             ) : null}
           </div>
+
+          {/* Right: phone mockup */}
+          <div className="hidden lg:flex justify-center">
+            <div className="w-[300px] overflow-hidden rounded-[2.5rem] border-[10px] border-foreground/90 bg-background shadow-2xl">
+              <div className="space-y-3 bg-muted/40 p-4">
+                <div className="rounded-2xl bg-gradient-to-br from-primary to-violet-600 p-4 text-white">
+                  <p className="text-xs font-medium opacity-85">Wallet Balance</p>
+                  <p className="mt-1 text-2xl font-extrabold">GHS 1,240</p>
+                  <div className="mt-3 flex gap-2">
+                    <span className="rounded-md bg-white px-3 py-1 text-xs font-semibold text-violet-700">＋ Top Up</span>
+                    <span className="rounded-md bg-white/20 px-3 py-1 text-xs font-semibold">Buy</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-border bg-card p-3"><div className="text-[10px] text-muted-foreground">Orders</div><div className="text-lg font-bold text-foreground">28</div></div>
+                  <div className="rounded-xl border border-border bg-card p-3"><div className="text-[10px] text-muted-foreground">Done</div><div className="text-lg font-bold text-foreground">26</div></div>
+                </div>
+                <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-mtn text-mtn-foreground text-[10px] font-black">MTN</span>
+                  <div className="flex-1"><div className="text-xs font-semibold text-foreground">MTN 5GB</div><div className="text-[10px] text-muted-foreground">GHS 24</div></div>
+                  <span className="text-muted-foreground">→</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Network strip */}
+        <div className="flex flex-wrap items-center justify-center gap-3 mb-10 sm:mb-16">
+          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-mtn text-mtn-foreground text-[10px] font-black">M</span> MTN</span>
+          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-telecel text-telecel-foreground text-[10px] font-black">T</span> Telecel</span>
+          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-at text-at-foreground text-[10px] font-black">A</span> AT iShare</span>
+          <span className="rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground">+ Airtime · AFA · Results checker</span>
         </div>
 
         {/* Features Grid */}

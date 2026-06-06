@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -323,16 +323,16 @@ export default function CompleteProfilePage() {
 
   if (initializing) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     )
   }
 
   if (signupsEnabled === false) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 p-4">
-        <Card className="w-full max-w-md shadow-xl border border-white/40 bg-card/70 backdrop-blur-xl">
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md shadow-sm">
           <CardContent className="text-center space-y-4 py-10">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 mb-2">
               <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
@@ -352,47 +352,55 @@ export default function CompleteProfilePage() {
 
   return (
     <>
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 p-4">
-        <Card className="w-full max-w-md shadow-xl border border-white/40 bg-card/70 backdrop-blur-xl">
-          <CardHeader className="space-y-2 text-center">
-            <div className="flex justify-center mb-4">
-              <div className="bg-card p-3 rounded-lg shadow-lg">
-                <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-8 h-8 rounded-lg object-cover" />
-              </div>
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md shadow-sm">
+          <CardContent className="p-6 sm:p-8">
+            {/* Progress */}
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-full w-full rounded-full bg-primary" />
             </div>
-            <CardTitle className="text-3xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent">
-              Complete Your Profile
-            </CardTitle>
-            <CardDescription className="text-muted-foreground">Just a few more details to get you started</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* First Name */}
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
-                <Input
-                  id="firstName"
-                  name="firstName"
-                  type="text"
-                  placeholder="Enter your first name"
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
+            <p className="mt-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Step 2 of 2 — almost there
+            </p>
 
-              {/* Last Name */}
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  name="lastName"
-                  type="text"
-                  placeholder="Enter your last name"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  required
-                />
+            {/* Avatar + greeting */}
+            <div className="mx-auto mt-4 grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-primary to-violet-600 text-2xl font-extrabold text-white">
+              {(formData.firstName || formData.email || "U").charAt(0).toUpperCase()}
+            </div>
+            <h1 className="mt-3 text-center text-2xl font-bold tracking-tight text-foreground">
+              {formData.firstName ? `Hi, ${formData.firstName} 👋` : "Complete your profile"}
+            </h1>
+            <p className="mt-1 mb-6 text-center text-sm text-muted-foreground">
+              Just a few more details to finish setting up your account.
+            </p>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Name */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input
+                    id="firstName"
+                    name="firstName"
+                    type="text"
+                    placeholder="First name"
+                    value={formData.firstName}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last Name</Label>
+                  <Input
+                    id="lastName"
+                    name="lastName"
+                    type="text"
+                    placeholder="Last name"
+                    value={formData.lastName}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
               </div>
 
               {/* Phone Number + OTP */}
@@ -408,10 +416,10 @@ export default function CompleteProfilePage() {
                       value={formData.phoneNumber}
                       onChange={handleChange}
                       required
-                      className={phoneVerified ? "pr-8 border-green-500 focus-visible:ring-green-500" : ""}
+                      className={phoneVerified ? "pr-8 border-success focus-visible:ring-success" : ""}
                     />
                     {phoneVerified && (
-                      <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                      <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-success" />
                     )}
                   </div>
                   <Button
@@ -476,10 +484,10 @@ export default function CompleteProfilePage() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isLoading || !termsAccepted || !phoneVerified}
               >
-                {isLoading ? "Creating profile..." : "Complete Sign Up"}
+                {isLoading ? "Creating profile..." : "Finish & go to dashboard"}
               </Button>
 
               <div className="text-center">
@@ -502,13 +510,13 @@ export default function CompleteProfilePage() {
           <ScrollArea className="flex-1 overflow-auto pr-2">
             {loadingTerms ? (
               <div className="flex justify-center py-10">
-                <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
               </div>
             ) : (
               <div className="space-y-4 text-sm py-2">
                 {intro && <p className="text-muted-foreground leading-relaxed">{intro}</p>}
                 {sections.map((s, i) => (
-                  <div key={i} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div key={i} className="p-3 bg-muted/40 rounded-lg border border-border">
                     <p className="font-bold text-foreground mb-1">{s.title}</p>
                     <p className="text-foreground leading-relaxed">{s.body}</p>
                   </div>
@@ -524,7 +532,7 @@ export default function CompleteProfilePage() {
                 setTermsAccepted(true)
                 setTermsModalOpen(false)
               }}
-              className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 text-white font-semibold"
+              className="w-full font-semibold"
             >
               I Agree
             </Button>

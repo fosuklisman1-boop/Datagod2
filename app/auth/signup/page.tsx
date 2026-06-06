@@ -6,12 +6,11 @@ import Link from "next/link"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { CheckCircle2, Loader2 } from "lucide-react"
+import { CheckCircle2, Loader2, Mail, Lock, Eye, EyeOff, Check } from "lucide-react"
 import { toast } from "sonner"
 import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
@@ -65,6 +64,17 @@ function parseTerms(content: string) {
   return { intro, sections }
 }
 
+// Lightweight password strength: 0 = empty, 1 = weak, 2 = fair, 3 = strong.
+// Purely cosmetic — the real minimum (6 chars) is still enforced on submit.
+function passwordStrength(pw: string): number {
+  if (!pw) return 0
+  let score = 0
+  if (pw.length >= 8) score++
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++
+  if (/\d/.test(pw) || /[^A-Za-z0-9]/.test(pw)) score++
+  return Math.min(score, 3)
+}
+
 export default function SignupPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -77,6 +87,8 @@ export default function SignupPage() {
     confirmPassword: "",
   })
   const [signupsEnabled, setSignupsEnabled] = useState<boolean | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   // OTP state
   const [otpSent, setOtpSent] = useState(false)
@@ -291,21 +303,51 @@ export default function SignupPage() {
 
   return (
     <>
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 p-4">
-        <Card className="w-full max-w-md shadow-xl border border-white/40 bg-card/70 backdrop-blur-xl">
-          <CardHeader className="space-y-2 text-center">
-            <div className="flex justify-center mb-4">
-              <div className="bg-card p-3 rounded-lg shadow-lg">
-                <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-8 h-8 rounded-lg object-cover" />
-              </div>
+      <div className="min-h-screen lg:grid lg:grid-cols-[1.05fr_1fr]">
+        {/* Brand panel (desktop only) */}
+        <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-violet-600 p-12 text-white">
+          <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-white/10" />
+          <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-white/10" />
+          <Link href="/" className="relative flex items-center gap-3">
+            <div className="rounded-xl bg-white/15 p-2">
+              <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-lg object-cover" />
             </div>
-            <CardTitle className="text-3xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent">Create Account</CardTitle>
-            <CardDescription className="text-muted-foreground">Join DATAGOD today</CardDescription>
-          </CardHeader>
-          <CardContent>
+            <span className="text-xl font-extrabold tracking-tight">DATAGOD</span>
+          </Link>
+          <div className="relative">
+            <h2 className="mb-3 text-3xl font-extrabold tracking-tight">Create your account.</h2>
+            <p className="max-w-sm leading-relaxed text-white/90">Join thousands of resellers across Ghana.</p>
+            <ul className="mt-6 space-y-3 text-sm">
+              {["Free to create — no charges", "Instant wallet on signup", "Sell MTN, Telecel & AT bundles"].map((t) => (
+                <li key={t} className="flex items-center gap-3">
+                  <span className="grid h-5 w-5 place-items-center rounded-full bg-white/20">
+                    <Check className="h-3 w-3" />
+                  </span>
+                  {t}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <p className="relative text-sm text-white/80">
+            <span className="block text-2xl font-extrabold text-white">10,000+</span> agents trust DATAGOD
+          </p>
+        </div>
+
+        {/* Form panel */}
+        <div className="flex min-h-screen items-center justify-center bg-background px-6 py-10 sm:px-10 lg:min-h-0">
+          <div className="w-full max-w-md">
+            <div className="mb-8 flex items-center justify-center gap-2 lg:hidden">
+              <div className="rounded-lg bg-card p-2 shadow-sm">
+                <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-md object-cover" />
+              </div>
+              <span className="text-lg font-extrabold tracking-tight">DATAGOD</span>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Create account</h1>
+            <p className="mt-1 mb-6 text-sm text-muted-foreground">Start buying &amp; reselling in minutes.</p>
+
             {signupsEnabled === null ? (
               <div className="flex justify-center p-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               </div>
             ) : signupsEnabled === false ? (
               <div className="text-center space-y-4 py-8">
@@ -413,43 +455,92 @@ export default function SignupPage() {
                 {/* Email */}
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="Enter your email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    required
-                  />
+                  <div className="relative">
+                    <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={formData.email}
+                      onChange={handleChange}
+                      required
+                      className="pl-9"
+                    />
+                  </div>
                 </div>
 
                 {/* Password */}
                 <div className="space-y-2">
                   <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    name="password"
-                    type="password"
-                    placeholder="Enter your password"
-                    value={formData.password}
-                    onChange={handleChange}
-                    required
-                  />
+                  <div className="relative">
+                    <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Create a password"
+                      value={formData.password}
+                      onChange={handleChange}
+                      required
+                      className="pl-9 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {formData.password && (
+                    <>
+                      <div className="flex gap-1.5">
+                        {[0, 1, 2].map((i) => {
+                          const s = passwordStrength(formData.password)
+                          const color = s <= 1 ? "bg-destructive" : s === 2 ? "bg-warning" : "bg-success"
+                          return <span key={i} className={`h-1 flex-1 rounded-full ${i < s ? color : "bg-border"}`} />
+                        })}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {passwordStrength(formData.password) <= 1
+                          ? "Weak — use 8+ characters with a mix."
+                          : passwordStrength(formData.password) === 2
+                            ? "Fair — add a number or symbol."
+                            : "Strong password."}
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 {/* Confirm Password */}
                 <div className="space-y-2">
                   <Label htmlFor="confirmPassword">Confirm Password</Label>
-                  <Input
-                    id="confirmPassword"
-                    name="confirmPassword"
-                    type="password"
-                    placeholder="Confirm your password"
-                    value={formData.confirmPassword}
-                    onChange={handleChange}
-                    required
-                  />
+                  <div className="relative">
+                    <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type={showConfirm ? "text" : "password"}
+                      placeholder="Confirm your password"
+                      value={formData.confirmPassword}
+                      onChange={handleChange}
+                      required
+                      className="pl-9 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label={showConfirm ? "Hide password" : "Show password"}
+                    >
+                      {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {formData.confirmPassword && formData.confirmPassword !== formData.password && (
+                    <p className="text-[11px] text-destructive">Passwords don&apos;t match.</p>
+                  )}
                 </div>
 
                 {/* Terms of Service Checkbox */}
@@ -475,7 +566,7 @@ export default function SignupPage() {
                 {/* Sign Up Button */}
                 <Button
                   type="submit"
-                  className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={isLoading || !termsAccepted || !phoneVerified}
                 >
                   {isLoading ? "Creating account..." : "Create Account"}
@@ -508,8 +599,8 @@ export default function SignupPage() {
                 </div>
               </form>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       {/* Terms of Service Modal */}
@@ -522,7 +613,7 @@ export default function SignupPage() {
           <ScrollArea className="flex-1 overflow-auto pr-2">
             {loadingTerms ? (
               <div className="flex justify-center py-10">
-                <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
               </div>
             ) : (
               <div className="space-y-4 text-sm py-2">
@@ -530,7 +621,7 @@ export default function SignupPage() {
                   <p className="text-muted-foreground leading-relaxed">{intro}</p>
                 )}
                 {sections.map((s, i) => (
-                  <div key={i} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div key={i} className="p-3 bg-muted/40 rounded-lg border border-border">
                     <p className="font-bold text-foreground mb-1">{s.title}</p>
                     <p className="text-foreground leading-relaxed">{s.body}</p>
                   </div>
@@ -548,7 +639,7 @@ export default function SignupPage() {
                 setTermsAccepted(true)
                 setTermsModalOpen(false)
               }}
-              className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 text-white font-semibold"
+              className="w-full font-semibold"
             >
               I Agree
             </Button>
