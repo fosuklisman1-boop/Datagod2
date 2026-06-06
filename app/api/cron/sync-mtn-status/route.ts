@@ -14,6 +14,7 @@ const DATAKAZINA_API_URL = process.env.DATAKAZINA_API_URL || "https://reseller.d
 const DATAKAZINA_API_KEY = process.env.DATAKAZINA_API_KEY || ""
 
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 /**
  * Fetch ALL orders from Sykes API in a single call
@@ -160,8 +161,13 @@ async function isMTNAutoFulfillmentEnabled(): Promise<boolean> {
  * Only runs when MTN auto-fulfillment is enabled.
  */
 export async function GET(request: NextRequest) {
-  const { authorized, errorResponse } = verifyCronAuth(request)
-  if (!authorized) return errorResponse
+  // Allow either the scheduled cron (CRON_SECRET / x-vercel-cron) OR an
+  // authenticated admin triggering a full sync from the dashboard button.
+  const cronAuth = verifyCronAuth(request)
+  if (!cronAuth.authorized) {
+    const adminCheck = await verifyAdminAccess(request)
+    if (!adminCheck.isAdmin) return cronAuth.errorResponse
+  }
 
   try {
     console.log("[CRON] Starting MTN status sync...")

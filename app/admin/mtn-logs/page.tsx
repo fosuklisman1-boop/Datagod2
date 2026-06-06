@@ -277,8 +277,15 @@ export default function MTNFulfillmentLogsPage() {
       setSyncing(true)
       toast.info("Triggering background sync for all orders...")
 
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
       const response = await fetch("/api/cron/sync-mtn-status", {
         method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
 
       const data = await response.json()
