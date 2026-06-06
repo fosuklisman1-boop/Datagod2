@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-device="desktop" data-screen="dashboard">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DATAGOD · Clean Fintech — Real Screens Preview</title>
+<style>
+/* Fintech tokens only (direction is locked). Mirrors the app's CSS-var model. */
+*,*::before,*::after{box-sizing:border-box}html,body{margin:0;padding:0}
+:root{
+  --sidebar-w:248px;--header-h:64px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --bg:220 20% 97%;--surface:0 0% 100%;--surface-2:210 40% 98%;
+  --text:222 47% 11%;--muted:215 16% 47%;--faint:215 16% 65%;
+  --border:214 16% 92%;--primary:243 75% 59%;--primary-soft:243 75% 59%;
+  --success:142 71% 40%;--warning:35 92% 44%;--danger:0 72% 51%;
+  --mtn:48 100% 50%;--telecel:353 90% 45%;--at:215 92% 43%;
+  --radius:16px;--radius-sm:11px;
+  --shadow:0 1px 2px rgba(16,24,40,.04),0 10px 26px -12px rgba(16,24,40,.14);
+  --shadow-sm:0 1px 2px rgba(16,24,40,.06);
+  --hero:linear-gradient(135deg,hsl(243 75% 59%),hsl(265 70% 58%));
+}
+[data-theme="dark"]{
+  --bg:222 38% 6%;--surface:222 33% 11%;--surface-2:222 30% 9%;
+  --text:218 33% 94%;--muted:215 20% 65%;--faint:215 16% 45%;
+  --border:220 28% 19%;--primary:239 84% 67%;--primary-soft:245 100% 80%;
+  --success:142 69% 45%;--warning:38 92% 50%;--danger:0 84% 60%;
+  --telecel:353 90% 58%;--at:215 90% 60%;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 30px -12px rgba(0,0,0,.6);
+}
+body{font-family:var(--font);background:hsl(var(--bg));color:hsl(var(--text));-webkit-font-smoothing:antialiased}
+
+/* control bar */
+.controls{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:10px 18px;background:hsl(var(--surface)/.88);backdrop-filter:blur(10px);border-bottom:1px solid hsl(var(--border))}
+.brand{font-weight:800;letter-spacing:-.02em}.brand span{color:hsl(var(--primary))}
+.seg{display:inline-flex;background:hsl(var(--surface-2));border:1px solid hsl(var(--border));border-radius:999px;padding:3px}
+.seg button{border:0;background:transparent;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;color:hsl(var(--muted));padding:6px 13px;border-radius:999px;transition:all .15s}
+.seg button.active{background:hsl(var(--primary));color:#fff;box-shadow:var(--shadow-sm)}
+.controls .spacer{flex:1}.controls .hint{font-size:12px;color:hsl(var(--faint))}
+
+/* shell */
+.app{display:flex;min-height:calc(100vh - 56px)}
+.sidebar{width:var(--sidebar-w);flex-shrink:0;background:hsl(var(--surface));border-right:1px solid hsl(var(--border));
+  padding:16px 12px;display:flex;flex-direction:column;gap:3px;position:sticky;top:56px;height:calc(100vh - 56px);overflow:auto}
+.logo{display:flex;align-items:center;gap:10px;padding:8px 10px 16px}
+.logo .mark{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:hsl(var(--primary));color:#fff;font-weight:900;font-size:14px}
+.logo .name{font-weight:800;font-size:16px}.logo .name b{color:hsl(var(--primary))}
+.glabel{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:hsl(var(--faint));padding:14px 12px 6px;font-weight:700}
+.nav{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:var(--radius-sm);color:hsl(var(--muted));text-decoration:none;font-size:14px;font-weight:500;cursor:pointer}
+.nav:hover{background:hsl(var(--surface-2))}
+.nav.active{background:hsl(var(--primary)/.10);color:hsl(var(--primary));font-weight:600}
+.nav svg{width:18px;height:18px;flex-shrink:0}
+.nav .b{margin-left:auto;background:hsl(var(--danger));color:#fff;font-size:11px;font-weight:700;border-radius:999px;padding:1px 7px}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{height:var(--header-h);display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid hsl(var(--border));background:hsl(var(--surface))}
+.topbar h1{font-size:18px;font-weight:700;margin:0}
+.search{display:flex;align-items:center;gap:8px;background:hsl(var(--surface-2));border:1px solid hsl(var(--border));border-radius:999px;padding:8px 14px;color:hsl(var(--faint));font-size:13px;min-width:220px}
+.iconbtn{width:38px;height:38px;display:grid;place-items:center;border-radius:var(--radius-sm);border:1px solid hsl(var(--border));background:hsl(var(--surface-2));color:hsl(var(--muted));cursor:pointer;position:relative}
+.iconbtn .dot{position:absolute;top:8px;right:9px;width:7px;height:7px;border-radius:999px;background:hsl(var(--danger));border:2px solid hsl(var(--surface))}
+.avatar{width:38px;height:38px;border-radius:999px;background:var(--hero);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+.hamburger{display:none}
+
+.content{padding:22px;display:flex;flex-direction:column;gap:18px;max-width:1180px;width:100%;margin:0 auto}
+.greet{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.greet h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em}
+.greet p{margin:3px 0 0;color:hsl(var(--muted));font-size:13.5px}
+.btn{border:0;cursor:pointer;font:inherit;font-weight:600;font-size:13.5px;padding:10px 16px;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:7px;transition:transform .12s,filter .15s}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:hsl(var(--primary));color:#fff}.btn.on-hero{background:#fff;color:#1a1530}.btn.ghost-hero{background:rgba(255,255,255,.16);color:#fff}
+.btn.ghost{background:hsl(var(--surface-2));color:hsl(var(--text));border:1px solid hsl(var(--border))}
+
+.card{background:hsl(var(--surface));border:1px solid hsl(var(--border));border-radius:var(--radius);box-shadow:var(--shadow)}
+.grid{display:grid;gap:18px}
+.grid.h{grid-template-columns:1.5fr 1fr}
+.grid.s4{grid-template-columns:repeat(4,1fr)}
+.grid.s3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:900px){.grid.h,.grid.s4,.grid.s3{grid-template-columns:1fr 1fr}}
+
+.wallet{background:var(--hero);color:#fff;border-radius:var(--radius);padding:22px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+.wallet::after{content:"";position:absolute;right:-40px;top:-50px;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,.12)}
+.wallet .l{font-size:13px;opacity:.85;font-weight:600}.wallet .amt{font-size:34px;font-weight:800;letter-spacing:-.02em;margin:6px 0 16px}
+.wallet .acts{display:flex;gap:10px;position:relative;z-index:1}
+
+/* CLEAN stat card (replaces rainbow gradient cards) */
+.stat{padding:18px}
+.stat .top{display:flex;align-items:center;justify-content:space-between}
+.stat .chip{width:34px;height:34px;border-radius:10px;display:grid;place-items:center}
+.stat .chip.i{background:hsl(var(--primary)/.10);color:hsl(var(--primary))}
+.stat .chip.ok{background:hsl(var(--success)/.12);color:hsl(var(--success))}
+.stat .chip.warn{background:hsl(var(--warning)/.14);color:hsl(var(--warning))}
+.stat .chip.bad{background:hsl(var(--danger)/.12);color:hsl(var(--danger))}
+.stat .k{font-size:12.5px;color:hsl(var(--muted));font-weight:600;margin-top:14px}
+.stat .v{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:3px}
+.stat .d{font-size:11.5px;margin-top:3px;color:hsl(var(--faint));font-weight:500}
+.stat .d.up{color:hsl(var(--success))}
+
+.stitle{font-size:15px;font-weight:700;margin:4px 2px}
+.net{display:flex;align-items:center;gap:14px;padding:16px;border-radius:var(--radius);border:1px solid hsl(var(--border));background:hsl(var(--surface));box-shadow:var(--shadow);cursor:pointer;transition:transform .14s}
+.net:hover{transform:translateY(-2px)}
+.net .bdg{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-weight:900;font-size:13px;flex-shrink:0}
+.net.mtn .bdg{background:hsl(var(--mtn));color:#1a1a1a}.net.tel .bdg{background:hsl(var(--telecel));color:#fff}.net.at .bdg{background:hsl(var(--at));color:#fff}
+.net .nm{font-weight:700;font-size:15px}.net .sub{font-size:12px;color:hsl(var(--muted));margin-top:2px}.net .ar{margin-left:auto;color:hsl(var(--faint))}
+
+.thead{display:flex;align-items:center;justify-content:space-between;padding:16px 22px 6px}
+.thead h3{margin:0;font-size:15px;font-weight:700}.thead a{color:hsl(var(--primary));font-size:13px;font-weight:600;text-decoration:none;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;color:hsl(var(--faint));font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding:10px 22px;border-bottom:1px solid hsl(var(--border))}
+td{padding:13px 22px;border-bottom:1px solid hsl(var(--border))}tr:last-child td{border-bottom:0}
+tbody tr:hover{background:hsl(var(--surface-2))}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px}
+.tag.ok{background:hsl(var(--success)/.12);color:hsl(var(--success))}.tag.pend{background:hsl(var(--warning)/.14);color:hsl(var(--warning))}
+.dot{width:9px;height:9px;border-radius:999px;display:inline-block;margin-right:7px;vertical-align:middle}
+.mono{font-variant-numeric:tabular-nums}
+.note{font-size:12.5px;color:hsl(var(--muted))}.note b{color:hsl(var(--text))}
+.foot{text-align:center;color:hsl(var(--faint));font-size:12px;padding:18px}
+svg{display:block}
+
+/* skeleton (loading screen) */
+.sk{background:linear-gradient(90deg,hsl(var(--surface-2)) 25%,hsl(var(--border)) 37%,hsl(var(--surface-2)) 63%);background-size:400% 100%;animation:sh 1.4s ease infinite;border-radius:8px}
+@keyframes sh{0%{background-position:100% 0}100%{background-position:-100% 0}}
+
+/* screen visibility */
+.screen{display:none}
+[data-screen="dashboard"] #s-dashboard{display:block}
+[data-screen="loading"] #s-loading{display:block}
+[data-screen="home"] #s-home,[data-screen="login"] #s-login,[data-screen="signup"] #s-signup,[data-screen="profile"] #s-profile{display:block}
+/* auth/home screens hide the dashboard shell */
+[data-screen="home"] .app,[data-screen="login"] .app,[data-screen="signup"] .app,[data-screen="profile"] .app{display:none}
+.stub{max-width:760px;margin:50px auto;padding:40px;text-align:center}
+.stub .big{font-size:20px;font-weight:700}.stub p{color:hsl(var(--muted));font-size:14px}
+
+/* ===== AUTH + HOME ===== */
+.framed{min-height:calc(100vh - 56px)}
+.auth{display:grid;grid-template-columns:1.05fr 1fr;min-height:calc(100vh - 56px)}
+.brandside{position:relative;overflow:hidden;background:var(--hero);color:#fff;padding:48px;display:flex;flex-direction:column;justify-content:space-between;gap:30px}
+.brandside .blob{position:absolute;border-radius:50%;background:rgba(255,255,255,.10)}
+.brandside .b1{width:280px;height:280px;right:-80px;top:-60px}.brandside .b2{width:180px;height:180px;left:-50px;bottom:-40px}
+.brandside .logo .name,.brandside .logo b{color:#fff}
+.brandside h2{font-size:30px;font-weight:800;letter-spacing:-.02em;margin:0 0 10px;position:relative}
+.brandside p.sub{opacity:.9;font-size:15px;line-height:1.5;margin:0;position:relative}
+.bullets{display:flex;flex-direction:column;gap:12px;position:relative}
+.bullets div{display:flex;align-items:center;gap:10px;font-size:14px}
+.bullets .ck{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:12px}
+.brandstat{position:relative;font-size:13px;opacity:.85}.brandstat b{font-size:22px;display:block;opacity:1}
+.formside{display:flex;align-items:center;justify-content:center;padding:32px;background:hsl(var(--bg))}
+.fcard{width:100%;max-width:400px}
+.fcard h3{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.fcard .lead{color:hsl(var(--muted));font-size:13.5px;margin:0 0 20px}
+.gbtn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;border:1px solid hsl(var(--border));background:hsl(var(--surface));color:hsl(var(--text));border-radius:10px;padding:11px;font-weight:600;font-size:14px;cursor:pointer}
+.divider{display:flex;align-items:center;gap:12px;color:hsl(var(--faint));font-size:12px;margin:16px 0}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:hsl(var(--border))}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+.inp{display:flex;align-items:center;gap:9px;border:1px solid hsl(var(--border));background:hsl(var(--surface));border-radius:10px;padding:0 12px;height:44px;transition:border-color .15s,box-shadow .15s}
+.inp:focus-within{border-color:hsl(var(--primary));box-shadow:0 0 0 3px hsl(var(--primary)/.15)}
+.inp svg{color:hsl(var(--faint));flex-shrink:0}
+.inp input{border:0;outline:0;background:transparent;flex:1;font:inherit;font-size:14px;color:hsl(var(--text));min-width:0}
+.inp .pfx{font-size:14px;font-weight:600;color:hsl(var(--muted));padding-right:8px;border-right:1px solid hsl(var(--border))}
+.inp .eye{cursor:pointer;color:hsl(var(--faint))}
+.frow{display:flex;align-items:center;justify-content:space-between;font-size:13px;margin:-4px 0 16px}
+.link{color:hsl(var(--primary));font-weight:600;text-decoration:none;cursor:pointer}
+.fbtn{width:100%;border:0;border-radius:10px;background:hsl(var(--primary));color:#fff;font-weight:700;font-size:14.5px;padding:12px;cursor:pointer}
+.fmeta{text-align:center;font-size:13px;color:hsl(var(--muted));margin-top:16px}
+.guest{display:block;text-align:center;font-size:13px;color:hsl(var(--muted));margin-top:10px;cursor:pointer}
+.strength{display:flex;gap:5px;margin-top:8px}.strength i{height:4px;flex:1;border-radius:2px;background:hsl(var(--border))}
+.strength i.on1{background:hsl(var(--danger))}.strength i.on2{background:hsl(var(--warning))}.strength i.on3{background:hsl(var(--success))}
+.shint{font-size:11.5px;color:hsl(var(--muted));margin-top:5px}
+.otp{display:flex;gap:8px;justify-content:space-between}
+.otp .box{width:46px;height:54px;border:1px solid hsl(var(--border));border-radius:10px;display:grid;place-items:center;font-size:22px;font-weight:700;background:hsl(var(--surface))}
+.otp .box.f{border-color:hsl(var(--primary));box-shadow:0 0 0 3px hsl(var(--primary)/.15)}
+.prog{height:6px;border-radius:999px;background:hsl(var(--border));overflow:hidden;margin-bottom:18px}
+.prog i{display:block;height:100%;width:50%;background:hsl(var(--primary))}
+.bigavatar{width:64px;height:64px;border-radius:50%;background:var(--hero);color:#fff;display:grid;place-items:center;font-size:24px;font-weight:800;margin:0 auto 12px}
+
+/* HOME */
+.homewrap{background:hsl(var(--bg))}
+.hnav{display:flex;align-items:center;gap:18px;padding:16px 28px;max-width:1180px;margin:0 auto}
+.hnav .links{display:flex;gap:22px;margin-left:24px;color:hsl(var(--muted));font-size:14px;font-weight:500}
+.hnav .links span{cursor:pointer}.hnav .sp{flex:1}
+.hero{max-width:1180px;margin:0 auto;padding:40px 28px;display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:center;position:relative}
+.hero h1{font-size:44px;line-height:1.08;font-weight:800;letter-spacing:-.03em;margin:0 0 16px}
+.hero h1 .g{background:var(--hero);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{font-size:16px;color:hsl(var(--muted));line-height:1.6;margin:0 0 22px;max-width:460px}
+.hcta{display:flex;gap:12px;flex-wrap:wrap}
+.trust{display:flex;gap:26px;margin-top:26px}
+.trust b{font-size:22px;font-weight:800;display:block}.trust span{font-size:12.5px;color:hsl(var(--muted))}
+.phone{justify-self:center;width:280px;border:10px solid #0d0d11;border-radius:40px;overflow:hidden;box-shadow:var(--shadow);background:hsl(var(--surface))}
+.phone .pscreen{padding:16px;background:hsl(var(--bg))}
+.netstrip{background:hsl(var(--surface-2));border-top:1px solid hsl(var(--border));border-bottom:1px solid hsl(var(--border));padding:18px}
+.netstrip .row{max-width:1180px;margin:0 auto;display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.nchip{display:flex;align-items:center;gap:9px;background:hsl(var(--surface));border:1px solid hsl(var(--border));border-radius:999px;padding:7px 16px;font-weight:700;font-size:14px}
+.nchip .d{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-size:10px;font-weight:900}
+.steps{max-width:1180px;margin:0 auto;padding:44px 28px}
+.steps h2{font-size:26px;font-weight:800;letter-spacing:-.02em;text-align:center;margin:0 0 28px}
+.steprow{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.stepc{padding:22px}.stepc .num{width:30px;height:30px;border-radius:50%;background:var(--hero);color:#fff;font-weight:800;display:grid;place-items:center;margin-bottom:12px}
+.stepc h4{margin:0 0 6px;font-size:16px}.stepc p{margin:0;font-size:13.5px;color:hsl(var(--muted));line-height:1.5}
+@media(max-width:880px){.auth{grid-template-columns:1fr}.brandside{display:none}.hero{grid-template-columns:1fr}.phone{display:none}.steprow{grid-template-columns:1fr}.hnav .links{display:none}}
+
+/* ===== MOBILE ===== */
+/* framed auth/home in mobile device mode */
+[data-device="mobile"] .framed{width:390px;height:800px;margin:26px auto;border:11px solid #0d0d11;border-radius:46px;overflow:auto;box-shadow:0 30px 70px -20px rgba(0,0,0,.7),0 0 0 2px #2a2a31;background:hsl(var(--bg))}
+[data-device="mobile"] .auth{grid-template-columns:1fr;min-height:0}
+[data-device="mobile"] .brandside{display:none}
+[data-device="mobile"] .formside{padding:22px 18px;min-height:778px}
+[data-device="mobile"] .hero{grid-template-columns:1fr;padding:24px 18px;gap:20px}
+[data-device="mobile"] .hero h1{font-size:30px}[data-device="mobile"] .phone{display:none}[data-device="mobile"] .hnav .links{display:none}
+[data-device="mobile"] .steprow{grid-template-columns:1fr}[data-device="mobile"] .steps{padding:24px 18px}
+[data-device="mobile"] body{background:#0a0a0c}
+[data-device="mobile"] .controls{background:rgba(20,20,24,.9);border-color:#26262c}
+[data-device="mobile"] .brand,[data-device="mobile"] .hint{color:#cfcfd6}
+[data-device="mobile"] .app{display:block;width:390px;height:800px;margin:26px auto;border:11px solid #0d0d11;border-radius:46px;overflow:hidden;box-shadow:0 30px 70px -20px rgba(0,0,0,.7),0 0 0 2px #2a2a31;background:hsl(var(--bg));position:relative}
+[data-device="mobile"] .sidebar{display:none}
+[data-device="mobile"] .main{height:100%;display:flex;flex-direction:column}
+[data-device="mobile"] .app::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:140px;height:26px;background:#0d0d11;border-radius:0 0 16px 16px;z-index:30}
+[data-device="mobile"] .topbar{height:58px;padding:6px 14px 0;position:sticky;top:0;z-index:20}
+[data-device="mobile"] .topbar h1{font-size:16px}[data-device="mobile"] .hamburger{display:grid;width:34px;height:34px}[data-device="mobile"] .search{display:none}
+[data-device="mobile"] .content{flex:1;overflow:auto;padding:16px 14px 92px;gap:14px}
+[data-device="mobile"] .greet h2{font-size:18px}[data-device="mobile"] .greet>.btn{display:none}
+[data-device="mobile"] .grid.h,[data-device="mobile"] .grid.s4,[data-device="mobile"] .grid.s3{grid-template-columns:1fr 1fr}
+[data-device="mobile"] .grid.h{grid-template-columns:1fr}
+[data-device="mobile"] .wallet .amt{font-size:28px}[data-device="mobile"] .wallet .acts{flex-wrap:wrap}[data-device="mobile"] .wallet .acts .btn{flex:1;justify-content:center}
+[data-device="mobile"] .order-table{display:none}[data-device="mobile"] .order-list{display:block}
+[data-device="mobile"] .bottomnav{display:flex}
+.order-list{display:none}
+.bottomnav{display:none;align-items:center;justify-content:space-around;position:absolute;left:0;right:0;bottom:0;height:72px;padding-bottom:10px;background:hsl(var(--surface)/.95);backdrop-filter:blur(12px);border-top:1px solid hsl(var(--border));z-index:25}
+.tab{display:flex;flex-direction:column;align-items:center;gap:4px;color:hsl(var(--faint));font-size:10.5px;font-weight:600;cursor:pointer;text-decoration:none;flex:1}
+.tab svg{width:21px;height:21px}.tab.active{color:hsl(var(--primary))}
+.fab .fb{width:54px;height:54px;margin-top:-24px;border-radius:50%;background:var(--hero);color:#fff;display:grid;place-items:center;box-shadow:var(--shadow),0 0 0 5px hsl(var(--primary)/.12)}
+.fab .fl{color:hsl(var(--primary));font-weight:700;margin-top:2px}
+.olist{display:flex;flex-direction:column;gap:14px;padding:18px}
+.orow{display:flex;align-items:center;gap:12px}
+.oic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-weight:900;font-size:12px;flex-shrink:0}
+.omid{min-width:0;flex:1}.otop{font-weight:700;font-size:14px}.osub{color:hsl(var(--muted));font-size:12px}
+.oright{text-align:right;display:flex;flex-direction:column;gap:5px;align-items:flex-end}.oamt{font-weight:700;font-size:13.5px}
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <span class="brand">DATA<span>GOD</span></span>
+  <div class="seg" id="screenSeg">
+    <button data-screen="dashboard" class="active">Dashboard</button>
+    <button data-screen="home">Home</button>
+    <button data-screen="login">Login</button>
+    <button data-screen="signup">Sign up</button>
+    <button data-screen="profile">Complete Profile</button>
+    <button data-screen="loading">Loading</button>
+  </div>
+  <div class="seg" id="themeSeg"><button data-theme="light" class="active">☀︎ Light</button><button data-theme="dark">☾ Dark</button></div>
+  <div class="seg" id="deviceSeg"><button data-device="desktop" class="active">🖥 Desktop</button><button data-device="mobile">📱 Mobile</button></div>
+  <span class="spacer"></span>
+  <span class="hint">Clean Fintech · real screens · approve → I port to the app</span>
+</div>
+
+<!-- ============ DASHBOARD SHELL ============ -->
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo"><div class="mark">DG</div><div class="name">DATA<b>GOD</b></div></div>
+    <a class="nav active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Dashboard</a>
+    <a class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/></svg>Data Packages</a>
+    <a class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/></svg>Buy Airtime</a>
+    <a class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.4 12.5A2 2 0 0 0 9.4 17h8.4a2 2 0 0 0 2-1.6L21 7H6"/></svg>My Orders<span class="b">3</span></a>
+    <a class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/></svg>Wallet</a>
+    <a class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Transactions</a>
+    <a class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Profile</a>
+    <div class="glabel">Shop</div>
+    <a class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/></svg>My Shop</a>
+    <a class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l5-5 4 3 7-8"/></svg>Shop Dashboard</a>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="iconbtn hamburger"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <h1>Dashboard</h1><span style="flex:1"></span>
+      <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>Search orders, numbers…</div>
+      <button class="iconbtn"><span class="dot"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg></button>
+      <div class="avatar">KF</div>
+    </div>
+
+    <!-- ====== DASHBOARD (clean) ====== -->
+    <main class="content screen" id="s-dashboard">
+      <div class="greet">
+        <div><h2>Welcome back, Kofi 👋</h2><p>Here's what's happening with your account today.</p></div>
+        <button class="btn primary">+ Buy Data</button>
+      </div>
+
+      <div class="grid h">
+        <div class="wallet">
+          <div class="l">Wallet Balance</div>
+          <div class="amt mono">GHS 1,240.00</div>
+          <div class="acts">
+            <button class="btn on-hero">＋ Top Up</button>
+            <button class="btn ghost-hero">↗ Withdraw</button>
+            <button class="btn ghost-hero">⇄ Transfer</button>
+          </div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr">
+          <div class="card stat">
+            <div class="top"><div class="chip ok">✓</div></div>
+            <div class="k">Orders today</div><div class="v mono">28</div><div class="d up">▲ 12% vs yesterday</div>
+          </div>
+          <div class="card stat">
+            <div class="top"><div class="chip warn">⏱</div></div>
+            <div class="k">Pending</div><div class="v mono">3</div><div class="d">Awaiting fulfillment</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- clean stat strip (was 6 rainbow gradient cards) -->
+      <div class="grid s4">
+        <div class="card stat"><div class="top"><div class="chip i">🛒</div></div><div class="k">Total Orders</div><div class="v mono">1,204</div><div class="d">All time</div></div>
+        <div class="card stat"><div class="top"><div class="chip ok">✓</div></div><div class="k">Completed</div><div class="v mono">1,186</div><div class="d up">98.5% success</div></div>
+        <div class="card stat"><div class="top"><div class="chip warn">⟳</div></div><div class="k">Processing</div><div class="v mono">12</div><div class="d">In progress</div></div>
+        <div class="card stat"><div class="top"><div class="chip bad">!</div></div><div class="k">Failed</div><div class="v mono">6</div><div class="d">Refunded</div></div>
+      </div>
+
+      <div>
+        <div class="stitle">Quick buy</div>
+        <div class="grid s3">
+          <div class="net mtn"><div class="bdg">MTN</div><div><div class="nm">MTN Data</div><div class="sub">From GHS 4.50 · instant</div></div><div class="ar">→</div></div>
+          <div class="net tel"><div class="bdg">TEL</div><div><div class="nm">Telecel</div><div class="sub">From GHS 5.00 · instant</div></div><div class="ar">→</div></div>
+          <div class="net at"><div class="bdg">AT</div><div><div class="nm">AT iShare</div><div class="sub">From GHS 3.80 · instant</div></div><div class="ar">→</div></div>
+        </div>
+      </div>
+
+      <div class="card order-table">
+        <div class="thead"><h3>Recent orders</h3><a>View all →</a></div>
+        <table>
+          <thead><tr><th>Order</th><th>Network</th><th>Bundle</th><th>Recipient</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">#10231</td><td><span class="dot" style="background:hsl(var(--mtn))"></span>MTN</td><td>5 GB</td><td class="mono">024 •• 4821</td><td class="mono">GHS 24.00</td><td><span class="tag ok">● Delivered</span></td></tr>
+            <tr><td class="mono">#10230</td><td><span class="dot" style="background:hsl(var(--at))"></span>AT</td><td>2 GB</td><td class="mono">026 •• 1190</td><td class="mono">GHS 9.50</td><td><span class="tag pend">● Processing</span></td></tr>
+            <tr><td class="mono">#10229</td><td><span class="dot" style="background:hsl(var(--telecel))"></span>Telecel</td><td>10 GB</td><td class="mono">050 •• 7634</td><td class="mono">GHS 42.00</td><td><span class="tag ok">● Delivered</span></td></tr>
+            <tr><td class="mono">#10228</td><td><span class="dot" style="background:hsl(var(--mtn))"></span>MTN</td><td>1 GB</td><td class="mono">024 •• 9087</td><td class="mono">GHS 4.50</td><td><span class="tag ok">● Delivered</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- mobile orders -->
+      <div class="order-list card">
+        <div class="olist">
+          <div class="orow"><div class="oic" style="background:hsl(var(--mtn));color:#1a1a1a">MTN</div><div class="omid"><div class="otop">5 GB <span class="osub">· #10231</span></div><div class="osub">024 •• 4821</div></div><div class="oright"><div class="oamt mono">GHS 24.00</div><span class="tag ok">● Delivered</span></div></div>
+          <div class="orow"><div class="oic" style="background:hsl(var(--at));color:#fff">AT</div><div class="omid"><div class="otop">2 GB <span class="osub">· #10230</span></div><div class="osub">026 •• 1190</div></div><div class="oright"><div class="oamt mono">GHS 9.50</div><span class="tag pend">● Processing</span></div></div>
+          <div class="orow"><div class="oic" style="background:hsl(var(--telecel));color:#fff">TEL</div><div class="omid"><div class="otop">10 GB <span class="osub">· #10229</span></div><div class="osub">050 •• 7634</div></div><div class="oright"><div class="oamt mono">GHS 42.00</div><span class="tag ok">● Delivered</span></div></div>
+        </div>
+      </div>
+
+      <div class="note"><b>This is the target.</b> Same data &amp; actions as your current dashboard — the six rainbow gradient cards become clean neutral cards with one accent chip each.</div>
+    </main>
+
+    <!-- ====== LOADING (skeleton of the same dashboard) ====== -->
+    <main class="content screen" id="s-loading">
+      <div class="greet"><div><div class="sk" style="width:230px;height:24px"></div><div class="sk" style="width:300px;height:14px;margin-top:8px"></div></div><div class="sk" style="width:110px;height:40px;border-radius:11px"></div></div>
+      <div class="grid h">
+        <div class="sk" style="height:150px;border-radius:16px"></div>
+        <div class="grid" style="grid-template-columns:1fr"><div class="sk" style="height:66px;border-radius:16px"></div><div class="sk" style="height:66px;border-radius:16px"></div></div>
+      </div>
+      <div class="grid s4">
+        <div class="sk" style="height:118px;border-radius:16px"></div><div class="sk" style="height:118px;border-radius:16px"></div><div class="sk" style="height:118px;border-radius:16px"></div><div class="sk" style="height:118px;border-radius:16px"></div>
+      </div>
+      <div class="grid s3"><div class="sk" style="height:78px;border-radius:16px"></div><div class="sk" style="height:78px;border-radius:16px"></div><div class="sk" style="height:78px;border-radius:16px"></div></div>
+      <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div class="sk" style="width:160px;height:16px"></div>
+        <div class="sk" style="height:14px"></div><div class="sk" style="height:14px"></div><div class="sk" style="height:14px"></div>
+      </div>
+      <div class="note"><b>Loading state</b> mirrors the real layout (no reflow when data lands) + a thin indigo top progress bar on navigation.</div>
+    </main>
+
+    <!-- mobile bottom nav -->
+    <nav class="bottomnav">
+      <a class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg><span>Home</span></a>
+      <a class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/></svg><span>Wallet</span></a>
+      <a class="tab fab"><span class="fb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="26" height="26"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/></svg></span><span class="fl">Data</span></a>
+      <a class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.4 12.5A2 2 0 0 0 9.4 17h8.4a2 2 0 0 0 2-1.6L21 7H6"/></svg><span>Orders</span></a>
+      <a class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/></svg><span>Shop</span></a>
+    </nav>
+  </div>
+</div>
+
+<!-- ============ LOGIN ============ -->
+<div class="screen framed" id="s-login">
+  <div class="auth">
+    <div class="brandside">
+      <div class="blob b1"></div><div class="blob b2"></div>
+      <div class="logo" style="padding:0"><div class="mark" style="background:rgba(255,255,255,.18)">DG</div><div class="name">DATA<b>GOD</b></div></div>
+      <div>
+        <h2>Welcome back.</h2>
+        <p class="sub">Buy data &amp; airtime in seconds, run your own shop, and get paid — all in one place.</p>
+        <div class="bullets" style="margin-top:24px">
+          <div><span class="ck">✓</span> Instant delivery on all networks</div>
+          <div><span class="ck">✓</span> Resell &amp; earn with your own storefront</div>
+          <div><span class="ck">✓</span> Secure wallet &amp; fast withdrawals</div>
+        </div>
+      </div>
+      <div class="brandstat"><b>₵2M+</b> in bundles delivered to date</div>
+    </div>
+    <div class="formside">
+      <div class="fcard">
+        <h3>Sign in</h3>
+        <p class="lead">Welcome back — please enter your details.</p>
+        <button class="gbtn"><svg width="17" height="17" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.4-1.6 4-5.4 4-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3.1.8 3.8 1.5l2.6-2.5C16.9 1.9 14.7 1 12 1 6.5 1 2 5.5 2 11s4.5 10 10 10c5.8 0 9.6-4.1 9.6-9.8 0-.7 0-1.2-.1-1.7H12z"/></svg> Continue with Google</button>
+        <div class="divider">or continue with email</div>
+        <div class="field"><label>Email</label><div class="inp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><input type="email" placeholder="you@example.com"/></div></div>
+        <div class="field"><label>Password</label><div class="inp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><input type="password" placeholder="••••••••" value="password"/><svg class="eye" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></div></div>
+        <div class="frow"><span style="color:hsl(var(--muted))">You used Google last time</span><span class="link">Forgot password?</span></div>
+        <button class="fbtn">Sign in</button>
+        <p class="fmeta">New to DATAGOD? <span class="link">Create an account</span></p>
+        <span class="guest">or continue as guest →</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SIGN UP ============ -->
+<div class="screen framed" id="s-signup">
+  <div class="auth">
+    <div class="brandside">
+      <div class="blob b1"></div><div class="blob b2"></div>
+      <div class="logo" style="padding:0"><div class="mark" style="background:rgba(255,255,255,.18)">DG</div><div class="name">DATA<b>GOD</b></div></div>
+      <div>
+        <h2>Create your account.</h2>
+        <p class="sub">Join thousands of resellers across Ghana.</p>
+        <div class="bullets" style="margin-top:24px">
+          <div><span class="ck">✓</span> Free to create — no charges</div>
+          <div><span class="ck">✓</span> Instant wallet on signup</div>
+          <div><span class="ck">✓</span> Sell MTN, Telecel &amp; AT bundles</div>
+        </div>
+      </div>
+      <div class="brandstat"><b>10,000+</b> agents trust DATAGOD</div>
+    </div>
+    <div class="formside">
+      <div class="fcard">
+        <h3>Create account</h3>
+        <p class="lead">Start buying &amp; reselling in minutes.</p>
+        <button class="gbtn"><svg width="17" height="17" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.4-1.6 4-5.4 4-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3.1.8 3.8 1.5l2.6-2.5C16.9 1.9 14.7 1 12 1 6.5 1 2 5.5 2 11s4.5 10 10 10c5.8 0 9.6-4.1 9.6-9.8 0-.7 0-1.2-.1-1.7H12z"/></svg> Sign up with Google</button>
+        <div class="divider">or with email</div>
+        <div class="field"><label>Full name</label><div class="inp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><input placeholder="Kofi Mensah"/></div></div>
+        <div class="field"><label>Phone number</label><div class="inp"><span class="pfx">🇬🇭 +233</span><input placeholder="24 123 4567"/></div></div>
+        <div class="field"><label>Email</label><div class="inp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><input type="email" placeholder="you@example.com"/></div></div>
+        <div class="field" style="margin-bottom:8px"><label>Password</label><div class="inp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><input type="password" value="strongpass" placeholder="Create a password"/><svg class="eye" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></div>
+          <div class="strength"><i class="on3"></i><i class="on3"></i><i class="on3"></i><i></i></div>
+          <p class="shint">Strong — nice. Use 8+ characters.</p>
+        </div>
+        <button class="fbtn">Create account</button>
+        <p class="fmeta" style="margin-top:10px">No charges to create an account · instant wallet.</p>
+        <p class="fmeta" style="margin-top:6px">Already have an account? <span class="link">Sign in</span></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ COMPLETE PROFILE ============ -->
+<div class="screen framed" id="s-profile">
+  <div class="formside" style="min-height:calc(100vh - 56px)">
+    <div class="fcard" style="max-width:440px">
+      <div class="card" style="padding:30px">
+        <div class="prog"><i></i></div>
+        <p style="text-align:center;font-size:12px;font-weight:700;color:hsl(var(--muted));letter-spacing:.04em;text-transform:uppercase;margin:0 0 18px">Step 2 of 2 — almost there</p>
+        <div class="bigavatar">K</div>
+        <h3 style="text-align:center">Hi, Kofi 👋</h3>
+        <p class="lead" style="text-align:center">Verify your phone to finish setting up your account.</p>
+        <div class="field"><label>Phone number</label><div class="inp"><span class="pfx">🇬🇭 +233</span><input value="24 123 4567"/></div></div>
+        <div class="field"><label>Enter the 6-digit code we sent you</label>
+          <div class="otp"><div class="box">4</div><div class="box">1</div><div class="box">9</div><div class="box f">2</div><div class="box"></div><div class="box"></div></div>
+        </div>
+        <div class="frow"><span style="color:hsl(var(--muted))">Didn't get it?</span><span class="link">Resend code</span></div>
+        <button class="fbtn">Finish &amp; go to dashboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ HOME / LANDING ============ -->
+<div class="screen framed homewrap" id="s-home">
+  <div class="hnav">
+    <div class="logo" style="padding:0"><div class="mark">DG</div><div class="name">DATA<b>GOD</b></div></div>
+    <div class="links"><span>Pricing</span><span>How it works</span><span>For resellers</span><span>Support</span></div>
+    <span class="sp"></span>
+    <button class="gbtn" style="width:auto;padding:9px 16px">Sign in</button>
+    <button class="fbtn" style="width:auto;padding:10px 18px">Get started</button>
+  </div>
+
+  <div class="hero">
+    <div>
+      <h1>Buy data &amp; airtime in <span class="g">10 seconds.</span></h1>
+      <p>Instant bundles for MTN, Telecel and AT — pay from your wallet, or open your own shop and resell to earn. Built for Ghana.</p>
+      <div class="hcta">
+        <button class="fbtn" style="width:auto;padding:13px 22px">Buy data now</button>
+        <button class="gbtn" style="width:auto;padding:13px 22px">Become a reseller</button>
+      </div>
+      <div class="trust">
+        <div><b>3</b><span>networks</span></div>
+        <div><b>500k+</b><span>orders delivered</span></div>
+        <div><b>~8s</b><span>avg delivery</span></div>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="pscreen">
+        <div class="wallet" style="padding:16px;border-radius:16px"><div class="l">Wallet Balance</div><div class="amt mono" style="font-size:24px;margin:4px 0 10px">GHS 1,240</div><div class="acts"><button class="btn on-hero" style="padding:7px 12px;font-size:12px">＋ Top Up</button><button class="btn ghost-hero" style="padding:7px 12px;font-size:12px">Buy</button></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+          <div class="card stat" style="padding:12px"><div class="chip i" style="width:28px;height:28px">🛒</div><div class="k" style="margin-top:8px">Orders</div><div class="v mono" style="font-size:18px">28</div></div>
+          <div class="card stat" style="padding:12px"><div class="chip ok" style="width:28px;height:28px">✓</div><div class="k" style="margin-top:8px">Done</div><div class="v mono" style="font-size:18px">26</div></div>
+        </div>
+        <div class="net mtn" style="margin-top:10px;padding:10px;box-shadow:none"><div class="bdg" style="width:34px;height:34px;border-radius:10px">MTN</div><div><div class="nm" style="font-size:13px">MTN 5GB</div><div class="sub">GHS 24</div></div><div class="ar">→</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="netstrip">
+    <div class="row">
+      <div class="nchip"><span class="d" style="background:hsl(var(--mtn));color:#1a1a1a">M</span> MTN</div>
+      <div class="nchip"><span class="d" style="background:hsl(var(--telecel));color:#fff">T</span> Telecel</div>
+      <div class="nchip"><span class="d" style="background:hsl(var(--at));color:#fff">A</span> AT iShare</div>
+      <div class="nchip" style="color:hsl(var(--muted))">+ Airtime · AFA · Results checker</div>
+    </div>
+  </div>
+
+  <div class="steps">
+    <h2>Three steps. That's it.</h2>
+    <div class="steprow">
+      <div class="card stepc"><div class="num">1</div><h4>Top up your wallet</h4><p>Add funds instantly via Mobile Money or card. Your balance is ready to spend right away.</p></div>
+      <div class="card stepc"><div class="num">2</div><h4>Pick a bundle</h4><p>Choose the network and data size, enter the recipient number, and confirm. Done in seconds.</p></div>
+      <div class="card stepc"><div class="num">3</div><h4>Delivered instantly</h4><p>Bundles land automatically. Track every order, or resell to your own customers and earn.</p></div>
+    </div>
+  </div>
+  <div class="foot">DATAGOD · buy &amp; resell data, airtime and more across Ghana</div>
+</div>
+
+<script>
+  const R=document.documentElement;
+  function wire(id,attr){document.getElementById(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;R.setAttribute(attr,b.dataset[attr.replace('data-','')]);[...e.currentTarget.children].forEach(x=>x.classList.toggle('active',x===b));});}
+  wire('screenSeg','data-screen');wire('themeSeg','data-theme');wire('deviceSeg','data-device');
+</script>
+</body>
+</html>
