@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
-import { createMTNOrder, saveMTNTracking, checkMTNOrderStatus, MTNOrderRequest } from "@/lib/mtn-fulfillment"
+import { createMTNOrder, saveMTNTracking, checkMTNOrderStatus, MTNOrderRequest, MTNOrderResponse } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 
@@ -251,7 +251,20 @@ export async function processManualFulfillment(
       provider: finalProvider,
     }
 
-    const mtnResponse = await createMTNOrder(mtnRequest)
+    // A thrown error here (provider timeout, network drop, 500) must NOT leave the
+    // order stranded in "processing" — that state has no tracking row, so the sync
+    // cron can never see it and the atomic lock can never re-claim it. Convert any
+    // throw into a normal failure so the revert-to-pending path below runs.
+    let mtnResponse: MTNOrderResponse
+    try {
+      mtnResponse = await createMTNOrder(mtnRequest)
+    } catch (apiErr) {
+      console.error(`${logPrefix} MTN API threw an exception:`, apiErr)
+      mtnResponse = {
+        success: false,
+        message: apiErr instanceof Error ? apiErr.message : "MTN API error (exception)",
+      }
+    }
 
     if (!mtnResponse.success || !mtnResponse.order_id) {
       console.error(`${logPrefix} MTN API failed: ${mtnResponse.message}`)
