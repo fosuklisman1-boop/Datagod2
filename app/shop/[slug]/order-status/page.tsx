@@ -114,7 +114,7 @@ export default function OrderStatusPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone: normalizedPhone,
-          shopSlug: shopSlug,
+          shopId: shop?.id,
         })
       })
 

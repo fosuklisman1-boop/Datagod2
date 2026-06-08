@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
         .or(shopHandleOrFilter(shopSlug))
         .single()
       if (shopRow) shopId = shopRow.id
+      else return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
     if (!phone || !shopId) {
