@@ -52,6 +52,10 @@
     {
       "path": "/api/cron/sms-delivery-sync",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-digiwapy",
+      "schedule": "*/2 * * * *"
     }
   ]
 }
