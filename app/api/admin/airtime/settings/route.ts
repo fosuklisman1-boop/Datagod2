@@ -19,6 +19,10 @@ const AIRTIME_SETTING_KEYS = [
   "airtime_enabled_mtn",
   "airtime_enabled_telecel",
   "airtime_enabled_at",
+  // Digiwapy auto-fulfillment toggles (per network)
+  "airtime_digiwapy_enabled_mtn",
+  "airtime_digiwapy_enabled_telecel",
+  "airtime_digiwapy_enabled_at",
 ]
 
 export async function GET(request: NextRequest) {
@@ -43,7 +47,12 @@ export async function GET(request: NextRequest) {
       return acc
     }, {})
 
-    return NextResponse.json({ settings })
+    return NextResponse.json({
+      settings,
+      digiwapy_configured: !!(
+        process.env.DIGIWAPY_API_KEY && process.env.DIGIWAPY_PARTNER_CODE
+      ),
+    })
   } catch (error) {
     console.error("[AIRTIME-SETTINGS-GET] Error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
