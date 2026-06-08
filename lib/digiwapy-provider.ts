@@ -30,6 +30,13 @@ function getRequestHeaders(): Record<string, string> {
   }
 }
 
+function getRequestHeadersWithIdempotency(reference: string): Record<string, string> {
+  return {
+    ...getRequestHeaders(),
+    "X-Idempotency-Key": reference,
+  }
+}
+
 export interface DigiWapyAirtimeResult {
   success: boolean
   message: string
@@ -41,7 +48,7 @@ export async function sendAirtimeViaDigiwapy(params: {
   amount: number
   reference: string
 }): Promise<DigiWapyAirtimeResult> {
-  const headers = getRequestHeaders() // throws if env vars missing — intentional
+  const headers = getRequestHeadersWithIdempotency(params.reference) // throws if env vars missing — intentional
   try {
     const res = await fetch(`${BASE_URL}/airtime/send`, {
       method: "POST",
