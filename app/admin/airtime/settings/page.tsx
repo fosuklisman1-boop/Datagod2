@@ -19,6 +19,7 @@ export default function AirtimeSettingsPage() {
   const [saving, setSaving]       = useState(false)
   const [msg, setMsg]             = useState<{ text: string; type: "success" | "error" } | null>(null)
   const [token, setToken]         = useState<string | null>(null)
+  const [digiwapyConfigured, setDigiwapyConfigured] = useState(false)
 
   const getToken = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -37,6 +38,7 @@ export default function AirtimeSettingsPage() {
     const data = await res.json()
     if (res.ok) {
       setSettings(data.settings || {})
+      setDigiwapyConfigured(data.digiwapy_configured === true)
     } else {
       console.error("[AIRTIME-SETTINGS] Fetch error:", res.status, data.error)
       setMsg({ text: data.error || "Failed to load settings", type: "error" })
@@ -140,6 +142,63 @@ export default function AirtimeSettingsPage() {
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isEnabled ? 'bg-indigo-600' : 'bg-gray-300'}`}
                     >
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Auto Fulfillment (Digiwapy) */}
+          <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-4 md:col-span-2">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-foreground">Auto Fulfillment (Digiwapy)</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Automatically send airtime via Digiwapy API immediately after payment.
+                </p>
+              </div>
+              <span className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${
+                digiwapyConfigured
+                  ? "bg-green-100 text-green-700"
+                  : "bg-red-100 text-red-700"
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${digiwapyConfigured ? "bg-green-500" : "bg-red-400"}`} />
+                {digiwapyConfigured ? "API Configured" : "API Not Set"}
+              </span>
+            </div>
+
+            {!digiwapyConfigured && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                Set <code className="font-mono bg-amber-100 px-1 rounded">DIGIWAPY_API_KEY</code> and{" "}
+                <code className="font-mono bg-amber-100 px-1 rounded">DIGIWAPY_PARTNER_CODE</code>{" "}
+                environment variables to enable auto-fulfillment.
+              </p>
+            )}
+
+            <div className="space-y-3">
+              {NETWORKS.map(net => {
+                const key = `airtime_digiwapy_enabled_${net.id}`
+                const isEnabled = settings[key]?.enabled === true
+                return (
+                  <div key={net.id} className="flex items-center justify-between p-3 bg-muted/40 rounded-xl">
+                    <div>
+                      <span className="font-semibold text-foreground">{net.name}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">auto-fulfill on payment</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!digiwapyConfigured) return
+                        handleUpdateSetting(key, { enabled: !isEnabled })
+                      }}
+                      disabled={!digiwapyConfigured}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isEnabled && digiwapyConfigured ? "bg-indigo-600" : "bg-gray-300"
+                      }`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${
+                        isEnabled && digiwapyConfigured ? "translate-x-6" : "translate-x-1"
+                      }`} />
                     </button>
                   </div>
                 )
