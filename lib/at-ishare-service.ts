@@ -544,10 +544,46 @@ class ATiShareService {
 
       console.log(`[CODECRAFT] Found ${dueLogs.length} orders due for status check`)
 
+      // ── Self-heal: skip logs whose order is already terminal ──────────────────
+      // An admin (or another flow) can complete/cancel the underlying order without
+      // closing its fulfillment_logs row, leaving it "processing". This loop would
+      // then re-poll CodeCraft for it every cycle until it hits 99 attempts. Detect
+      // those here, close the log to match the order, and drop them before polling.
+      const TERMINAL = ["completed", "cancelled", "refunded"]
+      const shopIds = [...new Set(dueLogs.filter((l: any) => l.order_type === "shop").map((l: any) => l.order_id).filter(Boolean))]
+      const apiIds = [...new Set(dueLogs.filter((l: any) => l.order_type === "api").map((l: any) => l.api_order_id || l.order_id).filter(Boolean))]
+      const otherIds = [...new Set(dueLogs.filter((l: any) => l.order_type !== "shop" && l.order_type !== "api").map((l: any) => l.order_id).filter(Boolean))]
+
+      const emptyRes = Promise.resolve({ data: [] as { id: string }[] })
+      const [shopT, apiT, otherT] = await Promise.all([
+        shopIds.length ? this.supabase.from("shop_orders").select("id").in("id", shopIds).in("order_status", TERMINAL) : emptyRes,
+        apiIds.length ? this.supabase.from("api_orders").select("id").in("id", apiIds).in("status", TERMINAL) : emptyRes,
+        otherIds.length ? this.supabase.from("orders").select("id").in("id", otherIds).in("status", TERMINAL) : emptyRes,
+      ])
+      const shopDone = new Set((shopT.data ?? []).map((o: any) => o.id))
+      const apiDone = new Set((apiT.data ?? []).map((o: any) => o.id))
+      const otherDone = new Set((otherT.data ?? []).map((o: any) => o.id))
+
+      const isTerminal = (l: any) =>
+        l.order_type === "shop" ? shopDone.has(l.order_id)
+          : l.order_type === "api" ? apiDone.has(l.api_order_id || l.order_id)
+            : otherDone.has(l.order_id)
+
+      const staleLogOrderIds = dueLogs.filter(isTerminal).map((l: any) => l.order_id)
+      if (staleLogOrderIds.length > 0) {
+        await this.supabase
+          .from("fulfillment_logs")
+          .update({ status: "success", updated_at: new Date().toISOString() })
+          .in("order_id", staleLogOrderIds)
+        console.log(`[CODECRAFT] 🔧 Closed ${staleLogOrderIds.length} log(s) whose order was already terminal — skipping re-check`)
+      }
+
+      const liveLogs = dueLogs.filter((l: any) => !isTerminal(l))
+
       let checked = 0
       let updated = 0
 
-      for (const log of dueLogs) {
+      for (const log of liveLogs) {
         try {
           checked++
           const networkLower = (log.network || "").toLowerCase()

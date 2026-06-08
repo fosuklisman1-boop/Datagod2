@@ -61,6 +61,16 @@ export async function POST(request: NextRequest) {
       } else {
         console.log(`[SHOP-ORDERS-UPDATE] ✓ Updated MTN tracking records for ${orderIds.length} orders`)
       }
+
+      // Close fulfillment_logs (AT/CodeCraft retry loop polls status='processing'
+      // keyed by order_id = the shop order id) so it stops re-checking this order.
+      const { error: logsUpdateError } = await supabase
+        .from("fulfillment_logs")
+        .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
+        .in("order_id", orderIds)
+      if (logsUpdateError) {
+        console.warn("[SHOP-ORDERS-UPDATE] Error updating fulfillment_logs:", logsUpdateError)
+      }
     } catch (mtnError) {
       console.warn("[SHOP-ORDERS-UPDATE] Error updating MTN tracking:", mtnError)
     }

@@ -442,6 +442,16 @@ export async function POST(request: NextRequest) {
         } else {
           console.log(`[BULK-UPDATE] ✓ Updated MTN tracking records for shop orders`)
         }
+
+        // Close fulfillment_logs (AT/CodeCraft retry loop polls status='processing'
+        // keyed by order_id = the shop order id) so it stops re-checking this order.
+        const { error: logsUpdateError } = await supabase
+          .from("fulfillment_logs")
+          .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
+          .in("order_id", finalShopOrderIds)
+        if (logsUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating fulfillment_logs for shop orders:", logsUpdateError)
+        }
       } catch (mtnError) {
         console.warn("[BULK-UPDATE] Error updating MTN tracking for shop orders:", mtnError)
       }
@@ -675,6 +685,15 @@ export async function POST(request: NextRequest) {
         } else {
           console.log(`[BULK-UPDATE] ✓ Updated MTN tracking records for USSD orders`)
         }
+
+        // Close fulfillment_logs (keyed by order_id = the USSD order id) to stop retries.
+        const { error: logsUpdateError } = await supabase
+          .from("fulfillment_logs")
+          .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
+          .in("order_id", finalUssdOrderIds)
+        if (logsUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating fulfillment_logs for USSD orders:", logsUpdateError)
+        }
       } catch (e) {
         console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD orders:", e)
       }
@@ -704,6 +723,15 @@ export async function POST(request: NextRequest) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD shop orders:", mtnUpdateError)
         } else {
           console.log(`[BULK-UPDATE] ✓ Updated MTN tracking records for USSD shop orders`)
+        }
+
+        // Close fulfillment_logs (keyed by order_id = the USSD shop order id) to stop retries.
+        const { error: logsUpdateError } = await supabase
+          .from("fulfillment_logs")
+          .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
+          .in("order_id", finalUssdShopOrderIds)
+        if (logsUpdateError) {
+          console.warn("[BULK-UPDATE] Error updating fulfillment_logs for USSD shop orders:", logsUpdateError)
         }
       } catch (e) {
         console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD shop orders:", e)

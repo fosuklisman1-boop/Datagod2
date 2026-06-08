@@ -255,6 +255,62 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ── Reconcile against already-terminal orders ──────────────────────────────
+    // An admin (or another flow like fix-failed-orders / manual-fulfill) can mark
+    // the underlying order "completed" without the provider ever reporting it,
+    // leaving the tracking row stuck in pending/processing/failed. The cron would
+    // then re-query Sykes for it on EVERY run. Detect those here, close the tracking
+    // row to match the real order, and drop them so we never hit the provider.
+    // "pending" is intentionally NOT treated as terminal — the cron itself maps a
+    // provider "failed" to order=pending so it stays re-fulfillable.
+    if (ordersToProcess.length > 0) {
+      const TERMINAL = ["completed", "cancelled", "refunded"]
+      const shopIds = ordersToProcess.filter((o: any) => o.shop_order_id).map((o: any) => o.shop_order_id)
+      const apiIds = ordersToProcess.filter((o: any) => o.api_order_id).map((o: any) => o.api_order_id)
+      const bulkIds = ordersToProcess.filter((o: any) => o.order_type === "bulk" && o.order_id).map((o: any) => o.order_id)
+      const ussdIds = ordersToProcess.filter((o: any) => o.order_type === "ussd" && o.order_id).map((o: any) => o.order_id)
+      const ussdShopIds = ordersToProcess.filter((o: any) => o.order_type === "ussd_shop" && o.order_id).map((o: any) => o.order_id)
+
+      const empty = Promise.resolve({ data: [] as { id: string }[] })
+      const [shopC, apiC, bulkC, ussdC, ussdShopC] = await Promise.all([
+        shopIds.length ? supabase.from("shop_orders").select("id").in("id", shopIds).in("order_status", TERMINAL) : empty,
+        apiIds.length ? supabase.from("api_orders").select("id").in("id", apiIds).in("status", TERMINAL) : empty,
+        bulkIds.length ? supabase.from("orders").select("id").in("id", bulkIds).in("status", TERMINAL) : empty,
+        ussdIds.length ? supabase.from("ussd_orders").select("id").in("id", ussdIds).in("order_status", TERMINAL) : empty,
+        ussdShopIds.length ? supabase.from("ussd_shop_orders").select("id").in("id", ussdShopIds).in("order_status", TERMINAL) : empty,
+      ])
+
+      const doneShop = new Set((shopC.data ?? []).map((o: any) => o.id))
+      const doneApi = new Set((apiC.data ?? []).map((o: any) => o.id))
+      const doneBulk = new Set((bulkC.data ?? []).map((o: any) => o.id))
+      const doneUssd = new Set((ussdC.data ?? []).map((o: any) => o.id))
+      const doneUssdShop = new Set((ussdShopC.data ?? []).map((o: any) => o.id))
+
+      const reconcileTrackingIds: string[] = []
+      ordersToProcess = ordersToProcess.filter((o: any) => {
+        const terminal =
+          (o.shop_order_id && doneShop.has(o.shop_order_id)) ||
+          (o.api_order_id && doneApi.has(o.api_order_id)) ||
+          (o.order_type === "bulk" && o.order_id && doneBulk.has(o.order_id)) ||
+          (o.order_type === "ussd" && o.order_id && doneUssd.has(o.order_id)) ||
+          (o.order_type === "ussd_shop" && o.order_id && doneUssdShop.has(o.order_id))
+        if (terminal) reconcileTrackingIds.push(o.id)
+        return !terminal
+      })
+
+      if (reconcileTrackingIds.length > 0) {
+        const { error: reconcileError } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .update({ status: "completed", updated_at: new Date().toISOString() })
+          .in("id", reconcileTrackingIds)
+        if (reconcileError) {
+          console.warn(`[CRON] Failed to reconcile ${reconcileTrackingIds.length} stale tracking row(s):`, reconcileError.message)
+        } else {
+          console.log(`[CRON] 🔧 Reconciled ${reconcileTrackingIds.length} tracking row(s) to terminal (order already completed/cancelled/refunded) — skipping provider lookup`)
+        }
+      }
+    }
+
     if (!ordersToProcess || ordersToProcess.length === 0) {
       console.log("[CRON] No pending/processing orders to sync (all blacklisted or none available)")
       return NextResponse.json({
