@@ -262,6 +262,11 @@ export async function POST(request: NextRequest) {
             // Only send admin fraud alert here if needed.
             try {
               if (isBlacklisted) {
+                let shopName = "Unknown Shop"
+                if (airtimeData.shop_id) {
+                  const { data: shopRow } = await supabase.from("user_shops").select("shop_name").eq("id", airtimeData.shop_id).single()
+                  if (shopRow?.shop_name) shopName = shopRow.shop_name
+                }
                 const adminSms = SMSTemplates.adminAirtimeOrderNotification(
                   shopName,
                   airtimeData.beneficiary_phone,
