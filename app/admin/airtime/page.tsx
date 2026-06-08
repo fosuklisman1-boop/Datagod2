@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
@@ -84,6 +84,10 @@ export default function AdminAirtimePage() {
   const [actioning, setActioning] = useState(false)
   const [actionMsg, setActionMsg] = useState("")
 
+  const [digiWapyNetworks, setDigiWapyNetworks] = useState<Set<string>>(new Set())
+  const [autoFulfillingId, setAutoFulfillingId] = useState<string | null>(null)
+  const [autoFulfillingAll, setAutoFulfillingAll] = useState(false)
+
   // Copy feedback
   const [copiedId, setCopiedId]   = useState<string | null>(null)
 
@@ -142,11 +146,32 @@ export default function AdminAirtimePage() {
     }
   }, [token])
 
+  const loadDigiWapyNetworks = useCallback(async (tok?: string) => {
+    const t = tok || token
+    if (!t) return
+    try {
+      const res = await fetch("/api/admin/airtime/settings", {
+        headers: { Authorization: `Bearer ${t}` },
+      })
+      const data = await res.json()
+      if (res.ok) {
+        const enabled = new Set<string>()
+        if (data.settings?.airtime_digiwapy_enabled_mtn?.enabled) enabled.add("MTN")
+        if (data.settings?.airtime_digiwapy_enabled_telecel?.enabled) enabled.add("Telecel")
+        if (data.settings?.airtime_digiwapy_enabled_at?.enabled) enabled.add("AT")
+        setDigiWapyNetworks(enabled)
+      }
+    } catch (err) {
+      console.error("[ADMIN-AIRTIME] Failed to load Digiwapy networks:", err)
+    }
+  }, [token])
+
   useEffect(() => {
-    getToken().then(t => { 
+    getToken().then(t => {
       if (t) {
         loadOrders(t)
         loadBatches(t)
+        loadDigiWapyNetworks(t)
       }
     })
   }, [getToken])
@@ -244,6 +269,58 @@ export default function AdminAirtimePage() {
       loadOrders()
     } else {
       setActionMsg(data.error || "Action failed")
+    }
+  }
+
+  const handleAutoFulfill = async (orderId: string) => {
+    const t = token || await getToken()
+    if (!t) return
+    setAutoFulfillingId(orderId)
+    try {
+      const res = await fetch("/api/admin/airtime/auto-fulfill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
+        body: JSON.stringify({ orderId }),
+      })
+      const data = await res.json()
+      if (res.ok && data.succeeded > 0) {
+        toast.success("Airtime sent via Digiwapy")
+      } else {
+        toast.error(data.results?.[0]?.message || data.error || "Auto-fulfill failed")
+      }
+      loadOrders()
+    } catch {
+      toast.error("Auto-fulfill request failed")
+    } finally {
+      setAutoFulfillingId(null)
+    }
+  }
+
+  const handleAutoFulfillAll = async () => {
+    const eligibleOrders = orders.filter(
+      o => o.status === "pending" && digiWapyNetworks.has(o.network)
+    )
+    if (eligibleOrders.length === 0) return
+    const t = token || await getToken()
+    if (!t) return
+    setAutoFulfillingAll(true)
+    try {
+      const res = await fetch("/api/admin/airtime/auto-fulfill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
+        body: JSON.stringify({ orderIds: eligibleOrders.map(o => o.id) }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        toast.success(`${data.succeeded}/${data.total} orders sent via Digiwapy`)
+      } else {
+        toast.error(data.error || "Auto-fulfill failed")
+      }
+      loadOrders()
+    } catch {
+      toast.error("Auto-fulfill request failed")
+    } finally {
+      setAutoFulfillingAll(false)
     }
   }
 
@@ -410,9 +487,28 @@ export default function AdminAirtimePage() {
                 </Button>
               </form>
               
-              <Button 
-                onClick={handleDownload} 
-                disabled={downloading || orders.filter(o => o.status === 'pending').length === 0} 
+              {digiWapyNetworks.size > 0 && (() => {
+                const eligibleCount = orders.filter(
+                  o => o.status === "pending" && digiWapyNetworks.has(o.network)
+                ).length
+                return (
+                  <Button
+                    onClick={handleAutoFulfillAll}
+                    disabled={autoFulfillingAll || eligibleCount === 0}
+                    className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-semibold h-[58px] px-6 whitespace-nowrap"
+                  >
+                    {autoFulfillingAll ? (
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    ) : (
+                      <Zap className="w-5 h-5 mr-2" />
+                    )}
+                    Auto Fulfill All ({eligibleCount})
+                  </Button>
+                )
+              })()}
+              <Button
+                onClick={handleDownload}
+                disabled={downloading || orders.filter(o => o.status === 'pending').length === 0}
                 className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white font-semibold h-[58px] px-6"
               >
                 {downloading ? (
@@ -479,7 +575,7 @@ export default function AdminAirtimePage() {
                             {new Date(o.created_at).toLocaleString()}
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap">
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -496,6 +592,21 @@ export default function AdminAirtimePage() {
                               >
                                 Fail
                               </Button>
+                              {digiWapyNetworks.has(o.network) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-[10px] bg-violet-50 text-violet-700 hover:bg-violet-100 border-border"
+                                  onClick={() => handleAutoFulfill(o.id)}
+                                  disabled={autoFulfillingId === o.id}
+                                >
+                                  {autoFulfillingId === o.id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <><Zap className="w-3 h-3 mr-1" />Auto Fulfill</>
+                                  )}
+                                </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
