@@ -31,7 +31,10 @@ export async function POST(request: NextRequest) {
 
     let query = supabase
       .from("results_checker_orders")
-      .select("id, reference_code, exam_board, quantity, total_paid, created_at, customer_phone")
+      // Deliberately exclude `id` (UUID) — it is not needed by the lookup UI and
+      // would allow an attacker to chain phone-lookup → orderId → resend spam.
+      // Exclude `total_paid` — financial detail not needed for self-service lookup.
+      .select("reference_code, exam_board, quantity, created_at, customer_phone")
       .eq("status", "completed")
 
     if (reference) {

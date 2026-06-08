@@ -112,16 +112,14 @@ export async function POST(request: NextRequest) {
           if (activateErr) console.error("[WEBHOOK] Failed to activate shop code:", activateErr)
           else console.log("[WEBHOOK] ✓ USSD shop code activated:", shopTokenPurchase.shop_code_id)
         } else {
-          const { data: codeRow } = await supabase
-            .from("ussd_shop_codes").select("token_balance").eq("id", shopTokenPurchase.shop_code_id).single()
-          if (codeRow) {
-            const { error: creditErr } = await supabase
-              .from("ussd_shop_codes")
-              .update({ token_balance: codeRow.token_balance + shopTokenPurchase.tokens_purchased, updated_at: new Date().toISOString() })
-              .eq("id", shopTokenPurchase.shop_code_id)
-            if (creditErr) console.error("[WEBHOOK] Failed to credit tokens:", creditErr)
-            else console.log("[WEBHOOK] ✓ USSD shop tokens credited:", shopTokenPurchase.tokens_purchased, "to code:", shopTokenPurchase.shop_code_id)
-          }
+          // Atomic increment — avoids the read-then-write race when Paystack retries
+          // the webhook concurrently (see migration 0051).
+          const { error: creditErr } = await supabase.rpc("increment_ussd_token_balance", {
+            p_shop_code_id: shopTokenPurchase.shop_code_id,
+            p_amount: shopTokenPurchase.tokens_purchased,
+          })
+          if (creditErr) console.error("[WEBHOOK] Failed to credit tokens:", creditErr)
+          else console.log("[WEBHOOK] ✓ USSD shop tokens credited:", shopTokenPurchase.tokens_purchased, "to code:", shopTokenPurchase.shop_code_id)
         }
 
         // Push notification to shop owner (non-blocking)
@@ -691,16 +689,14 @@ export async function POST(request: NextRequest) {
           if (activateErr) console.error("[WEBHOOK] Failed to activate shop code:", activateErr)
           else console.log("[WEBHOOK] ✓ USSD shop code activated:", purchase.shop_code_id)
         } else {
-          const { data: codeRow } = await supabase
-            .from("ussd_shop_codes").select("token_balance").eq("id", purchase.shop_code_id).single()
-          if (codeRow) {
-            const { error: creditErr } = await supabase
-              .from("ussd_shop_codes")
-              .update({ token_balance: codeRow.token_balance + purchase.tokens_purchased, updated_at: new Date().toISOString() })
-              .eq("id", purchase.shop_code_id)
-            if (creditErr) console.error("[WEBHOOK] Failed to credit tokens:", creditErr)
-            else console.log("[WEBHOOK] ✓ USSD shop tokens credited:", purchase.tokens_purchased)
-          }
+          // Atomic increment — avoids the read-then-write race when Paystack retries
+          // the webhook concurrently (see migration 0051).
+          const { error: creditErr } = await supabase.rpc("increment_ussd_token_balance", {
+            p_shop_code_id: purchase.shop_code_id,
+            p_amount: purchase.tokens_purchased,
+          })
+          if (creditErr) console.error("[WEBHOOK] Failed to credit tokens:", creditErr)
+          else console.log("[WEBHOOK] ✓ USSD shop tokens credited:", purchase.tokens_purchased)
         }
 
         // Push notification to shop owner (non-blocking)

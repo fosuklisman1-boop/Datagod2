@@ -9,11 +9,9 @@ import { Loader2, Search, Send } from "lucide-react"
 import { toast } from "sonner"
 
 interface VoucherOrder {
-  id: string
   reference_code: string
   exam_board: string
   quantity: number
-  total_paid: number
   created_at: string
   customer_phone: string | null
 }
@@ -51,13 +49,20 @@ export function VoucherLookup() {
     }
   }
 
-  async function resend(orderId: string) {
-    setResending(orderId)
+  async function resend(referenceCode: string, orderPhone: string | null) {
+    // Use the phone from the order record (returned by lookup) so the caller
+    // proves ownership without needing a separate input field.
+    const resolvedPhone = orderPhone || phone
+    if (!resolvedPhone) {
+      toast.error("Phone number unavailable. Please look up by phone number instead.")
+      return
+    }
+    setResending(referenceCode)
     try {
       const res = await fetch("/api/public/vouchers/resend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId }),
+        body: JSON.stringify({ referenceCode, phone: resolvedPhone }),
       })
       const data = await res.json()
       if (res.ok) {
@@ -84,14 +89,14 @@ export function VoucherLookup() {
     return (
       <div className="space-y-3 mt-4">
         {orders.map(order => (
-          <div key={order.id} className="flex items-center justify-between rounded-xl border px-4 py-3 gap-3">
+          <div key={order.reference_code} className="flex items-center justify-between rounded-xl border px-4 py-3 gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="outline">{order.exam_board}</Badge>
                 <span className="font-mono text-xs font-semibold">{order.reference_code}</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {order.quantity} voucher{order.quantity !== 1 ? "s" : ""} · GHS {Number(order.total_paid).toFixed(2)} ·{" "}
+                {order.quantity} voucher{order.quantity !== 1 ? "s" : ""} ·{" "}
                 {new Date(order.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
               </p>
               {order.customer_phone && (
@@ -101,11 +106,11 @@ export function VoucherLookup() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => resend(order.id)}
-              disabled={resending === order.id}
+              onClick={() => resend(order.reference_code, order.customer_phone)}
+              disabled={resending === order.reference_code}
               className="shrink-0"
             >
-              {resending === order.id
+              {resending === order.reference_code
                 ? <Loader2 className="w-4 h-4 animate-spin" />
                 : <><Send className="w-3 h-3 mr-1" />Resend SMS</>
               }

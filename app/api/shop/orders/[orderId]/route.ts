@@ -17,9 +17,11 @@ export async function GET(
 
     // Fetch order — public endpoint: the UUID order ID acts as a tamper-proof
     // access key, so customers can view their own order after Paystack redirects them.
+    // Never select(*) — only expose columns the order-tracking UI needs.
+    // Excluded: base_price, profit_amount, parent_profit_amount, queue (all internal).
     const { data: order, error } = await supabase
       .from("shop_orders")
-      .select("*")
+      .select("id, reference_code, order_status, payment_status, customer_name, customer_email, customer_phone, network, volume_gb, total_price, created_at, shop_id")
       .eq("id", orderId)
       .single()
 
@@ -30,30 +32,16 @@ export async function GET(
       throw new Error(`Failed to fetch order: ${error.message}`)
     }
 
-    // Fetch shop owner contact info so customer knows who to contact
+    // Return only the shop's display name — never the owner's email or phone.
+    // The previous implementation called auth.admin.getUserById which leaked the
+    // owner's Supabase auth email to any unauthenticated caller who knows an order UUID.
     const { data: shop } = await supabase
       .from("user_shops")
-      .select("user_id")
+      .select("shop_name")
       .eq("id", order.shop_id)
       .single()
 
-    let shopOwner: { email?: string; phone?: string } = {}
-    if (shop?.user_id) {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("phone_number")
-        .eq("id", shop.user_id)
-        .single()
-
-      const { data: authData } = await supabase.auth.admin.getUserById(shop.user_id)
-
-      shopOwner = {
-        email: authData?.user?.email || undefined,
-        phone: userData?.phone_number || undefined,
-      }
-    }
-
-    return NextResponse.json({ success: true, order, shopOwner })
+    return NextResponse.json({ success: true, order, shopName: shop?.shop_name ?? null })
   } catch (error) {
     console.error("[SHOP-ORDER-GET] ✗ Error:", error)
     return NextResponse.json(
