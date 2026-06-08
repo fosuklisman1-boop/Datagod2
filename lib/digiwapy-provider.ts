@@ -4,6 +4,12 @@ import { createClient } from "@supabase/supabase-js"
 
 const BASE_URL = "https://api.digiwapy.com/v1"
 
+// Module-level Supabase client (reused across calls)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
 // Confirm Telecel/AT values with Digiwapy dashboard before going live
 const NETWORK_MAP: Record<string, string> = {
   MTN: "MTN",
@@ -35,16 +41,18 @@ export async function sendAirtimeViaDigiwapy(params: {
   amount: number
   reference: string
 }): Promise<DigiWapyAirtimeResult> {
+  const headers = getRequestHeaders() // throws if env vars missing — intentional
   try {
     const res = await fetch(`${BASE_URL}/airtime/send`, {
       method: "POST",
-      headers: getRequestHeaders(),
+      headers,
       body: JSON.stringify({
         network: NETWORK_MAP[params.network] ?? params.network,
         recipient: params.recipient,
         amount: params.amount,
         reference: params.reference,
       }),
+      signal: AbortSignal.timeout(30_000),
     })
     const data = await res.json()
     if (!res.ok) {
@@ -89,10 +97,6 @@ export function isDigiWapyConfigured(): boolean {
  */
 export async function isDigiWapyEnabledForNetwork(network: string): Promise<boolean> {
   if (!isDigiWapyConfigured()) return false
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
   const networkId = network.toLowerCase() // MTN→mtn, Telecel→telecel, AT→at
   const key = `airtime_digiwapy_enabled_${networkId}`
   const { data } = await supabase
