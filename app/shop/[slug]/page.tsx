@@ -37,6 +37,7 @@ import {
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
+import { VoucherLookup } from "@/components/shop/VoucherLookup"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
@@ -56,6 +57,7 @@ export default function ShopStorefront() {
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [activeTab, setActiveTab] = useState<"products" | "airtime" | "vouchers" | "about" | "track-order">("products")
+  const [rcTab, setRcTab] = useState<"buy" | "retrieve">("buy")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
     customer_name: "",
@@ -941,8 +943,26 @@ export default function ShopStorefront() {
                   </div>
                 ) : (
                   /* Results Checker Vouchers Section */
-                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <ResultsCheckerStorefrontForm shop={shop} shopSlug={shopSlug} />
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+                    {/* RC sub-tab: Buy / Retrieve */}
+                    <div className="flex p-1 bg-muted rounded-xl w-full sm:w-fit shadow-inner">
+                      <button
+                        onClick={() => setRcTab("buy")}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "buy" ? "bg-card text-violet-700 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        Buy Vouchers
+                      </button>
+                      <button
+                        onClick={() => setRcTab("retrieve")}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "retrieve" ? "bg-card text-violet-700 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        Retrieve Vouchers
+                      </button>
+                    </div>
+                    {rcTab === "buy"
+                      ? <ResultsCheckerStorefrontForm shop={shop} shopSlug={shopSlug} />
+                      : <VoucherLookup />
+                    }
                   </div>
                 )}
               </div>
