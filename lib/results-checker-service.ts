@@ -275,3 +275,92 @@ export async function refundRCOrder(orderId: string, userId: string, amount: num
     .update({ status: "failed", updated_at: new Date().toISOString() })
     .eq("id", orderId)
 }
+
+/**
+ * Fulfils a results-checker order whose payment has just been confirmed:
+ * atomically assigns vouchers → finalizes the sale → records merchant profit →
+ * delivers the PINs (SMS/email). Used by the storefront webhook branch (guest
+ * MoMo via wallet_payments) and the USSD direct-charge webhook branch.
+ *
+ * Wallet purchases do NOT use this — they go through purchaseResultsCheckerVouchers
+ * which deducts and assigns synchronously.
+ *
+ * If stock was exhausted between order creation and payment, the order is left
+ * paid-but-undelivered (status 'pending') for an admin to resolve/refund — same
+ * fallback the storefront has always used.
+ */
+export async function fulfillPaidResultsCheckerOrder(
+  orderId: string
+): Promise<{ success: boolean; status: "completed" | "pending" | "failed" | "not_found"; message: string }> {
+  const { data: rcOrder } = await supabase
+    .from("results_checker_orders")
+    .select("*")
+    .eq("id", orderId)
+    .single()
+
+  if (!rcOrder) return { success: false, status: "not_found", message: "RC order not found" }
+  if (rcOrder.status === "completed") return { success: true, status: "completed", message: "Already completed" }
+  if (rcOrder.status === "failed") return { success: false, status: "failed", message: "Order already failed" }
+
+  // Atomically reserve vouchers (all-or-nothing under concurrency)
+  const { data: vouchers, error: assignError } = await supabase.rpc(
+    "assign_results_checker_vouchers",
+    { p_exam_board: rcOrder.exam_board, p_quantity: rcOrder.quantity, p_order_id: rcOrder.id }
+  )
+
+  if (assignError || !vouchers || vouchers.length < rcOrder.quantity) {
+    console.warn(`[RC-SERVICE] ⚠ RC voucher stock exhausted for order ${rcOrder.id} — marking pending`)
+    await supabase
+      .from("results_checker_orders")
+      .update({ status: "pending", payment_status: "completed", updated_at: new Date().toISOString() })
+      .eq("id", rcOrder.id)
+    return { success: false, status: "pending", message: "Stock exhausted — paid, awaiting manual delivery" }
+  }
+
+  await supabase.rpc("finalize_results_checker_sale", { p_order_id: rcOrder.id, p_user_id: rcOrder.user_id ?? null })
+
+  const inventoryIds = vouchers.map((v: VoucherPin) => v.id)
+  const { error: rcUpdateErr } = await supabase
+    .from("results_checker_orders")
+    .update({
+      status: "completed",
+      payment_status: "completed",
+      inventory_ids: inventoryIds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", rcOrder.id)
+  if (rcUpdateErr) console.error("[RC-SERVICE] ❌ Failed to mark RC order completed:", rcUpdateErr)
+
+  if (rcOrder.merchant_commission > 0 && rcOrder.shop_id) {
+    const { error: rcProfitError } = await supabase.from("shop_profits").insert([{
+      shop_id: rcOrder.shop_id,
+      results_checker_order_id: rcOrder.id,
+      profit_amount: rcOrder.merchant_commission,
+      status: "credited",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }])
+    if (rcProfitError && rcProfitError.code !== "23505") {
+      // Fallback: insert without FK column if migration 0045 not yet applied
+      await supabase.from("shop_profits").insert([{
+        shop_id: rcOrder.shop_id,
+        profit_amount: rcOrder.merchant_commission,
+        status: "credited",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }]).then(({ error: e }) => {
+        if (e && e.code !== "23505") console.error("[RC-SERVICE] ❌ RC profit fallback failed:", e.message)
+      })
+    } else if (!rcProfitError) {
+      console.log(`[RC-SERVICE] ✓ RC profit recorded: GHS ${rcOrder.merchant_commission}`)
+    }
+  }
+
+  // Deliver PINs (SMS + email). Dynamic import avoids a service↔notification cycle.
+  const { deliverVouchers } = await import("@/lib/results-checker-notification-service")
+  await deliverVouchers(rcOrder, vouchers).catch(e => console.warn("[RC-SERVICE] RC delivery error:", e))
+
+  console.log(`[RC-SERVICE] ✓ RC order ${rcOrder.reference_code} completed: ${rcOrder.quantity}x ${rcOrder.exam_board}`)
+  return { success: true, status: "completed", message: "Vouchers delivered" }
+}
+

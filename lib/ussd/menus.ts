@@ -16,7 +16,73 @@ function truncate(msg: string): string {
 }
 
 export function mainMenu(): string {
-  return 'Welcome to Datagod\n1. Buy Data Bundle\n2. AFA Registration\n0. Exit'
+  return 'Welcome to Datagod\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit'
+}
+
+// ── Airtime ───────────────────────────────────────────────────────────────────
+export function airtimeRecipientPrompt(): string {
+  return 'Buy Airtime\nEnter recipient number\n(who gets the airtime):\n\n0. Back'
+}
+
+export function airtimeNetworkMenu(): string {
+  return 'Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n\n0. Back'
+}
+
+export function airtimeAmountPrompt(network: string, min: number, max: number): string {
+  return `${network} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n\n0. Back`
+}
+
+export function airtimeConfirmMenu(network: string, recipient: string, amountPay: number, amountGet: number, dialingPhone: string): string {
+  return (
+    `Confirm Airtime\n` +
+    `${network} to ${formatLocal(recipient)}\n` +
+    `You pay GHS ${amountPay.toFixed(2)}\n` +
+    `They get GHS ${amountGet.toFixed(2)}\n` +
+    `from ${formatLocal(dialingPhone)}\n\n` +
+    `1. Pay now\n2. Cancel`
+  )
+}
+
+export function airtimePaymentMethodMenu(amount: number, balance: number): string {
+  return (
+    `Pay GHS ${amount.toFixed(2)}\n` +
+    `1. Datagod Wallet\n` +
+    `   (GHS ${balance.toFixed(2)})\n` +
+    `2. MoMo prompt\n` +
+    `0. Cancel`
+  )
+}
+
+// ── Results Checker ───────────────────────────────────────────────────────────
+export function rcBoardMenu(boards: string[]): string {
+  const lines = boards.map((b, i) => `${i + 1}. ${b}`)
+  lines.push('0. Back')
+  return 'Results Checker\nSelect exam:\n' + lines.join('\n')
+}
+
+export function rcQtyPrompt(board: string, available: number, max: number): string {
+  const cap = Math.min(available, max)
+  return `${board} Checker\nHow many vouchers?\n(1 - ${cap}):\n\n0. Back`
+}
+
+export function rcConfirmMenu(board: string, qty: number, total: number, dialingPhone: string): string {
+  return (
+    `Confirm Vouchers\n` +
+    `${board} x ${qty}\n` +
+    `GHS ${total.toFixed(2)} from\n${formatLocal(dialingPhone)}\n` +
+    `PIN(s) sent by SMS\n\n` +
+    `1. Pay now\n2. Cancel`
+  )
+}
+
+export function rcPaymentMethodMenu(total: number, balance: number): string {
+  return (
+    `Pay GHS ${total.toFixed(2)}\n` +
+    `1. Datagod Wallet\n` +
+    `   (GHS ${balance.toFixed(2)})\n` +
+    `2. MoMo prompt\n` +
+    `0. Cancel`
+  )
 }
 
 export function afaEnterNamePrompt(): string {

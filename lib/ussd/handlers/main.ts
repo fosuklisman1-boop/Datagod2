@@ -1,6 +1,7 @@
 import { UzoResponse } from "../types"
-import { cont, end, mainMenu, afaEnterNamePrompt } from "../menus"
+import { cont, end, mainMenu, afaEnterNamePrompt, airtimeRecipientPrompt, rcBoardMenu } from "../menus"
 import { setSession, deleteSession } from "../session"
+import { buildRcBoardOptions } from "./results-checker"
 
 export async function handleMain(
   input: string,
@@ -14,6 +15,17 @@ export async function handleMain(
     case '2':
       await setSession(sessionId, { step: 'AFA_ENTER_NAME', dialingPhone })
       return cont(afaEnterNamePrompt())
+    case '3':
+      await setSession(sessionId, { step: 'AIRTIME_ENTER_RECIPIENT', dialingPhone })
+      return cont(airtimeRecipientPrompt())
+    case '4': {
+      const boards = await buildRcBoardOptions()
+      if (boards.length === 0) {
+        return cont('Results Checker is\ncurrently unavailable.\n\n' + mainMenu())
+      }
+      await setSession(sessionId, { step: 'RC_SELECT_BOARD', dialingPhone, rcBoardOptions: boards })
+      return cont(rcBoardMenu(boards))
+    }
     case '0':
       await deleteSession(sessionId)
       return end('Thank you for using DataGod.')

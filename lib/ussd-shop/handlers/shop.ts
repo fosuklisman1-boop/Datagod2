@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js"
-import { UzoResponse } from "../types"
-import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetworks } from "../menus"
+import { UzoResponse, USSDShopSession } from "../types"
+import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetworks, productMenu, shopAirtimeRecipientPrompt, shopRcBoardMenu } from "../menus"
 import { setSession } from "../session"
 import { sendPushToUser } from "../../push-service"
+import { buildRcBoardOptions } from "../../ussd/handlers/results-checker"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -121,16 +122,13 @@ export async function handleEnterShopCode(
     }
   }
 
-  if (networks.length === 0) {
-    await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone })
-    return cont(invalidCodeMenu('Shop has no bundles available.'))
-  }
-
+  // Empty network list no longer blocks entry — a shop may sell only airtime or
+  // results-checker vouchers (the Data option simply reports no bundles).
   const sortedNetworks = sortNetworks(networks)
   console.log("[USSD-SHOP] networks for shop", shopCode.shop_id, ":", sortedNetworks)
 
   await setSession(sessionId, {
-    step: 'SELECT_NETWORK',
+    step: 'SELECT_PRODUCT',
     dialingPhone,
     shopCodeId: shopCode.id,
     shopId: shopCode.shop_id,
@@ -139,5 +137,36 @@ export async function handleEnterShopCode(
     networks: sortedNetworks,
   })
 
-  return cont(networkMenu(shopName, networks))
+  return cont(productMenu(shopName))
+}
+
+// ── SELECT_PRODUCT ────────────────────────────────────────────────────────────
+export async function handleSelectProduct(
+  input: string,
+  sessionId: string,
+  session: USSDShopSession
+): Promise<UzoResponse> {
+  const shopName = session.shopName ?? 'Shop'
+
+  switch (input.trim()) {
+    case '1': {
+      const networks = session.networks ?? []
+      if (networks.length === 0) return cont('No bundles available.\n\n' + productMenu(shopName))
+      await setSession(sessionId, { ...session, step: 'SELECT_NETWORK' })
+      return cont(networkMenu(shopName, networks))
+    }
+    case '2':
+      await setSession(sessionId, { ...session, step: 'SHOP_AIRTIME_ENTER_RECIPIENT' })
+      return cont(shopAirtimeRecipientPrompt(shopName))
+    case '3': {
+      const boards = await buildRcBoardOptions()
+      if (boards.length === 0) return cont('Results Checker\nunavailable.\n\n' + productMenu(shopName))
+      await setSession(sessionId, { ...session, step: 'SHOP_RC_SELECT_BOARD', rcBoardOptions: boards })
+      return cont(shopRcBoardMenu(shopName, boards))
+    }
+    case '0':
+      return end('Goodbye.')
+    default:
+      return cont(productMenu(shopName))
+  }
 }

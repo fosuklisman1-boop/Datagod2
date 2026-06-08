@@ -27,6 +27,17 @@ export type USSDStep =
   | 'AFA_ENTER_LOCATION'
   | 'AFA_ENTER_REGION'
   | 'AFA_CONFIRM_AFA'
+  // Airtime
+  | 'AIRTIME_ENTER_RECIPIENT'
+  | 'AIRTIME_SELECT_NETWORK'
+  | 'AIRTIME_ENTER_AMOUNT'
+  | 'AIRTIME_CONFIRM'
+  | 'AIRTIME_PAYMENT_METHOD'
+  // Results Checker
+  | 'RC_SELECT_BOARD'
+  | 'RC_ENTER_QTY'
+  | 'RC_CONFIRM'
+  | 'RC_PAYMENT_METHOD'
 
 export interface BundleOption {
   id: string
@@ -51,6 +62,7 @@ export interface USSDSession {
   userId?: string                   // registered user's DB id (if phone matched a user)
   walletBalance?: number            // fetched at network selection for display; re-verified at payment
   pendingOrderId?: string  // order created at CONFIRM; used by PAYMENT_METHOD + SUBMIT_OTP
+  pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' // which table SUBMIT_OTP targets (data bundles default to ussd_orders)
   // AFA registration fields
   afaFullName?: string
   afaGhCard?: string
@@ -58,4 +70,16 @@ export interface USSDSession {
   afaRegion?: string
   afaOrderId?: string
   afaPrice?: number
+  // Airtime fields
+  airtimeRecipient?: string   // beneficiary (local 0XXXXXXXXX)
+  airtimeNetwork?: string     // 'MTN' | 'Telecel' | 'AT'
+  airtimeAmount?: number      // total the caller pays (fee inclusive)
+  airtimeToDeliver?: number   // amount the recipient receives (amount − fee)
+  airtimeFee?: number
+  // Results Checker fields
+  rcBoard?: string            // 'WAEC' | 'BECE' | 'NOVDEC'
+  rcQty?: number
+  rcUnitPrice?: number
+  rcTotal?: number
+  rcBoardOptions?: string[]   // boards shown on the SELECT_BOARD menu, in order
 }
