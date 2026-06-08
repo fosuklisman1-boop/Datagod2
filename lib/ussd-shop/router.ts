@@ -51,7 +51,7 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
 
   if (!session) {
     await setSession(sessionID, { step: 'ENTER_SHOP_CODE', dialingPhone: msisdn })
-    return cont('Session expired.\n\n' + enterShopCodeMenu())
+    return cont('Time limit exceeded.\n\n' + enterShopCodeMenu())
   }
 
   const input = ussdString ?? ''
