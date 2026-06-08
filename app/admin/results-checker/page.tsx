@@ -88,6 +88,8 @@ export default function AdminResultsCheckerPage() {
   const [orderBoardFilter, setOrderBoardFilter] = useState("all")
   const [orderStatusFilter, setOrderStatusFilter] = useState("all")
   const [orderSearch, setOrderSearch] = useState("")
+  const [orderPage, setOrderPage] = useState(1)
+  const ORDER_PAGE_SIZE = 25
 
   // Settings state
   const [settings, setSettings] = useState<Record<string, any>>({})
@@ -112,8 +114,15 @@ export default function AdminResultsCheckerPage() {
   }, [token, invBoardFilter, invStatusFilter])
 
   useEffect(() => {
-    if (token && activeTab === "orders") loadOrders()
+    if (token && activeTab === "orders") {
+      setOrderPage(1)
+      loadOrders(1)
+    }
   }, [token, activeTab, orderBoardFilter, orderStatusFilter, orderSearch])
+
+  useEffect(() => {
+    if (token && activeTab === "orders") loadOrders(orderPage)
+  }, [orderPage])
 
   // ─── Inventory ───────────────────────────────────────────────
 
@@ -287,11 +296,12 @@ export default function AdminResultsCheckerPage() {
 
   // ─── Orders ──────────────────────────────────────────────────
 
-  const loadOrders = useCallback(async () => {
+  const loadOrders = useCallback(async (page?: number) => {
+    page = page ?? orderPage
     if (!token) return
     setOrdersLoading(true)
     try {
-      const params = new URLSearchParams({ limit: "50" })
+      const params = new URLSearchParams({ limit: String(ORDER_PAGE_SIZE), page: String(page) })
       if (orderBoardFilter !== "all") params.set("examBoard", orderBoardFilter)
       if (orderStatusFilter !== "all") params.set("status", orderStatusFilter)
       if (orderSearch) params.set("search", orderSearch)
@@ -308,7 +318,7 @@ export default function AdminResultsCheckerPage() {
     } finally {
       setOrdersLoading(false)
     }
-  }, [token, orderBoardFilter, orderStatusFilter, orderSearch])
+  }, [token, orderBoardFilter, orderStatusFilter, orderSearch, orderPage, ORDER_PAGE_SIZE])
 
   const handleFailOrder = async (orderId: string) => {
     const confirmed = confirm("Mark this order as failed and refund the customer?")
@@ -687,56 +697,73 @@ export default function AdminResultsCheckerPage() {
                 <input value={orderSearch} onChange={e => setOrderSearch(e.target.value)}
                   placeholder="Search reference or email…" className="pl-9 pr-4 py-2 border rounded-lg text-sm w-64" />
               </div>
-              <Button variant="outline" size="sm" onClick={loadOrders}><RefreshCw className="w-4 h-4 mr-1" />Refresh</Button>
+              <Button variant="outline" size="sm" onClick={() => loadOrders()}><RefreshCw className="w-4 h-4 mr-1" />Refresh</Button>
               <span className="text-sm text-muted-foreground ml-auto">{ordersTotal} total</span>
             </div>
 
             {/* Table */}
             <div className="rounded-lg border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/40 text-muted-foreground text-xs uppercase">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Reference</th>
-                    <th className="px-4 py-3 text-left">Board</th>
-                    <th className="px-4 py-3 text-left">Qty</th>
-                    <th className="px-4 py-3 text-left">Total</th>
-                    <th className="px-4 py-3 text-left">Customer</th>
-                    <th className="px-4 py-3 text-left">Shop</th>
-                    <th className="px-4 py-3 text-left">Status</th>
-                    <th className="px-4 py-3 text-left">Date</th>
-                    <th className="px-4 py-3 text-left">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {ordersLoading ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
-                  ) : orders.length === 0 ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">No orders found</td></tr>
-                  ) : orders.map(order => (
-                    <tr key={order.id} className="hover:bg-accent">
-                      <td className="px-4 py-3 font-mono text-xs font-semibold">{order.reference_code}</td>
-                      <td className="px-4 py-3"><Badge variant="outline">{order.exam_board}</Badge></td>
-                      <td className="px-4 py-3 text-center">{order.quantity}</td>
-                      <td className="px-4 py-3 font-semibold">GHS {Number(order.total_paid).toFixed(2)}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{order.customer_email ?? order.users?.email ?? "—"}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{order.user_shops?.shop_name ?? "—"}</td>
-                      <td className="px-4 py-3"><Badge className={STATUS_CLASSES[order.status] ?? ""}>{order.status}</Badge></td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(order.created_at).toLocaleDateString()}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          {order.status === "pending" && order.payment_status === "completed" && (
-                            <Button variant="default" size="sm" onClick={() => handleDeliverOrder(order.id)}>Deliver</Button>
-                          )}
-                          {order.status !== "failed" && order.status !== "completed" && (
-                            <Button variant="destructive" size="sm" onClick={() => handleFailOrder(order.id)}>Refund</Button>
-                          )}
-                        </div>
-                      </td>
+              <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
+                <table className="w-full text-sm min-w-[800px]">
+                  <thead className="bg-muted/40 text-muted-foreground text-xs uppercase sticky top-0 z-10">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Reference</th>
+                      <th className="px-4 py-3 text-left">Board</th>
+                      <th className="px-4 py-3 text-left">Qty</th>
+                      <th className="px-4 py-3 text-left">Total</th>
+                      <th className="px-4 py-3 text-left">Customer</th>
+                      <th className="px-4 py-3 text-left">Shop</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3 text-left">Date</th>
+                      <th className="px-4 py-3 text-left">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y">
+                    {ordersLoading ? (
+                      <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                    ) : orders.length === 0 ? (
+                      <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">No orders found</td></tr>
+                    ) : orders.map(order => (
+                      <tr key={order.id} className="hover:bg-accent">
+                        <td className="px-4 py-3 font-mono text-xs font-semibold">{order.reference_code}</td>
+                        <td className="px-4 py-3"><Badge variant="outline">{order.exam_board}</Badge></td>
+                        <td className="px-4 py-3 text-center">{order.quantity}</td>
+                        <td className="px-4 py-3 font-semibold">GHS {Number(order.total_paid).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{order.customer_email ?? order.users?.email ?? "—"}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{order.user_shops?.shop_name ?? "—"}</td>
+                        <td className="px-4 py-3"><Badge className={STATUS_CLASSES[order.status] ?? ""}>{order.status}</Badge></td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(order.created_at).toLocaleDateString()}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            {order.status === "pending" && order.payment_status === "completed" && (
+                              <Button variant="default" size="sm" onClick={() => handleDeliverOrder(order.id)}>Deliver</Button>
+                            )}
+                            {order.status !== "failed" && order.status !== "completed" && (
+                              <Button variant="destructive" size="sm" onClick={() => handleFailOrder(order.id)}>Refund</Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            {/* Pagination */}
+            {ordersTotal > ORDER_PAGE_SIZE && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-sm text-muted-foreground">
+                  Page {orderPage} of {Math.ceil(ordersTotal / ORDER_PAGE_SIZE)} · {ordersTotal} total
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={orderPage <= 1 || ordersLoading}
+                    onClick={() => setOrderPage(p => p - 1)}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={orderPage >= Math.ceil(ordersTotal / ORDER_PAGE_SIZE) || ordersLoading}
+                    onClick={() => setOrderPage(p => p + 1)}>Next</Button>
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           {/* ── Settings Tab ──────────────────────────────── */}
