@@ -178,7 +178,7 @@ export async function handleRcPaymentMethod(
     const dialer = await resolveDialer(dialingPhone)
     const localPhone = toLocal(dialingPhone)
     try {
-      const { order, vouchers } = await purchaseResultsCheckerVouchers({ userId, examBoard: board, quantity: qty })
+      const { order, vouchers } = await purchaseResultsCheckerVouchers({ userId, examBoard: board, quantity: qty, applyBulk: true })
 
       // Tag the order as USSD + attach the caller's number for delivery/reporting
       await supabase.from("results_checker_orders")

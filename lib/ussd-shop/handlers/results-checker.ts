@@ -71,8 +71,8 @@ export async function handleShopRcEnterQty(
     return cont(`Enter a valid quantity.\n` + shopRcQtyPrompt(board, avail, max))
   }
 
-  // Include shop markup in the price shown to caller.
-  const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, shopId: session.shopId })
+  // Include shop markup and bulk discount in the price shown to caller.
+  const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, shopId: session.shopId, applyBulk: true })
 
   await setSession(sessionId, {
     ...session,
@@ -106,7 +106,7 @@ export async function handleShopRcConfirm(
   if (!enabled || avail < qty) {
     return end(`${board} vouchers are no longer available in that quantity.`)
   }
-  const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, shopId: session.shopId })
+  const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, shopId: session.shopId, applyBulk: true })
 
   const provider = paystackProviderFromPhone(dialingPhone)
   if (!provider) return end("Payment not available for your number.")

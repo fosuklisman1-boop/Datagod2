@@ -231,6 +231,12 @@ export default function ResultsCheckerConfirmationPage() {
             <div className="flex justify-between text-slate-400">
               <span>Quantity</span><span className="text-white font-semibold">{order.quantity}</span>
             </div>
+            {order.unit_price != null && (
+              <div className="flex justify-between text-slate-400">
+                <span>Rate</span>
+                <span className="text-white font-semibold">GHS {Number(order.unit_price).toFixed(2)}/ea</span>
+              </div>
+            )}
             <div className="flex justify-between text-slate-400 border-t border-slate-700 pt-2">
               <span>Total Paid</span><span className="text-white font-bold">GHS {Number(order.total_paid).toFixed(2)}</span>
             </div>

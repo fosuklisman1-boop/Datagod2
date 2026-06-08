@@ -34,6 +34,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   const [quantity, setQuantity] = useState(1)
   const [boardInfo, setBoardInfo] = useState<Record<string, BoardInfo>>({})
   const [loadingPrices, setLoadingPrices] = useState(true)
+  const [maxQuantity, setMaxQuantity] = useState(50)
 
   const [formData, setFormData] = useState({
     customerName: "",
@@ -171,6 +172,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       } catch (e) {
         console.warn("Could not load availability counts:", e)
       }
+
+      const maxQty: number = settingsMap["results_checker_max_quantity"]?.max ?? 50
+      setMaxQuantity(maxQty)
 
       const bulkMinQty: number = settingsMap["results_checker_bulk_min_quantity"]?.min ?? 0
 
@@ -476,12 +480,12 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
             <div className="flex items-center gap-3 mt-2">
               <button onClick={() => setQuantity(q => Math.max(1, q - 1))}
                 className="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-foreground hover:bg-accent transition-colors">−</button>
-              <Input type="number" min="1" max="50" value={quantity}
-                onChange={e => setQuantity(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+              <Input type="number" min="1" max={maxQuantity} value={quantity}
+                onChange={e => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value) || 1)))}
                 className="w-20 text-center font-bold text-lg h-10 rounded-xl" />
-              <button onClick={() => setQuantity(q => Math.min(50, q + 1))}
+              <button onClick={() => setQuantity(q => Math.min(maxQuantity, q + 1))}
                 className="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-foreground hover:bg-accent transition-colors">+</button>
-              <span className="text-sm text-muted-foreground ml-2">max 50</span>
+              <span className="text-sm text-muted-foreground ml-2">max {maxQuantity}</span>
             </div>
           </div>
 

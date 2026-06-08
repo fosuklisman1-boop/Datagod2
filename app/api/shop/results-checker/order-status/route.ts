@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
   const { data: order } = await supabase
     .from("results_checker_orders")
-    .select("id, reference_code, exam_board, quantity, total_paid, status, inventory_ids, created_at")
+    .select("id, reference_code, exam_board, quantity, unit_price, total_paid, status, inventory_ids, created_at")
     .eq("id", orderId)
     .single()
 
