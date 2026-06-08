@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
       examBoard,
       quantity,
       shopId,
+      applyBulk: true,
     })
 
     // Attach customer contact so notification service can reach them

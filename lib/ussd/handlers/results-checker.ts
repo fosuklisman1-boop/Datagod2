@@ -78,7 +78,7 @@ export async function handleRcEnterQty(
     return cont(`Enter a valid quantity.\n` + rcQtyPrompt(board, avail, max))
   }
 
-  const pricing = await calculateRCPrice({ examBoard: board, quantity: qty })
+  const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, applyBulk: true })
   const dialer = await resolveDialer(session.dialingPhone ?? "")
 
   await setSession(sessionId, {
@@ -91,7 +91,9 @@ export async function handleRcEnterQty(
     walletBalance: dialer.balance,
   })
 
-  return cont(rcConfirmMenu(board, qty, pricing.totalPaid, session.dialingPhone!))
+  const confirmText = rcConfirmMenu(board, qty, pricing.totalPaid, session.dialingPhone!)
+  const bulkNote = pricing.bulkApplied ? ` (bulk rate GHS ${pricing.unitPrice.toFixed(2)}/ea)` : ""
+  return cont(confirmText.replace("PIN(s) sent by SMS", `PIN(s) sent by SMS${bulkNote}`))
 }
 
 // ── RC_CONFIRM ────────────────────────────────────────────────────────────────
@@ -118,7 +120,7 @@ export async function handleRcConfirm(
     await setSession(sessionId, { step: "MAIN", dialingPhone })
     return end(`${board} vouchers are no longer available in that quantity. Please try again.`)
   }
-  const pricing = await calculateRCPrice({ examBoard: board, quantity: qty })
+  const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, applyBulk: true })
 
   const dialer = await resolveDialer(dialingPhone)
   const provider = paystackProviderFromPhone(dialingPhone)

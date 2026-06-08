@@ -14,6 +14,10 @@ const RC_SETTING_KEYS = [
   "results_checker_max_markup_novdec",
   "results_checker_max_quantity",
   "results_checker_reservation_timeout",
+  "results_checker_bulk_min_quantity",
+  "results_checker_bulk_price_waec",
+  "results_checker_bulk_price_bece",
+  "results_checker_bulk_price_novdec",
 ]
 
 export async function GET(request: NextRequest) {

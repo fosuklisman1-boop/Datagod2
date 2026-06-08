@@ -20,6 +20,8 @@ export interface RCPriceResult {
   unitPrice: number
   totalPaid: number
   merchantCommission: number
+  bulkApplied: boolean
+  bulkMinQty?: number
 }
 
 export interface RCPurchaseResult {
@@ -71,8 +73,9 @@ export async function calculateRCPrice(params: {
   examBoard: ExamBoard
   quantity: number
   shopId?: string
+  applyBulk?: boolean
 }): Promise<RCPriceResult> {
-  const { examBoard, quantity, shopId } = params
+  const { examBoard, quantity, shopId, applyBulk = false } = params
   const boardKey = examBoard.toLowerCase()
 
   const baseSetting = await getAdminSetting(`results_checker_price_${boardKey}`)
@@ -95,11 +98,33 @@ export async function calculateRCPrice(params: {
     }
   }
 
+  // Bulk pricing — only for direct (non-shop) purchases when explicitly requested.
+  // A bulk price of 0 means disabled for that board.
+  let bulkApplied = false
+  let bulkMinQty: number | undefined
+
+  if (applyBulk && !shopId) {
+    const [bulkMinSetting, bulkPriceSetting] = await Promise.all([
+      getAdminSetting("results_checker_bulk_min_quantity"),
+      getAdminSetting(`results_checker_bulk_price_${boardKey}`),
+    ])
+    const minQty = bulkMinSetting?.min ?? 0
+    const bulkPrice = parseFloat(bulkPriceSetting?.price ?? 0)
+
+    if (minQty > 0 && bulkPrice > 0 && quantity >= minQty && bulkPrice < basePrice + markupPerVoucher) {
+      const unitPrice = parseFloat(bulkPrice.toFixed(2))
+      const totalPaid = parseFloat((unitPrice * quantity).toFixed(2))
+      return { basePrice, markupPerVoucher: 0, unitPrice, totalPaid, merchantCommission: 0, bulkApplied: true, bulkMinQty: minQty }
+    }
+
+    bulkMinQty = minQty > 0 ? minQty : undefined
+  }
+
   const unitPrice = parseFloat((basePrice + markupPerVoucher).toFixed(2))
   const totalPaid = parseFloat((unitPrice * quantity).toFixed(2))
   const merchantCommission = parseFloat((markupPerVoucher * quantity).toFixed(2))
 
-  return { basePrice, markupPerVoucher, unitPrice, totalPaid, merchantCommission }
+  return { basePrice, markupPerVoucher, unitPrice, totalPaid, merchantCommission, bulkApplied, bulkMinQty }
 }
 
 export async function purchaseResultsCheckerVouchers(params: {
@@ -107,9 +132,10 @@ export async function purchaseResultsCheckerVouchers(params: {
   examBoard: ExamBoard
   quantity: number
   shopId?: string
+  applyBulk?: boolean
 }): Promise<RCPurchaseResult> {
-  const { userId, examBoard, quantity, shopId } = params
-  const pricing = await calculateRCPrice({ examBoard, quantity, shopId })
+  const { userId, examBoard, quantity, shopId, applyBulk = false } = params
+  const pricing = await calculateRCPrice({ examBoard, quantity, shopId, applyBulk })
   const referenceCode = generateRCReference()
 
   // Atomic wallet deduction

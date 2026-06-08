@@ -771,6 +771,33 @@ export default function AdminResultsCheckerPage() {
                       className="mt-1" />
                   </div>
                 </div>
+
+                {/* Bulk Pricing */}
+                <div className="pt-4 border-t">
+                  <p className="text-sm font-medium mb-1">Bulk Pricing</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Applies a lower per-voucher price for direct (non-shop) purchases at or above the minimum quantity. Set a board&apos;s bulk price to 0 to disable it.
+                  </p>
+                  <div className="mb-3">
+                    <Label className="text-xs text-muted-foreground">Min. Quantity to Unlock Bulk Price</Label>
+                    <Input type="number" min="1"
+                      value={settings["results_checker_bulk_min_quantity"]?.min ?? ""}
+                      onChange={e => setSetting("results_checker_bulk_min_quantity", "min", parseInt(e.target.value))}
+                      className="mt-1 max-w-[160px]" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    {["waec", "bece", "novdec"].map(board => (
+                      <div key={board}>
+                        <Label className="text-xs text-muted-foreground">{board.toUpperCase()} Bulk Price (GHS)</Label>
+                        <Input type="number" min="0" step="0.01"
+                          value={settings[`results_checker_bulk_price_${board}`]?.price ?? ""}
+                          onChange={e => setSetting(`results_checker_bulk_price_${board}`, "price", parseFloat(e.target.value))}
+                          className="mt-1" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <Button onClick={handleSaveSettings} disabled={savingSettings} className="w-full">
                   {savingSettings ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Settings"}
                 </Button>
