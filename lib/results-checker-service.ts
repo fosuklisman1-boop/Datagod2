@@ -98,12 +98,13 @@ export async function calculateRCPrice(params: {
     }
   }
 
-  // Bulk pricing — only for direct (non-shop) purchases when explicitly requested.
+  // Bulk pricing — applies when explicitly requested and quantity meets the threshold.
+  // For shop orders the shop markup is preserved on top of the reduced bulk base price.
   // A bulk price of 0 means disabled for that board.
   let bulkApplied = false
   let bulkMinQty: number | undefined
 
-  if (applyBulk && !shopId) {
+  if (applyBulk) {
     const [bulkMinSetting, bulkPriceSetting] = await Promise.all([
       getAdminSetting("results_checker_bulk_min_quantity"),
       getAdminSetting(`results_checker_bulk_price_${boardKey}`),
@@ -111,10 +112,20 @@ export async function calculateRCPrice(params: {
     const minQty = bulkMinSetting?.min ?? 0
     const bulkPrice = parseFloat(bulkPriceSetting?.price ?? 0)
 
-    if (minQty > 0 && bulkPrice > 0 && quantity >= minQty && bulkPrice < basePrice + markupPerVoucher) {
-      const unitPrice = parseFloat(bulkPrice.toFixed(2))
-      const totalPaid = parseFloat((unitPrice * quantity).toFixed(2))
-      return { basePrice, markupPerVoucher: 0, unitPrice, totalPaid, merchantCommission: 0, bulkApplied: true, bulkMinQty: minQty }
+    if (minQty > 0 && bulkPrice > 0 && quantity >= minQty && bulkPrice < basePrice) {
+      if (shopId) {
+        // Shop orders: bulk reduces the base price; shop markup still applies so the
+        // merchant earns their commission and the customer gets a lower effective rate.
+        const unitPrice = parseFloat((bulkPrice + markupPerVoucher).toFixed(2))
+        const totalPaid = parseFloat((unitPrice * quantity).toFixed(2))
+        const merchantCommission = parseFloat((markupPerVoucher * quantity).toFixed(2))
+        return { basePrice: bulkPrice, markupPerVoucher, unitPrice, totalPaid, merchantCommission, bulkApplied: true, bulkMinQty: minQty }
+      } else {
+        // Direct purchases: bulk price is the full unit price (no separate markup).
+        const unitPrice = parseFloat(bulkPrice.toFixed(2))
+        const totalPaid = parseFloat((unitPrice * quantity).toFixed(2))
+        return { basePrice, markupPerVoucher: 0, unitPrice, totalPaid, merchantCommission: 0, bulkApplied: true, bulkMinQty: minQty }
+      }
     }
 
     bulkMinQty = minQty > 0 ? minQty : undefined

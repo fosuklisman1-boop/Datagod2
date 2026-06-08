@@ -236,7 +236,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const pricing = await calculateRCPrice({ examBoard, quantity, shopId })
+    const pricing = await calculateRCPrice({ examBoard, quantity, shopId, applyBulk: true })
     const referenceCode = generateRCReference()
 
     // Create pending order — do NOT reserve inventory yet (payment not confirmed)

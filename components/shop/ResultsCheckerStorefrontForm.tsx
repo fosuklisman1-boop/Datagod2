@@ -25,6 +25,8 @@ interface BoardInfo {
   shopMarkup: number
   customerPrice: number
   availableCount: number
+  bulkMinQty?: number
+  bulkPrice?: number  // effective customer price per voucher at bulk rate (base + markup)
 }
 
 export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerStorefrontFormProps) {
@@ -170,6 +172,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         console.warn("Could not load availability counts:", e)
       }
 
+      const bulkMinQty: number = settingsMap["results_checker_bulk_min_quantity"]?.min ?? 0
+
       const info: Record<string, BoardInfo> = {}
       for (const board of EXAM_BOARDS) {
         const bk = board.toLowerCase()
@@ -178,10 +182,20 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         const enabled = settingsMap[`results_checker_enabled_${bk}`]?.enabled !== false
         const rawMarkup = parseFloat(shop[`results_checker_markup_${bk}`] ?? 0)
         const shopMarkup = Math.min(rawMarkup, maxMarkup)
+        const customerPrice = parseFloat((basePrice + shopMarkup).toFixed(2))
+
+        // Bulk pricing: bulk base must be lower than the regular base price
+        const bulkBasePrice: number = settingsMap[`results_checker_bulk_price_${bk}`]?.price ?? 0
+        const bulkPrice =
+          bulkMinQty > 0 && bulkBasePrice > 0 && bulkBasePrice < basePrice
+            ? parseFloat((bulkBasePrice + shopMarkup).toFixed(2))
+            : undefined
+
         info[board] = {
-          basePrice, maxMarkup, enabled, shopMarkup,
-          customerPrice: parseFloat((basePrice + shopMarkup).toFixed(2)),
+          basePrice, maxMarkup, enabled, shopMarkup, customerPrice,
           availableCount: availableCounts[board],
+          bulkMinQty: bulkMinQty > 0 ? bulkMinQty : undefined,
+          bulkPrice,
         }
       }
       setBoardInfo(info)
@@ -343,9 +357,16 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
     }
   }
 
-  const totalPrice = selectedBoard && boardInfo[selectedBoard]
-    ? parseFloat((boardInfo[selectedBoard].customerPrice * quantity).toFixed(2))
+  const activeBoardInfo = selectedBoard ? boardInfo[selectedBoard] : null
+  const bulkActive = !!(
+    activeBoardInfo?.bulkMinQty &&
+    activeBoardInfo?.bulkPrice &&
+    quantity >= activeBoardInfo.bulkMinQty
+  )
+  const effectivePricePerVoucher = activeBoardInfo
+    ? (bulkActive ? activeBoardInfo.bulkPrice! : activeBoardInfo.customerPrice)
     : 0
+  const totalPrice = parseFloat((effectivePricePerVoucher * quantity).toFixed(2))
 
   if (loadingPrices) {
     return (
@@ -426,6 +447,11 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                 <p className={`font-black text-lg ${selectedBoard === board ? "text-violet-700" : "text-foreground"}`}>{board}</p>
                 <p className="text-2xl font-black text-foreground mt-1">GHS {info.customerPrice.toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground mt-1">per voucher</p>
+                {info.bulkMinQty && info.bulkPrice && (
+                  <p className="text-xs text-violet-600 font-bold mt-1">
+                    {info.bulkMinQty}+ @ GHS {info.bulkPrice.toFixed(2)}/ea
+                  </p>
+                )}
                 {!info.enabled
                   ? <p className="text-xs text-red-500 mt-1 font-medium">Unavailable</p>
                   : info.availableCount === 0
@@ -490,8 +516,18 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           <div className="bg-violet-50 rounded-xl p-4 space-y-2 text-sm border border-border">
             <div className="flex justify-between text-muted-foreground">
               <span>{selectedBoard} voucher × {quantity}</span>
-              <span>GHS {(boardInfo[selectedBoard]?.customerPrice ?? 0).toFixed(2)} × {quantity}</span>
+              <span>GHS {effectivePricePerVoucher.toFixed(2)} × {quantity}</span>
             </div>
+            {bulkActive && (
+              <div className="flex items-center gap-1.5 text-violet-700 font-semibold text-xs bg-violet-100 rounded-lg px-3 py-1.5">
+                <span>✓ Bulk rate applied — GHS {activeBoardInfo!.bulkPrice!.toFixed(2)}/ea (save GHS {((activeBoardInfo!.customerPrice - activeBoardInfo!.bulkPrice!) * quantity).toFixed(2)})</span>
+              </div>
+            )}
+            {!bulkActive && activeBoardInfo?.bulkMinQty && activeBoardInfo?.bulkPrice && (
+              <div className="text-xs text-violet-500 font-medium">
+                Buy {activeBoardInfo.bulkMinQty - quantity} more to unlock bulk rate (GHS {activeBoardInfo.bulkPrice.toFixed(2)}/ea)
+              </div>
+            )}
             <div className="flex justify-between font-bold text-foreground text-lg border-t border-border pt-2">
               <span>Total</span>
               <span>GHS {totalPrice.toFixed(2)}</span>
