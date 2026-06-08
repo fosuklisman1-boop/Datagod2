@@ -197,9 +197,22 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       const baseFeePercent = constraints.baseFeePercent || 0
       const markupPercent = constraints.markupPercent || 0
       const totalFeePercent = baseFeePercent + markupPercent
-      
+
       const feeAmount = (amount * totalFeePercent / (100 + totalFeePercent))
       return amount - feeAmount
+    }
+  }
+
+  const calculateFeeAmount = () => {
+    const amount = parseFloat(formData.amount || "0")
+    if (isNaN(amount) || !constraints) return 0
+    const baseFeePercent = constraints.baseFeePercent || 0
+    const markupPercent = constraints.markupPercent || 0
+    const totalFeePercent = baseFeePercent + markupPercent
+    if (paySeparately) {
+      return amount * totalFeePercent / 100
+    } else {
+      return amount * totalFeePercent / (100 + totalFeePercent)
     }
   }
 
@@ -490,6 +503,14 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 <span className="text-slate-500 font-semibold">Amount to Send:</span>
                 <span className="text-slate-900 font-bold">GHS {parseFloat(formData.amount || "0").toFixed(2)}</span>
               </div>
+              {constraints && (
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-slate-500 font-semibold">
+                    Service Fee {paySeparately ? "(added on top)" : "(deducted from amount)"}:
+                  </span>
+                  <span className="text-orange-600 font-bold">GHS {calculateFeeAmount().toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
                 <span className="text-slate-500 font-semibold">Recipient Gets:</span>
                 <span className="text-green-600 font-black">
@@ -502,7 +523,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   <span className="text-3xl font-black bg-gradient-to-r from-violet-700 to-indigo-800 bg-clip-text text-transparent">
                     GHS {calculateTotal().toFixed(2)}
                   </span>
-                  <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">Includes Service Fee</p>
+                  <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">
+                    {paySeparately ? "Amount + Service Fee" : "Fee Included in Amount"}
+                  </p>
                 </div>
               </div>
             </div>
