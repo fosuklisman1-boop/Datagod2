@@ -55,7 +55,7 @@
     },
     {
       "path": "/api/cron/sync-digiwapy",
-      "schedule": "*/2 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }
