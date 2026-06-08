@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle, Download } from "lucide-react"
 import { toast } from "sonner"
+import Link from "next/link"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
@@ -401,6 +402,12 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       <div>
         <h2 className="text-2xl font-black mb-2 text-foreground border-l-4 border-violet-600 pl-4">Results Checker Vouchers</h2>
         <p className="text-muted-foreground text-sm pl-5">WAEC · BECE · NOVDEC — instant serial &amp; PIN delivery</p>
+        <p className="text-xs text-muted-foreground pl-5 mt-1">
+          Already bought?{" "}
+          <Link href="/vouchers" className="text-violet-600 hover:text-violet-700 underline underline-offset-2 font-medium">
+            Retrieve your vouchers →
+          </Link>
+        </p>
       </div>
 
       {/* Board selection */}
