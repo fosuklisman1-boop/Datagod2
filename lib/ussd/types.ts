@@ -34,10 +34,13 @@ export type USSDStep =
   | 'AIRTIME_CONFIRM'
   | 'AIRTIME_PAYMENT_METHOD'
   // Results Checker
+  | 'RC_MENU'
   | 'RC_SELECT_BOARD'
   | 'RC_ENTER_QTY'
   | 'RC_CONFIRM'
   | 'RC_PAYMENT_METHOD'
+  | 'RC_MY_VOUCHERS'
+  | 'RC_VOUCHER_DETAIL'
 
 export interface BundleOption {
   id: string
@@ -82,4 +85,6 @@ export interface USSDSession {
   rcUnitPrice?: number
   rcTotal?: number
   rcBoardOptions?: string[]   // boards shown on the SELECT_BOARD menu, in order
+  rcMyOrders?: Array<{ id: string; exam_board: string; reference_code: string; created_at: string }>
+  rcSelectedOrderId?: string
 }

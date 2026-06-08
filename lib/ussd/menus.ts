@@ -54,6 +54,25 @@ export function airtimePaymentMethodMenu(amount: number, balance: number): strin
 }
 
 // ── Results Checker ───────────────────────────────────────────────────────────
+export function rcMenu(): string {
+  return 'Results Checker\n1. Buy Vouchers\n2. My Vouchers\n0. Back'
+}
+
+export function rcMyVouchersMenu(orders: Array<{ exam_board: string; reference_code: string; created_at: string }>): string {
+  if (orders.length === 0) return 'No completed vouchers\nfor this number.\n\n0. Back'
+  const lines = orders.map((o, i) => {
+    const date = new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    return `${i + 1}. ${o.exam_board} ${o.reference_code} (${date})`
+  })
+  lines.push('0. Back')
+  return 'My Vouchers\n' + lines.join('\n')
+}
+
+export function rcVoucherDetailMenu(board: string, ref: string, qty: number, createdAt: string): string {
+  const date = new Date(createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return `${board} ${ref}\n${qty} voucher${qty !== 1 ? 's' : ''} · ${date}\n\n1. Resend SMS\n0. Back`
+}
+
 export function rcBoardMenu(boards: string[]): string {
   const lines = boards.map((b, i) => `${i + 1}. ${b}`)
   lines.push('0. Back')

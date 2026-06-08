@@ -1,7 +1,7 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession } from "../types"
-import { cont, end, mainMenu, rcBoardMenu, rcQtyPrompt, rcConfirmMenu, rcPaymentMethodMenu } from "../menus"
+import { cont, end, mainMenu, rcMenu, rcBoardMenu, rcQtyPrompt, rcConfirmMenu, rcPaymentMethodMenu, rcMyVouchersMenu, rcVoucherDetailMenu } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
@@ -243,6 +243,7 @@ async function createRcOrderAndChargeMomo(
       total_paid: total,
       shop_id: null,
       merchant_commission: 0,
+      user_id: dialer.userId ?? null,
       status: "pending_payment",
       payment_status: "pending_payment",
       dialing_phone: dialingPhone,
@@ -292,4 +293,91 @@ async function createRcOrderAndChargeMomo(
     step: "MAIN",
   })
   return end(`MoMo prompt sent to ${localDialing}. Approve to complete.\n\nReceived an OTP instead? Redial and enter the code.`)
+}
+
+// ── RC_MENU ───────────────────────────────────────────────────────────────────
+export async function handleRcMenu(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  switch (input.trim()) {
+    case '1': {
+      const boards = await buildRcBoardOptions()
+      if (boards.length === 0) return cont('No vouchers available\nright now.\n\n' + rcMenu())
+      await setSession(sessionId, { ...session, step: 'RC_SELECT_BOARD', rcBoardOptions: boards })
+      return cont(rcBoardMenu(boards))
+    }
+    case '2': {
+      const dialingPhone = session.dialingPhone!
+      const localPhone = toLocal(dialingPhone)
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      const { data: orders } = await supabase
+        .from("results_checker_orders")
+        .select("id, exam_board, reference_code, created_at")
+        .or(`dialing_phone.eq.${dialingPhone},dialing_phone.eq.${localPhone},customer_phone.eq.${localPhone}`)
+        .eq("status", "completed")
+        .gte("created_at", cutoff)
+        .order("created_at", { ascending: false })
+        .limit(5)
+      const list = orders ?? []
+      await setSession(sessionId, { ...session, step: 'RC_MY_VOUCHERS', rcMyOrders: list })
+      return cont(rcMyVouchersMenu(list))
+    }
+    case '0':
+      await setSession(sessionId, { step: 'MAIN', dialingPhone: session.dialingPhone })
+      return cont(mainMenu())
+    default:
+      return cont(rcMenu())
+  }
+}
+
+// ── RC_MY_VOUCHERS ────────────────────────────────────────────────────────────
+export async function handleRcMyVouchers(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === '0') {
+    await setSession(sessionId, { ...session, step: 'RC_MENU' })
+    return cont(rcMenu())
+  }
+  const orders = session.rcMyOrders ?? []
+  const idx = parseInt(input.trim(), 10) - 1
+  const order = orders[idx]
+  if (!order) return cont(rcMyVouchersMenu(orders))
+
+  await setSession(sessionId, { ...session, step: 'RC_VOUCHER_DETAIL', rcSelectedOrderId: order.id })
+  return cont(rcVoucherDetailMenu(order.exam_board, order.reference_code, 0, order.created_at))
+}
+
+// ── RC_VOUCHER_DETAIL ─────────────────────────────────────────────────────────
+export async function handleRcVoucherDetail(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === '0') {
+    await setSession(sessionId, { ...session, step: 'RC_MY_VOUCHERS' })
+    return cont(rcMyVouchersMenu(session.rcMyOrders ?? []))
+  }
+  if (input.trim() !== '1') {
+    const orders = session.rcMyOrders ?? []
+    const order = orders.find(o => o.id === session.rcSelectedOrderId)
+    if (order) return cont(rcVoucherDetailMenu(order.exam_board, order.reference_code, 0, order.created_at))
+    return cont(rcMenu())
+  }
+
+  const orderId = session.rcSelectedOrderId!
+  const dialingPhone = session.dialingPhone!
+  const localPhone = toLocal(dialingPhone)
+
+  const { resendVouchers } = await import("../../results-checker-notification-service")
+  const result = await resendVouchers(orderId, "sms")
+
+  if (!result.success) {
+    return end(result.message.length < 100 ? result.message : "Resend failed. Please contact support.")
+  }
+
+  return end(`Vouchers sent to ${localPhone}.`)
 }

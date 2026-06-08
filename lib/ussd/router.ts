@@ -12,7 +12,7 @@ import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleCo
 import { handleStatus } from "./handlers/status"
 import { handleAfaEnterName, handleAfaEnterCard, handleAfaEnterLocation, handleAfaEnterRegion, handleAfaConfirm } from "./handlers/afa"
 import { handleAirtimeEnterRecipient, handleAirtimeSelectNetwork, handleAirtimeEnterAmount, handleAirtimeConfirm, handleAirtimePaymentMethod } from "./handlers/airtime"
-import { handleRcSelectBoard, handleRcEnterQty, handleRcConfirm, handleRcPaymentMethod } from "./handlers/results-checker"
+import { handleRcMenu, handleRcSelectBoard, handleRcEnterQty, handleRcConfirm, handleRcPaymentMethod, handleRcMyVouchers, handleRcVoucherDetail } from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
 
 const TERMINATE_THRESHOLD = 29
@@ -121,6 +121,15 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'AIRTIME_PAYMENT_METHOD':
       return handleAirtimePaymentMethod(input, sessionID, session)
+
+    case 'RC_MENU':
+      return handleRcMenu(input, sessionID, session)
+
+    case 'RC_MY_VOUCHERS':
+      return handleRcMyVouchers(input, sessionID, session)
+
+    case 'RC_VOUCHER_DETAIL':
+      return handleRcVoucherDetail(input, sessionID, session)
 
     case 'RC_SELECT_BOARD':
       return handleRcSelectBoard(input, sessionID, session)
