@@ -158,10 +158,11 @@ export async function isDigiWapyEnabledForNetwork(network: string): Promise<bool
   if (!isDigiWapyConfigured()) return false
   const networkId = network.toLowerCase() // MTN→mtn, Telecel→telecel, AT→at
   const key = `airtime_digiwapy_enabled_${networkId}`
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("admin_settings")
     .select("value")
     .eq("key", key)
     .maybeSingle()
+  console.log(`[DIGIWAPY] isEnabled check — key: ${key}, value: ${JSON.stringify(data?.value)}, error: ${error?.message ?? "none"}`)
   return data?.value?.enabled === true
 }

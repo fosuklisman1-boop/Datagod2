@@ -59,34 +59,40 @@ export async function markAirtimeOrderPaid(
   }
 
   // Attempt Digiwapy auto-fulfillment if enabled for this network
-  const digiWapyEnabled = await isDigiWapyEnabledForNetwork(airtimeData.network)
-  if (digiWapyEnabled) {
-    const result = await sendAirtimeViaDigiwapy({
-      network: airtimeData.network,
-      recipient: airtimeData.beneficiary_phone,
-      amount: airtimeData.airtime_amount,
-      reference: airtimeData.reference_code,
-    })
-    if (result.success) {
-      await supabase
-        .from("airtime_orders")
-        .update({
-          status: "processing",
-          notes: "Auto-fulfilled via Digiwapy",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", airtimeData.id)
-      console.log(`[AIRTIME-SVC] ✓ Digiwapy auto-fulfill sent for order ${airtimeData.id}`)
-    } else {
-      await supabase
-        .from("airtime_orders")
-        .update({
-          notes: `Digiwapy error: ${result.message}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", airtimeData.id)
-      console.warn(`[AIRTIME-SVC] Digiwapy auto-fulfill failed for order ${airtimeData.id}: ${result.message}`)
+  try {
+    const digiWapyEnabled = await isDigiWapyEnabledForNetwork(airtimeData.network)
+    console.log(`[AIRTIME-SVC] Digiwapy enabled for ${airtimeData.network}: ${digiWapyEnabled}`)
+    if (digiWapyEnabled) {
+      const result = await sendAirtimeViaDigiwapy({
+        network: airtimeData.network,
+        recipient: airtimeData.beneficiary_phone,
+        amount: airtimeData.airtime_amount,
+        reference: airtimeData.reference_code,
+      })
+      if (result.success) {
+        await supabase
+          .from("airtime_orders")
+          .update({
+            status: "processing",
+            notes: "Auto-fulfilled via Digiwapy",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", airtimeData.id)
+        console.log(`[AIRTIME-SVC] ✓ Digiwapy auto-fulfill sent for order ${airtimeData.id}`)
+      } else {
+        await supabase
+          .from("airtime_orders")
+          .update({
+            notes: `Digiwapy error: ${result.message}`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", airtimeData.id)
+        console.warn(`[AIRTIME-SVC] Digiwapy auto-fulfill failed for order ${airtimeData.id}: ${result.message}`)
+      }
     }
+  } catch (digiwapyErr: any) {
+    console.error(`[AIRTIME-SVC] Digiwapy block threw for order ${airtimeData.id}:`, digiwapyErr?.message ?? digiwapyErr)
+    // Don't let Digiwapy errors block payment confirmation — order stays pending for admin retry
   }
 
   return { success: true }
