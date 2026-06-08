@@ -288,11 +288,11 @@ export default function AdminAirtimePage() {
       } else {
         toast.error(data.results?.[0]?.message || data.error || "Auto-fulfill failed")
       }
-      loadOrders()
     } catch {
       toast.error("Auto-fulfill request failed")
     } finally {
       setAutoFulfillingId(null)
+      loadOrders()
     }
   }
 
@@ -316,11 +316,11 @@ export default function AdminAirtimePage() {
       } else {
         toast.error(data.error || "Auto-fulfill failed")
       }
-      loadOrders()
     } catch {
       toast.error("Auto-fulfill request failed")
     } finally {
       setAutoFulfillingAll(false)
+      loadOrders()
     }
   }
 
@@ -598,7 +598,7 @@ export default function AdminAirtimePage() {
                                   variant="outline"
                                   className="h-7 text-[10px] bg-violet-50 text-violet-700 hover:bg-violet-100 border-border"
                                   onClick={() => handleAutoFulfill(o.id)}
-                                  disabled={autoFulfillingId === o.id}
+                                  disabled={autoFulfillingId === o.id || autoFulfillingAll}
                                 >
                                   {autoFulfillingId === o.id ? (
                                     <Loader2 className="w-3 h-3 animate-spin" />
