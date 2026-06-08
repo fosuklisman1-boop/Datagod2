@@ -20,7 +20,7 @@ export default function OrderConfirmation() {
   const orderId = params.orderId as string
 
   const [order, setOrder] = useState<any>(null)
-  const [shopOwner, setShopOwner] = useState<{ email?: string; phone?: string }>({})
+  const [shopName, setShopName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -32,7 +32,7 @@ export default function OrderConfirmation() {
       setLoading(true)
       const result = await shopOrderService.getOrderById(orderId)
       setOrder(result.order)
-      setShopOwner(result.shopOwner || {})
+      setShopName(result.shopName ?? null)
     } catch (error) {
       console.error("Error loading order:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load order details"
@@ -197,16 +197,7 @@ export default function OrderConfirmation() {
             <CardTitle className="text-base">Need Help?</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            <p>If you encounter any issues with your order, please contact the shop owner:</p>
-            {shopOwner.email && (
-              <p className="mt-2 font-semibold">Email: {shopOwner.email}</p>
-            )}
-            {shopOwner.phone && (
-              <p className={shopOwner.email ? "" : "mt-2"}>Phone: {shopOwner.phone}</p>
-            )}
-            {!shopOwner.email && !shopOwner.phone && (
-              <p className="mt-2 text-muted-foreground">Contact details not available.</p>
-            )}
+            <p>If you encounter any issues with your order, please contact <strong>{shopName ?? "the shop"}</strong> directly.</p>
           </CardContent>
         </Card>
       </div>

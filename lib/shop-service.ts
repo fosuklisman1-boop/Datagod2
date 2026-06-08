@@ -326,7 +326,7 @@ export const shopOrderService = {
       }
 
       const data = await response.json()
-      return { order: data.order, shopOwner: data.shopOwner || {} }
+      return { order: data.order, shopName: data.shopName ?? null }
     } catch (error) {
       console.error("Error in getOrderById:", error)
       throw error
