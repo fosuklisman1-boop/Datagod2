@@ -250,12 +250,23 @@ export async function POST(request: NextRequest) {
       read: false,
     }])
 
-    // 13. Non-blocking notifications
+    // 13. Trigger Digiwapy auto-fulfillment for wallet-paid orders
+    // (Paystack-paid orders are handled by the webhook → markAirtimeOrderPaid)
+    const { triggerDigiwapyFulfillment } = await import("@/lib/airtime-service")
+    await triggerDigiwapyFulfillment({
+      id: order.id,
+      reference_code: referenceCode,
+      network,
+      beneficiary_phone: cleanPhone,
+      airtime_amount: airtimeToRecipient,
+    })
+
+    // 14. Non-blocking notifications
     try {
-      const { data: shopData } = order.shop_id 
+      const { data: shopData } = order.shop_id
         ? await supabase.from("user_shops").select("shop_name").eq("id", order.shop_id).single()
         : { data: null }
-      
+
       const shopName = shopData?.shop_name || "Direct"
 
       Promise.allSettled([
@@ -272,17 +283,8 @@ export async function POST(request: NextRequest) {
           type: "airtime_order_created",
           reference: order.id,
         }),
-        // Admin alert
-        notifyAdmins(
-          SMSTemplates.adminAirtimeOrderNotification(
-            shopName,
-            cleanPhone,
-            airtimeToRecipient.toString(),
-            network
-          ),
-          "airtime_new_order",
-          order.id
-        ),
+        // Admin alert only when auto-fulfillment didn't handle it
+        // (triggerDigiwapyFulfillment sends its own admin SMS when Digiwapy is off/fails)
         // Admin email alert
         import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
           const payload = EmailTemplates.airtimeAdminAlert(referenceCode, network, cleanPhone, airtimeToRecipient.toFixed(2), totalPaid.toFixed(2))
