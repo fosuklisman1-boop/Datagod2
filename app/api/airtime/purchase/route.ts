@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
-import { sendSMS, SMSTemplates } from "@/lib/sms-service"
-import { notifyAdmins } from "@/lib/sms-service"
 import { secureReference } from "@/lib/secure-random"
 
 const supabase = createClient(
@@ -270,21 +268,6 @@ export async function POST(request: NextRequest) {
       const shopName = shopData?.shop_name || "Direct"
 
       Promise.allSettled([
-        // SMS to the beneficiary
-        sendSMS({
-          phone: cleanPhone,
-          message: SMSTemplates.airtimeBeneficiaryNotification(
-            shopName,
-            network,
-            airtimeToRecipient.toString(),
-            cleanPhone,
-            referenceCode
-          ),
-          type: "airtime_order_created",
-          reference: order.id,
-        }),
-        // Admin alert only when auto-fulfillment didn't handle it
-        // (triggerDigiwapyFulfillment sends its own admin SMS when Digiwapy is off/fails)
         // Admin email alert
         import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
           const payload = EmailTemplates.airtimeAdminAlert(referenceCode, network, cleanPhone, airtimeToRecipient.toFixed(2), totalPaid.toFixed(2))

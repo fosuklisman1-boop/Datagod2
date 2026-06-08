@@ -258,30 +258,9 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // Send SMS to beneficiary and admin
+            // Digiwapy sends a delivery SMS to the beneficiary directly.
+            // Only send admin fraud alert here if needed.
             try {
-              const { data: shopData } = airtimeData.shop_id 
-                ? await supabase.from("user_shops").select("shop_name").eq("id", airtimeData.shop_id).single()
-                : { data: null }
-              
-              const shopName = shopData?.shop_name || "Direct"
-              const beneficiarySms = SMSTemplates.airtimeBeneficiaryNotification(
-                shopName,
-                airtimeData.network,
-                airtimeData.airtime_amount.toString(),
-                airtimeData.beneficiary_phone,
-                airtimeData.reference_code
-              )
-
-              await sendSMS({
-                phone: airtimeData.beneficiary_phone,
-                message: beneficiarySms,
-                type: 'airtime_payment_confirmed',
-                reference: airtimeData.id,
-              }).catch(err => console.error("[PAYMENT-VERIFY] Airtime Beneficiary SMS error:", err))
-
-              // Admin is notified via markAirtimeOrderPaid (webhook path) when Digiwapy
-              // is off or fails. Only send here for fraud alerts.
               if (isBlacklisted) {
                 const adminSms = SMSTemplates.adminAirtimeOrderNotification(
                   shopName,
