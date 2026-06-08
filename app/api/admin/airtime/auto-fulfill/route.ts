@@ -4,14 +4,14 @@ import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { sendAirtimeViaDigiwapy, isDigiWapyConfigured } from "@/lib/digiwapy-provider"
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
   if (!isDigiWapyConfigured()) {
     return NextResponse.json(
@@ -49,13 +49,14 @@ export async function POST(request: NextRequest) {
           amount: order.airtime_amount,
           reference: order.reference_code,
         })
+        const successNote = result.digiwapyRef
+          ? `Admin retry via Digiwapy [dgwRef:${result.digiwapyRef}]`
+          : "Admin retry via Digiwapy"
         await supabase
           .from("airtime_orders")
           .update({
             status: result.success ? "processing" : "pending",
-            notes: result.success
-              ? "Admin retry via Digiwapy"
-              : `Digiwapy error: ${result.message}`,
+            notes: result.success ? successNote : `Digiwapy error: ${result.message}`,
             updated_at: new Date().toISOString(),
           })
           .eq("id", order.id)

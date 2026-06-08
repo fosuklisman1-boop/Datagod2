@@ -4,6 +4,13 @@ import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { fetchDigiWapyTransactionStatus, isDigiWapyConfigured } from "@/lib/digiwapy-provider"
 
+/** Extract [dgwRef:XXX] stored in notes when the airtime was sent */
+function extractDgwRef(notes: string | null): string | null {
+  if (!notes) return null
+  const match = notes.match(/\[dgwRef:([^\]]+)\]/)
+  return match ? match[1] : null
+}
+
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
@@ -22,7 +29,7 @@ export async function POST(request: NextRequest) {
 
   const { data: orders, error } = await supabase
     .from("airtime_orders")
-    .select("id, reference_code, status")
+    .select("id, reference_code, notes, status")
     .eq("status", "processing")
     .ilike("notes", "%Digiwapy%")
 
@@ -39,31 +46,25 @@ export async function POST(request: NextRequest) {
 
   const results = await Promise.allSettled(
     orders.map(async (order) => {
-      const txn = await fetchDigiWapyTransactionStatus(order.reference_code)
-      if (!txn) return { id: order.id, reference: order.reference_code, skipped: true, reason: "no response" }
+      // Prefer the Digiwapy-assigned reference stored in notes; fall back to ours
+      const dgwRef = extractDgwRef(order.notes)
+      const pollRef = dgwRef ?? order.reference_code
+      console.log(`[SYNC-DIGIWAPY] Polling order ${order.reference_code} with ref: ${pollRef}`)
 
-      // Map Digiwapy status — failed stays "pending" so admin can retry
-      const newStatus =
-        txn.status === "completed" ? "completed" :
-        txn.status === "failed"    ? "pending"   :
-        null // still pending on Digiwapy side — no change
-
-      if (!newStatus) {
-        return { id: order.id, reference: order.reference_code, skipped: true, reason: "still in progress" }
+      const txn = await fetchDigiWapyTransactionStatus(pollRef)
+      if (!txn) {
+        // If Digiwapy ref failed and we haven't tried our own ref yet, try it as fallback
+        if (dgwRef) {
+          const fallback = await fetchDigiWapyTransactionStatus(order.reference_code)
+          if (!fallback) {
+            return { id: order.id, reference: order.reference_code, skipped: true, reason: "no response from either ref" }
+          }
+          return processStatus(supabase, order, fallback, updated, (n) => { updated = n })
+        }
+        return { id: order.id, reference: order.reference_code, skipped: true, reason: "no response" }
       }
 
-      const newNotes =
-        txn.status === "completed"
-          ? "Completed via Digiwapy"
-          : "Digiwapy reported failed — retryable"
-
-      await supabase
-        .from("airtime_orders")
-        .update({ status: newStatus, notes: newNotes, updated_at: new Date().toISOString() })
-        .eq("id", order.id)
-
-      updated++
-      return { id: order.id, reference: order.reference_code, newStatus }
+      return processStatus(supabase, order, txn, updated, (n) => { updated = n })
     })
   )
 
@@ -78,4 +79,34 @@ export async function POST(request: NextRequest) {
         : { error: String((r as PromiseRejectedResult).reason) }
     ),
   })
+}
+
+async function processStatus(
+  supabase: any,
+  order: { id: string; reference_code: string },
+  txn: { status: string },
+  currentCount: number,
+  setCount: (n: number) => void
+) {
+  const newStatus =
+    txn.status === "completed" ? "completed" :
+    txn.status === "failed"    ? "pending"   :
+    null
+
+  if (!newStatus) {
+    return { id: order.id, reference: order.reference_code, skipped: true, reason: `still in progress (${txn.status})` }
+  }
+
+  const newNotes =
+    txn.status === "completed"
+      ? "Completed via Digiwapy"
+      : "Digiwapy reported failed — retryable"
+
+  await supabase
+    .from("airtime_orders")
+    .update({ status: newStatus, notes: newNotes, updated_at: new Date().toISOString() })
+    .eq("id", order.id)
+
+  setCount(currentCount + 1)
+  return { id: order.id, reference: order.reference_code, newStatus }
 }

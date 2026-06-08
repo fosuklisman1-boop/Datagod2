@@ -40,6 +40,8 @@ function getRequestHeadersWithIdempotency(reference: string): Record<string, str
 export interface DigiWapyAirtimeResult {
   success: boolean
   message: string
+  /** Reference assigned by Digiwapy — use this for status polling */
+  digiwapyRef?: string
 }
 
 export async function sendAirtimeViaDigiwapy(params: {
@@ -62,10 +64,14 @@ export async function sendAirtimeViaDigiwapy(params: {
       signal: AbortSignal.timeout(30_000),
     })
     const data = await res.json()
+    console.log(`[DIGIWAPY] sendAirtime response (${res.status}):`, JSON.stringify(data))
     if (!res.ok) {
       return { success: false, message: data.message ?? data.error ?? `HTTP ${res.status}` }
     }
-    return { success: true, message: data.message ?? "Airtime sent" }
+    // Capture the Digiwapy-assigned reference if present in the response
+    const digiwapyRef: string | undefined =
+      data?.data?.reference ?? data?.reference ?? undefined
+    return { success: true, message: data.message ?? "Airtime sent", digiwapyRef }
   } catch (err: any) {
     return { success: false, message: err.message ?? "Request failed" }
   }
@@ -110,16 +116,18 @@ export interface DigiWapyTransactionStatus {
 export async function fetchDigiWapyTransactionStatus(
   reference: string
 ): Promise<DigiWapyTransactionStatus | null> {
-  const headers = getRequestHeaders()
   try {
+    const headers = getRequestHeaders() // inside try — returns null on any config error
     const res = await fetch(
       `${BASE_URL}/transactions/status?reference=${encodeURIComponent(reference)}`,
       { headers, signal: AbortSignal.timeout(15_000) }
     )
-    if (!res.ok) return null
     const data = await res.json()
+    console.log(`[DIGIWAPY] txn status for ${reference} (${res.status}):`, JSON.stringify(data))
+    if (!res.ok) return null
     return data.success ? (data.data as DigiWapyTransactionStatus) : null
-  } catch {
+  } catch (err: any) {
+    console.error(`[DIGIWAPY] fetchTransactionStatus error for ${reference}:`, err?.message)
     return null
   }
 }
@@ -131,8 +139,8 @@ export interface DigiWapyBalance {
 }
 
 export async function fetchDigiWapyBalance(): Promise<DigiWapyBalance | null> {
-  const headers = getRequestHeaders()
   try {
+    const headers = getRequestHeaders() // inside try — returns null on any config error
     const res = await fetch(`${BASE_URL}/wallet/balance`, {
       headers,
       signal: AbortSignal.timeout(10_000),
@@ -140,7 +148,8 @@ export async function fetchDigiWapyBalance(): Promise<DigiWapyBalance | null> {
     if (!res.ok) return null
     const data = await res.json()
     return data.success ? (data.data as DigiWapyBalance) : null
-  } catch {
+  } catch (err: any) {
+    console.error("[DIGIWAPY] fetchBalance error:", err?.message)
     return null
   }
 }

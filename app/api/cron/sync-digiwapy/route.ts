@@ -9,6 +9,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+function extractDgwRef(notes: string | null): string | null {
+  if (!notes) return null
+  const match = notes.match(/\[dgwRef:([^\]]+)\]/)
+  return match ? match[1] : null
+}
+
 export async function GET(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
@@ -20,7 +26,7 @@ export async function GET(request: NextRequest) {
   try {
     const { data: orders, error } = await supabase
       .from("airtime_orders")
-      .select("id, reference_code, status")
+      .select("id, reference_code, notes, status")
       .eq("status", "processing")
       .ilike("notes", "%Digiwapy%")
 
@@ -37,7 +43,17 @@ export async function GET(request: NextRequest) {
 
     await Promise.allSettled(
       orders.map(async (order) => {
-        const txn = await fetchDigiWapyTransactionStatus(order.reference_code)
+        const dgwRef = extractDgwRef(order.notes)
+        const pollRef = dgwRef ?? order.reference_code
+        console.log(`[CRON-DIGIWAPY] Polling ${order.reference_code} with ref: ${pollRef}`)
+
+        let txn = await fetchDigiWapyTransactionStatus(pollRef)
+
+        // If Digiwapy ref didn't work, fall back to our own reference
+        if (!txn && dgwRef) {
+          txn = await fetchDigiWapyTransactionStatus(order.reference_code)
+        }
+
         if (!txn) return
 
         const newStatus =

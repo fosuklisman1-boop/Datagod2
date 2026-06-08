@@ -71,15 +71,18 @@ export async function markAirtimeOrderPaid(
         reference: airtimeData.reference_code,
       })
       if (result.success) {
+        const dgwNote = result.digiwapyRef
+          ? `Auto-fulfilled via Digiwapy [dgwRef:${result.digiwapyRef}]`
+          : "Auto-fulfilled via Digiwapy"
         await supabase
           .from("airtime_orders")
           .update({
             status: "processing",
-            notes: "Auto-fulfilled via Digiwapy",
+            notes: dgwNote,
             updated_at: new Date().toISOString(),
           })
           .eq("id", airtimeData.id)
-        console.log(`[AIRTIME-SVC] ✓ Digiwapy auto-fulfill sent for order ${airtimeData.id}`)
+        console.log(`[AIRTIME-SVC] ✓ Digiwapy auto-fulfill sent for order ${airtimeData.id} — dgwRef: ${result.digiwapyRef ?? "none"}`)
       } else {
         await supabase
           .from("airtime_orders")
