@@ -157,9 +157,9 @@ export const SMSTemplates = {
 
   // Results checker voucher delivery
   resultsCheckerDelivery: (examBoard: string, ref: string, pins: Array<{ pin: string; serial_number: string | null }>) =>
-    `DTGOD: ${examBoard} Voucher${pins.length > 1 ? "s" : ""} Ready!\nRef: ${ref}\n\n` +
-    pins.map((p, i) => `${i + 1}. PIN: ${p.pin}  Serial: ${p.serial_number ?? "N/A"}`).join("\n") +
-    `\n\nKeep these safe and use them to check your results online.`,
+    `Your ${pins.length}x ${examBoard} voucher${pins.length > 1 ? "s" : ""}:\n\n` +
+    pins.map(p => `PIN: ${p.pin}\nSerial: ${p.serial_number ?? "N/A"}`).join("\n\n") +
+    `\n\nPlease visit ghana.waecdirect.org to print your results.`,
 
   // Sub-agent invitation
   subAgentInvitation: (inviteUrl: string) =>
