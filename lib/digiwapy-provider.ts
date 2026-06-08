@@ -33,7 +33,7 @@ function getRequestHeaders(): Record<string, string> {
 function getRequestHeadersWithIdempotency(reference: string): Record<string, string> {
   return {
     ...getRequestHeaders(),
-    "X-Idempotency-Key": reference,
+    "X-Idempotency-Key": `AIRTIME-${reference}`,
   }
 }
 
