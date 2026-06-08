@@ -21,31 +21,47 @@ function sessionKey(sessionId: string): string {
   return `ussd-shop:session:${sessionId}`
 }
 
+const fallbackCache = new Map<string, { data: USSDShopSession, expires: number }>()
+
 export async function getSession(sessionId: string): Promise<USSDShopSession | null> {
-  if (!redis) return null
-  try {
-    const data = await redis.get<USSDShopSession>(sessionKey(sessionId))
-    return data ?? null
-  } catch (e) {
-    console.error("[USSD-SHOP-SESSION] get error:", e)
-    return null
+  if (redis) {
+    try {
+      const data = await redis.get<USSDShopSession>(sessionKey(sessionId))
+      if (data) return data
+    } catch (e) {
+      console.error("[USSD-SHOP-SESSION] get error:", e)
+    }
   }
+  
+  // Fallback to in-memory cache
+  const cached = fallbackCache.get(sessionId)
+  if (cached && cached.expires > Date.now()) {
+    return cached.data
+  }
+  return null
 }
 
 export async function setSession(sessionId: string, session: USSDShopSession): Promise<void> {
-  if (!redis) return
-  try {
-    await redis.setex(sessionKey(sessionId), SESSION_TTL, JSON.stringify(session))
-  } catch (e) {
-    console.error("[USSD-SHOP-SESSION] set error:", e)
+  if (redis) {
+    try {
+      await redis.setex(sessionKey(sessionId), SESSION_TTL, JSON.stringify(session))
+      return
+    } catch (e) {
+      console.error("[USSD-SHOP-SESSION] set error:", e)
+    }
   }
+  
+  // Fallback to in-memory cache
+  fallbackCache.set(sessionId, { data: session, expires: Date.now() + SESSION_TTL * 1000 })
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  if (!redis) return
-  try {
-    await redis.del(sessionKey(sessionId))
-  } catch (e) {
-    console.error("[USSD-SHOP-SESSION] delete error:", e)
+  if (redis) {
+    try {
+      await redis.del(sessionKey(sessionId))
+    } catch (e) {
+      console.error("[USSD-SHOP-SESSION] delete error:", e)
+    }
   }
+  fallbackCache.delete(sessionId)
 }
