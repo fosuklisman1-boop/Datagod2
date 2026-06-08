@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText, Zap } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText, Zap, Wallet, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
@@ -87,6 +87,9 @@ export default function AdminAirtimePage() {
   const [digiWapyNetworks, setDigiWapyNetworks] = useState<Set<string>>(new Set())
   const [autoFulfillingId, setAutoFulfillingId] = useState<string | null>(null)
   const [autoFulfillingAll, setAutoFulfillingAll] = useState(false)
+  const [digiWapyBalance, setDigiWapyBalance] = useState<{ balance: number; currency: string; last_updated: string } | null>(null)
+  const [loadingBalance, setLoadingBalance] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   // Copy feedback
   const [copiedId, setCopiedId]   = useState<string | null>(null)
@@ -166,12 +169,59 @@ export default function AdminAirtimePage() {
     }
   }, [token])
 
+  const loadDigiWapyBalance = useCallback(async (tok?: string) => {
+    const t = tok || token
+    if (!t) return
+    setLoadingBalance(true)
+    try {
+      const res = await fetch("/api/admin/airtime/digiwapy-balance", {
+        headers: { Authorization: `Bearer ${t}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setDigiWapyBalance(data)
+      }
+    } catch (err) {
+      console.error("[ADMIN-AIRTIME] Failed to load Digiwapy balance:", err)
+    } finally {
+      setLoadingBalance(false)
+    }
+  }, [token])
+
+  const handleSyncDigiwapy = async () => {
+    const t = token || await getToken()
+    if (!t) return
+    setSyncing(true)
+    try {
+      const res = await fetch("/api/admin/airtime/sync-digiwapy", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${t}` },
+      })
+      const data = await res.json()
+      if (res.ok) {
+        if (data.updated > 0) {
+          toast.success(`Synced ${data.updated}/${data.total} orders from Digiwapy`)
+        } else {
+          toast.info(data.message || `${data.total} orders checked — no status changes`)
+        }
+      } else {
+        toast.error(data.error || "Sync failed")
+      }
+    } catch {
+      toast.error("Sync request failed")
+    } finally {
+      setSyncing(false)
+      loadOrders()
+    }
+  }
+
   useEffect(() => {
     getToken().then(t => {
       if (t) {
         loadOrders(t)
         loadBatches(t)
         loadDigiWapyNetworks(t)
+        loadDigiWapyBalance(t)
       }
     })
   }, [getToken])
@@ -395,9 +445,15 @@ export default function AdminAirtimePage() {
             </h1>
             <p className="text-muted-foreground mt-1 font-medium text-sm">Download and manage pending airtime orders</p>
           </div>
-          <Button onClick={() => loadOrders()} variant="outline" size="sm" className="w-fit">
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh Data
-          </Button>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Button onClick={handleSyncDigiwapy} disabled={syncing} variant="outline" size="sm">
+              {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RotateCcw className="w-4 h-4 mr-2" />}
+              Sync Digiwapy
+            </Button>
+            <Button onClick={() => loadOrders()} variant="outline" size="sm">
+              <RefreshCw className="w-4 h-4 mr-2" /> Refresh Data
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -409,6 +465,36 @@ export default function AdminAirtimePage() {
                 <p className={`text-lg font-bold mt-1 ${s.color}`}>{s.value}</p>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Digiwapy Balance */}
+        {(digiWapyBalance || loadingBalance) && (
+          <div className="flex items-center gap-3 bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-950/30 dark:to-indigo-950/30 border border-violet-200 dark:border-violet-800 rounded-xl px-5 py-3">
+            <Wallet className="w-5 h-5 text-violet-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-violet-700 dark:text-violet-400">Digiwapy Wallet Balance</p>
+              {loadingBalance ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : digiWapyBalance ? (
+                <p className="text-xl font-bold text-violet-700 dark:text-violet-300">
+                  {digiWapyBalance.currency} {Number(digiWapyBalance.balance).toFixed(2)}
+                </p>
+              ) : null}
+            </div>
+            {digiWapyBalance && (
+              <p className="text-[10px] text-muted-foreground whitespace-nowrap hidden sm:block">
+                Updated {new Date(digiWapyBalance.last_updated).toLocaleTimeString()}
+              </p>
+            )}
+            <button
+              onClick={() => loadDigiWapyBalance()}
+              disabled={loadingBalance}
+              className="text-violet-600 hover:text-violet-800 disabled:opacity-40 transition-colors"
+              title="Refresh balance"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingBalance ? "animate-spin" : ""}`} />
+            </button>
           </div>
         )}
 

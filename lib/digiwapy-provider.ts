@@ -93,6 +93,58 @@ export function verifyDigiWapyWebhookSignature(
   return crypto.timingSafeEqual(aBuf, bBuf)
 }
 
+export interface DigiWapyTransactionStatus {
+  reference: string
+  type: string
+  amount: number
+  status: "completed" | "failed" | "pending"
+  recipient: string
+  network: string
+  description: string
+  fee: number
+  commission: number
+  created_at: string
+  updated_at: string
+}
+
+export async function fetchDigiWapyTransactionStatus(
+  reference: string
+): Promise<DigiWapyTransactionStatus | null> {
+  const headers = getRequestHeaders()
+  try {
+    const res = await fetch(
+      `${BASE_URL}/transactions/status?reference=${encodeURIComponent(reference)}`,
+      { headers, signal: AbortSignal.timeout(15_000) }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.success ? (data.data as DigiWapyTransactionStatus) : null
+  } catch {
+    return null
+  }
+}
+
+export interface DigiWapyBalance {
+  balance: number
+  currency: string
+  last_updated: string
+}
+
+export async function fetchDigiWapyBalance(): Promise<DigiWapyBalance | null> {
+  const headers = getRequestHeaders()
+  try {
+    const res = await fetch(`${BASE_URL}/wallet/balance`, {
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.success ? (data.data as DigiWapyBalance) : null
+  } catch {
+    return null
+  }
+}
+
 /** True when both required env vars are present. */
 export function isDigiWapyConfigured(): boolean {
   return !!(process.env.DIGIWAPY_API_KEY && process.env.DIGIWAPY_PARTNER_CODE)
