@@ -450,8 +450,8 @@ export default function AdminAirtimePage() {
 
           <TabsContent value="pending" className="space-y-6 pt-4">
             {/* Filters */}
-            <div className="flex justify-between items-center gap-4">
-              <form onSubmit={handleSearch} className="flex-1 bg-card rounded-xl border border-border shadow-sm p-4 flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-3">
+              <form onSubmit={handleSearch} className="bg-card rounded-xl border border-border shadow-sm p-4 flex flex-wrap gap-3 items-end">
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Date</label>
                   <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -473,7 +473,7 @@ export default function AdminAirtimePage() {
                     <option>pending</option><option>processing</option><option>completed</option><option>failed</option>
                   </select>
                 </div>
-                <div className="flex-1 min-w-[180px]">
+                <div className="flex-1 min-w-[160px]">
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Search</label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -486,136 +486,172 @@ export default function AdminAirtimePage() {
                   Search
                 </Button>
               </form>
-              
-              {digiWapyNetworks.size > 0 && (() => {
-                const eligibleCount = orders.filter(
-                  o => o.status === "pending" && digiWapyNetworks.has(o.network)
-                ).length
-                return (
-                  <Button
-                    onClick={handleAutoFulfillAll}
-                    disabled={autoFulfillingAll || eligibleCount === 0}
-                    className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-semibold h-[58px] px-6 whitespace-nowrap"
-                  >
-                    {autoFulfillingAll ? (
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                    ) : (
-                      <Zap className="w-5 h-5 mr-2" />
-                    )}
-                    Auto Fulfill All ({eligibleCount})
-                  </Button>
-                )
-              })()}
-              <Button
-                onClick={handleDownload}
-                disabled={downloading || orders.filter(o => o.status === 'pending').length === 0}
-                className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white font-semibold h-[58px] px-6"
-              >
-                {downloading ? (
-                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                ) : (
-                  <Download className="w-5 h-5 mr-2" />
-                )}
-                Download All ({orders.filter(o => o.status === 'pending').length})
-              </Button>
-            </div>
 
-            {/* Orders Table */}
-            <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/40 border-b border-border">
-                    <tr>
-                      {["Reference","Customer","Shop","Network","Phone","Airtime","Total","Status","Date","Actions"].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {loading ? (
-                      <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">Loading orders...</td></tr>
-                    ) : orders.length === 0 ? (
-                      <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">No pending orders found.</td></tr>
-                    ) : (
-                      orders.map((o) => (
-                        <tr key={o.id} className="hover:bg-accent transition-colors">
-                          <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{o.reference_code}</td>
-                          <td className="px-4 py-3">
-                            <p className="text-xs font-medium text-foreground truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
-                              {o.users?.email || o.customer_email || o.customer_name || "Guest"}
-                            </p>
-                          </td>
-                          <td className="px-4 py-3">
-                            <p className="text-xs text-muted-foreground italic">
-                              {o.user_shops?.shop_name || "Direct"}
-                            </p>
-                          </td>
-                          <td className="px-4 py-3">
-                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-border bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-border bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
-                                {o.network}
-                             </Badge>
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
-                              className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
-                            >
-                              {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
-                              {o.beneficiary_phone}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-foreground">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
-                              {(o.status || 'pending').toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
-                            {new Date(o.created_at).toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-2 flex-wrap">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
-                                onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
-                              >
-                                Complete
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
-                                onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
-                              >
-                                Fail
-                              </Button>
-                              {digiWapyNetworks.has(o.network) && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-[10px] bg-violet-50 text-violet-700 hover:bg-violet-100 border-border"
-                                  onClick={() => handleAutoFulfill(o.id)}
-                                  disabled={autoFulfillingId === o.id || autoFulfillingAll}
-                                >
-                                  {autoFulfillingId === o.id ? (
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                  ) : (
-                                    <><Zap className="w-3 h-3 mr-1" />Auto Fulfill</>
-                                  )}
-                                </Button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+              <div className="flex flex-wrap gap-2 justify-end">
+                {digiWapyNetworks.size > 0 && (() => {
+                  const eligibleCount = orders.filter(
+                    o => o.status === "pending" && digiWapyNetworks.has(o.network)
+                  ).length
+                  return (
+                    <Button
+                      onClick={handleAutoFulfillAll}
+                      disabled={autoFulfillingAll || eligibleCount === 0}
+                      className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-semibold whitespace-nowrap"
+                    >
+                      {autoFulfillingAll ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Zap className="w-4 h-4 mr-2" />
+                      )}
+                      Auto Fulfill All ({eligibleCount})
+                    </Button>
+                  )
+                })()}
+                <Button
+                  onClick={handleDownload}
+                  disabled={downloading || orders.filter(o => o.status === 'pending').length === 0}
+                  className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white font-semibold"
+                >
+                  {downloading ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  Download All ({orders.filter(o => o.status === 'pending').length})
+                </Button>
               </div>
             </div>
+
+            {/* Orders — card list on mobile, table on sm+ */}
+            {loading ? (
+              <div className="text-center py-12 text-muted-foreground">Loading orders...</div>
+            ) : orders.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-border">No pending orders found.</div>
+            ) : (
+              <>
+                {/* Mobile cards */}
+                <div className="flex flex-col gap-3 sm:hidden">
+                  {orders.map((o) => (
+                    <div key={o.id} className="bg-card rounded-xl border border-border shadow-sm p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-semibold text-foreground">{o.reference_code}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
+                          {(o.status || 'pending').toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className={o.network === 'MTN' ? 'border-border bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-border bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
+                          {o.network}
+                        </Badge>
+                        <button
+                          onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
+                          className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
+                        >
+                          {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
+                          {o.beneficiary_phone}
+                        </button>
+                      </div>
+                      <div className="flex gap-4 text-xs">
+                        <div><span className="text-muted-foreground">Airtime </span><span className="font-semibold">GHS {Number(o.airtime_amount || 0).toFixed(2)}</span></div>
+                        <div><span className="text-muted-foreground">Paid </span><span className="font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</span></div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">{o.users?.email || o.customer_email || o.customer_name || "Guest"} · {o.user_shops?.shop_name || "Direct"}</p>
+                      <p className="text-[10px] text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
+                      <div className="flex gap-2 flex-wrap pt-1">
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
+                          onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}>
+                          Complete
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
+                          onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}>
+                          Fail
+                        </Button>
+                        {digiWapyNetworks.has(o.network) && (
+                          <Button size="sm" variant="outline" className="h-7 text-[10px] bg-violet-50 text-violet-700 hover:bg-violet-100 border-border"
+                            onClick={() => handleAutoFulfill(o.id)} disabled={autoFulfillingId === o.id || autoFulfillingAll}>
+                            {autoFulfillingId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Zap className="w-3 h-3 mr-1" />Auto Fulfill</>}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden sm:block bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40 border-b border-border">
+                        <tr>
+                          {["Reference","Customer","Shop","Network","Phone","Airtime","Total","Status","Date","Actions"].map(h => (
+                            <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {orders.map((o) => (
+                          <tr key={o.id} className="hover:bg-accent transition-colors">
+                            <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{o.reference_code}</td>
+                            <td className="px-4 py-3">
+                              <p className="text-xs font-medium text-foreground truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
+                                {o.users?.email || o.customer_email || o.customer_name || "Guest"}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="text-xs text-muted-foreground italic">{o.user_shops?.shop_name || "Direct"}</p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant="outline" className={o.network === 'MTN' ? 'border-border bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-border bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
+                                {o.network}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3">
+                              <button onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
+                                className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
+                                {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
+                                {o.beneficiary_phone}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-foreground">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
+                            <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
+                                {(o.status || 'pending').toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                              {new Date(o.created_at).toLocaleString()}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex gap-2 flex-wrap">
+                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
+                                  onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}>
+                                  Complete
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
+                                  onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}>
+                                  Fail
+                                </Button>
+                                {digiWapyNetworks.has(o.network) && (
+                                  <Button size="sm" variant="outline" className="h-7 text-[10px] bg-violet-50 text-violet-700 hover:bg-violet-100 border-border"
+                                    onClick={() => handleAutoFulfill(o.id)} disabled={autoFulfillingId === o.id || autoFulfillingAll}>
+                                    {autoFulfillingId === o.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <><Zap className="w-3 h-3 mr-1" />Auto Fulfill</>
+                                    )}
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="history" className="space-y-6 pt-4">
@@ -656,89 +692,122 @@ export default function AdminAirtimePage() {
               </Button>
             </form>
 
-            {/* Orders Table (Reusable) */}
-            <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/40 border-b border-border">
-                    <tr>
-                      {["Reference","Customer","Shop","Network","Phone","Airtime","Total","Status","Date","Actions"].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {loading ? (
-                      <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">Loading orders...</td></tr>
-                    ) : orders.length === 0 ? (
-                      <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">No orders found.</td></tr>
-                    ) : (
-                      orders.map((o) => (
-                        <tr key={o.id} className="hover:bg-accent transition-colors">
-                          <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{o.reference_code}</td>
-                          <td className="px-4 py-3">
-                            <p className="text-xs font-medium text-foreground truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
-                              {o.users?.email || o.customer_email || o.customer_name || "Guest"}
-                            </p>
-                          </td>
-                          <td className="px-4 py-3">
-                            <p className="text-xs text-muted-foreground italic">
-                              {o.user_shops?.shop_name || "Direct"}
-                            </p>
-                          </td>
-                          <td className="px-4 py-3">
-                             <Badge variant="outline" className={o.network === 'MTN' ? 'border-border bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-border bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
-                                {o.network}
-                             </Badge>
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
-                              className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
-                            >
-                              {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
-                              {o.beneficiary_phone}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-foreground">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
-                              {(o.status || 'pending').toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
-                            {new Date(o.created_at).toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
-                                onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
-                                disabled={o.status === "completed"}
-                              >
-                                {o.status === "completed" ? "Done" : "Complete"}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
-                                onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
-                                disabled={o.status === "failed"}
-                              >
-                                {o.status === "failed" ? "Failed" : "Fail"}
-                              </Button>
-                            </div>
-                          </td>
+            {/* Orders — card list on mobile, table on sm+ */}
+            {loading ? (
+              <div className="text-center py-12 text-muted-foreground">Loading orders...</div>
+            ) : orders.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-border">No orders found.</div>
+            ) : (
+              <>
+                {/* Mobile cards */}
+                <div className="flex flex-col gap-3 sm:hidden">
+                  {orders.map((o) => (
+                    <div key={o.id} className="bg-card rounded-xl border border-border shadow-sm p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-semibold text-foreground">{o.reference_code}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
+                          {(o.status || 'pending').toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className={o.network === 'MTN' ? 'border-border bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-border bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
+                          {o.network}
+                        </Badge>
+                        <button onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
+                          className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
+                          {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
+                          {o.beneficiary_phone}
+                        </button>
+                      </div>
+                      <div className="flex gap-4 text-xs">
+                        <div><span className="text-muted-foreground">Airtime </span><span className="font-semibold">GHS {Number(o.airtime_amount || 0).toFixed(2)}</span></div>
+                        <div><span className="text-muted-foreground">Paid </span><span className="font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</span></div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">{o.users?.email || o.customer_email || o.customer_name || "Guest"} · {o.user_shops?.shop_name || "Direct"}</p>
+                      <p className="text-[10px] text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
+                      <div className="flex gap-2 pt-1">
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
+                          onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
+                          disabled={o.status === "completed"}>
+                          {o.status === "completed" ? "Done" : "Complete"}
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
+                          onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
+                          disabled={o.status === "failed"}>
+                          {o.status === "failed" ? "Failed" : "Fail"}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden sm:block bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40 border-b border-border">
+                        <tr>
+                          {["Reference","Customer","Shop","Network","Phone","Airtime","Total","Status","Date","Actions"].map(h => (
+                            <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                          ))}
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {orders.map((o) => (
+                          <tr key={o.id} className="hover:bg-accent transition-colors">
+                            <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{o.reference_code}</td>
+                            <td className="px-4 py-3">
+                              <p className="text-xs font-medium text-foreground truncate max-w-[120px]" title={o.users?.email || o.customer_email || "Guest"}>
+                                {o.users?.email || o.customer_email || o.customer_name || "Guest"}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="text-xs text-muted-foreground italic">{o.user_shops?.shop_name || "Direct"}</p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant="outline" className={o.network === 'MTN' ? 'border-border bg-yellow-50 text-yellow-700' : o.network === 'Telecel' ? 'border-border bg-red-50 text-red-700' : 'border-primary/20 bg-primary/5 text-primary'}>
+                                {o.network}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3">
+                              <button onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
+                                className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
+                                {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
+                                {o.beneficiary_phone}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-foreground">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
+                            <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
+                                {(o.status || 'pending').toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                              {new Date(o.created_at).toLocaleString()}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
+                                  onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
+                                  disabled={o.status === "completed"}>
+                                  {o.status === "completed" ? "Done" : "Complete"}
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
+                                  onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
+                                  disabled={o.status === "failed"}>
+                                  {o.status === "failed" ? "Failed" : "Fail"}
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="downloaded" className="space-y-4 pt-4">
