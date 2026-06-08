@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { refundRCOrder } from "@/lib/results-checker-service"
+import { refundRCOrder, fulfillPaidResultsCheckerOrder } from "@/lib/results-checker-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
     if (!orderId || !action) {
       return NextResponse.json({ error: "orderId and action are required" }, { status: 400 })
     }
-    if (!["failed", "refund"].includes(action)) {
-      return NextResponse.json({ error: "action must be 'failed' or 'refund'" }, { status: 400 })
+    if (!["failed", "refund", "deliver"].includes(action)) {
+      return NextResponse.json({ error: "action must be 'failed', 'refund', or 'deliver'" }, { status: 400 })
     }
 
     const { data: order, error: fetchError } = await supabase
@@ -34,6 +34,27 @@ export async function POST(request: NextRequest) {
 
     if (order.status === "failed") {
       return NextResponse.json({ error: "Order is already failed" }, { status: 409 })
+    }
+
+    // Deliver — assign vouchers from current stock and send PINs.
+    // Only valid for paid-but-undelivered orders (e.g. stock ran out during checkout).
+    if (action === "deliver") {
+      if (order.payment_status !== "completed") {
+        return NextResponse.json({ error: "Cannot deliver an unpaid order" }, { status: 409 })
+      }
+      if (order.status === "completed") {
+        return NextResponse.json({ error: "Order is already completed" }, { status: 409 })
+      }
+
+      const result = await fulfillPaidResultsCheckerOrder(order.id)
+      if (!result.success) {
+        return NextResponse.json(
+          { error: result.status === "pending" ? "Not enough stock to fulfil this order — upload more vouchers first." : result.message },
+          { status: result.status === "pending" ? 409 : 500 }
+        )
+      }
+      console.log(`[RC-ADMIN-ACTION] Order ${order.reference_code} delivered by admin`)
+      return NextResponse.json({ success: true, message: "Vouchers assigned and delivered to customer" })
     }
 
     // Refund wallet if user exists (not a guest order)

@@ -327,6 +327,23 @@ export default function AdminResultsCheckerPage() {
     }
   }
 
+  const handleDeliverOrder = async (orderId: string) => {
+    const confirmed = confirm("Assign vouchers from current stock and deliver PINs to the customer?")
+    if (!confirmed) return
+    const res = await fetch("/api/admin/results-checker/action", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, action: "deliver" }),
+    })
+    const data = await res.json()
+    if (res.ok) {
+      toast.success(data.message)
+      loadOrders()
+    } else {
+      toast.error(data.error ?? "Delivery failed")
+    }
+  }
+
   // ─── Settings ────────────────────────────────────────────────
 
   const loadAdminSettings = async () => {
@@ -706,9 +723,14 @@ export default function AdminResultsCheckerPage() {
                       <td className="px-4 py-3"><Badge className={STATUS_CLASSES[order.status] ?? ""}>{order.status}</Badge></td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(order.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-3">
-                        {order.status !== "failed" && order.status !== "completed" && (
-                          <Button variant="destructive" size="sm" onClick={() => handleFailOrder(order.id)}>Refund</Button>
-                        )}
+                        <div className="flex gap-2">
+                          {order.status === "pending" && order.payment_status === "completed" && (
+                            <Button variant="default" size="sm" onClick={() => handleDeliverOrder(order.id)}>Deliver</Button>
+                          )}
+                          {order.status !== "failed" && order.status !== "completed" && (
+                            <Button variant="destructive" size="sm" onClick={() => handleFailOrder(order.id)}>Refund</Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
