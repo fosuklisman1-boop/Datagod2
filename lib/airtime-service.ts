@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
+import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -88,7 +89,32 @@ export async function markAirtimeOrderPaid(
           })
           .eq("id", airtimeData.id)
         console.warn(`[AIRTIME-SVC] Digiwapy auto-fulfill failed for order ${airtimeData.id}: ${result.message}`)
+        notifyAdmins(
+          SMSTemplates.adminAirtimeDigiwapyFailed(
+            airtimeData.reference_code,
+            airtimeData.network,
+            airtimeData.beneficiary_phone,
+            String(airtimeData.airtime_amount),
+            result.message
+          ),
+          "airtime_digiwapy_failed",
+          airtimeData.id,
+          true // skip email fallback — SMS is enough
+        ).catch(() => {})
       }
+    } else {
+      // Auto-fulfillment is off — admin must fulfil manually
+      notifyAdmins(
+        SMSTemplates.adminAirtimeManualRequired(
+          airtimeData.reference_code,
+          airtimeData.network,
+          airtimeData.beneficiary_phone,
+          String(airtimeData.airtime_amount)
+        ),
+        "airtime_manual_needed",
+        airtimeData.id,
+        true
+      ).catch(() => {})
     }
   } catch (digiwapyErr: any) {
     console.error(`[AIRTIME-SVC] Digiwapy block threw for order ${airtimeData.id}:`, digiwapyErr?.message ?? digiwapyErr)

@@ -280,20 +280,18 @@ export async function POST(request: NextRequest) {
                 reference: airtimeData.id,
               }).catch(err => console.error("[PAYMENT-VERIFY] Airtime Beneficiary SMS error:", err))
 
-              const adminSms = SMSTemplates.adminAirtimeOrderNotification(
-                shopName,
-                airtimeData.beneficiary_phone,
-                airtimeData.airtime_amount.toString(),
-                airtimeData.network
-              )
-
-              const { notifyAdmins } = await import("@/lib/sms-service")
-              const alertPrefix = isBlacklisted ? "[FRAUD-ALERT] " : ""
-              await notifyAdmins(
-                alertPrefix + adminSms,
-                isBlacklisted ? "airtime_fraud_alert" : "airtime_new_order",
-                airtimeData.id
-              )
+              // Admin is notified via markAirtimeOrderPaid (webhook path) when Digiwapy
+              // is off or fails. Only send here for fraud alerts.
+              if (isBlacklisted) {
+                const adminSms = SMSTemplates.adminAirtimeOrderNotification(
+                  shopName,
+                  airtimeData.beneficiary_phone,
+                  airtimeData.airtime_amount.toString(),
+                  airtimeData.network
+                )
+                const { notifyAdmins } = await import("@/lib/sms-service")
+                await notifyAdmins("[FRAUD-ALERT] " + adminSms, "airtime_fraud_alert", airtimeData.id)
+              }
             } catch (smsError) {
               console.warn("[PAYMENT-VERIFY] Airtime SMS notification failed:", smsError)
             }

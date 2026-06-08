@@ -147,6 +147,12 @@ export const SMSTemplates = {
   adminAirtimeOrderNotification: (source: string, phone: string, amount: string, network: string) =>
     `[NEW ORDER] Airtime\nSource: ${source}\nRecipient: ${phone}\nAmount: GH¢${amount}\nNetwork: ${networkColor(network)}`,
 
+  adminAirtimeManualRequired: (ref: string, network: string, phone: string, amount: string) =>
+    `[AIRTIME] Manual fulfillment needed\nRef: ${ref}\nNetwork: ${networkColor(network)}\nRecipient: ${phone}\nAmount: GH¢${amount}`,
+
+  adminAirtimeDigiwapyFailed: (ref: string, network: string, phone: string, amount: string, reason: string) =>
+    `[AIRTIME FAILED] Digiwapy error\nRef: ${ref}\nNetwork: ${networkColor(network)}\nRecipient: ${phone}\nAmount: GH¢${amount}\nReason: ${reason}`,
+
   // AFA registration confirmation
   afaRegistration: (fullName: string, orderCode: string, amount: string) =>
     `DTGOD: Your AFA registration for ${fullName} (Ref: ${orderCode}) has been received. Amount: GH¢${amount}. You will be contacted once the registration is processed.`,
