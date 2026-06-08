@@ -440,6 +440,101 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ received: true })
       }
 
+      // Handle USSD airtime orders (direct charge; reference IS the airtime_orders UUID).
+      // Storefront airtime is charged with a WALLET-… reference and resolved via
+      // wallet_payments below, so this id-lookup only ever matches USSD orders.
+      const { data: ussdAirtimeOrder } = await supabase
+        .from("airtime_orders")
+        .select("id, total_paid, payment_status, dialing_phone, beneficiary_phone, network, airtime_amount, reference_code, channel")
+        .eq("id", reference)
+        .maybeSingle()
+
+      if (ussdAirtimeOrder) {
+        console.log("[WEBHOOK] Processing USSD airtime order:", ussdAirtimeOrder.id)
+
+        if (ussdAirtimeOrder.payment_status === 'completed') {
+          console.log("[WEBHOOK] USSD airtime order already processed:", ussdAirtimeOrder.id)
+          return NextResponse.json({ received: true })
+        }
+
+        const paidGhs = amount / 100
+        const expectedGhs = Number(ussdAirtimeOrder.total_paid)
+        if (paidGhs < expectedGhs - 0.01) {
+          console.error(`[WEBHOOK] USSD airtime underpayment! Paid: ${paidGhs}, Expected: ${expectedGhs}`)
+          return NextResponse.json({ error: "Underpayment" }, { status: 400 })
+        }
+
+        const { markAirtimeOrderPaid } = await import("@/lib/airtime-service")
+        await markAirtimeOrderPaid(ussdAirtimeOrder.id, event.data.id)
+
+        await supabase
+          .from("payment_attempts")
+          .update({ status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("reference", ussdAirtimeOrder.id)
+
+        // Notify beneficiary (and payer, if different) that payment landed and
+        // airtime is being processed. Airtime is fulfilled manually, so do NOT
+        // claim it has already been delivered.
+        const benef = ussdAirtimeOrder.beneficiary_phone as string
+        const payer = ussdAirtimeOrder.dialing_phone as string | null
+        const airtimeMsg = SMSTemplates.ussdAirtimePaymentReceived(
+          Number(ussdAirtimeOrder.airtime_amount).toFixed(2),
+          ussdAirtimeOrder.network,
+          benef,
+        )
+        try {
+          await sendSMS({ phone: benef, message: airtimeMsg, type: 'airtime_order_created', reference: ussdAirtimeOrder.id })
+        } catch (smsErr) { console.warn("[WEBHOOK] USSD airtime beneficiary SMS failed:", smsErr) }
+        const benefLast9 = (benef || "").replace(/\D/g, "").slice(-9)
+        const payerLast9 = (payer || "").replace(/\D/g, "").slice(-9)
+        if (payer && payerLast9 && payerLast9 !== benefLast9) {
+          try {
+            await sendSMS({ phone: payer, message: airtimeMsg, type: 'airtime_order_created', reference: ussdAirtimeOrder.id })
+          } catch (smsErr) { console.warn("[WEBHOOK] USSD airtime payer SMS failed:", smsErr) }
+        }
+
+        return NextResponse.json({ received: true })
+      }
+
+      // Handle USSD results-checker orders (direct charge; reference IS the
+      // results_checker_orders UUID). Storefront RC uses a WALLET-… reference.
+      const { data: ussdRcOrder } = await supabase
+        .from("results_checker_orders")
+        .select("id, total_paid, payment_status, status")
+        .eq("id", reference)
+        .maybeSingle()
+
+      if (ussdRcOrder) {
+        console.log("[WEBHOOK] Processing USSD results-checker order:", ussdRcOrder.id)
+
+        if (ussdRcOrder.status === 'completed') {
+          console.log("[WEBHOOK] USSD RC order already completed:", ussdRcOrder.id)
+          return NextResponse.json({ received: true })
+        }
+
+        const paidGhs = amount / 100
+        const expectedGhs = Number(ussdRcOrder.total_paid)
+        if (paidGhs < expectedGhs - 0.01) {
+          console.error(`[WEBHOOK] USSD RC underpayment! Paid: ${paidGhs}, Expected: ${expectedGhs}`)
+          return NextResponse.json({ error: "Underpayment" }, { status: 400 })
+        }
+
+        await supabase
+          .from("payment_attempts")
+          .update({ status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("reference", ussdRcOrder.id)
+
+        // Assign + finalize + deliver vouchers (delivery goes to customer_phone,
+        // which the USSD handler sets to the caller's number).
+        const { fulfillPaidResultsCheckerOrder } = await import("@/lib/results-checker-service")
+        const rcResult = await fulfillPaidResultsCheckerOrder(ussdRcOrder.id)
+        if (!rcResult.success) {
+          console.warn("[WEBHOOK] USSD RC fulfillment incomplete:", rcResult.status, rcResult.message)
+        }
+
+        return NextResponse.json({ received: true })
+      }
+
       // Find and update payment record (for non-USSD payments)
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")
@@ -740,108 +835,14 @@ export async function POST(request: NextRequest) {
             }
           }
         } else if (isAirtime) {
-          // Airtime logic
-          const { data: airtimeData } = await supabase
-            .from("airtime_orders")
-            .select("*")
-            .eq("id", paymentData.order_id)
-            .single()
-
-          if (airtimeData) {
-            await supabase
-              .from("airtime_orders")
-              .update({ payment_status: "completed", status: "pending", transaction_id: event.data.id, updated_at: new Date().toISOString() })
-              .eq("id", airtimeData.id)
-
-            if (airtimeData.merchant_commission > 0 && airtimeData.shop_id) {
-              const { error: airtimeProfitInsertError } = await supabase.from("shop_profits").insert([{
-                shop_id: airtimeData.shop_id,
-                airtime_order_id: airtimeData.id,
-                profit_amount: airtimeData.merchant_commission,
-                status: "credited",
-                created_at: new Date().toISOString(),
-              }])
-              if (airtimeProfitInsertError && airtimeProfitInsertError.code !== "23505") {
-                console.error("[WEBHOOK] Failed to insert airtime profit record:", airtimeProfitInsertError)
-              } else {
-                console.log(`[WEBHOOK] ✓ Airtime profit recorded: GHS ${airtimeData.merchant_commission} (balance synced by DB trigger)`)
-              }
-            }
-          }
+          // Airtime: mark paid + record merchant profit (shared with USSD path).
+          const { markAirtimeOrderPaid } = await import("@/lib/airtime-service")
+          await markAirtimeOrderPaid(paymentData.order_id, event.data.id)
         } else if (isResultsChecker) {
-          // Results Checker voucher guest payment
-          const { data: rcOrder } = await supabase
-            .from("results_checker_orders")
-            .select("*")
-            .eq("id", paymentData.order_id)
-            .single()
-
-          if (rcOrder && rcOrder.status !== "completed" && rcOrder.status !== "failed") {
-            // Atomically assign and finalize vouchers
-            const { data: vouchers, error: assignError } = await supabase.rpc(
-              "assign_results_checker_vouchers",
-              { p_exam_board: rcOrder.exam_board, p_quantity: rcOrder.quantity, p_order_id: rcOrder.id }
-            )
-
-            if (assignError || !vouchers || vouchers.length < rcOrder.quantity) {
-              console.warn(`[WEBHOOK] ⚠ RC voucher stock exhausted for order ${rcOrder.id} — marking pending`)
-              await supabase
-                .from("results_checker_orders")
-                .update({ status: "pending", payment_status: "completed", updated_at: new Date().toISOString() })
-                .eq("id", rcOrder.id)
-            } else {
-              await supabase.rpc("finalize_results_checker_sale", { p_order_id: rcOrder.id, p_user_id: null })
-
-              const inventoryIds = vouchers.map((v: { id: string }) => v.id)
-              const { error: rcUpdateErr } = await supabase
-                .from("results_checker_orders")
-                .update({
-                  status: "completed",
-                  payment_status: "completed",
-                  inventory_ids: inventoryIds,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("id", rcOrder.id)
-
-              if (rcUpdateErr) console.error("[WEBHOOK] ❌ Failed to mark RC order completed:", rcUpdateErr)
-
-              if (rcOrder.merchant_commission > 0 && rcOrder.shop_id) {
-                const { error: rcProfitError } = await supabase.from("shop_profits").insert([{
-                  shop_id: rcOrder.shop_id,
-                  results_checker_order_id: rcOrder.id,
-                  profit_amount: rcOrder.merchant_commission,
-                  status: "credited",
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                }])
-                if (rcProfitError) {
-                  if (rcProfitError.code !== "23505") {
-                    // Fallback: insert without FK column if migration 0045 not yet applied
-                    await supabase.from("shop_profits").insert([{
-                      shop_id: rcOrder.shop_id,
-                      profit_amount: rcOrder.merchant_commission,
-                      status: "credited",
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
-                    }]).then(({ error: e }) => {
-                      if (e && e.code !== "23505") console.error("[WEBHOOK] ❌ RC profit fallback failed:", e.message)
-                    })
-                  }
-                } else {
-                  console.log(`[WEBHOOK] ✓ RC profit recorded: GHS ${rcOrder.merchant_commission}`)
-                }
-              }
-
-              // Deliver vouchers to guest (non-blocking)
-              import("@/lib/results-checker-notification-service").then(({ deliverVouchers }) => {
-                return deliverVouchers(rcOrder, vouchers)
-              }).catch(e => console.warn("[WEBHOOK] RC delivery error:", e))
-
-              console.log(`[WEBHOOK] ✓ RC order ${rcOrder.reference_code} completed: ${rcOrder.quantity}x ${rcOrder.exam_board}`)
-            }
-          } else if (rcOrder?.status === "completed") {
-            console.log(`[WEBHOOK] ℹ RC order ${rcOrder.reference_code} already completed — skipping`)
-          }
+          // Results Checker voucher payment — assign/finalize/deliver + profit
+          // (shared with the USSD path).
+          const { fulfillPaidResultsCheckerOrder } = await import("@/lib/results-checker-service")
+          await fulfillPaidResultsCheckerOrder(paymentData.order_id)
         }
       }
 
@@ -1018,6 +1019,50 @@ export async function POST(request: NextRequest) {
         }
       } catch (e) {
         console.warn("[WEBHOOK] Failed to update failed USSD shop order:", e)
+      }
+
+      // Handle failed USSD airtime charges (reference IS the airtime_orders UUID)
+      try {
+        const { data: at } = await supabase
+          .from("airtime_orders")
+          .select("id, payment_status")
+          .eq("id", reference)
+          .maybeSingle()
+        if (at && at.payment_status !== 'completed') {
+          await supabase
+            .from("airtime_orders")
+            .update({ payment_status: 'failed', status: 'failed', updated_at: new Date().toISOString() })
+            .eq("id", at.id)
+          await supabase
+            .from("payment_attempts")
+            .update({ status: 'failed', gateway_response: gateway_response || 'failed', updated_at: new Date().toISOString() })
+            .eq("reference", at.id)
+          console.log("[WEBHOOK] USSD airtime order marked failed:", at.id)
+        }
+      } catch (e) {
+        console.warn("[WEBHOOK] Failed to update failed USSD airtime order:", e)
+      }
+
+      // Handle failed USSD results-checker charges (reference IS the order UUID)
+      try {
+        const { data: rc } = await supabase
+          .from("results_checker_orders")
+          .select("id, status")
+          .eq("id", reference)
+          .maybeSingle()
+        if (rc && rc.status !== 'completed') {
+          await supabase
+            .from("results_checker_orders")
+            .update({ payment_status: 'failed', status: 'failed', updated_at: new Date().toISOString() })
+            .eq("id", rc.id)
+          await supabase
+            .from("payment_attempts")
+            .update({ status: 'failed', gateway_response: gateway_response || 'failed', updated_at: new Date().toISOString() })
+            .eq("reference", rc.id)
+          console.log("[WEBHOOK] USSD results-checker order marked failed:", rc.id)
+        }
+      } catch (e) {
+        console.warn("[WEBHOOK] Failed to update failed USSD results-checker order:", e)
       }
 
       await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference)

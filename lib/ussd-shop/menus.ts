@@ -23,6 +23,56 @@ export function invalidCodeMenu(reason: string): string {
   return `${reason}\n\nEnter shop code:\n\n0. Exit`
 }
 
+export function productMenu(shopName: string): string {
+  return `${gsm7(shopName)}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n0. Exit`
+}
+
+// ── Shop Airtime ──────────────────────────────────────────────────────────────
+export function shopAirtimeRecipientPrompt(shopName: string): string {
+  return `${gsm7(shopName)}\nBuy Airtime\nEnter recipient number:\n\n0. Back`
+}
+
+export function shopAirtimeNetworkMenu(): string {
+  return 'Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n\n0. Back'
+}
+
+export function shopAirtimeAmountPrompt(network: string, min: number, max: number): string {
+  return `${network} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n\n0. Back`
+}
+
+export function shopAirtimeConfirmMenu(shopName: string, network: string, recipient: string, pay: number, get: number, dialingPhone: string): string {
+  return (
+    `${gsm7(shopName)}\n` +
+    `${network} to ${formatLocal(recipient)}\n` +
+    `Pay GHS ${pay.toFixed(2)}\n` +
+    `Get GHS ${get.toFixed(2)}\n` +
+    `from ${formatLocal(dialingPhone)}\n\n` +
+    `1. Pay now\n2. Cancel`
+  )
+}
+
+// ── Shop Results Checker ──────────────────────────────────────────────────────
+export function shopRcBoardMenu(shopName: string, boards: string[]): string {
+  const lines = boards.map((b, i) => `${i + 1}. ${b}`)
+  lines.push('0. Back')
+  return `${gsm7(shopName)}\nSelect exam:\n` + lines.join('\n')
+}
+
+export function shopRcQtyPrompt(board: string, available: number, max: number): string {
+  const cap = Math.min(available, max)
+  return `${board} Checker\nHow many vouchers?\n(1 - ${cap}):\n\n0. Back`
+}
+
+export function shopRcConfirmMenu(shopName: string, board: string, qty: number, total: number, dialingPhone: string): string {
+  return (
+    `${gsm7(shopName)}\n` +
+    `${board} x ${qty}\n` +
+    `GHS ${total.toFixed(2)} from\n${formatLocal(dialingPhone)}\n` +
+    `PIN(s) sent by SMS\n\n` +
+    `1. Pay now\n2. Cancel`
+  )
+}
+
 const NETWORK_PRIORITY: Record<string, number> = { mtn: 1, telecel: 2, airteltigo: 3, 'at-ishare': 4 }
 
 export function sortNetworks(nets: string[]): string[] {

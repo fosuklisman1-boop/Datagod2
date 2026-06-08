@@ -192,6 +192,11 @@ export const SMSTemplates = {
   ussdAfaPaymentReceived: () =>
     `DTGOD: Your AFA registration payment has been received and is being processed. Registration takes 12-24hrs to reflect. Thank you!`,
 
+  // USSD airtime payment received — airtime is fulfilled manually, so do not
+  // claim it has already landed.
+  ussdAirtimePaymentReceived: (amount: string, network: string, phone: string) =>
+    `DTGOD: Payment received. GH¢${amount} ${networkColor(network)} airtime for ${phone} is being processed and will reflect shortly. Thank you!`,
+
   // Wallet topped up (used in webhook and payment-cleanup flows)
   walletToppedUp: (firstName: string, amount: string, balance: string) =>
     `DTGOD: Hi ${firstName}, your DTGOD-Wallet has been topped up by GH¢${amount}. New balance: GH¢${balance}.`,
