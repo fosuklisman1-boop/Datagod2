@@ -153,6 +153,38 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    // Duplicate guard — block re-orders for same (phone, size, network) within 10 minutes
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const incomingPhones = [...new Set(ordersToInsert.map((o: any) => o.phone_number))]
+
+    const { data: recentOrders } = await supabase
+      .from("orders")
+      .select("phone_number, size")
+      .eq("user_id", userId)
+      .eq("network", network)
+      .in("phone_number", incomingPhones)
+      .gte("created_at", tenMinutesAgo)
+      .not("status", "eq", "failed")
+
+    if (recentOrders && recentOrders.length > 0) {
+      const recentSet = new Set(recentOrders.map((r: any) => `${r.phone_number}|${r.size}`))
+      const duplicates = ordersToInsert.filter((o: any) => recentSet.has(`${o.phone_number}|${o.size}`))
+
+      if (duplicates.length > 0) {
+        console.warn(`[BULK-ORDERS] Duplicate guard triggered — ${duplicates.length} duplicate(s) in batch for user ${userId}`)
+        return NextResponse.json(
+          {
+            error: `Duplicate order detected. ${duplicates.length} phone number(s) already have the same data bundle placed in the last 10 minutes.`,
+            duplicates: duplicates.map((o: any) => ({
+              phone_number: o.phone_number,
+              volume_gb: parseFloat(o.size),
+            })),
+          },
+          { status: 409 }
+        )
+      }
+    }
+
     // Calculate total cost from verified prices BEFORE creating orders
     const totalCost = ordersToInsert.reduce((sum: number, order: any) => sum + order.price, 0)
 
