@@ -153,6 +153,37 @@ export default function MTNFulfillmentLogsPage() {
     }
   }
 
+  const handleBulkDeleteFailedInit = async () => {
+    if (!confirm("Permanently delete ALL FAILED_INIT placeholder logs (any status)? This clears stuck rows from the cron queue and cannot be undone.")) return;
+
+    try {
+      setDeleting("failed_init")
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return;
+
+      const response = await fetch(`/api/admin/fulfillment/mtn-logs?bulk=failed_init`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (data.success || response.ok) {
+        toast.success(`Purged ${data.deleted ?? 0} FAILED_INIT log(s)`)
+        loadLogs()
+      } else {
+        toast.error(data.error || "Failed to purge FAILED_INIT logs")
+      }
+    } catch (error) {
+      console.error("Error purging FAILED_INIT logs:", error)
+      toast.error("Error purging FAILED_INIT logs")
+    } finally {
+      setDeleting(null)
+    }
+  }
+
   const handleRetry = async (logId: string, log: MTNLog) => {
     const orderType = log.order_type || "shop"
     const orderId =
@@ -399,6 +430,19 @@ export default function MTNFulfillmentLogsPage() {
                 <Trash2 className="w-4 h-4 mr-2" />
               )}
               Clear Failed Logs
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDeleteFailedInit}
+              disabled={deleting === "failed_init"}
+              className="w-full sm:w-auto"
+            >
+              {deleting === "failed_init" ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
+              Purge FAILED_INIT
             </Button>
             <Button onClick={loadLogs} disabled={loading} className="w-full sm:w-auto">
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />

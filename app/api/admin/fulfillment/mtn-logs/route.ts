@@ -130,6 +130,27 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: true, message: "Bulk deleted successfully" })
     }
 
+    if (bulk === "failed_init") {
+      // FAILED_INIT_* rows are synthetic placeholders written when a provider's
+      // order-creation call failed (no real external order ID). Some get stuck in
+      // pending/processing and pollute the cron queue, so purge them by prefix
+      // regardless of status. The prefix only ever matches these placeholders —
+      // real provider order IDs are UUIDs or numeric.
+      const { data, error } = await supabase
+        .from("mtn_fulfillment_tracking")
+        .delete()
+        .like("mtn_order_id", "FAILED_INIT%")
+        .select("id")
+
+      if (error) {
+        console.error("[MTN-LOGS] Error purging FAILED_INIT logs:", error)
+        return NextResponse.json({ error: "Failed to purge FAILED_INIT logs" }, { status: 500 })
+      }
+
+      const deleted = data?.length ?? 0
+      return NextResponse.json({ success: true, deleted, message: `Purged ${deleted} FAILED_INIT log(s)` })
+    }
+
     return NextResponse.json({ error: "Invalid delete operation" }, { status: 400 })
   } catch (error) {
     console.error("[MTN-LOGS] Error:", error)
