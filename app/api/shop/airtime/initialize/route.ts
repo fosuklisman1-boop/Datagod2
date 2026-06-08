@@ -62,25 +62,27 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    let { shopId, shopSlug, beneficiaryPhone, paymentPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot } = body
+    const { shopSlug, beneficiaryPhone, paymentPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot } = body
 
-    // SECURITY: prefer slug over client-provided shopId. The slug is public; the
-    // UUID is internal. If slug is provided, resolve it server-side and overwrite
-    // any client shopId so a forged value can't reach the rest of the route.
-    if (shopSlug) {
-      // Match either the clean subdomain or the legacy shop_slug — on a subdomain
-      // storefront this value is the subdomain (see middleware rewrite).
-      const { data: shopRow, error: shopErr } = await supabase
-        .from("user_shops")
-        .select("id")
-        .or(shopHandleOrFilter(shopSlug))
-        .single()
-      if (shopErr || !shopRow) {
-        console.warn(`[SHOP-AIRTIME] ❌ Shop not found for slug=${shopSlug}`)
-        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
-      }
-      shopId = shopRow.id
+    // SECURITY: shopId must always be resolved server-side from the slug — never
+    // trusted from the client body. Accepting a raw shopId would let a caller
+    // attribute orders (and commission) to any shop without controlling that shop.
+    if (!shopSlug || typeof shopSlug !== "string" || !shopSlug.trim()) {
+      return NextResponse.json({ error: "shopSlug is required" }, { status: 400 })
     }
+
+    // Match either the clean subdomain or the legacy shop_slug — on a subdomain
+    // storefront this value is the subdomain (see middleware rewrite).
+    const { data: shopRow, error: shopErr } = await supabase
+      .from("user_shops")
+      .select("id")
+      .or(shopHandleOrFilter(shopSlug.trim()))
+      .single()
+    if (shopErr || !shopRow) {
+      console.warn(`[SHOP-AIRTIME] ❌ Shop not found for slug=${shopSlug}`)
+      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+    const shopId = shopRow.id
 
     // Honeypot: hidden form field that real users never fill. Any non-empty value = bot.
     if (typeof honeypot === "string" && honeypot.trim() !== "") {
@@ -88,7 +90,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 })
     }
 
-    if (!shopId || !beneficiaryPhone || (!airtimeAmount && !bodyAmount) || !customerEmail) {
+    if (!beneficiaryPhone || (!airtimeAmount && !bodyAmount) || !customerEmail) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 

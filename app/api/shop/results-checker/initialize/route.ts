@@ -47,23 +47,27 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    let { shopId, shopSlug, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, paymentPhone, turnstileToken, website: honeypot } = body
+    const { shopSlug, examBoard, quantity: rawQuantity, customerName, customerEmail, customerPhone, paymentPhone, turnstileToken, website: honeypot } = body
 
-    // SECURITY: prefer slug over client-provided shopId. Resolve server-side.
-    if (shopSlug) {
-      // Match either the clean subdomain or the legacy shop_slug — on a subdomain
-      // storefront this value is the subdomain (see middleware rewrite).
-      const { data: shopRow, error: shopErr } = await supabase
-        .from("user_shops")
-        .select("id")
-        .or(shopHandleOrFilter(shopSlug))
-        .single()
-      if (shopErr || !shopRow) {
-        console.warn(`[RC-SHOP-INIT] ❌ Shop not found for slug=${shopSlug}`)
-        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
-      }
-      shopId = shopRow.id
+    // SECURITY: shopId must always be resolved server-side from the slug — never
+    // trusted from the client body. Accepting a raw shopId would let a caller
+    // attribute orders (and commission) to any shop without controlling that shop.
+    if (!shopSlug || typeof shopSlug !== "string" || !shopSlug.trim()) {
+      return NextResponse.json({ error: "shopSlug is required" }, { status: 400 })
     }
+
+    // Match either the clean subdomain or the legacy shop_slug — on a subdomain
+    // storefront this value is the subdomain (see middleware rewrite).
+    const { data: shopRow, error: shopErr } = await supabase
+      .from("user_shops")
+      .select("id")
+      .or(shopHandleOrFilter(shopSlug.trim()))
+      .single()
+    if (shopErr || !shopRow) {
+      console.warn(`[RC-SHOP-INIT] ❌ Shop not found for slug=${shopSlug}`)
+      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+    const shopId = shopRow.id
 
     // Honeypot: hidden form field that real users never fill. Any non-empty value = bot.
     if (typeof honeypot === "string" && honeypot.trim() !== "") {
@@ -71,8 +75,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 })
     }
 
-    if (!shopId || !examBoard || !rawQuantity || !customerEmail) {
-      return NextResponse.json({ error: "shopId, examBoard, quantity, and customerEmail are required" }, { status: 400 })
+    if (!examBoard || !rawQuantity || !customerEmail) {
+      return NextResponse.json({ error: "examBoard, quantity, and customerEmail are required" }, { status: 400 })
     }
 
     // Turnstile CAPTCHA verification — admin can disable globally via toggle.
