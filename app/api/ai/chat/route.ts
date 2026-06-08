@@ -150,6 +150,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Admin context gate (unconditional) ────────────────────────────────────
+  // The role check above lives INSIDE the `if (authHeader)` block, so a request
+  // with no/invalid Authorization header would otherwise fall straight through
+  // to the admin system prompt and the full admin tool suite with userRole="guest".
+  // Enforce admin here regardless of whether an auth header was supplied.
+  if (context === "admin" && userRole !== "admin") {
+    return new Response(
+      JSON.stringify({ error: "Admin access required" }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    )
+  }
+
   // ── Rate limit ────────────────────────────────────────────────────────────
   // Unauthenticated home requests fall back to IP — cap them tightly since
   // there is no per-user identity to bind the limit to.

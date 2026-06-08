@@ -968,6 +968,24 @@ export interface ToolContext {
   baseUrl: string
 }
 
+// Admin-only tool names. These either mutate platform state or read data via the
+// service-role client. Tool-list gating (aiTools("admin")) and downstream HTTP
+// auth are NOT sufficient on their own: a context-confusion bug can surface the
+// admin toolset to a non-admin, and the direct service-role read tools never hit
+// an HTTP auth check. Every one of these is gated on ctx.userRole === "admin" below.
+const ADMIN_ONLY_TOOLS = new Set<string>([
+  "get_all_orders", "update_order_status", "bulk_update_order_status", "retry_failed_order",
+  "list_users", "get_user_info", "suspend_user", "update_user_role", "adjust_wallet_balance",
+  "list_shops", "manage_shop", "list_withdrawals", "manage_withdrawal",
+  "manage_ussd_shop", "manage_packages", "manage_blacklist", "bulk_blacklist",
+  "list_pending_fulfillment", "manual_fulfill_order", "bulk_manual_fulfill",
+  "sync_fulfillment_status", "retry_blacklisted_order",
+  "toggle_ordering", "toggle_auto_fulfillment", "toggle_mtn_auto_fulfillment",
+  "toggle_afa_auto_fulfillment", "set_mtn_provider", "get_mtn_balance",
+  "manage_rate_limits", "get_platform_stats", "get_admin_stats", "manage_subscription_plans",
+  "get_fulfillment_logs", "get_mtn_logs", "manage_scheduled_task", "send_notification",
+])
+
 // ─── executeToolCall ─────────────────────────────────────────────────────────
 
 export async function executeToolCall(
@@ -976,6 +994,12 @@ export async function executeToolCall(
   ctx: ToolContext
 ): Promise<unknown> {
   try {
+    // Defense in depth: never execute an admin-only tool for a non-admin caller,
+    // regardless of which tool list was offered or how the context was resolved.
+    if (ADMIN_ONLY_TOOLS.has(name) && ctx.userRole !== "admin") {
+      return { error: "Not authorized" }
+    }
+
     switch (name) {
       case "get_available_packages": {
         // Storefront (shopSlug set, guest user): fetch only what this shop has configured
