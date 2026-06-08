@@ -124,15 +124,15 @@ export async function handleRcConfirm(
   const provider = paystackProviderFromPhone(dialingPhone)
   const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= pricing.totalPaid
 
-  await setSession(sessionId, {
-    ...session,
-    rcUnitPrice: pricing.unitPrice,
-    rcTotal: pricing.totalPaid,
-    userId: dialer.userId,
-    walletBalance: dialer.balance,
-  })
-
   if (walletEligible) {
+    await setSession(sessionId, {
+      ...session,
+      step: "RC_PAYMENT_METHOD",
+      rcUnitPrice: pricing.unitPrice,
+      rcTotal: pricing.totalPaid,
+      userId: dialer.userId,
+      walletBalance: dialer.balance,
+    })
     return cont(rcPaymentMethodMenu(pricing.totalPaid, dialer.balance!))
   }
 
@@ -141,6 +141,11 @@ export async function handleRcConfirm(
     return end("Payment not available for your number. Please use a MoMo number.")
   }
 
+  await setSession(sessionId, {
+    ...session,
+    rcUnitPrice: pricing.unitPrice,
+    rcTotal: pricing.totalPaid,
+  })
   return createRcOrderAndChargeMomo(sessionId, session, board, qty, pricing.unitPrice, pricing.totalPaid, provider)
 }
 

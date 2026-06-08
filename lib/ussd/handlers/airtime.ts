@@ -198,19 +198,27 @@ export async function handleAirtimeConfirm(
     return end("Error creating order.\nPlease try again.")
   }
 
+  if (walletEligible) {
+    await setSession(sessionId, {
+      ...session,
+      step: "AIRTIME_PAYMENT_METHOD",
+      airtimeFee: fee,
+      airtimeToDeliver: toDeliver,
+      userId: dialer.userId,
+      walletBalance: dialer.balance,
+      pendingOrderId: order.id,
+      pendingOrderTable: "airtime_orders",
+    })
+    return cont(airtimePaymentMethodMenu(amount, dialer.balance!))
+  }
+
   await setSession(sessionId, {
     ...session,
     airtimeFee: fee,
     airtimeToDeliver: toDeliver,
-    userId: dialer.userId,
-    walletBalance: dialer.balance,
     pendingOrderId: order.id,
     pendingOrderTable: "airtime_orders",
   })
-
-  if (walletEligible) {
-    return cont(airtimePaymentMethodMenu(amount, dialer.balance!))
-  }
   return chargeAirtimeMomo(sessionId, session, order.id, amount, provider!)
 }
 
