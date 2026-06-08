@@ -90,16 +90,20 @@ export async function sendAirtimeViaDigiwapy(params: {
   }
 }
 
-/** Verify the X-Webhook-Signature header from a Digiwapy webhook. */
+/**
+ * Verify the X-Webhook-Signature header from a Digiwapy webhook.
+ * Digiwapy signs JSON.stringify(parsedPayload), so pass the already-parsed
+ * body object, not the raw text.
+ */
 export function verifyDigiWapyWebhookSignature(
-  rawBody: string,
+  payload: unknown,
   signatureHeader: string
 ): boolean {
   const secret = process.env.DIGIWAPY_WEBHOOK_SECRET
   if (!secret) return false
   const expected = `sha256=${crypto
     .createHmac("sha256", secret)
-    .update(rawBody)
+    .update(JSON.stringify(payload))
     .digest("hex")}`
   // Constant-time comparison to avoid timing attacks
   const aBuf = Buffer.from(expected)
@@ -503,54 +507,50 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Map Digiwapy terminal statuses to our airtime_orders statuses.
-// failed/reversed → "pending" so admin can retry.
-const STATUS_MAP: Record<string, string> = {
-  success: "completed",
-  completed: "completed",
-  failed: "pending",
-  reversed: "pending",
+// Digiwapy event → our airtime_orders.status
+// transaction.failed → "pending" so admin can retry via the Auto Fulfill button
+const EVENT_STATUS_MAP: Record<string, string> = {
+  "transaction.completed": "completed",
+  "transaction.failed":    "pending",
+  "transaction.pending":   "processing",
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.text()
-  const signature = request.headers.get("x-webhook-signature") ?? ""
-
-  if (!verifyDigiWapyWebhookSignature(rawBody, signature)) {
-    console.warn("[DIGIWAPY-WEBHOOK] Invalid or missing signature")
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
-  }
-
   let payload: any
   try {
-    payload = JSON.parse(rawBody)
+    payload = await request.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  // Payload shape assumed: { reference, status, message }
-  // Confirm field names with Digiwapy dashboard before go-live.
-  const { reference, status, message } = payload
-
-  if (!reference || !status) {
-    // Unknown payload shape — ack and move on
-    return NextResponse.json({ received: true })
+  // Signature is over JSON.stringify(parsedPayload) — matches Digiwapy's signing logic
+  const signature = request.headers.get("x-webhook-signature") ?? ""
+  if (!verifyDigiWapyWebhookSignature(payload, signature)) {
+    console.warn("[DIGIWAPY-WEBHOOK] Invalid or missing signature")
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
   }
 
-  const newStatus = STATUS_MAP[String(status).toLowerCase()] ?? "processing"
+  const { event, data } = payload
+
+  // Only act on transaction events that have a reference
+  const newStatus = EVENT_STATUS_MAP[event]
+  if (!newStatus || !data?.reference) {
+    // wallet.credited / wallet.debited or unknown — ack and ignore
+    return NextResponse.json({ received: true })
+  }
 
   const { error } = await supabase
     .from("airtime_orders")
     .update({
       status: newStatus,
-      notes: message ?? `Digiwapy webhook: ${status}`,
+      notes: `Digiwapy: ${event}`,
       updated_at: new Date().toISOString(),
     })
-    .eq("reference_code", reference)
+    .eq("reference_code", data.reference)
 
   if (error) {
     console.error("[DIGIWAPY-WEBHOOK] DB update error:", error)
-    // Still return 200 so Digiwapy doesn't retry indefinitely
+    // Return 200 so Digiwapy doesn't retry — log the error for investigation
   }
 
   return NextResponse.json({ received: true })
@@ -952,24 +952,29 @@ npm run dev
 Test with curl (replace values):
 
 ```bash
-# Generate a test signature
+# Generate a test signature (matches Digiwapy's JSON.stringify signing logic)
 node -e "
 const crypto = require('crypto');
 const secret = 'your_webhook_secret_here';
-const body = JSON.stringify({reference:'TEST-REF-001', status:'success', message:'Airtime sent'});
+const payload = {
+  event: 'transaction.completed',
+  timestamp: new Date().toISOString(),
+  data: { reference: 'TEST-REF-001', type: 'airtime', amount: 10, status: 'completed', recipient: '0241234567', network: 'MTN' }
+};
+const body = JSON.stringify(payload);
 const sig = 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
 console.log('Body:', body);
 console.log('Signature:', sig);
 "
 ```
 
-Then POST it:
+Then POST it (replace `<sig_from_above>` and `<body_from_above>` with the output above):
 
 ```bash
 curl -X POST http://localhost:3000/api/webhooks/digiwapy \
   -H "Content-Type: application/json" \
-  -H "X-Webhook-Signature: sha256=<sig_from_above>" \
-  -d '{"reference":"TEST-REF-001","status":"success","message":"Airtime sent"}'
+  -H "X-Webhook-Signature: <sig_from_above>" \
+  -d '<body_from_above>'
 ```
 
 Expected response: `{"received":true}`
@@ -981,7 +986,7 @@ Expected DB: `airtime_orders` row with `reference_code = 'TEST-REF-001'` updated
 curl -X POST http://localhost:3000/api/webhooks/digiwapy \
   -H "Content-Type: application/json" \
   -H "X-Webhook-Signature: sha256=invalidsignature" \
-  -d '{"reference":"TEST-REF-001","status":"success"}'
+  -d '{"event":"transaction.completed","data":{"reference":"TEST-REF-001"}}'
 ```
 
 Expected response: `{"error":"Invalid signature"}` with HTTP 401
