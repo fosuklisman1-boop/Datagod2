@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,9 +10,9 @@ const supabase = createClient(
  * Marks a paid airtime order ready for fulfillment and credits shop profit.
  *
  * Shared by the storefront webhook branch (resolved via wallet_payments) and the
- * USSD direct-charge webhook branch (resolved by id === reference). Airtime has
- * no auto-fulfillment API — an admin processes the 'pending' queue — so this only
- * flips the order to paid/pending and records the merchant commission.
+ * USSD direct-charge webhook branch (resolved by id === reference). After marking
+ * payment complete, attempts Digiwapy auto-fulfillment if enabled for the order's
+ * network. On Digiwapy failure the order stays pending for admin retry.
  *
  * Idempotent: a duplicate webhook (payment already completed) is a no-op, and the
  * shop_profits insert tolerates the unique-violation (23505) from a re-credit.
@@ -54,6 +55,37 @@ export async function markAirtimeOrderPaid(
       console.error("[AIRTIME-SVC] Failed to insert airtime profit record:", profitErr)
     } else if (!profitErr) {
       console.log(`[AIRTIME-SVC] ✓ Airtime profit recorded: GHS ${airtimeData.merchant_commission} (balance synced by DB trigger)`)
+    }
+  }
+
+  // Attempt Digiwapy auto-fulfillment if enabled for this network
+  const digiWapyEnabled = await isDigiWapyEnabledForNetwork(airtimeData.network)
+  if (digiWapyEnabled) {
+    const result = await sendAirtimeViaDigiwapy({
+      network: airtimeData.network,
+      recipient: airtimeData.beneficiary_phone,
+      amount: airtimeData.airtime_amount,
+      reference: airtimeData.reference_code,
+    })
+    if (result.success) {
+      await supabase
+        .from("airtime_orders")
+        .update({
+          status: "processing",
+          notes: "Auto-fulfilled via Digiwapy",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", airtimeData.id)
+      console.log(`[AIRTIME-SVC] ✓ Digiwapy auto-fulfill sent for order ${airtimeData.id}`)
+    } else {
+      await supabase
+        .from("airtime_orders")
+        .update({
+          notes: `Digiwapy error: ${result.message}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", airtimeData.id)
+      console.warn(`[AIRTIME-SVC] Digiwapy auto-fulfill failed for order ${airtimeData.id}: ${result.message}`)
     }
   }
 
