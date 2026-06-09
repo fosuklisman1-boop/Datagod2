@@ -7,7 +7,9 @@ const PAYSTACK_BASE_URL = "https://api.paystack.co"
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY
 
 if (!PAYSTACK_SECRET_KEY) {
-  throw new Error("PAYSTACK_SECRET_KEY is not set in environment variables")
+  // Warn at startup; actual API calls will fail at runtime if key is absent.
+  // Throwing here crashes Next.js page-data collection during `next build`.
+  console.warn("[PAYSTACK] PAYSTACK_SECRET_KEY is not set — payment APIs will be unavailable")
 }
 
 interface InitializePaymentParams {

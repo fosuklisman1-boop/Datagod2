@@ -1,11 +1,23 @@
 import webpush from 'web-push'
 import { supabaseAdmin } from './supabase'
 
-webpush.setVapidDetails(
-  `mailto:${process.env.VAPID_EMAIL || 'admin@datagod.com'}`,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-)
+let _vapidInitialised = false
+
+function ensureVapid() {
+  if (_vapidInitialised) return
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  const privateKey = process.env.VAPID_PRIVATE_KEY
+  if (!publicKey || !privateKey) {
+    // VAPID keys not configured — push notifications will be silently skipped
+    return
+  }
+  webpush.setVapidDetails(
+    `mailto:${process.env.VAPID_EMAIL || 'admin@datagod.com'}`,
+    publicKey,
+    privateKey
+  )
+  _vapidInitialised = true
+}
 
 export interface PushPayload {
   title: string
@@ -46,6 +58,8 @@ async function sendToSubscriptions(
   subscriptions: StoredSubscription[],
   payload: PushPayload
 ): Promise<{ sent: number; removed: number }> {
+  ensureVapid()
+  if (!_vapidInitialised) return { sent: 0, removed: 0 }
   const payloadStr = JSON.stringify({
     title: payload.title,
     body: payload.body,
