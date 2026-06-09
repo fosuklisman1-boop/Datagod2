@@ -88,11 +88,9 @@ async function processInbound(body: unknown): Promise<void> {
 
   console.log("[WA-WEBHOOK] Inbound:", { from, text: text.slice(0, 60) })
 
-  // Immediate feedback: blue ticks + typing bubble
-  await Promise.all([
-    msg.id ? markWaMessageRead(msg.id) : Promise.resolve(),
-    sendWaTyping(from),
-  ])
+  // Immediate feedback: fire-and-forget (never block reply processing)
+  if (msg.id) void markWaMessageRead(msg.id)
+  void sendWaTyping(from)
 
   // Dedup: skip if we already processed this Meta message ID
   if (msg.id) {
