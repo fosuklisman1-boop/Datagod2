@@ -130,10 +130,12 @@ export default function ResultsCheckRequestsPage() {
         const { error: uploadErr } = await supabase.storage
           .from("admin-uploads")
           .upload(path, file, { upsert: true, contentType: file.type })
-        if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
+        if (uploadErr) {
+          console.error("[upload]", uploadErr)
+          throw new Error(uploadErr.message || "File upload failed — check bucket exists and file type is allowed")
+        }
         const { data: urlData } = supabase.storage.from("admin-uploads").getPublicUrl(path)
         mediaUrl = urlData.publicUrl
-        // Derive media type from MIME
         if (file.type.startsWith("image/")) mediaType = "image"
         else if (file.type.startsWith("video/")) mediaType = "video"
         else mediaType = "document"
@@ -152,12 +154,16 @@ export default function ResultsCheckRequestsPage() {
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error || "Failed to send results")
+      }
       toast.success(`Results sent to ${req.phone_number}`)
       setMediaFiles(f => { const n = { ...f }; delete n[req.id]; return n })
       loadRequests()
     } catch (e: any) {
-      toast.error(e?.message ?? "Failed to deliver results")
+      console.error("[deliver]", e)
+      toast.error(e?.message || "Failed to deliver results")
     } finally {
       setDelivering(d => ({ ...d, [req.id]: false }))
     }
