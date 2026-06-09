@@ -270,7 +270,7 @@ async function handleWaEnterPaymentPhone(
   // Handle direct-charge confirm paths (guest/no-wallet users)
   if (session.waNextStep === 'CONFIRM_BUNDLE') {
     const res = await handleConfirm('1', sessionId, updatedSession)
-    void tagOrderChannel(sessionId, sessionId, 'ussd_orders', res.ussdServiceOp === 17)
+    void tagOrderChannel(sessionId, updatedSession.dialingPhone ?? sessionId, 'ussd_orders', res.ussdServiceOp === 17)
     return res
   }
   if (session.waNextStep === 'CONFIRM_AIRTIME') {
