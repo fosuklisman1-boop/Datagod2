@@ -32,16 +32,20 @@ export async function GET(
       throw new Error(`Failed to fetch order: ${error.message}`)
     }
 
-    // Return only the shop's display name — never the owner's email or phone.
-    // The previous implementation called auth.admin.getUserById which leaked the
-    // owner's Supabase auth email to any unauthenticated caller who knows an order UUID.
-    const { data: shop } = await supabase
-      .from("user_shops")
-      .select("shop_name")
-      .eq("id", order.shop_id)
-      .single()
+    // Fetch the shop's public display name and the WhatsApp contact link the owner
+    // explicitly set for customer support. This replaces the old auth.admin.getUserById
+    // call that leaked the owner's private Supabase auth email.
+    const [{ data: shop }, { data: settings }] = await Promise.all([
+      supabase.from("user_shops").select("shop_name").eq("id", order.shop_id).single(),
+      supabase.from("shop_settings").select("whatsapp_link").eq("shop_id", order.shop_id).single(),
+    ])
 
-    return NextResponse.json({ success: true, order, shopName: shop?.shop_name ?? null })
+    return NextResponse.json({
+      success: true,
+      order,
+      shopName: shop?.shop_name ?? null,
+      shopWhatsapp: settings?.whatsapp_link || null,
+    })
   } catch (error) {
     console.error("[SHOP-ORDER-GET] ✗ Error:", error)
     return NextResponse.json(

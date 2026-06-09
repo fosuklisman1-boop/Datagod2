@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopOrderService } from "@/lib/shop-service"
 import { useShopBasePath } from "@/lib/shop-url"
-import { CheckCircle, Copy, ArrowRight } from "lucide-react"
+import { CheckCircle, Copy, ArrowRight, MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
 
@@ -21,6 +21,7 @@ export default function OrderConfirmation() {
 
   const [order, setOrder] = useState<any>(null)
   const [shopName, setShopName] = useState<string | null>(null)
+  const [shopWhatsapp, setShopWhatsapp] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -33,6 +34,7 @@ export default function OrderConfirmation() {
       const result = await shopOrderService.getOrderById(orderId)
       setOrder(result.order)
       setShopName(result.shopName ?? null)
+      setShopWhatsapp(result.shopWhatsapp ?? null)
     } catch (error) {
       console.error("Error loading order:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load order details"
@@ -197,7 +199,20 @@ export default function OrderConfirmation() {
             <CardTitle className="text-base">Need Help?</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            <p>If you encounter any issues with your order, please contact <strong>{shopName ?? "the shop"}</strong> directly.</p>
+            <p>If you encounter any issues with your order, contact <strong>{shopName ?? "the shop"}</strong>:</p>
+            {shopWhatsapp ? (
+              <a
+                href={shopWhatsapp.startsWith("http") ? shopWhatsapp : `https://wa.me/${shopWhatsapp.replace(/\D/g, "")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-2 font-semibold text-green-600 hover:text-green-700"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Chat on WhatsApp
+              </a>
+            ) : (
+              <p className="mt-2 text-muted-foreground text-xs">Contact details not set by shop owner.</p>
+            )}
           </CardContent>
         </Card>
       </div>
