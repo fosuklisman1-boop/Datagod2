@@ -108,11 +108,14 @@ async function processInbound(body: unknown): Promise<void> {
   await logMessage(from, "inbound", text, msg.id)
 
   // Route: bot session active → bot router; else → AI
+  // waRouter returns '' when the user sent off-script freetext and the session was cleared,
+  // signalling that the AI should handle the message naturally.
   const session = await getWaSession(from)
   let reply: string
 
   if (session) {
     reply = await waRouter(from, text)
+    if (reply === '') reply = await handleWithAI(from, text)
   } else {
     reply = await handleWithAI(from, text)
   }

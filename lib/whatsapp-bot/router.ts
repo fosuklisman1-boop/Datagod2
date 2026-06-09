@@ -136,9 +136,10 @@ export async function waRouter(phone: string, text: string): Promise<string> {
   let overrideMessage: string | null = null
 
   // WhatsApp: intercept non-numeric freetext in menu-selection steps (where only digits are
-  // valid). Detect service intent via keywords so the user isn't trapped by a stale session.
+  // valid). Known ordering keywords navigate directly; everything else escapes to the AI so
+  // general questions get a natural response instead of a USSD-style numbered menu.
   const MENU_SELECTION_STEPS: ReadonlySet<string> = new Set([
-    'MAIN', 'SELECT_NETWORK', 'CHECK_STATUS',
+    'MAIN', 'SELECT_NETWORK', 'SELECT_BUNDLE', 'CHECK_STATUS',
     'CONFIRM', 'PAYMENT_METHOD',
     'AFA_CONFIRM_AFA',
     'AIRTIME_SELECT_NETWORK', 'AIRTIME_CONFIRM', 'AIRTIME_PAYMENT_METHOD',
@@ -147,20 +148,29 @@ export async function waRouter(phone: string, text: string): Promise<string> {
   ])
   if (MENU_SELECTION_STEPS.has(session.step) && !/^\d+$/.test(input)) {
     const lc = input.toLowerCase()
-    let nextStep: USSDSession['step'] = 'MAIN'
-    let menuText = mainMenu()
     if (lc.includes('data') || lc.includes('bundle')) {
-      nextStep = 'SELECT_NETWORK'; menuText = networkMenu()
-    } else if (lc.includes('airtime')) {
-      nextStep = 'AIRTIME_ENTER_RECIPIENT'; menuText = airtimeRecipientPrompt()
-    } else if (lc.includes('afa') || lc.includes('registr')) {
-      nextStep = 'AFA_ENTER_NAME'; menuText = afaEnterNamePrompt()
-    } else if (lc.includes('result') || lc.includes('checker') || lc.includes('waec') || lc.includes('bece') || lc.includes('voucher')) {
-      nextStep = 'RC_MENU'; menuText = rcMenu()
+      await setWaSession(sessionId, { ...session, step: 'SELECT_NETWORK' })
+      await extendWaSession(sessionId)
+      return networkMenu()
     }
-    await setWaSession(sessionId, { ...session, step: nextStep })
-    await extendWaSession(sessionId)
-    return menuText
+    if (lc.includes('airtime')) {
+      await setWaSession(sessionId, { ...session, step: 'AIRTIME_ENTER_RECIPIENT' })
+      await extendWaSession(sessionId)
+      return airtimeRecipientPrompt()
+    }
+    if (lc.includes('afa') || lc.includes('registr')) {
+      await setWaSession(sessionId, { ...session, step: 'AFA_ENTER_NAME' })
+      await extendWaSession(sessionId)
+      return afaEnterNamePrompt()
+    }
+    if (lc.includes('result') || lc.includes('checker') || lc.includes('waec') || lc.includes('bece') || lc.includes('voucher')) {
+      await setWaSession(sessionId, { ...session, step: 'RC_MENU' })
+      await extendWaSession(sessionId)
+      return rcMenu()
+    }
+    // No ordering keyword — escape to AI for a natural response
+    await deleteWaSession(sessionId)
+    return ''
   }
 
   switch (session.step) {
