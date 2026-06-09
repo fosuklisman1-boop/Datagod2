@@ -1,0 +1,85 @@
+<h2>WhatsApp Payment Flow — MoMo Number Entry</h2>
+<p class="subtitle">USSD charges the dialing number automatically. WhatsApp must ask for it. One extra step added to the MoMo path.</p>
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start;">
+
+  <!-- USSD flow -->
+  <div>
+    <div style="text-align:center; font-weight:700; font-size:13px; margin-bottom:12px; color:#666;">
+      📟 USSD (current)
+    </div>
+    <div style="background:#e5ddd5; border-radius:10px; padding:14px; font-family:'Helvetica Neue',sans-serif;">
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="background:#fff; border-radius:8px; padding:10px 13px; font-size:12px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+          Pay GHS 6.50<br>
+          1. Datagod Wallet (GHS 20.00)<br>
+          2. MoMo prompt<br>
+          0. Cancel
+        </div>
+        <div style="background:#dcf8c6; border-radius:8px; padding:8px 12px; font-size:12px; align-self:flex-end; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+          2
+        </div>
+        <div style="background:#fff; border-radius:8px; padding:10px 13px; font-size:12px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+          MoMo prompt sent to<br><strong>0244 123 456</strong> ✅<br><br>
+          Enter OTP from phone:<br>0. Cancel
+        </div>
+        <div style="background:#e0e0e0; border-radius:6px; padding:6px 12px; font-size:11px; color:#666; align-self:center; text-align:center;">
+          ☝️ Number auto-filled from<br>dialing phone (MSISDN)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WhatsApp flow -->
+  <div>
+    <div style="text-align:center; font-weight:700; font-size:13px; margin-bottom:12px; color:#128c7e;">
+      💬 WhatsApp (new)
+    </div>
+    <div style="background:#e5ddd5; border-radius:10px; padding:14px; font-family:'Helvetica Neue',sans-serif;">
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="background:#fff; border-radius:8px; padding:10px 13px; font-size:12px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+          Pay GHS 6.50<br>
+          1. Datagod Wallet (GHS 20.00)<br>
+          2. MoMo prompt<br>
+          0. Cancel
+        </div>
+        <div style="background:#dcf8c6; border-radius:8px; padding:8px 12px; font-size:12px; align-self:flex-end; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+          2
+        </div>
+        <!-- NEW step -->
+        <div style="background:#fff; border-radius:8px; padding:10px 13px; font-size:12px; box-shadow:0 1px 1px rgba(0,0,0,.1); border-left:3px solid #128c7e;">
+          Enter MoMo number<br>to charge:<br><br>
+          <span style="color:#888; font-size:11px;">(e.g. 0244123456)</span><br><br>
+          0. Cancel
+        </div>
+        <div style="background:#dcf8c6; border-radius:8px; padding:8px 12px; font-size:12px; align-self:flex-end; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+          0244123456
+        </div>
+        <div style="background:#fff; border-radius:8px; padding:10px 13px; font-size:12px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+          MoMo prompt sent to<br><strong>0244 123 456</strong> ✅<br><br>
+          Enter OTP from phone:<br>0. Cancel
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:20px; background:#fff; border:1.5px solid #128c7e; border-radius:10px; padding:16px;">
+  <h3 style="margin:0 0 10px; font-size:14px; color:#128c7e;">⚙️ Implementation: new WhatsApp-only step</h3>
+  <ul style="font-size:13px; margin:0; padding-left:18px; line-height:1.9;">
+    <li>Add <code>WA_ENTER_PAYMENT_PHONE</code> step to session type</li>
+    <li>In WhatsApp bot router: when USSD handler returns <code>ussdServiceOp: 2</code> from <code>PAYMENT_METHOD</code> selecting MoMo → intercept and insert this new step instead</li>
+    <li>Handler validates phone format, stores as <code>session.momoPhone</code>, then calls the MoMo charge with that number</li>
+    <li>Applies to all 3 services: <strong>Data Bundles</strong>, <strong>Airtime</strong>, <strong>Results Checker</strong></li>
+    <li>Wallet payment (option 1) is unchanged — no phone needed</li>
+  </ul>
+</div>
+
+<div style="margin-top:12px; background:#fff3e0; border:1.5px solid #ff9800; border-radius:10px; padding:14px;">
+  <h3 style="margin:0 0 8px; font-size:13px; color:#e65100;">💡 Optional UX improvement (can add later)</h3>
+  <p style="font-size:12px; margin:0; color:#555;">
+    Pre-fill from WhatsApp number: "Charge <strong>+233 55 991 9037</strong>?<br>1. Yes  2. Enter different number" —
+    saves a step for users whose WhatsApp = MoMo number.
+  </p>
+</div>

@@ -120,7 +120,12 @@
       "Bash(git push *)",
       "Bash(git rm *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "PowerShell(npx tsc --noEmit 2>&1)",
+      "PowerShell($node = \\(Get-Command node -ErrorAction SilentlyContinue\\).Source; \"node: $node\"; Test-Path \".\\\\node_modules\\\\.bin\\\\tsc.cmd\"; Test-Path \".\\\\node_modules\\\\typescript\\\\bin\\\\tsc\")",
+      "PowerShell(\"---\")",
+      "PowerShell(git add app/api/afa/submit/route.ts app/api/auth/send-phone-otp/route.ts app/api/auth/verify-phone-otp/route.ts app/api/payments/initialize/route.ts app/api/results-checker/purchase/route.ts app/api/user/update-phone/route.ts app/api/wallet/debit/route.ts app/dashboard/page.tsx components/layout/dashboard-layout.tsx components/layout/sidebar.tsx lib/phone-verify-guard.ts lib/rate-limiter.ts lib/sms-service.ts lib/storefront-otp.ts lib/phone-format.ts app/admin/user-phone-audit app/api/admin/users/phone-audit migrations/0055_phone_gate_db_enforcement.sql migrations/0056_redact_otp_in_sms_logs.sql)",
+      "PowerShell(\"---staged---\")"
     ]
   }
 }

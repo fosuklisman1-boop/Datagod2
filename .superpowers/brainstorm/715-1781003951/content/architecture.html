@@ -1,0 +1,131 @@
+<h2>WhatsApp Bot — Architecture &amp; Message Flow</h2>
+<p class="subtitle">How every incoming WhatsApp message is routed — support AI vs. ordering bot</p>
+
+<div style="background:#f8f9fa; border-radius:12px; padding:24px; font-family:'Helvetica Neue',sans-serif; overflow-x:auto;">
+
+  <!-- Flow diagram -->
+  <div style="display:flex; flex-direction:column; align-items:center; gap:0; min-width:600px;">
+
+    <!-- Row 1: User -->
+    <div style="background:#25D366; color:#fff; border-radius:10px; padding:10px 24px; font-weight:700; font-size:14px; box-shadow:0 2px 6px rgba(0,0,0,.15);">
+      📱 User sends WhatsApp message
+    </div>
+    <div style="width:2px; height:20px; background:#aaa;"></div>
+
+    <!-- Row 2: Webhook -->
+    <div style="background:#3b5998; color:#fff; border-radius:10px; padding:10px 24px; font-weight:600; font-size:14px; box-shadow:0 2px 6px rgba(0,0,0,.15);">
+      POST /api/whatsapp/webhook
+      <span style="font-size:11px; font-weight:400; opacity:.85; margin-left:8px;">Meta Cloud API → our server</span>
+    </div>
+    <div style="width:2px; height:20px; background:#aaa;"></div>
+
+    <!-- Row 3: Decision diamond -->
+    <div style="background:#fff; border:2px solid #444; transform:rotate(45deg); width:120px; height:120px; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.1);">
+      <div style="transform:rotate(-45deg); text-align:center; font-size:12px; font-weight:700; color:#333; line-height:1.3;">
+        Active<br>ordering<br>session?
+        <div style="font-size:10px; font-weight:400; color:#666; margin-top:2px;">Redis wa:session:{phone}</div>
+      </div>
+    </div>
+
+    <!-- Row 4: Branch labels + boxes -->
+    <div style="display:flex; width:600px; justify-content:space-between; align-items:flex-start; margin-top:0; position:relative;">
+
+      <!-- Left branch: NO -->
+      <div style="display:flex; flex-direction:column; align-items:center; gap:0; flex:1;">
+        <div style="height:20px; width:2px; background:#aaa;"></div>
+        <div style="background:#ff6b35; color:#fff; border-radius:8px; padding:8px 16px; font-size:12px; font-weight:700; text-align:center; box-shadow:0 2px 4px rgba(0,0,0,.1);">
+          ✗ No session
+        </div>
+        <div style="width:2px; height:16px; background:#aaa;"></div>
+        <div style="background:#fff; border:2px solid #ff6b35; border-radius:10px; padding:12px 16px; font-size:12px; text-align:center; width:180px;">
+          <strong>Existing WhatsApp AI</strong><br>
+          <span style="color:#666; font-size:11px;">Support, account queries,<br>order status etc.</span><br><br>
+          <span style="color:#ff6b35; font-size:11px;">↓ If ordering intent detected</span><br>
+          <span style="font-size:11px;">AI calls <code>start_ordering_bot</code> tool</span>
+        </div>
+        <div style="width:2px; height:16px; background:#aaa;"></div>
+        <div style="background:#fff3e0; border:1.5px solid #ff9800; border-radius:8px; padding:8px 12px; font-size:11px; text-align:center; width:180px;">
+          Sets <code>wa:session:{phone}</code><br>= <code>&#123;step:'MAIN'&#125;</code><br>
+          Sends main menu to user
+        </div>
+      </div>
+
+      <!-- Vertical divider -->
+      <div style="width:1px; background:#ddd; margin:0 12px; align-self:stretch;"></div>
+
+      <!-- Right branch: YES -->
+      <div style="display:flex; flex-direction:column; align-items:center; gap:0; flex:1;">
+        <div style="height:20px; width:2px; background:#aaa;"></div>
+        <div style="background:#128c7e; color:#fff; border-radius:8px; padding:8px 16px; font-size:12px; font-weight:700; text-align:center; box-shadow:0 2px 4px rgba(0,0,0,.1);">
+          ✓ Session active
+        </div>
+        <div style="width:2px; height:16px; background:#aaa;"></div>
+        <div style="background:#fff; border:2px solid #128c7e; border-radius:10px; padding:12px 16px; font-size:12px; text-align:center; width:180px;">
+          <strong>WhatsApp Bot Router</strong><br>
+          <span style="color:#666; font-size:11px;">lib/whatsapp-bot/router.ts</span><br><br>
+          <span style="font-size:11px;">Maps phone+text → calls<br>existing USSD step handlers</span>
+        </div>
+        <div style="width:2px; height:16px; background:#aaa;"></div>
+        <div style="background:#e8f5e9; border:1.5px solid #4caf50; border-radius:8px; padding:8px 12px; font-size:11px; text-align:center; width:180px;">
+          Returns menu text<br>→ send via WhatsApp API<br><br>
+          <span style="color:#888;">On exit/end: delete session<br>→ back to AI on next msg</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Shared bottom -->
+    <div style="width:2px; height:24px; background:#aaa; margin-top:12px;"></div>
+    <div style="background:#555; color:#fff; border-radius:10px; padding:10px 24px; font-size:13px; font-weight:600; box-shadow:0 2px 6px rgba(0,0,0,.15);">
+      📤 Send reply via Meta Cloud API &nbsp;·&nbsp; Log to <code>whatsapp_messages</code>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px; display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+
+  <div style="background:#fff; border:1.5px solid #e0e0e0; border-radius:10px; padding:16px;">
+    <h3 style="margin:0 0 10px; font-size:14px;">📁 New files</h3>
+    <ul style="font-size:12px; margin:0; padding-left:16px; line-height:1.8; color:#333;">
+      <li><code>app/api/whatsapp/webhook/route.ts</code></li>
+      <li><code>lib/whatsapp-bot/session.ts</code></li>
+      <li><code>lib/whatsapp-bot/send.ts</code></li>
+      <li><code>lib/whatsapp-bot/router.ts</code></li>
+    </ul>
+  </div>
+
+  <div style="background:#fff; border:1.5px solid #e0e0e0; border-radius:10px; padding:16px;">
+    <h3 style="margin:0 0 10px; font-size:14px;">✏️ Modified files</h3>
+    <ul style="font-size:12px; margin:0; padding-left:16px; line-height:1.8; color:#333;">
+      <li><code>lib/ussd/menus.ts</code> — configurable char limit</li>
+      <li><code>lib/ai-tools.ts</code> — add <code>start_ordering_bot</code> tool</li>
+      <li><code>app/api/ai/chat/route.ts</code> — handle new tool call</li>
+      <li>Migration: add <code>channel</code> col to <code>ussd_orders</code></li>
+    </ul>
+  </div>
+
+  <div style="background:#fff3e0; border:1.5px solid #ff9800; border-radius:10px; padding:16px;">
+    <h3 style="margin:0 0 10px; font-size:14px;">🔑 New env vars</h3>
+    <ul style="font-size:12px; margin:0; padding-left:16px; line-height:1.8; font-family:monospace; color:#555;">
+      <li>WHATSAPP_ACCESS_TOKEN</li>
+      <li>WHATSAPP_PHONE_NUMBER_ID</li>
+      <li>WHATSAPP_VERIFY_TOKEN</li>
+    </ul>
+  </div>
+
+  <div style="background:#e8f5e9; border:1.5px solid #4caf50; border-radius:10px; padding:16px;">
+    <h3 style="margin:0 0 10px; font-size:14px;">♻️ Re-used as-is</h3>
+    <ul style="font-size:12px; margin:0; padding-left:16px; line-height:1.8; color:#333;">
+      <li>All 20 USSD step handlers</li>
+      <li>Redis session store (new prefix)</li>
+      <li>All fulfillment / DB logic</li>
+      <li>Paystack MoMo charge + OTP flow</li>
+      <li><code>whatsapp_messages</code> DB table</li>
+    </ul>
+  </div>
+
+</div>
+
+<p style="margin-top:20px; font-size:12px; color:#888; text-align:center;">
+  Session TTL: 30 min (vs 120s for USSD) &nbsp;·&nbsp; Redis key: <code>wa:session:{phone}</code> &nbsp;·&nbsp; Channel logged as <code>'whatsapp'</code> on orders
+</p>

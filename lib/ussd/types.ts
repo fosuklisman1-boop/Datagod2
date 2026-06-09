@@ -43,9 +43,12 @@ export type USSDStep =
   | 'RC_VOUCHER_DETAIL'
   // Results Check Service (check results on behalf of user)
   | 'RC_CHECK_BOARD'
+  | 'RC_CHECK_CANDIDATE_TYPE'
   | 'RC_CHECK_MODE'
   | 'RC_CHECK_VOUCHER'
+  | 'RC_CHECK_VOUCHER_SERIAL'
   | 'RC_CHECK_INDEX'
+  | 'RC_CHECK_DOB'
   | 'RC_CHECK_YEAR'
   | 'RC_CHECK_CONFIRM'
   | 'WA_ENTER_PAYMENT_PHONE'
@@ -96,13 +99,16 @@ export interface USSDSession {
   rcMyOrders?: Array<{ id: string; exam_board: string; reference_code: string; created_at: string }>
   rcSelectedOrderId?: string
   // Results Check Service fields
-  rcCheckBoard?: string          // 'WAEC' | 'BECE' | 'NOVDEC'
+  rcCheckBoard?: string                       // 'WAEC' | 'BECE' | 'NOVDEC'
+  rcCheckCandidateType?: 'school' | 'private'
   rcCheckMode?: 'combo' | 'own_voucher'
-  rcCheckVoucherPin?: string     // PIN the user provides (own_voucher mode)
-  rcCheckIndex?: string          // student's index number
-  rcCheckYear?: number           // exam year e.g. 2024
-  rcCheckFee?: number            // check-only fee from admin settings
-  rcCheckComboTotal?: number     // combo total: 1 voucher price + check fee
+  rcCheckVoucherPin?: string                  // PIN the user provides (own_voucher mode)
+  rcCheckVoucherSerial?: string               // serial number the user provides (own_voucher mode)
+  rcCheckIndex?: string                       // student's index number
+  rcCheckDob?: string                         // date of birth DD/MM/YYYY
+  rcCheckYear?: number                        // exam year e.g. 2024
+  rcCheckFee?: number                         // check-only fee from admin settings
+  rcCheckComboTotal?: number                  // combo total: 1 voucher price + check fee
   rcCheckChannel?: 'ussd' | 'whatsapp'
   // WhatsApp-only: MoMo billing number entered by the user at WA_ENTER_PAYMENT_PHONE step
   momoPhone?: string

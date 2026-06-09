@@ -1,0 +1,113 @@
+<h2>WhatsApp Bot — Navigation Style</h2>
+<p class="subtitle">How should users navigate the bot menus? This is the biggest UX decision — it affects how every screen is built.</p>
+
+<div class="split" style="align-items: flex-start; gap: 24px;">
+
+  <!-- Option A -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)" style="flex:1; padding: 0; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 16px 20px; display:flex; align-items:center; gap:12px;">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3 style="margin:0">Numbered Text Menus</h3>
+        <p style="margin:4px 0 0; font-size:13px; color:#888;">Identical to USSD — user replies 1, 2, 3…</p>
+      </div>
+    </div>
+    <div style="background:#f9f9f9; padding: 16px; border-top: 1px solid #eee;">
+      <!-- WhatsApp mockup A -->
+      <div style="background:#e5ddd5; border-radius:10px; padding:14px; font-family:'Helvetica Neue',sans-serif; max-width:320px; margin:0 auto;">
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="background:#dcf8c6; border-radius:8px 8px 2px 8px; padding:10px 14px; align-self:flex-end; max-width:85%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+            Hi
+          </div>
+          <div style="background:#fff; border-radius:8px 8px 8px 2px; padding:10px 14px; align-self:flex-start; max-width:90%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+            👋 Welcome to Datagod<br><br>
+            1. Buy Data Bundle<br>
+            2. Buy Airtime<br>
+            3. AFA Registration<br>
+            4. Results Checker<br>
+            0. Exit
+          </div>
+          <div style="background:#dcf8c6; border-radius:8px 8px 2px 8px; padding:10px 14px; align-self:flex-end; max-width:85%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+            1
+          </div>
+          <div style="background:#fff; border-radius:8px 8px 8px 2px; padding:10px 14px; align-self:flex-start; max-width:90%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+            Select Network:<br><br>
+            1. MTN<br>
+            2. Telecel<br>
+            3. AirtelTigo<br>
+            4. AT-iShare<br>
+            0. Back
+          </div>
+          <div style="background:#dcf8c6; border-radius:8px 8px 2px 8px; padding:10px 14px; align-self:flex-end; max-width:85%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+            1
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="padding: 12px 20px;">
+      <div class="pros-cons" style="margin:0;">
+        <div class="pros" style="padding:8px 12px;"><h4 style="font-size:12px;">Pros</h4><ul style="font-size:12px; padding-left:14px; margin:4px 0;"><li>Zero extra complexity</li><li>Re-use all USSD logic as-is</li><li>Familiar to USSD users</li></ul></div>
+        <div class="cons" style="padding:8px 12px;"><h4 style="font-size:12px;">Cons</h4><ul style="font-size:12px; padding-left:14px; margin:4px 0;"><li>Feels like SMS, not WhatsApp</li><li>No rich WhatsApp UI</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)" style="flex:1; padding: 0; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 16px 20px; display:flex; align-items:center; gap:12px;">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3 style="margin:0">Interactive Buttons &amp; Lists</h3>
+        <p style="margin:4px 0 0; font-size:13px; color:#888;">Native WhatsApp UI — tap-to-select menus &amp; reply buttons</p>
+      </div>
+    </div>
+    <div style="background:#f9f9f9; padding: 16px; border-top: 1px solid #eee;">
+      <!-- WhatsApp mockup B -->
+      <div style="background:#e5ddd5; border-radius:10px; padding:14px; font-family:'Helvetica Neue',sans-serif; max-width:320px; margin:0 auto;">
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="background:#dcf8c6; border-radius:8px 8px 2px 8px; padding:10px 14px; align-self:flex-end; max-width:85%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+            Hi
+          </div>
+          <!-- Interactive list message -->
+          <div style="background:#fff; border-radius:8px 8px 8px 2px; padding:0; align-self:flex-start; max-width:90%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1); overflow:hidden;">
+            <div style="padding:10px 14px;">
+              👋 Welcome to <strong>Datagod</strong><br>
+              <span style="font-size:12px; color:#666;">Choose a service to get started:</span>
+            </div>
+            <div style="border-top:1px solid #eee; padding:10px 14px; color:#128c7e; font-weight:600; font-size:13px; text-align:center; display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer;">
+              <span>≡</span> View Services
+            </div>
+          </div>
+          <!-- List selection result -->
+          <div style="background:#dcf8c6; border-radius:8px 8px 2px 8px; padding:10px 14px; align-self:flex-end; max-width:85%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1);">
+            📦 Buy Data Bundle
+          </div>
+          <!-- Reply buttons -->
+          <div style="background:#fff; border-radius:8px 8px 8px 2px; padding:0; align-self:flex-start; max-width:90%; font-size:13px; box-shadow:0 1px 1px rgba(0,0,0,.1); overflow:hidden;">
+            <div style="padding:10px 14px;">
+              Select network:
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; border-top:1px solid #eee;">
+              <div style="padding:8px; text-align:center; color:#128c7e; font-weight:600; font-size:12px; border-right:1px solid #eee; cursor:pointer;">MTN</div>
+              <div style="padding:8px; text-align:center; color:#128c7e; font-weight:600; font-size:12px; cursor:pointer;">Telecel</div>
+              <div style="padding:8px; text-align:center; color:#128c7e; font-weight:600; font-size:12px; border-top:1px solid #eee; border-right:1px solid #eee; cursor:pointer;">AirtelTigo</div>
+              <div style="padding:8px; text-align:center; color:#128c7e; font-weight:600; font-size:12px; border-top:1px solid #eee; cursor:pointer;">AT-iShare</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="padding: 12px 20px;">
+      <div class="pros-cons" style="margin:0;">
+        <div class="pros" style="padding:8px 12px;"><h4 style="font-size:12px;">Pros</h4><ul style="font-size:12px; padding-left:14px; margin:4px 0;"><li>Native WhatsApp feel</li><li>Tap — no typing numbers</li><li>Professional &amp; modern</li></ul></div>
+        <div class="cons" style="padding:8px 12px;"><h4 style="font-size:12px;">Cons</h4><ul style="font-size:12px; padding-left:14px; margin:4px 0;"><li>More complex to build</li><li>Button limit: 3 per message</li><li>List limit: 10 items per section</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p style="margin-top:24px; font-size:13px; color:#888; text-align:center;">
+  💡 Option B uses WhatsApp's <em>Interactive Messages API</em> — buttons for small choices (≤3), list picker for longer menus like bundles.
+  Option A is a direct port of the USSD flow with no USSD-style constraints (no 160-char limit, no 120s timeout).
+</p>

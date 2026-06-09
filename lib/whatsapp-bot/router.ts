@@ -18,8 +18,9 @@ import {
 import {
   handleRcMenu, handleRcSelectBoard, handleRcEnterQty, handleRcConfirm,
   handleRcPaymentMethod, handleRcMyVouchers, handleRcVoucherDetail,
-  handleRcCheckBoard, handleRcCheckMode, handleRcCheckVoucher,
-  handleRcCheckIndex, handleRcCheckYear,
+  handleRcCheckBoard, handleRcCheckCandidateType, handleRcCheckMode,
+  handleRcCheckVoucher, handleRcCheckVoucherSerial,
+  handleRcCheckIndex, handleRcCheckDob, handleRcCheckYear,
   handleRcCheckConfirm, handleRcCheckConfirmMomo,
 } from "@/lib/ussd/handlers/results-checker"
 import { handleOtpSubmit } from "@/lib/ussd/handlers/otp"
@@ -28,7 +29,8 @@ import {
   mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt,
   recipientPrompt, paymentMethodMenu,
   airtimePaymentMethodMenu, rcPaymentMethodMenu,
-  rcCheckBoardMenu, rcCheckModeMenu, rcCheckIndexPrompt, rcCheckVoucherPrompt,
+  rcCheckBoardMenu, rcCheckCandidateTypeMenu, rcCheckModeMenu,
+  rcCheckVoucherPrompt, rcCheckVoucherSerialPrompt, rcCheckIndexPrompt,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 
@@ -163,7 +165,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     'AIRTIME_SELECT_NETWORK', 'AIRTIME_CONFIRM', 'AIRTIME_PAYMENT_METHOD',
     'RC_MENU', 'RC_SELECT_BOARD', 'RC_CONFIRM', 'RC_PAYMENT_METHOD',
     'RC_MY_VOUCHERS', 'RC_VOUCHER_DETAIL',
-    'RC_CHECK_BOARD', 'RC_CHECK_MODE', 'RC_CHECK_CONFIRM',
+    'RC_CHECK_BOARD', 'RC_CHECK_CANDIDATE_TYPE', 'RC_CHECK_MODE', 'RC_CHECK_CONFIRM',
   ])
   if (MENU_SELECTION_STEPS.has(session.step) && !/^\d+$/.test(input)) {
     const lc = input.toLowerCase()
@@ -174,8 +176,23 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         : (lc.includes('novdec') || lc.includes('nov')) ? 'NOVDEC'
         : null
       if (board) {
-        // Route through RC_CHECK_BOARD handler to compute combo pricing
-        result = await handleRcCheckBoard(board === 'WAEC' ? '1' : board === 'BECE' ? '2' : '3', sessionId, { ...session, rcCheckChannel: 'whatsapp' })
+        result = await handleRcCheckBoard(
+          board === 'WAEC' ? '1' : board === 'BECE' ? '2' : '3',
+          sessionId,
+          { ...session, rcCheckChannel: 'whatsapp' },
+        )
+        await extendWaSession(sessionId)
+        return result.message
+      }
+    }
+    if (session.step === 'RC_CHECK_CANDIDATE_TYPE') {
+      if (lc.includes('school')) {
+        result = await handleRcCheckCandidateType('1', sessionId, session)
+        await extendWaSession(sessionId)
+        return result.message
+      }
+      if (lc.includes('private')) {
+        result = await handleRcCheckCandidateType('2', sessionId, session)
         await extendWaSession(sessionId)
         return result.message
       }
@@ -365,7 +382,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       // Ensure check requests are tagged as whatsapp channel
       if (result.ussdServiceOp === 2) {
         const s2 = await getWaSession(sessionId)
-        if (s2?.step === 'RC_CHECK_BOARD' || s2?.step === 'RC_CHECK_MODE') {
+        if (s2?.step === 'RC_CHECK_BOARD' || s2?.step === 'RC_CHECK_CANDIDATE_TYPE' || s2?.step === 'RC_CHECK_MODE') {
           await setWaSession(sessionId, { ...s2, rcCheckChannel: 'whatsapp' })
         }
       }
@@ -421,14 +438,23 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     case 'RC_CHECK_BOARD':
       result = await handleRcCheckBoard(input, sessionId, session)
       break
+    case 'RC_CHECK_CANDIDATE_TYPE':
+      result = await handleRcCheckCandidateType(input, sessionId, session)
+      break
     case 'RC_CHECK_MODE':
       result = await handleRcCheckMode(input, sessionId, session)
       break
     case 'RC_CHECK_VOUCHER':
       result = await handleRcCheckVoucher(input, sessionId, session)
       break
+    case 'RC_CHECK_VOUCHER_SERIAL':
+      result = await handleRcCheckVoucherSerial(input, sessionId, session)
+      break
     case 'RC_CHECK_INDEX':
       result = await handleRcCheckIndex(input, sessionId, session)
+      break
+    case 'RC_CHECK_DOB':
+      result = await handleRcCheckDob(input, sessionId, session)
       break
     case 'RC_CHECK_YEAR':
       result = await handleRcCheckYear(input, sessionId, session)

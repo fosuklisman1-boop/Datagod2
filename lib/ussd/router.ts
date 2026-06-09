@@ -15,8 +15,9 @@ import { handleAirtimeEnterRecipient, handleAirtimeSelectNetwork, handleAirtimeE
 import {
   handleRcMenu, handleRcSelectBoard, handleRcEnterQty, handleRcConfirm, handleRcPaymentMethod,
   handleRcMyVouchers, handleRcVoucherDetail,
-  handleRcCheckBoard, handleRcCheckMode, handleRcCheckVoucher,
-  handleRcCheckIndex, handleRcCheckYear, handleRcCheckConfirm,
+  handleRcCheckBoard, handleRcCheckCandidateType, handleRcCheckMode,
+  handleRcCheckVoucher, handleRcCheckVoucherSerial,
+  handleRcCheckIndex, handleRcCheckDob, handleRcCheckYear, handleRcCheckConfirm,
 } from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
 
@@ -151,14 +152,23 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     case 'RC_CHECK_BOARD':
       return handleRcCheckBoard(input, sessionID, session)
 
+    case 'RC_CHECK_CANDIDATE_TYPE':
+      return handleRcCheckCandidateType(input, sessionID, session)
+
     case 'RC_CHECK_MODE':
       return handleRcCheckMode(input, sessionID, session)
 
     case 'RC_CHECK_VOUCHER':
       return handleRcCheckVoucher(input, sessionID, session)
 
+    case 'RC_CHECK_VOUCHER_SERIAL':
+      return handleRcCheckVoucherSerial(input, sessionID, session)
+
     case 'RC_CHECK_INDEX':
       return handleRcCheckIndex(input, sessionID, session)
+
+    case 'RC_CHECK_DOB':
+      return handleRcCheckDob(input, sessionID, session)
 
     case 'RC_CHECK_YEAR':
       return handleRcCheckYear(input, sessionID, session)

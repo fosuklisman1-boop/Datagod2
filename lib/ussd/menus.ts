@@ -62,6 +62,10 @@ export function rcCheckBoardMenu(): string {
   return 'Check Results Service\nSelect exam board:\n1. WAEC\n2. BECE\n3. NOVDEC\n0. Back'
 }
 
+export function rcCheckCandidateTypeMenu(): string {
+  return 'Candidate Type:\n1. School\n2. Private\n0. Back'
+}
+
 export function rcCheckModeMenu(comboTotal: number, checkFee: number): string {
   return (
     `Check Results\nHow to pay?\n` +
@@ -75,8 +79,16 @@ export function rcCheckVoucherPrompt(): string {
   return 'Enter your voucher PIN:\n\n0. Back'
 }
 
+export function rcCheckVoucherSerialPrompt(): string {
+  return 'Enter voucher serial\nnumber:\n\n0. Back'
+}
+
 export function rcCheckIndexPrompt(): string {
   return 'Enter your index number:\n\n0. Back'
+}
+
+export function rcCheckDobPrompt(): string {
+  return 'Enter date of birth:\n(DD/MM/YYYY)\ne.g. 15/06/2008\n\n0. Back'
 }
 
 export function rcCheckYearPrompt(): string {
@@ -85,7 +97,9 @@ export function rcCheckYearPrompt(): string {
 
 export function rcCheckConfirmMenu(
   board: string,
+  candidateType: 'school' | 'private',
   indexNo: string,
+  dob: string,
   year: number,
   fee: number,
   balance: number,
@@ -93,21 +107,30 @@ export function rcCheckConfirmMenu(
   mode: 'combo' | 'own_voucher' = 'own_voucher',
   comboTotal?: number,
   voucherPin?: string,
+  voucherSerial?: string,
 ): string {
+  const boardLine = `${board} (${candidateType === 'school' ? 'School' : 'Private'})`
   if (channel === 'whatsapp') {
     if (mode === 'combo') {
-      return `Check Results\n${board} · ${indexNo} · ${year}\n1 voucher + check\nTotal: GHS ${(comboTotal ?? fee).toFixed(2)}\n\n1. Pay via MoMo\n0. Cancel`
+      return (
+        `Check Results\n${boardLine}\nIndex: ${indexNo}\nDOB: ${dob}\nYear: ${year}\n` +
+        `1 voucher+check\nTotal: GHS ${(comboTotal ?? fee).toFixed(2)}\n\n1. Pay via MoMo\n0. Cancel`
+      )
     }
-    return `Check Results\n${board} · ${indexNo} · ${year}\nVoucher: ${voucherPin ?? '—'}\nFee: GHS ${fee.toFixed(2)}\n\n1. Pay via MoMo\n0. Cancel`
+    return (
+      `Check Results\n${boardLine}\nIndex: ${indexNo}\nDOB: ${dob}\nYear: ${year}\n` +
+      `PIN: ${voucherPin ?? '—'}\nSerial: ${voucherSerial ?? '—'}\n` +
+      `Fee: GHS ${fee.toFixed(2)}\n\n1. Pay via MoMo\n0. Cancel`
+    )
   }
   // USSD (wallet)
   const amount = mode === 'combo' ? (comboTotal ?? fee) : fee
   const hasBalance = balance >= amount
   const payLine = hasBalance
-    ? `Wallet: GHS ${balance.toFixed(2)}\n1. Pay GHS ${amount.toFixed(2)}\n0. Cancel`
-    : `Wallet: GHS ${balance.toFixed(2)}\nInsufficient. Top up.\n0. Back`
-  const detail = mode === 'combo' ? `1 voucher+check` : `Voucher: ${voucherPin ?? '—'}`
-  return `Check Results\n${board} · ${indexNo} · ${year}\n${detail}\n${payLine}`
+    ? `1. Pay GHS ${amount.toFixed(2)}\n0. Cancel`
+    : `Insufficient wallet.\n0. Back`
+  const detail = mode === 'combo' ? `Voucher+check` : `PIN: ${voucherPin ?? '—'}`
+  return `${boardLine}\n${indexNo} · ${year}\nDOB: ${dob}\n${detail}\n${payLine}`
 }
 
 export function rcMyVouchersMenu(orders: Array<{ exam_board: string; reference_code: string; created_at: string }>): string {

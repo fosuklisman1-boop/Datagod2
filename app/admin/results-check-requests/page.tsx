@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { ClipboardCheck, Send, RefreshCw, Settings2, Paperclip, X } from "lucide-react"
+import { ClipboardCheck, Send, RefreshCw, Settings2, Paperclip, X, Copy, Check } from "lucide-react"
 
 interface CheckRequest {
   id: string
@@ -26,6 +26,8 @@ interface CheckRequest {
   media_type: string | null
   channel: string
   mode: string
+  candidate_type: string
+  dob: string | null
   voucher_pin: string | null
   voucher_serial: string | null
   payment_reference: string
@@ -49,6 +51,7 @@ export default function ResultsCheckRequestsPage() {
   const [mediaFiles, setMediaFiles] = useState<Record<string, File>>({})
   const [mediaTypeInputs, setMediaTypeInputs] = useState<Record<string, "image" | "document" | "video">>({})
   const [delivering, setDelivering] = useState<Record<string, boolean>>({})
+  const [copied, setCopied] = useState<Record<string, boolean>>({})
   const [fee, setFee] = useState("2.00")
   const [enabled, setEnabled] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -160,6 +163,22 @@ export default function ResultsCheckRequestsPage() {
     }
   }
 
+  function copyDetails(req: CheckRequest) {
+    const lines = [
+      `Board: ${req.exam_board} (${req.candidate_type === 'school' ? 'School' : 'Private'})`,
+      `Index: ${req.index_number}`,
+      `DOB: ${req.dob ?? 'N/A'}`,
+      `Year: ${req.exam_year}`,
+      req.voucher_pin ? `PIN: ${req.voucher_pin}` : null,
+      req.voucher_serial ? `Serial: ${req.voucher_serial}` : null,
+      `Phone: ${req.phone_number}`,
+      `Ref: ${req.payment_reference}`,
+    ].filter(Boolean).join('\n')
+    navigator.clipboard.writeText(lines)
+    setCopied(c => ({ ...c, [req.id]: true }))
+    setTimeout(() => setCopied(c => ({ ...c, [req.id]: false })), 2000)
+  }
+
   async function updateStatus(id: string, status: string) {
     try {
       const headers = await getAuthHeader()
@@ -255,26 +274,47 @@ export default function ResultsCheckRequestsPage() {
               <Card key={req.id}>
                 <CardContent className="pt-4 space-y-3">
                   <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-0.5">
-                      <p className="font-semibold text-sm">{req.phone_number}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {req.exam_board} · {req.index_number} · {req.exam_year}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {req.channel === "whatsapp" ? "WhatsApp" : "USSD"} ·{" "}
-                        {req.mode === "combo" ? "Combo (voucher+check)" : "Own voucher"} ·{" "}
-                        {new Date(req.created_at).toLocaleString("en-GB")} ·{" "}
-                        GHS {req.fee.toFixed(2)} · Ref: {req.payment_reference}
-                      </p>
-                      {req.voucher_pin && (
-                        <p className="text-xs font-mono text-blue-700 mt-0.5">
-                          {req.voucher_serial ? `Serial: ${req.voucher_serial} · ` : ""}PIN: {req.voucher_pin}
-                        </p>
-                      )}
+                    <div className="space-y-1 flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm">{req.phone_number}</p>
+                        <Badge className={`text-xs border ${STATUS_COLORS[req.status] ?? ""} capitalize`}>
+                          {req.status}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
+                        <span className="text-muted-foreground">Board</span>
+                        <span className="font-medium">{req.exam_board} · {req.candidate_type === 'school' ? 'School' : 'Private'}</span>
+                        <span className="text-muted-foreground">Index No.</span>
+                        <span className="font-mono font-medium">{req.index_number}</span>
+                        <span className="text-muted-foreground">Date of Birth</span>
+                        <span className="font-mono">{req.dob ?? '—'}</span>
+                        <span className="text-muted-foreground">Year</span>
+                        <span>{req.exam_year}</span>
+                        {req.voucher_pin && (
+                          <>
+                            <span className="text-muted-foreground">Voucher PIN</span>
+                            <span className="font-mono text-blue-700">{req.voucher_pin}</span>
+                          </>
+                        )}
+                        {req.voucher_serial && (
+                          <>
+                            <span className="text-muted-foreground">Serial No.</span>
+                            <span className="font-mono text-blue-700">{req.voucher_serial}</span>
+                          </>
+                        )}
+                        <span className="text-muted-foreground">Channel</span>
+                        <span>{req.channel === "whatsapp" ? "WhatsApp" : "USSD"} · {req.mode === "combo" ? "Combo" : "Own voucher"}</span>
+                        <span className="text-muted-foreground">Fee · Ref</span>
+                        <span>GHS {req.fee.toFixed(2)} · <span className="font-mono">{req.payment_reference}</span></span>
+                      </div>
                     </div>
-                    <Badge className={`text-xs border ${STATUS_COLORS[req.status] ?? ""} capitalize`}>
-                      {req.status}
-                    </Badge>
+                    <button
+                      onClick={() => copyDetails(req)}
+                      className="shrink-0 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      title="Copy details"
+                    >
+                      {copied[req.id] ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
+                    </button>
                   </div>
 
                   {req.result_data && (

@@ -3,8 +3,9 @@ import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession } from "../types"
 import {
   cont, end, mainMenu, rcMenu, rcBoardMenu, rcQtyPrompt, rcConfirmMenu, rcPaymentMethodMenu,
-  rcMyVouchersMenu, rcVoucherDetailMenu, rcCheckBoardMenu, rcCheckModeMenu, rcCheckVoucherPrompt,
-  rcCheckIndexPrompt, rcCheckYearPrompt, rcCheckConfirmMenu,
+  rcMyVouchersMenu, rcVoucherDetailMenu, rcCheckBoardMenu, rcCheckCandidateTypeMenu,
+  rcCheckModeMenu, rcCheckVoucherPrompt, rcCheckVoucherSerialPrompt,
+  rcCheckIndexPrompt, rcCheckDobPrompt, rcCheckYearPrompt, rcCheckConfirmMenu,
 } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
@@ -429,29 +430,46 @@ export async function handleRcCheckBoard(
     getAvailableCount(board as ExamBoard),
   ])
 
-  // No vouchers in stock — skip mode selection, force own_voucher
-  if (availCount === 0) {
-    await setSession(sessionId, {
-      ...session,
-      step: "RC_CHECK_INDEX",
-      rcCheckBoard: board,
-      rcCheckFee: checkFee,
-      rcCheckMode: "own_voucher",
-    })
-    return cont("No vouchers in stock.\nProvide your own PIN.\n\n" + rcCheckIndexPrompt())
+  // Compute combo pricing now (even if 0 stock, we store fee for own_voucher path)
+  let comboTotal: number | undefined
+  if (availCount > 0) {
+    const pricing = await calculateRCPrice({ examBoard: board as ExamBoard, quantity: 1, applyBulk: false })
+    comboTotal = pricing.unitPrice + checkFee
   }
-
-  const pricing = await calculateRCPrice({ examBoard: board as ExamBoard, quantity: 1, applyBulk: false })
-  const comboTotal = pricing.unitPrice + checkFee
 
   await setSession(sessionId, {
     ...session,
-    step: "RC_CHECK_MODE",
+    step: "RC_CHECK_CANDIDATE_TYPE",
     rcCheckBoard: board,
     rcCheckFee: checkFee,
     rcCheckComboTotal: comboTotal,
   })
-  return cont(rcCheckModeMenu(comboTotal, checkFee))
+  return cont(rcCheckCandidateTypeMenu())
+}
+
+// ── RC_CHECK_CANDIDATE_TYPE ───────────────────────────────────────────────────
+export async function handleRcCheckCandidateType(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_BOARD" })
+    return cont(rcCheckBoardMenu())
+  }
+  const t = input.trim()
+  if (t !== "1" && t !== "2") return cont(rcCheckCandidateTypeMenu())
+  const candidateType = t === "1" ? "school" : "private"
+
+  const comboTotal = session.rcCheckComboTotal
+  if (comboTotal !== undefined) {
+    // Vouchers available — show mode selection
+    await setSession(sessionId, { ...session, step: "RC_CHECK_MODE", rcCheckCandidateType: candidateType })
+    return cont(rcCheckModeMenu(comboTotal, session.rcCheckFee ?? 2))
+  }
+  // No vouchers in stock — skip mode, force own_voucher
+  await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER", rcCheckCandidateType: candidateType, rcCheckMode: "own_voucher" })
+  return cont("No vouchers in stock.\nProvide your own PIN.\n\n" + rcCheckVoucherPrompt())
 }
 
 // ── RC_CHECK_MODE ─────────────────────────────────────────────────────────────
@@ -484,12 +502,33 @@ export async function handleRcCheckVoucher(
   session: USSDSession
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
-    await setSession(sessionId, { ...session, step: "RC_CHECK_MODE" })
-    return cont(rcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 2))
+    const comboTotal = session.rcCheckComboTotal
+    if (comboTotal !== undefined) {
+      await setSession(sessionId, { ...session, step: "RC_CHECK_MODE" })
+      return cont(rcCheckModeMenu(comboTotal, session.rcCheckFee ?? 2))
+    }
+    await setSession(sessionId, { ...session, step: "RC_CHECK_CANDIDATE_TYPE" })
+    return cont(rcCheckCandidateTypeMenu())
   }
   const pin = input.trim()
   if (pin.length < 3) return cont("Invalid PIN.\n" + rcCheckVoucherPrompt())
-  await setSession(sessionId, { ...session, step: "RC_CHECK_INDEX", rcCheckVoucherPin: pin })
+  await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER_SERIAL", rcCheckVoucherPin: pin })
+  return cont(rcCheckVoucherSerialPrompt())
+}
+
+// ── RC_CHECK_VOUCHER_SERIAL ───────────────────────────────────────────────────
+export async function handleRcCheckVoucherSerial(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER" })
+    return cont(rcCheckVoucherPrompt())
+  }
+  const serial = input.trim()
+  if (serial.length < 2) return cont("Invalid serial.\n" + rcCheckVoucherSerialPrompt())
+  await setSession(sessionId, { ...session, step: "RC_CHECK_INDEX", rcCheckVoucherSerial: serial })
   return cont(rcCheckIndexPrompt())
 }
 
@@ -500,13 +539,17 @@ export async function handleRcCheckIndex(
   session: USSDSession
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
-    // Back to voucher prompt if user had own_voucher, else back to mode selection
     if (session.rcCheckMode === 'own_voucher') {
-      await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER" })
-      return cont(rcCheckVoucherPrompt())
+      await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER_SERIAL" })
+      return cont(rcCheckVoucherSerialPrompt())
     }
-    await setSession(sessionId, { ...session, step: "RC_CHECK_MODE" })
-    return cont(rcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 2))
+    const comboTotal = session.rcCheckComboTotal
+    if (comboTotal !== undefined) {
+      await setSession(sessionId, { ...session, step: "RC_CHECK_MODE" })
+      return cont(rcCheckModeMenu(comboTotal, session.rcCheckFee ?? 2))
+    }
+    await setSession(sessionId, { ...session, step: "RC_CHECK_CANDIDATE_TYPE" })
+    return cont(rcCheckCandidateTypeMenu())
   }
   const index = input.trim()
   if (index.length < 4) {
@@ -530,23 +573,50 @@ export async function handleRcCheckYear(
   if (isNaN(year) || year < 2000 || year > 2030) {
     return cont("Invalid year.\n" + rcCheckYearPrompt())
   }
+  await setSession(sessionId, { ...session, step: "RC_CHECK_DOB", rcCheckYear: year })
+  return cont(rcCheckDobPrompt())
+}
+
+// ── RC_CHECK_DOB ──────────────────────────────────────────────────────────────
+export async function handleRcCheckDob(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_YEAR" })
+    return cont(rcCheckYearPrompt())
+  }
+  const dob = input.trim()
+  // Accept DD/MM/YYYY or DD-MM-YYYY
+  const normalised = dob.replace(/-/g, "/")
+  if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(normalised)) {
+    return cont("Invalid format.\nUse DD/MM/YYYY\ne.g. 15/06/2008\n\n0. Back")
+  }
   const { fee } = await getRcCheckSettings()
   const dialer = await resolveDialer(session.dialingPhone ?? "")
   const balance = dialer.balance ?? 0
   await setSession(sessionId, {
     ...session,
     step: "RC_CHECK_CONFIRM",
-    rcCheckYear: year,
+    rcCheckDob: normalised,
     rcCheckFee: fee,
     userId: dialer.userId,
     walletBalance: balance,
   })
   return cont(rcCheckConfirmMenu(
-    session.rcCheckBoard!, session.rcCheckIndex!, year, fee, balance,
+    session.rcCheckBoard!,
+    session.rcCheckCandidateType ?? 'school',
+    session.rcCheckIndex!,
+    normalised,
+    session.rcCheckYear!,
+    fee,
+    balance,
     session.rcCheckChannel ?? 'ussd',
     session.rcCheckMode ?? 'own_voucher',
     session.rcCheckComboTotal,
     session.rcCheckVoucherPin,
+    session.rcCheckVoucherSerial,
   ))
 }
 
@@ -566,9 +636,17 @@ export async function handleRcCheckConfirm(
 
   if (input.trim() !== "1") {
     return cont(rcCheckConfirmMenu(
-      session.rcCheckBoard!, session.rcCheckIndex!, session.rcCheckYear!,
-      fee, session.walletBalance ?? 0, session.rcCheckChannel ?? 'ussd',
-      mode, comboTotal, session.rcCheckVoucherPin,
+      session.rcCheckBoard!,
+      session.rcCheckCandidateType ?? 'school',
+      session.rcCheckIndex!,
+      session.rcCheckDob ?? '',
+      session.rcCheckYear!,
+      fee,
+      session.walletBalance ?? 0,
+      session.rcCheckChannel ?? 'ussd',
+      mode, comboTotal,
+      session.rcCheckVoucherPin,
+      session.rcCheckVoucherSerial,
     ))
   }
 
@@ -623,14 +701,16 @@ export async function handleRcCheckConfirm(
   }
 
   const voucherPin = mode === 'own_voucher' ? (session.rcCheckVoucherPin ?? null) : assignedVoucherPin
-  const voucherSerial = mode === 'combo' ? assignedVoucherSerial : null
+  const voucherSerial = mode === 'own_voucher' ? (session.rcCheckVoucherSerial ?? null) : assignedVoucherSerial
 
   const { data: request, error: reqErr } = await supabase
     .from("results_check_requests")
     .insert([{
       phone_number: localPhone,
       exam_board: session.rcCheckBoard,
+      candidate_type: session.rcCheckCandidateType ?? 'school',
       index_number: session.rcCheckIndex,
+      dob: session.rcCheckDob ?? null,
       exam_year: session.rcCheckYear,
       fee: amount,
       payment_status: "paid",
@@ -699,7 +779,9 @@ export async function handleRcCheckConfirmMomo(
     .insert([{
       phone_number: localDialing,
       exam_board: session.rcCheckBoard,
+      candidate_type: session.rcCheckCandidateType ?? 'school',
       index_number: session.rcCheckIndex,
+      dob: session.rcCheckDob ?? null,
       exam_year: session.rcCheckYear,
       fee: amount,
       payment_status: "pending_payment",
@@ -709,7 +791,7 @@ export async function handleRcCheckConfirmMomo(
       payment_reference: referenceCode,
       mode,
       voucher_pin: mode === 'own_voucher' ? (session.rcCheckVoucherPin ?? null) : null,
-      voucher_serial: null,
+      voucher_serial: mode === 'own_voucher' ? (session.rcCheckVoucherSerial ?? null) : null,
     }])
     .select("id")
     .single()
