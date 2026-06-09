@@ -345,7 +345,7 @@ export function resolveProviderForContext(
   if (!apiKey) {
     return {
       provider: new AnthropicAdapter(fallbackKey),
-      model: (DEFAULT_CONFIG as Record<string, string>)[`${resolvedContext}_model`] ?? "claude-haiku-4-5-20251001",
+      model: (DEFAULT_CONFIG as Record<string, string>)[`${context}_model`] ?? "claude-haiku-4-5-20251001",
       providerName: "anthropic",
     }
   }
