@@ -40,7 +40,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
   }
 
   const input = text.trim()
-  let result: UzoResponse
+  let result: UzoResponse = { message: mainMenu(), ussdServiceOp: 2 }
   // Used to override the (possibly truncated) message from a handler
   let overrideMessage: string | null = null
 
@@ -92,7 +92,11 @@ export async function waRouter(phone: string, text: string): Promise<string> {
 
     case 'SUBMIT_OTP':
       if (session.pendingOrderTable === 'airtime_orders' || session.pendingOrderTable === 'results_checker_orders') {
-        result = await handleOtpSubmit(input, session.pendingOrderId!, session.pendingOrderTable)
+        if (!session.pendingOrderId) {
+          result = { message: 'Session error. Please start a new order.', ussdServiceOp: 17 }
+        } else {
+          result = await handleOtpSubmit(input, session.pendingOrderId, session.pendingOrderTable)
+        }
       } else {
         result = await handleSubmitOtp(input, sessionId, session)
       }
