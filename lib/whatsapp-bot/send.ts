@@ -29,6 +29,7 @@ export async function sendWhatsAppText(to: string, body: string): Promise<void> 
     if (!res.ok) {
       const err = await res.text()
       console.error("[WA-SEND] API error:", res.status, err)
+      return
     }
   } catch (e) {
     console.error("[WA-SEND] fetch error:", e)
