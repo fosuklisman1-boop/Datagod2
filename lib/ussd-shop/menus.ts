@@ -58,9 +58,10 @@ export function shopRcBoardMenu(shopName: string, boards: string[]): string {
   return `${gsm7(shopName)}\nSelect exam:\n` + lines.join('\n')
 }
 
-export function shopRcQtyPrompt(board: string, available: number, max: number): string {
+export function shopRcQtyPrompt(board: string, available: number, max: number, bulk?: { minQty: number; unitPrice: number } | null): string {
   const cap = Math.min(available, max)
-  return `${board} Checker\nHow many vouchers?\n(1 - ${cap}):\n\n0. Back`
+  const hint = bulk ? `\nBuy ${bulk.minQty}+ for GHS ${bulk.unitPrice.toFixed(2)}/ea` : ''
+  return `${board} Checker\nHow many vouchers?\n(1 - ${cap}):${hint}\n\n0. Back`
 }
 
 export function shopRcConfirmMenu(shopName: string, board: string, qty: number, total: number, dialingPhone: string): string {

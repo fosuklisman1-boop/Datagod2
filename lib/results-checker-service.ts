@@ -285,6 +285,23 @@ export async function purchaseResultsCheckerVouchers(params: {
   return { order: { ...order, status: "completed", inventory_ids: inventoryIds }, vouchers, newBalance }
 }
 
+/** Returns bulk threshold and base bulk price for a board, or null if not configured / not cheaper. */
+export async function getRCBulkHint(examBoard: ExamBoard): Promise<{ minQty: number; bulkBasePrice: number } | null> {
+  const boardKey = examBoard.toLowerCase()
+  const [minSetting, bulkPriceSetting, baseSetting] = await Promise.all([
+    getAdminSetting("results_checker_bulk_min_quantity"),
+    getAdminSetting(`results_checker_bulk_price_${boardKey}`),
+    getAdminSetting(`results_checker_price_${boardKey}`),
+  ])
+  const minQty = minSetting?.min ?? 0
+  const bulkBasePrice = parseFloat(bulkPriceSetting?.price ?? 0)
+  const basePrice = parseFloat(baseSetting?.price ?? 0)
+  if (minQty > 0 && bulkBasePrice > 0 && bulkBasePrice < basePrice) {
+    return { minQty, bulkBasePrice }
+  }
+  return null
+}
+
 export async function refundRCOrder(orderId: string, userId: string, amount: number): Promise<void> {
   const { data: order } = await supabase
     .from("results_checker_orders")

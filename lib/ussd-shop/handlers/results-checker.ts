@@ -13,7 +13,7 @@ import { secureReference } from "@/lib/secure-random"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import {
   isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice,
-  type ExamBoard,
+  getRCBulkHint, type ExamBoard,
 } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 
@@ -45,9 +45,15 @@ export async function handleShopRcSelectBoard(
   const board = options[idx]
   if (!board) return cont(shopRcBoardMenu(shopName, options))
 
-  const [avail, max] = await Promise.all([getAvailableCount(board as ExamBoard), getMaxQuantity()])
+  const [avail, max, bulkHint] = await Promise.all([getAvailableCount(board as ExamBoard), getMaxQuantity(), getRCBulkHint(board as ExamBoard)])
+  let bulkForMenu: { minQty: number; unitPrice: number } | null = null
+  if (bulkHint) {
+    // Price at the bulk threshold including shop markup — this is what the customer pays.
+    const bulkPricing = await calculateRCPrice({ examBoard: board as ExamBoard, quantity: bulkHint.minQty, shopId: session.shopId, applyBulk: true })
+    if (bulkPricing.bulkApplied) bulkForMenu = { minQty: bulkHint.minQty, unitPrice: bulkPricing.unitPrice }
+  }
   await setSession(sessionId, { ...session, step: "SHOP_RC_ENTER_QTY", rcBoard: board })
-  return cont(shopRcQtyPrompt(board, avail, max))
+  return cont(shopRcQtyPrompt(board, avail, max, bulkForMenu))
 }
 
 // ── SHOP_RC_ENTER_QTY ─────────────────────────────────────────────────────────
@@ -64,11 +70,16 @@ export async function handleShopRcEnterQty(
   }
 
   const board = session.rcBoard! as ExamBoard
-  const [avail, max] = await Promise.all([getAvailableCount(board), getMaxQuantity()])
+  const [avail, max, bulkHint] = await Promise.all([getAvailableCount(board), getMaxQuantity(), getRCBulkHint(board)])
+  let bulkForMenu: { minQty: number; unitPrice: number } | null = null
+  if (bulkHint) {
+    const bulkPricing = await calculateRCPrice({ examBoard: board, quantity: bulkHint.minQty, shopId: session.shopId, applyBulk: true })
+    if (bulkPricing.bulkApplied) bulkForMenu = { minQty: bulkHint.minQty, unitPrice: bulkPricing.unitPrice }
+  }
   const cap = Math.min(avail, max)
   const qty = parseInt(input.trim(), 10)
   if (isNaN(qty) || qty < 1 || qty > cap) {
-    return cont(`Enter a valid quantity.\n` + shopRcQtyPrompt(board, avail, max))
+    return cont(`Enter a valid quantity.\n` + shopRcQtyPrompt(board, avail, max, bulkForMenu))
   }
 
   // Include shop markup and bulk discount in the price shown to caller.

@@ -79,9 +79,10 @@ export function rcBoardMenu(boards: string[]): string {
   return 'Results Checker\nSelect exam:\n' + lines.join('\n')
 }
 
-export function rcQtyPrompt(board: string, available: number, max: number): string {
+export function rcQtyPrompt(board: string, available: number, max: number, bulk?: { minQty: number; unitPrice: number } | null): string {
   const cap = Math.min(available, max)
-  return `${board} Checker\nHow many vouchers?\n(1 - ${cap}):\n\n0. Back`
+  const hint = bulk ? `\nBuy ${bulk.minQty}+ for GHS ${bulk.unitPrice.toFixed(2)}/ea` : ''
+  return `${board} Checker\nHow many vouchers?\n(1 - ${cap}):${hint}\n\n0. Back`
 }
 
 export function rcConfirmMenu(board: string, qty: number, total: number, dialingPhone: string): string {

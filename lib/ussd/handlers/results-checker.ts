@@ -11,7 +11,7 @@ import { secureReference } from "../../secure-random"
 import { sendSMS, SMSTemplates } from "../../sms-service"
 import {
   isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice,
-  purchaseResultsCheckerVouchers, type ExamBoard,
+  purchaseResultsCheckerVouchers, getRCBulkHint, type ExamBoard,
 } from "../../results-checker-service"
 
 const supabase = createClient(
@@ -54,9 +54,10 @@ export async function handleRcSelectBoard(
   const board = options[idx]
   if (!board) return cont(rcBoardMenu(options))
 
-  const [avail, max] = await Promise.all([getAvailableCount(board as ExamBoard), getMaxQuantity()])
+  const [avail, max, bulkHint] = await Promise.all([getAvailableCount(board as ExamBoard), getMaxQuantity(), getRCBulkHint(board as ExamBoard)])
+  const bulkForMenu = bulkHint ? { minQty: bulkHint.minQty, unitPrice: bulkHint.bulkBasePrice } : null
   await setSession(sessionId, { ...session, step: "RC_ENTER_QTY", rcBoard: board })
-  return cont(rcQtyPrompt(board, avail, max))
+  return cont(rcQtyPrompt(board, avail, max, bulkForMenu))
 }
 
 // ── RC_ENTER_QTY ──────────────────────────────────────────────────────────────
@@ -71,11 +72,12 @@ export async function handleRcEnterQty(
   }
 
   const board = session.rcBoard! as ExamBoard
-  const [avail, max] = await Promise.all([getAvailableCount(board), getMaxQuantity()])
+  const [avail, max, bulkHint] = await Promise.all([getAvailableCount(board), getMaxQuantity(), getRCBulkHint(board)])
+  const bulkForMenu = bulkHint ? { minQty: bulkHint.minQty, unitPrice: bulkHint.bulkBasePrice } : null
   const cap = Math.min(avail, max)
   const qty = parseInt(input.trim(), 10)
   if (isNaN(qty) || qty < 1 || qty > cap) {
-    return cont(`Enter a valid quantity.\n` + rcQtyPrompt(board, avail, max))
+    return cont(`Enter a valid quantity.\n` + rcQtyPrompt(board, avail, max, bulkForMenu))
   }
 
   const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, applyBulk: true })
