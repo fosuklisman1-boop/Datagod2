@@ -104,7 +104,21 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       }
       break
 
-    case 'SUBMIT_OTP':
+    case 'SUBMIT_OTP': {
+      const isOtpLike = /^\d{4,8}$/.test(input.trim())
+      const isCancel = input.trim() === '0'
+
+      // Non-OTP freetext: user may have approved via MoMo push without entering an OTP
+      if (!isOtpLike && !isCancel && session.pendingOrderId) {
+        const done = await isOrderPaymentComplete(session.pendingOrderId, session.pendingOrderTable)
+        if (done) {
+          result = { message: 'Your payment was approved!\nOrder is being processed.\n\nSend any message to place another order.', ussdServiceOp: 17 }
+          break
+        }
+        result = { message: 'Waiting for MoMo approval on your phone.\n\nEnter your OTP if you received one.\n\n0. Cancel', ussdServiceOp: 2 }
+        break
+      }
+
       if (session.pendingOrderTable === 'airtime_orders' || session.pendingOrderTable === 'results_checker_orders') {
         if (!session.pendingOrderId) {
           result = { message: 'Session error. Please start a new order.', ussdServiceOp: 17 }
@@ -115,6 +129,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         result = await handleSubmitOtp(input, sessionId, session)
       }
       break
+    }
 
     case 'CHECK_STATUS':
       result = await handleStatus(input, sessionId, session)
@@ -302,6 +317,20 @@ async function handleWaEnterPaymentPhone(
   }
   const res = await handleRcPaymentMethod('2', sessionId, updatedSession)
   return { ...res, message: fixWaMomoMsg(res.message) }
+}
+
+// ── Order payment status check ────────────────────────────────────────────────
+
+async function isOrderPaymentComplete(orderId: string, table?: string): Promise<boolean> {
+  try {
+    const tbl = table === 'airtime_orders' ? 'airtime_orders'
+      : table === 'results_checker_orders' ? 'results_checker_orders'
+      : 'ussd_orders'
+    const { data } = await supabase.from(tbl).select('payment_status').eq('id', orderId).maybeSingle()
+    return data?.payment_status === 'completed'
+  } catch {
+    return false
+  }
 }
 
 // ── Channel tagging ───────────────────────────────────────────────────────────

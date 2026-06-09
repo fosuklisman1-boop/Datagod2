@@ -191,21 +191,24 @@ For support questions, order status, and account queries, answer directly.`
     maxTokens: 600,
   })
 
-  // If the AI called start_ordering_bot, a session now exists.
-  // Always show the bot's menu for the session step — ignore any AI conversational text.
-  const newSession = await getWaSession(phone)
-  if (newSession) {
-    const { mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
-    const stepMenus: Partial<Record<string, () => string>> = {
-      SELECT_NETWORK:          networkMenu,
-      AIRTIME_ENTER_RECIPIENT: airtimeRecipientPrompt,
-      AFA_ENTER_NAME:          afaEnterNamePrompt,
-      RC_MENU:                 rcMenu,
+  // If start_ordering_bot was called THIS run, show the correct submenu immediately.
+  // (Do NOT check for arbitrary existing sessions — that would catch stale post-purchase sessions.)
+  if (result.toolsUsed.includes("start_ordering_bot")) {
+    const newSession = await getWaSession(phone)
+    if (newSession) {
+      const { mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
+      const stepMenus: Partial<Record<string, () => string>> = {
+        SELECT_NETWORK:          networkMenu,
+        AIRTIME_ENTER_RECIPIENT: airtimeRecipientPrompt,
+        AFA_ENTER_NAME:          afaEnterNamePrompt,
+        RC_MENU:                 rcMenu,
+      }
+      const menuFn = stepMenus[newSession.step]
+      return menuFn ? menuFn() : mainMenu()
     }
-    const menuFn = stepMenus[newSession.step]
-    return menuFn ? menuFn() : mainMenu()
   }
-  return result.text
+
+  return result.text || "I'm here to help!\n\nReply with:\n- *data* to buy data bundles\n- *airtime* for airtime top-up\n- *afa* for AFA registration\n- *rc* for results checker vouchers"
 }
 
 // ── DB logging ────────────────────────────────────────────────────────────────
