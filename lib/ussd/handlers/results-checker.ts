@@ -803,9 +803,11 @@ export async function handleRcCheckConfirmMomo(
   const mode = session.rcCheckMode ?? 'own_voucher'
   const fee = session.rcCheckFee ?? 2
   const amount = mode === 'combo' ? (session.rcCheckComboTotal ?? fee) : fee
-  const dialingPhone = session.dialingPhone!
-  const localDialing = toLocal(dialingPhone)
-  const provider = paystackProviderFromPhone(dialingPhone)
+  // dialingPhone was overwritten with the MoMo number at WA_ENTER_PAYMENT_PHONE;
+  // sessionId IS the WhatsApp sender's phone for WA channel.
+  const momoPhone = session.dialingPhone!
+  const waPhone = toLocal(sessionId)  // original WhatsApp sender number
+  const provider = paystackProviderFromPhone(momoPhone)
 
   if (!provider) {
     await setSession(sessionId, { ...session, step: "RC_CHECK_BOARD" })
@@ -816,7 +818,7 @@ export async function handleRcCheckConfirmMomo(
   const { data: request, error } = await supabase
     .from("results_check_requests")
     .insert([{
-      phone_number: localDialing,
+      phone_number: waPhone,      // delivery goes to the WhatsApp sender
       exam_board: session.rcCheckBoard,
       candidate_type: session.rcCheckCandidateType ?? 'school',
       index_number: session.rcCheckIndex,
@@ -831,7 +833,7 @@ export async function handleRcCheckConfirmMomo(
       mode,
       voucher_pin: mode === 'own_voucher' ? (session.rcCheckVoucherPin ?? null) : null,
       voucher_serial: mode === 'own_voucher' ? (session.rcCheckVoucherSerial ?? null) : null,
-      whatsapp_number: session.rcCheckWaNumber ?? toLocal(dialingPhone),
+      whatsapp_number: waPhone,   // same: the WA sender is both contact and delivery target
     }])
     .select("id")
     .single()
@@ -841,7 +843,7 @@ export async function handleRcCheckConfirmMomo(
     return end("Error creating request.\nPlease try again.")
   }
 
-  const email = await resolveEmail(dialingPhone)
+  const email = await resolveEmail(momoPhone)
 
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
@@ -849,7 +851,7 @@ export async function handleRcCheckConfirmMomo(
       await chargeMobileMoney({
         email,
         amount,
-        phone: dialingPhone,
+        phone: momoPhone,
         provider,
         reference: request.id,
         metadata: {
@@ -869,8 +871,8 @@ export async function handleRcCheckConfirmMomo(
     }
   })
 
-  await setSession(sessionId, { step: "MAIN", dialingPhone })
+  await setSession(sessionId, { step: "MAIN", dialingPhone: waPhone })
   return end(
-    `MoMo prompt sent to ${localDialing}.\nApprove GHS ${amount.toFixed(2)} to submit\nyour results check request.\n\nReceived an OTP instead?\nRedial and enter the code.`
+    `MoMo prompt sent to ${toLocal(momoPhone)}.\nApprove GHS ${amount.toFixed(2)} to submit\nyour results check request.\n\nReceived an OTP instead?\nRedial and enter the code.`
   )
 }
