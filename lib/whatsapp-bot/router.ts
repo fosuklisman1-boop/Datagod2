@@ -1,7 +1,7 @@
 // lib/whatsapp-bot/router.ts
 import { createClient } from "@supabase/supabase-js"
 import { getWaSession, setWaSession, deleteWaSession, extendWaSession } from "./session"
-import { USSDSession, UzoResponse } from "@/lib/ussd/types"
+import { USSDSession, UzoResponse, BundleOption } from "@/lib/ussd/types"
 import { handleMain } from "@/lib/ussd/handlers/main"
 import {
   handleSelectNetwork, handleEnterRecipient,
