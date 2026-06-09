@@ -41,6 +41,7 @@ export type USSDStep =
   | 'RC_PAYMENT_METHOD'
   | 'RC_MY_VOUCHERS'
   | 'RC_VOUCHER_DETAIL'
+  | 'WA_ENTER_PAYMENT_PHONE'
 
 export interface BundleOption {
   id: string
@@ -87,4 +88,6 @@ export interface USSDSession {
   rcBoardOptions?: string[]   // boards shown on the SELECT_BOARD menu, in order
   rcMyOrders?: Array<{ id: string; exam_board: string; reference_code: string; created_at: string }>
   rcSelectedOrderId?: string
+  // WhatsApp-only: MoMo billing number entered by the user at WA_ENTER_PAYMENT_PHONE step
+  momoPhone?: string
 }
