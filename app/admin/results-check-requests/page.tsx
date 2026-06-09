@@ -30,6 +30,7 @@ interface CheckRequest {
   dob: string | null
   voucher_pin: string | null
   voucher_serial: string | null
+  whatsapp_number: string | null
   payment_reference: string
   created_at: string
 }
@@ -51,6 +52,7 @@ export default function ResultsCheckRequestsPage() {
   const [mediaFiles, setMediaFiles] = useState<Record<string, File>>({})
   const [mediaTypeInputs, setMediaTypeInputs] = useState<Record<string, "image" | "document" | "video">>({})
   const [delivering, setDelivering] = useState<Record<string, boolean>>({})
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
   const [copied, setCopied] = useState<Record<string, boolean>>({})
   const [fee, setFee] = useState("2.00")
   const [enabled, setEnabled] = useState(true)
@@ -123,19 +125,48 @@ export default function ResultsCheckRequestsPage() {
       let mediaUrl = req.media_url ?? ""
       let mediaType = mediaTypeInputs[req.id] ?? req.media_type ?? "image"
 
-      // Upload file to Supabase storage if one was selected
+      // Upload file to Supabase storage if one was selected (XHR for progress tracking)
       if (file) {
         const ext = file.name.split(".").pop() ?? "bin"
-        const path = `results-check/${req.id}-${Date.now()}.${ext}`
-        const { error: uploadErr } = await supabase.storage
-          .from("admin-uploads")
-          .upload(path, file, { upsert: true, contentType: file.type })
-        if (uploadErr) {
-          console.error("[upload]", uploadErr)
-          throw new Error(uploadErr.message || "File upload failed — check bucket exists and file type is allowed")
-        }
-        const { data: urlData } = supabase.storage.from("admin-uploads").getPublicUrl(path)
-        mediaUrl = urlData.publicUrl
+        const storagePath = `results-check/${req.id}-${Date.now()}.${ext}`
+        const { data: { session: authSession } } = await supabase.auth.getSession()
+        const token = authSession?.access_token
+        if (!token) throw new Error("Not authenticated")
+
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+        const uploadUrl = `${supabaseUrl}/storage/v1/object/admin-uploads/${storagePath}`
+
+        mediaUrl = await new Promise<string>((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+              setUploadProgress(p => ({ ...p, [req.id]: Math.round(e.loaded / e.total * 100) }))
+            }
+          })
+          xhr.addEventListener("load", () => {
+            setUploadProgress(p => { const n = { ...p }; delete n[req.id]; return n })
+            if (xhr.status === 200 || xhr.status === 201) {
+              resolve(`${supabaseUrl}/storage/v1/object/public/admin-uploads/${storagePath}`)
+            } else {
+              try {
+                const body = JSON.parse(xhr.responseText)
+                reject(new Error(body?.message || body?.error || `Upload failed (${xhr.status})`))
+              } catch {
+                reject(new Error(`Upload failed (${xhr.status})`))
+              }
+            }
+          })
+          xhr.addEventListener("error", () => {
+            setUploadProgress(p => { const n = { ...p }; delete n[req.id]; return n })
+            reject(new Error("Upload failed (network error)"))
+          })
+          xhr.open("POST", uploadUrl)
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`)
+          xhr.setRequestHeader("x-upsert", "true")
+          xhr.setRequestHeader("Content-Type", file.type)
+          xhr.send(file)
+        })
+
         if (file.type.startsWith("image/")) mediaType = "image"
         else if (file.type.startsWith("video/")) mediaType = "video"
         else mediaType = "document"
@@ -178,6 +209,7 @@ export default function ResultsCheckRequestsPage() {
       req.voucher_pin ? `PIN: ${req.voucher_pin}` : null,
       req.voucher_serial ? `Serial: ${req.voucher_serial}` : null,
       `Phone: ${req.phone_number}`,
+      req.whatsapp_number ? `WhatsApp: ${req.whatsapp_number}` : null,
       `Ref: ${req.payment_reference}`,
     ].filter(Boolean).join('\n')
     navigator.clipboard.writeText(lines)
@@ -308,6 +340,12 @@ export default function ResultsCheckRequestsPage() {
                             <span className="font-mono text-blue-700">{req.voucher_serial}</span>
                           </>
                         )}
+                        {req.whatsapp_number && (
+                          <>
+                            <span className="text-muted-foreground">WhatsApp</span>
+                            <span className="font-mono">{req.whatsapp_number}</span>
+                          </>
+                        )}
                         <span className="text-muted-foreground">Channel</span>
                         <span>{req.channel === "whatsapp" ? "WhatsApp" : "USSD"} · {req.mode === "combo" ? "Combo" : "Own voucher"}</span>
                         <span className="text-muted-foreground">Fee · Ref</span>
@@ -338,8 +376,22 @@ export default function ResultsCheckRequestsPage() {
                         onChange={e => setResultInputs(r => ({ ...r, [req.id]: e.target.value }))}
                         className="text-sm resize-none"
                       />
-                      {req.channel === "whatsapp" && (
+                      {(req.channel === "whatsapp" || req.whatsapp_number) && (
                         <div className="space-y-1.5">
+                          {uploadProgress[req.id] !== undefined && (
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>Uploading…</span>
+                                <span>{uploadProgress[req.id]}%</span>
+                              </div>
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className="h-full bg-primary transition-all duration-150"
+                                  style={{ width: `${uploadProgress[req.id]}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
                           {mediaFiles[req.id] ? (
                             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs">
                               <Paperclip size={13} className="shrink-0 text-muted-foreground" />

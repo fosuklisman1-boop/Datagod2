@@ -17,7 +17,7 @@ import {
   handleRcMyVouchers, handleRcVoucherDetail,
   handleRcCheckBoard, handleRcCheckCandidateType, handleRcCheckMode,
   handleRcCheckVoucher,
-  handleRcCheckIndex, handleRcCheckDob, handleRcCheckYear, handleRcCheckConfirm,
+  handleRcCheckIndex, handleRcCheckDob, handleRcCheckWaNumber, handleRcCheckYear, handleRcCheckConfirm,
 } from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
 
@@ -166,6 +166,9 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'RC_CHECK_DOB':
       return handleRcCheckDob(input, sessionID, session)
+
+    case 'RC_CHECK_WA_NUMBER':
+      return handleRcCheckWaNumber(input, sessionID, session)
 
     case 'RC_CHECK_YEAR':
       return handleRcCheckYear(input, sessionID, session)

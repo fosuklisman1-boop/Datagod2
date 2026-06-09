@@ -20,7 +20,7 @@ import {
   handleRcPaymentMethod, handleRcMyVouchers, handleRcVoucherDetail,
   handleRcCheckBoard, handleRcCheckCandidateType, handleRcCheckMode,
   handleRcCheckVoucher,
-  handleRcCheckIndex, handleRcCheckDob, handleRcCheckYear,
+  handleRcCheckIndex, handleRcCheckDob, handleRcCheckWaNumber, handleRcCheckYear,
   handleRcCheckConfirm, handleRcCheckConfirmMomo,
 } from "@/lib/ussd/handlers/results-checker"
 import { handleOtpSubmit } from "@/lib/ussd/handlers/otp"
@@ -452,6 +452,11 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
     case 'RC_CHECK_DOB':
       result = await handleRcCheckDob(input, sessionId, session)
+      break
+    case 'RC_CHECK_WA_NUMBER':
+      // Not reached for WA channel (handleRcCheckDob skips to RC_CHECK_CONFIRM for WA)
+      // Handled as passthrough just in case
+      result = await handleRcCheckWaNumber(input, sessionId, session)
       break
     case 'RC_CHECK_YEAR':
       result = await handleRcCheckYear(input, sessionId, session)

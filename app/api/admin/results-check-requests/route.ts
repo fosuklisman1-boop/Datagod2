@@ -105,7 +105,7 @@ export async function PATCH(request: NextRequest) {
         ).catch(e => console.error("[RC-DELIVER] WhatsApp media send failed:", e))
       }
     } else {
-      // USSD: SMS only (no media)
+      // USSD: SMS to dialing phone
       if (req.result_data) {
         const resultMsg =
           `${req.exam_board} results for ${req.index_number} (${req.exam_year}):\n` +
@@ -113,6 +113,35 @@ export async function PATCH(request: NextRequest) {
           `\nRef: ${req.payment_reference}`
         await sendSMS({ phone: req.phone_number, message: resultMsg, type: "results_check", reference: req.id })
           .catch(e => console.error("[RC-DELIVER] SMS send failed:", e))
+      }
+
+      // Also send via WhatsApp if customer provided a WhatsApp number
+      if (req.whatsapp_number) {
+        const waPhone = req.whatsapp_number.startsWith("0")
+          ? `233${req.whatsapp_number.slice(1)}`
+          : req.whatsapp_number.replace(/^\+/, "")
+
+        if (req.result_data) {
+          const waMsg =
+            `Your ${req.exam_board} results for index ${req.index_number} (${req.exam_year}):\n\n` +
+            req.result_data +
+            `\n\nRef: ${req.payment_reference}`
+          await sendWhatsAppText(waPhone, waMsg).catch(e =>
+            console.error("[RC-DELIVER] WhatsApp text to USSD user failed:", e)
+          )
+        }
+        if (mediaUrl) {
+          const caption = req.result_data
+            ? undefined
+            : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})`
+          await sendWhatsAppMedia(
+            waPhone,
+            mediaType as "image" | "document" | "video",
+            mediaUrl,
+            caption,
+            mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
+          ).catch(e => console.error("[RC-DELIVER] WhatsApp media to USSD user failed:", e))
+        }
       }
     }
 

@@ -48,6 +48,7 @@ export type USSDStep =
   | 'RC_CHECK_VOUCHER'
   | 'RC_CHECK_INDEX'
   | 'RC_CHECK_DOB'
+  | 'RC_CHECK_WA_NUMBER'
   | 'RC_CHECK_YEAR'
   | 'RC_CHECK_CONFIRM'
   | 'WA_ENTER_PAYMENT_PHONE'
@@ -109,6 +110,7 @@ export interface USSDSession {
   rcCheckFee?: number                         // check-only fee from admin settings
   rcCheckComboTotal?: number                  // combo total: 1 voucher price + check fee
   rcCheckChannel?: 'ussd' | 'whatsapp'
+  rcCheckWaNumber?: string                    // WhatsApp contact for USSD users (optional)
   // WhatsApp-only: MoMo billing number entered by the user at WA_ENTER_PAYMENT_PHONE step
   momoPhone?: string
   // WhatsApp-only: handler key to invoke after WA_ENTER_PAYMENT_PHONE for direct-charge confirm paths

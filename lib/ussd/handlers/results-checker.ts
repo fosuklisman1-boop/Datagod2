@@ -5,7 +5,7 @@ import {
   cont, end, mainMenu, rcMenu, rcBoardMenu, rcQtyPrompt, rcConfirmMenu, rcPaymentMethodMenu,
   rcMyVouchersMenu, rcVoucherDetailMenu, rcCheckBoardMenu, rcCheckCandidateTypeMenu,
   rcCheckModeMenu, rcCheckVoucherPrompt,
-  rcCheckIndexPrompt, rcCheckDobPrompt, rcCheckYearPrompt, rcCheckConfirmMenu,
+  rcCheckIndexPrompt, rcCheckDobPrompt, rcCheckWaNumberPrompt, rcCheckYearPrompt, rcCheckConfirmMenu,
 } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
@@ -589,19 +589,64 @@ export async function handleRcCheckDob(
   const { fee } = await getRcCheckSettings()
   const dialer = await resolveDialer(session.dialingPhone ?? "")
   const balance = dialer.balance ?? 0
-  await setSession(sessionId, {
+  const channel = session.rcCheckChannel ?? 'ussd'
+  const nextStep = channel === 'ussd' ? 'RC_CHECK_WA_NUMBER' : 'RC_CHECK_CONFIRM'
+
+  const updatedSession = {
     ...session,
-    step: "RC_CHECK_CONFIRM",
+    step: nextStep as USSDSession['step'],
     rcCheckDob: normalised,
     rcCheckFee: fee,
     userId: dialer.userId,
     walletBalance: balance,
-  })
+  }
+  await setSession(sessionId, updatedSession)
+
+  if (channel === 'ussd') {
+    return cont(rcCheckWaNumberPrompt())
+  }
+
   return cont(rcCheckConfirmMenu(
     session.rcCheckBoard!,
     session.rcCheckCandidateType ?? 'school',
     session.rcCheckIndex!,
     normalised,
+    session.rcCheckYear!,
+    fee,
+    balance,
+    channel,
+    session.rcCheckMode ?? 'own_voucher',
+    session.rcCheckComboTotal,
+    session.rcCheckVoucherPin,
+    session.rcCheckVoucherSerial,
+  ))
+}
+
+// ── RC_CHECK_WA_NUMBER ────────────────────────────────────────────────────────
+export async function handleRcCheckWaNumber(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  const trimmed = input.trim()
+  // 0 = skip, proceed without WA number
+  const waNumber = trimmed === '0' ? null : trimmed.replace(/^0/, '233').replace(/^\+/, '')
+  if (trimmed !== '0' && !/^0[2345]\d{8}$/.test(trimmed) && !/^233[2345]\d{8}$/.test(trimmed)) {
+    return cont('Invalid number.\nEnter your WhatsApp\nnumber (0XXXXXXXXX)\nor press 0 to skip.')
+  }
+  const localWa = trimmed !== '0' ? (trimmed.startsWith('0') ? trimmed : '0' + trimmed.slice(3)) : null
+  const fee = session.rcCheckFee ?? 2
+  const balance = session.walletBalance ?? 0
+  await setSession(sessionId, {
+    ...session,
+    step: 'RC_CHECK_CONFIRM',
+    rcCheckWaNumber: localWa ?? undefined,
+  })
+  return cont(rcCheckConfirmMenu(
+    session.rcCheckBoard!,
+    session.rcCheckCandidateType ?? 'school',
+    session.rcCheckIndex!,
+    session.rcCheckDob ?? '',
     session.rcCheckYear!,
     fee,
     balance,
@@ -714,6 +759,7 @@ export async function handleRcCheckConfirm(
       mode,
       voucher_pin: voucherPin,
       voucher_serial: voucherSerial,
+      whatsapp_number: session.rcCheckWaNumber ?? null,
     }])
     .select("id")
     .single()
@@ -785,6 +831,7 @@ export async function handleRcCheckConfirmMomo(
       mode,
       voucher_pin: mode === 'own_voucher' ? (session.rcCheckVoucherPin ?? null) : null,
       voucher_serial: mode === 'own_voucher' ? (session.rcCheckVoucherSerial ?? null) : null,
+      whatsapp_number: session.rcCheckWaNumber ?? toLocal(dialingPhone),
     }])
     .select("id")
     .single()

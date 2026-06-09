@@ -87,6 +87,10 @@ export function rcCheckDobPrompt(): string {
   return 'Enter date of birth:\n(DD/MM/YYYY)\ne.g. 15/06/2008\n\n0. Back'
 }
 
+export function rcCheckWaNumberPrompt(): string {
+  return 'Enter WhatsApp number\nto receive results:\n(e.g. 0244123456)\n\n0. Skip'
+}
+
 export function rcCheckYearPrompt(): string {
   return 'Enter exam year:\n(e.g. 2024)\n\n0. Back'
 }

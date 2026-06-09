@@ -6,4 +6,5 @@ ALTER TABLE results_check_requests
   ADD COLUMN IF NOT EXISTS voucher_pin text,
   ADD COLUMN IF NOT EXISTS voucher_serial text,
   ADD COLUMN IF NOT EXISTS candidate_type text NOT NULL DEFAULT 'school',
-  ADD COLUMN IF NOT EXISTS dob text;
+  ADD COLUMN IF NOT EXISTS dob text,
+  ADD COLUMN IF NOT EXISTS whatsapp_number text;
