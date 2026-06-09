@@ -109,6 +109,14 @@ export async function POST(request: NextRequest) {
     const resolvedPhone = userProfile?.phone_number ?? null
     console.log(`[RC-PURCHASE] Contact — email: ${resolvedEmail ?? "NONE"}, phone: ${resolvedPhone ?? "NONE"}`)
 
+    // Persist contact info on the order so resend (SMS/email) can find it later.
+    if (resolvedEmail || resolvedPhone) {
+      await supabase
+        .from("results_checker_orders")
+        .update({ customer_email: resolvedEmail, customer_phone: resolvedPhone, updated_at: new Date().toISOString() })
+        .eq("id", order.id)
+    }
+
     const orderWithContact = {
       ...order,
       customer_phone: resolvedPhone,
