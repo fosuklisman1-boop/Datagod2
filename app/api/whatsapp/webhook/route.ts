@@ -5,7 +5,7 @@ import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { getWaSession } from "@/lib/whatsapp-bot/session"
 import { waRouter } from "@/lib/whatsapp-bot/router"
-import { sendWhatsAppText } from "@/lib/whatsapp-bot/send"
+import { sendWhatsAppText, markWaMessageRead, sendWaTyping } from "@/lib/whatsapp-bot/send"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
 
@@ -87,6 +87,12 @@ async function processInbound(body: unknown): Promise<void> {
   if (!from || !text.trim()) return
 
   console.log("[WA-WEBHOOK] Inbound:", { from, text: text.slice(0, 60) })
+
+  // Immediate feedback: blue ticks + typing bubble
+  await Promise.all([
+    msg.id ? markWaMessageRead(msg.id) : Promise.resolve(),
+    sendWaTyping(from),
+  ])
 
   // Dedup: skip if we already processed this Meta message ID
   if (msg.id) {
