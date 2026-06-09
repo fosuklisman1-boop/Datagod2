@@ -92,7 +92,7 @@ async function getPackageId(sizeGb: number): Promise<string | null> {
             console.warn(`[EazyGhData] No package match for ${targetGb}GB. Available sizes: ${found.join(", ")}GB`)
         }
 
-        return (match?.id ?? match?.package_id ?? null) as string | null
+        return (match?.package_id ?? match?.id ?? null) as string | null
     } catch (error) {
         console.error("[EazyGhData] Error fetching package mapping:", error)
         return null
