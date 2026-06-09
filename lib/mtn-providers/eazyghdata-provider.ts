@@ -33,6 +33,34 @@ function normalizeStatus(raw: string): "pending" | "processing" | "completed" | 
 }
 
 /**
+ * Extract GB value from a package object by trying every plausible field name,
+ * then falling back to parsing the name/label string (e.g. "1GB", "1.5 GB").
+ */
+function extractGbFromPackage(p: Record<string, unknown>): number | null {
+    // Numeric fields first
+    const numericFields = ["size_gb", "data_gb", "capacity_gb", "volume_gb", "gb", "capacity", "volume", "size", "data", "amount"]
+    for (const field of numericFields) {
+        const v = p[field]
+        if (typeof v === "number" && v > 0) return v
+        if (typeof v === "string") {
+            const n = parseFloat(v)
+            if (!isNaN(n) && n > 0) return n
+        }
+    }
+    // Parse "1GB", "1.5 GB", "1000MB" etc. from name/label fields
+    const textFields = ["name", "label", "description", "package_name", "title", "plan"]
+    for (const field of textFields) {
+        const v = p[field]
+        if (typeof v !== "string") continue
+        const gbMatch = v.match(/(\d+(?:\.\d+)?)\s*GB/i)
+        if (gbMatch) return parseFloat(gbMatch[1])
+        const mbMatch = v.match(/(\d+(?:\.\d+)?)\s*MB/i)
+        if (mbMatch) return parseFloat(mbMatch[1]) / 1024
+    }
+    return null
+}
+
+/**
  * Look up the EazyGhData package_id UUID for a given GB size.
  * Packages are cached in admin_settings under key "eazyghdata_packages".
  */
@@ -44,16 +72,27 @@ async function getPackageId(sizeGb: number): Promise<string | null> {
             .eq("key", "eazyghdata_packages")
             .maybeSingle()
 
-        const packages: Array<{ id: string; size_gb?: number; data_gb?: number; name?: string }> =
-            data?.value?.packages ?? []
+        const packages: Array<Record<string, unknown>> = data?.value?.packages ?? []
 
-        const targetGb = Math.round(sizeGb)
+        if (packages.length > 0) {
+            console.log(`[EazyGhData] Package sample (first):`, JSON.stringify(packages[0]))
+        } else {
+            console.warn("[EazyGhData] No packages cached in admin_settings")
+        }
+
+        const targetGb = sizeGb
         const match = packages.find(p => {
-            const gb = Math.round(p.size_gb ?? p.data_gb ?? 0)
-            return gb === targetGb
+            const gb = extractGbFromPackage(p)
+            if (gb === null) return false
+            return Math.round(gb) === Math.round(targetGb)
         })
 
-        return match?.id ?? null
+        if (!match) {
+            const found = packages.map(p => extractGbFromPackage(p)).filter(Boolean)
+            console.warn(`[EazyGhData] No package match for ${targetGb}GB. Available sizes: ${found.join(", ")}GB`)
+        }
+
+        return (match?.id ?? match?.package_id ?? null) as string | null
     } catch (error) {
         console.error("[EazyGhData] Error fetching package mapping:", error)
         return null

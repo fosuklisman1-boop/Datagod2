@@ -32,11 +32,13 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Failed to fetch cached packages" }, { status: 500 })
         }
 
+        const packages = data?.value?.packages ?? []
         return NextResponse.json({
             success: true,
-            packages: data?.value?.packages ?? [],
+            packages,
             synced_at: data?.value?.synced_at ?? null,
             count: data?.value?.count ?? 0,
+            sample: packages[0] ?? null,
         })
     } catch (error) {
         console.error("[EazyGhData-Packages] GET error:", error)
