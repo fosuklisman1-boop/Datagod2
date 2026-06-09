@@ -892,7 +892,6 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getWalletBalanceTool,
     getWalletTransactionsTool,
     getOrderHistoryTool,
-    placeWalletOrderTool,
     getSubscriptionPlansTool,
     notifySelfTool,
     getKnowledgeBaseTool,

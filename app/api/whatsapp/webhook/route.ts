@@ -1,6 +1,7 @@
 // app/api/whatsapp/webhook/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { after } from "next/server"
+import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { getWaSession } from "@/lib/whatsapp-bot/session"
 import { waRouter } from "@/lib/whatsapp-bot/router"
@@ -12,6 +13,19 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+async function verifyMetaSignature(request: NextRequest, rawBody: string): Promise<boolean> {
+  const sig = request.headers.get("x-hub-signature-256")
+  const secret = process.env.WHATSAPP_APP_SECRET
+  if (!sig || !secret) return false
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody, "utf8").digest("hex")
+  try {
+    return sig.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(sig, "utf8"), Buffer.from(expected, "utf8"))
+  } catch {
+    return false
+  }
+}
 
 // ── GET: Meta webhook verification ───────────────────────────────────────────
 
@@ -31,9 +45,16 @@ export async function GET(request: NextRequest) {
 // ── POST: Inbound message ─────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
+  const rawBody = await request.text()
+
+  if (!(await verifyMetaSignature(request, rawBody))) {
+    console.warn("[WA-WEBHOOK] Signature verification failed")
+    return new Response("Forbidden", { status: 403 })
+  }
+
   let body: unknown
   try {
-    body = await request.json()
+    body = JSON.parse(rawBody)
   } catch {
     return NextResponse.json({ status: "ok" }, { status: 200 })
   }
@@ -66,6 +87,18 @@ async function processInbound(body: unknown): Promise<void> {
   if (!from || !text.trim()) return
 
   console.log("[WA-WEBHOOK] Inbound:", { from, text: text.slice(0, 60) })
+
+  // Dedup: skip if we already processed this Meta message ID
+  if (msg.id) {
+    const { count } = await supabase
+      .from("whatsapp_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("meta_message_id", msg.id)
+    if ((count ?? 0) > 0) {
+      console.log("[WA-WEBHOOK] Duplicate message, skipping:", msg.id)
+      return
+    }
+  }
 
   // Log inbound message
   await logMessage(from, "inbound", text, msg.id)
@@ -152,6 +185,15 @@ For support questions, order status, and account queries, answer directly.`
     maxTokens: 600,
   })
 
+  // If the AI called start_ordering_bot (creating a session) but returned no text,
+  // fall through to the bot router so the user immediately sees the menu.
+  if (!result.text) {
+    const newSession = await getWaSession(phone)
+    if (newSession) {
+      const { mainMenu } = await import("@/lib/ussd/menus")
+      return mainMenu()
+    }
+  }
   return result.text
 }
 
