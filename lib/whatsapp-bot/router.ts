@@ -4,7 +4,7 @@ import { getWaSession, setWaSession, deleteWaSession, extendWaSession } from "./
 import { USSDSession, UzoResponse } from "@/lib/ussd/types"
 import { handleMain } from "@/lib/ussd/handlers/main"
 import {
-  handleSelectNetwork, handleSelectBundle, handleEnterRecipient,
+  handleSelectNetwork, handleEnterRecipient,
   handleConfirm, handlePaymentMethod, handleSubmitOtp,
 } from "@/lib/ussd/handlers/bundles"
 import {
@@ -22,7 +22,8 @@ import {
 import { handleOtpSubmit } from "@/lib/ussd/handlers/otp"
 import { handleStatus } from "@/lib/ussd/handlers/status"
 import {
-  mainMenu, bundleMenu, paymentMethodMenu,
+  mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt,
+  recipientPrompt, paymentMethodMenu,
   airtimePaymentMethodMenu, rcPaymentMethodMenu,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
@@ -39,6 +40,88 @@ function fixWaMomoMsg(msg: string): string {
     .replace(/Redial\s+\S*\s*and\s+enter\s+the\s+code\.?/gi, 'Reply here with your OTP code.')
 }
 
+// ── WhatsApp bundle helpers (full list, no pagination) ───────────────────────
+
+function fmtSize(size: string): string {
+  const n = parseFloat(size)
+  if (isNaN(n)) return size
+  if (n < 1) return `${Math.round(n * 1000)}MB`
+  return `${Number.isInteger(n) ? n : n}GB`
+}
+
+async function loadAllBundlesWa(
+  network: string,
+  priceTier: string,
+  parentShopId?: string,
+): Promise<BundleOption[]> {
+  if (priceTier === 'sub_agent' && parentShopId) {
+    const { data } = await supabase
+      .from("sub_agent_catalog")
+      .select("package_id, parent_price, packages!inner(id, size, network, active)")
+      .eq("shop_id", parentShopId)
+      .eq("packages.network", network)
+      .eq("packages.active", true)
+      .order("parent_price", { ascending: true })
+      .order("package_id", { ascending: true })
+    return (data ?? []).map((r: any) => ({
+      id: r.packages.id,
+      size: String(r.packages.size),
+      price: Number(r.parent_price),
+    }))
+  }
+  const { data } = await supabase
+    .from("packages")
+    .select("id, size, price, dealer_price")
+    .eq("network", network)
+    .eq("active", true)
+    .order("price", { ascending: true })
+    .order("id", { ascending: true })
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    size: String(r.size),
+    price: Number(
+      priceTier === 'dealer' && r.dealer_price && Number(r.dealer_price) > 0
+        ? r.dealer_price
+        : r.price
+    ),
+  }))
+}
+
+function bundleMenuWa(bundles: BundleOption[]): string {
+  const lines = bundles.map((b, i) => `${i + 1}. ${fmtSize(b.size)} - GHS ${b.price.toFixed(2)}`)
+  lines.push('0. Back')
+  return 'Select Bundle:\n' + lines.join('\n')
+}
+
+async function handleSelectBundleWa(
+  input: string,
+  sessionId: string,
+  session: USSDSession,
+): Promise<UzoResponse> {
+  if (input === '0') {
+    await setWaSession(sessionId, { ...session, step: 'SELECT_NETWORK' })
+    return { message: networkMenu(), ussdServiceOp: 2 }
+  }
+  const chosen = parseInt(input, 10)
+  const allBundles = await loadAllBundlesWa(
+    session.network ?? '',
+    session.effectivePriceTier ?? 'regular',
+    session.subAgentParentShopId,
+  )
+  if (isNaN(chosen) || chosen < 1 || chosen > allBundles.length) {
+    return { message: bundleMenuWa(allBundles), ussdServiceOp: 2 }
+  }
+  const selected = allBundles[chosen - 1]
+  await setWaSession(sessionId, {
+    ...session,
+    step: 'ENTER_RECIPIENT',
+    bundleId: selected.id,
+    bundleSize: String(selected.size),
+    bundlePrice: selected.price,
+  })
+  return { message: recipientPrompt(), ussdServiceOp: 2 }
+}
+
 export async function waRouter(phone: string, text: string): Promise<string> {
   const sessionId = phone
   const session = await getWaSession(sessionId)
@@ -52,6 +135,34 @@ export async function waRouter(phone: string, text: string): Promise<string> {
   // Used to override the (possibly truncated) message from a handler
   let overrideMessage: string | null = null
 
+  // WhatsApp: intercept non-numeric freetext in menu-selection steps (where only digits are
+  // valid). Detect service intent via keywords so the user isn't trapped by a stale session.
+  const MENU_SELECTION_STEPS: ReadonlySet<string> = new Set([
+    'MAIN', 'SELECT_NETWORK', 'CHECK_STATUS',
+    'CONFIRM', 'PAYMENT_METHOD',
+    'AFA_CONFIRM_AFA',
+    'AIRTIME_SELECT_NETWORK', 'AIRTIME_CONFIRM', 'AIRTIME_PAYMENT_METHOD',
+    'RC_MENU', 'RC_SELECT_BOARD', 'RC_CONFIRM', 'RC_PAYMENT_METHOD',
+    'RC_MY_VOUCHERS', 'RC_VOUCHER_DETAIL',
+  ])
+  if (MENU_SELECTION_STEPS.has(session.step) && !/^\d+$/.test(input)) {
+    const lc = input.toLowerCase()
+    let nextStep: USSDSession['step'] = 'MAIN'
+    let menuText = mainMenu()
+    if (lc.includes('data') || lc.includes('bundle')) {
+      nextStep = 'SELECT_NETWORK'; menuText = networkMenu()
+    } else if (lc.includes('airtime')) {
+      nextStep = 'AIRTIME_ENTER_RECIPIENT'; menuText = airtimeRecipientPrompt()
+    } else if (lc.includes('afa') || lc.includes('registr')) {
+      nextStep = 'AFA_ENTER_NAME'; menuText = afaEnterNamePrompt()
+    } else if (lc.includes('result') || lc.includes('checker') || lc.includes('waec') || lc.includes('bece') || lc.includes('voucher')) {
+      nextStep = 'RC_MENU'; menuText = rcMenu()
+    }
+    await setWaSession(sessionId, { ...session, step: nextStep })
+    await extendWaSession(sessionId)
+    return menuText
+  }
+
   switch (session.step) {
     case 'MAIN':
       result = await handleMain(input, sessionId, session.dialingPhone ?? phone)
@@ -59,23 +170,20 @@ export async function waRouter(phone: string, text: string): Promise<string> {
 
     case 'SELECT_NETWORK':
       result = await handleSelectNetwork(input, sessionId, session)
-      // Re-render bundle list from session cache to avoid 160-char USSD truncation
       if (result.ussdServiceOp === 2) {
         const s2 = await getWaSession(sessionId)
-        if (s2?.step === 'SELECT_BUNDLE' && s2.bundleCache) {
-          overrideMessage = bundleMenu(s2.bundleCache, s2.bundlePage ?? 0, s2.bundleTotal ?? 0)
+        if (s2?.step === 'SELECT_BUNDLE' && s2.network) {
+          // WhatsApp: show all bundles at once — no 5-per-page pagination needed
+          const allBundles = await loadAllBundlesWa(s2.network, s2.effectivePriceTier ?? 'regular', s2.subAgentParentShopId)
+          overrideMessage = bundleMenuWa(allBundles)
+          await setWaSession(sessionId, { ...s2, bundleCache: allBundles, bundleTotal: allBundles.length })
         }
       }
       break
 
     case 'SELECT_BUNDLE':
-      result = await handleSelectBundle(input, sessionId, session)
-      if (result.ussdServiceOp === 2) {
-        const s2 = await getWaSession(sessionId)
-        if (s2?.step === 'SELECT_BUNDLE' && s2.bundleCache) {
-          overrideMessage = bundleMenu(s2.bundleCache, s2.bundlePage ?? 0, s2.bundleTotal ?? 0)
-        }
-      }
+      // WhatsApp: bypass paginated USSD handler — full list, direct index selection
+      result = await handleSelectBundleWa(input, sessionId, session)
       break
 
     case 'ENTER_RECIPIENT':
