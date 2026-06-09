@@ -50,6 +50,8 @@ export async function GET(request: NextRequest) {
     dashboard_model: cfg.dashboard_model ?? DEFAULT_CONFIG.dashboard_model,
     admin_provider: cfg.admin_provider ?? DEFAULT_CONFIG.admin_provider,
     admin_model: cfg.admin_model ?? DEFAULT_CONFIG.admin_model,
+    whatsapp_provider: cfg.whatsapp_provider ?? DEFAULT_CONFIG.whatsapp_provider,
+    whatsapp_model: cfg.whatsapp_model ?? DEFAULT_CONFIG.whatsapp_model,
   })
 }
 
@@ -99,6 +101,8 @@ export async function PUT(request: NextRequest) {
     dashboard_model: body.dashboard_model ?? current.dashboard_model,
     admin_provider: body.admin_provider ?? current.admin_provider,
     admin_model: body.admin_model ?? current.admin_model,
+    whatsapp_provider: body.whatsapp_provider ?? current.whatsapp_provider,
+    whatsapp_model: body.whatsapp_model ?? current.whatsapp_model,
   }
 
   const { error } = await supabase

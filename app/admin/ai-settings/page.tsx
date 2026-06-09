@@ -12,7 +12,7 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { ProviderName, PROVIDER_MODELS } from "@/lib/ai-provider-config"
 
-type AIChatContext = "storefront" | "dashboard" | "admin"
+type AIChatContext = "storefront" | "dashboard" | "admin" | "whatsapp"
 
 interface ConfigState {
   anthropic_key_set: boolean
@@ -31,6 +31,8 @@ interface ConfigState {
   dashboard_model: string
   admin_provider: ProviderName
   admin_model: string
+  whatsapp_provider: ProviderName
+  whatsapp_model: string
 }
 
 const PROVIDER_LABELS: Record<ProviderName, string> = {
@@ -45,6 +47,7 @@ const CONTEXT_LABELS: Record<AIChatContext, string> = {
   storefront: "Storefront",
   dashboard: "Dashboard",
   admin: "Admin",
+  whatsapp: "WhatsApp Bot",
 }
 
 const defaultConfig: ConfigState = {
@@ -64,6 +67,8 @@ const defaultConfig: ConfigState = {
   dashboard_model: "claude-haiku-4-5-20251001",
   admin_provider: "anthropic",
   admin_model: "claude-haiku-4-5-20251001",
+  whatsapp_provider: "anthropic",
+  whatsapp_model: "claude-haiku-4-5-20251001",
 }
 
 export default function AISettingsPage() {
@@ -101,12 +106,14 @@ export default function AISettingsPage() {
       const data = await res.json() as ConfigState
       setConfig(data)
 
-      // Detect if all three are using the same provider/model
+      // Detect if all four are using the same provider/model
       if (
         data.storefront_provider === data.dashboard_provider &&
         data.dashboard_provider === data.admin_provider &&
+        data.admin_provider === data.whatsapp_provider &&
         data.storefront_model === data.dashboard_model &&
-        data.dashboard_model === data.admin_model
+        data.dashboard_model === data.admin_model &&
+        data.admin_model === data.whatsapp_model
       ) {
         setSameForAll(true)
         setAllProvider(data.storefront_provider)
@@ -150,11 +157,13 @@ export default function AISettingsPage() {
             storefront_provider: allProvider, storefront_model: allModel,
             dashboard_provider: allProvider, dashboard_model: allModel,
             admin_provider: allProvider, admin_model: allModel,
+            whatsapp_provider: allProvider, whatsapp_model: allModel,
           }
         : {
             storefront_provider: config.storefront_provider, storefront_model: config.storefront_model,
             dashboard_provider: config.dashboard_provider, dashboard_model: config.dashboard_model,
             admin_provider: config.admin_provider, admin_model: config.admin_model,
+            whatsapp_provider: config.whatsapp_provider, whatsapp_model: config.whatsapp_model,
           }
       const res = await fetch("/api/admin/ai-config", {
         method: "PUT",
@@ -278,7 +287,7 @@ export default function AISettingsPage() {
                 className="mt-0.5 accent-violet-600"
               />
               <label htmlFor="same-for-all" className="text-sm font-medium text-foreground cursor-pointer">
-                Use the same model for all three widgets
+                Use the same model for all widgets
               </label>
             </div>
 
@@ -317,7 +326,7 @@ export default function AISettingsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {(["storefront", "dashboard", "admin"] as AIChatContext[]).map(ctx => (
+                {(["storefront", "dashboard", "admin", "whatsapp"] as AIChatContext[]).map(ctx => (
                   <div key={ctx} className="space-y-2">
                     <Label className="text-sm font-medium capitalize">{CONTEXT_LABELS[ctx]} Widget</Label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

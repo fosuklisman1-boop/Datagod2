@@ -321,16 +321,17 @@ export function resolveProviderForContext(
   config: AIProviderConfig
 ): { provider: AIProvider; model: string; providerName: ProviderName } {
   const fallbackKey = process.env.ANTHROPIC_API_KEY ?? ""
-  const resolvedContext = context === "whatsapp" ? "dashboard" : context
 
   const providerName: ProviderName =
-    resolvedContext === "storefront" || resolvedContext === "home" ? (config.storefront_provider ?? "anthropic")
-    : resolvedContext === "dashboard" ? (config.dashboard_provider ?? "anthropic")
+    context === "storefront" || context === "home" ? (config.storefront_provider ?? "anthropic")
+    : context === "dashboard" ? (config.dashboard_provider ?? "anthropic")
+    : context === "whatsapp" ? (config.whatsapp_provider ?? config.dashboard_provider ?? "anthropic")
     : (config.admin_provider ?? "anthropic")
 
   const model: string =
-    resolvedContext === "storefront" || resolvedContext === "home" ? (config.storefront_model ?? DEFAULT_CONFIG.storefront_model!)
-    : resolvedContext === "dashboard" ? (config.dashboard_model ?? DEFAULT_CONFIG.dashboard_model!)
+    context === "storefront" || context === "home" ? (config.storefront_model ?? DEFAULT_CONFIG.storefront_model!)
+    : context === "dashboard" ? (config.dashboard_model ?? DEFAULT_CONFIG.dashboard_model!)
+    : context === "whatsapp" ? (config.whatsapp_model ?? config.dashboard_model ?? DEFAULT_CONFIG.whatsapp_model!)
     : (config.admin_model ?? DEFAULT_CONFIG.admin_model!)
 
   const apiKey: string =

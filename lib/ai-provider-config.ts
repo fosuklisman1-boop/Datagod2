@@ -14,6 +14,8 @@ export interface AIProviderConfig {
   dashboard_model?: string
   admin_provider?: ProviderName
   admin_model?: string
+  whatsapp_provider?: ProviderName
+  whatsapp_model?: string
 }
 
 export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }[]> = {
@@ -48,6 +50,7 @@ export const DEFAULT_CONFIG: Required<Pick<
   | "storefront_provider" | "storefront_model"
   | "dashboard_provider" | "dashboard_model"
   | "admin_provider"     | "admin_model"
+  | "whatsapp_provider"  | "whatsapp_model"
 >> = {
   storefront_provider: "anthropic",
   storefront_model: "claude-haiku-4-5-20251001",
@@ -55,4 +58,6 @@ export const DEFAULT_CONFIG: Required<Pick<
   dashboard_model: "claude-haiku-4-5-20251001",
   admin_provider: "anthropic",
   admin_model: "claude-haiku-4-5-20251001",
+  whatsapp_provider: "anthropic",
+  whatsapp_model: "claude-haiku-4-5-20251001",
 }

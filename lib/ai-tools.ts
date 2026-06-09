@@ -890,15 +890,12 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     showActionButtonsTool,
   ]
 
-  // WhatsApp: platform support with account actions when the sender phone is matched.
+  // WhatsApp: conversational support — only tools that work without a dashboard session.
   if (context === "whatsapp") return [
     getAvailablePackagesTool,
     searchOrderStatusTool,
     getWalletBalanceTool,
-    getWalletTransactionsTool,
     getOrderHistoryTool,
-    getSubscriptionPlansTool,
-    notifySelfTool,
     getKnowledgeBaseTool,
     startOrderingBotTool,
   ]
