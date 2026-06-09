@@ -828,6 +828,21 @@ const notifySelfTool: Anthropic.Tool = {
   },
 }
 
+const startOrderingBotTool: Anthropic.Tool = {
+  name: "start_ordering_bot",
+  description: "Switch the conversation to the structured ordering menu. Call this when the user expresses intent to buy a data bundle, airtime, AFA registration, or results checker vouchers. Do not call this for general queries about pricing or services.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      phone: {
+        type: "string",
+        description: "The user's WhatsApp phone number as received from Meta webhook (e.g. '233559919037').",
+      },
+    },
+    required: ["phone"],
+  },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
@@ -881,6 +896,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getSubscriptionPlansTool,
     notifySelfTool,
     getKnowledgeBaseTool,
+    startOrderingBotTool,
   ]
 
   // Admin: platform management — full suite
@@ -1250,6 +1266,15 @@ export async function executeToolCall(
           order_code: data.order?.order_code,
           new_balance: data.newBalance,
         })
+      }
+
+      case "start_ordering_bot": {
+        const { setWaSession } = await import("@/lib/whatsapp-bot/session")
+        const { mainMenu } = await import("@/lib/ussd/menus")
+        const phone = String(input.phone ?? "").trim()
+        if (!phone) return { error: "phone is required" }
+        await setWaSession(phone, { step: "MAIN", dialingPhone: phone })
+        return { message: mainMenu() }
       }
 
       case "get_all_orders": {
