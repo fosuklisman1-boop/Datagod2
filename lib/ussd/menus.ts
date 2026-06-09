@@ -80,7 +80,7 @@ export function rcCheckVoucherPrompt(): string {
 }
 
 export function rcCheckIndexPrompt(): string {
-  return 'Enter your index number:\n\n0. Back'
+  return 'Enter your index number:\n(10 digits e.g. 0070202043)\n\n0. Back'
 }
 
 export function rcCheckDobPrompt(): string {

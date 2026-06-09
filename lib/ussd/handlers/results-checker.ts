@@ -545,9 +545,15 @@ export async function handleRcCheckIndex(
     await setSession(sessionId, { ...session, step: "RC_CHECK_CANDIDATE_TYPE" })
     return cont(rcCheckCandidateTypeMenu())
   }
-  const index = input.trim().toUpperCase()
-  if (index.length < 5 || !/^[A-Z0-9\/\-]+$/.test(index)) {
-    return cont("Invalid index number.\nUse numbers/letters only\n(min 5 characters)\n\n0. Back")
+  // WAEC/WASSCE/NOVDEC: exactly 10 digits (7-digit centre + 3-digit candidate)
+  // BECE: 10 or 12 digits (10-digit base, optionally +2 year digits for placement)
+  const index = input.trim().replace(/\s/g, '')
+  const board = session.rcCheckBoard ?? ''
+  const isBece = board === 'BECE'
+  const valid = isBece ? /^\d{10}(\d{2})?$/.test(index) : /^\d{10}$/.test(index)
+  if (!valid) {
+    const hint = isBece ? '10 or 12 digits' : 'exactly 10 digits'
+    return cont(`Invalid index number.\nMust be ${hint},\nnumbers only.\ne.g. 0070202043\n\n0. Back`)
   }
   await setSession(sessionId, { ...session, step: "RC_CHECK_YEAR", rcCheckIndex: index })
   return cont(rcCheckYearPrompt())
