@@ -92,7 +92,7 @@ async function getPackageId(sizeGb: number): Promise<string | null> {
             console.warn(`[EazyGhData] No package match for ${targetGb}GB. Available sizes: ${found.join(", ")}GB`)
         }
 
-        return (match?.package_id ?? match?.id ?? null) as string | null
+        return (match?.id ?? match?.package_id ?? null) as string | null
     } catch (error) {
         console.error("[EazyGhData] Error fetching package mapping:", error)
         return null
@@ -173,8 +173,20 @@ export class EazyGhDataProvider implements MTNProvider {
                     }
 
                     if (!response.ok) {
+                        const errMsg: string = data?.message || data?.error || `API returned ${response.status}`
                         log("error", "Order", "EazyGhData API HTTP error", { traceId, status: response.status, data })
-                        return { success: false, message: data?.message || `API returned ${response.status}`, traceId, error_type: "API_ERROR" }
+
+                        // Duplicate in-flight order — surface a clear message
+                        if (errMsg.includes("duplicate key") || errMsg.includes("inflight")) {
+                            return {
+                                success: false,
+                                message: "This phone number already has a pending EazyGhData order. Please wait for it to complete or fail before retrying.",
+                                traceId,
+                                error_type: "API_ERROR",
+                            }
+                        }
+
+                        return { success: false, message: errMsg, traceId, error_type: "API_ERROR" }
                     }
 
                     const orderId = data.order_id ?? data.id
