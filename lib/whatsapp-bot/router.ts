@@ -19,7 +19,7 @@ import {
   handleRcMenu, handleRcSelectBoard, handleRcEnterQty, handleRcConfirm,
   handleRcPaymentMethod, handleRcMyVouchers, handleRcVoucherDetail,
   handleRcCheckBoard, handleRcCheckCandidateType, handleRcCheckMode,
-  handleRcCheckVoucher, handleRcCheckVoucherSerial,
+  handleRcCheckVoucher,
   handleRcCheckIndex, handleRcCheckDob, handleRcCheckYear,
   handleRcCheckConfirm, handleRcCheckConfirmMomo,
 } from "@/lib/ussd/handlers/results-checker"
@@ -30,7 +30,7 @@ import {
   recipientPrompt, paymentMethodMenu,
   airtimePaymentMethodMenu, rcPaymentMethodMenu,
   rcCheckBoardMenu, rcCheckCandidateTypeMenu, rcCheckModeMenu,
-  rcCheckVoucherPrompt, rcCheckVoucherSerialPrompt, rcCheckIndexPrompt,
+  rcCheckVoucherPrompt, rcCheckIndexPrompt,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 
@@ -446,9 +446,6 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
     case 'RC_CHECK_VOUCHER':
       result = await handleRcCheckVoucher(input, sessionId, session)
-      break
-    case 'RC_CHECK_VOUCHER_SERIAL':
-      result = await handleRcCheckVoucherSerial(input, sessionId, session)
       break
     case 'RC_CHECK_INDEX':
       result = await handleRcCheckIndex(input, sessionId, session)

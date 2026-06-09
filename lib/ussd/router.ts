@@ -16,7 +16,7 @@ import {
   handleRcMenu, handleRcSelectBoard, handleRcEnterQty, handleRcConfirm, handleRcPaymentMethod,
   handleRcMyVouchers, handleRcVoucherDetail,
   handleRcCheckBoard, handleRcCheckCandidateType, handleRcCheckMode,
-  handleRcCheckVoucher, handleRcCheckVoucherSerial,
+  handleRcCheckVoucher,
   handleRcCheckIndex, handleRcCheckDob, handleRcCheckYear, handleRcCheckConfirm,
 } from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
@@ -160,9 +160,6 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'RC_CHECK_VOUCHER':
       return handleRcCheckVoucher(input, sessionID, session)
-
-    case 'RC_CHECK_VOUCHER_SERIAL':
-      return handleRcCheckVoucherSerial(input, sessionID, session)
 
     case 'RC_CHECK_INDEX':
       return handleRcCheckIndex(input, sessionID, session)

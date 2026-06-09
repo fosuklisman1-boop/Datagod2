@@ -4,7 +4,7 @@ import { UzoResponse, USSDSession } from "../types"
 import {
   cont, end, mainMenu, rcMenu, rcBoardMenu, rcQtyPrompt, rcConfirmMenu, rcPaymentMethodMenu,
   rcMyVouchersMenu, rcVoucherDetailMenu, rcCheckBoardMenu, rcCheckCandidateTypeMenu,
-  rcCheckModeMenu, rcCheckVoucherPrompt, rcCheckVoucherSerialPrompt,
+  rcCheckModeMenu, rcCheckVoucherPrompt,
   rcCheckIndexPrompt, rcCheckDobPrompt, rcCheckYearPrompt, rcCheckConfirmMenu,
 } from "../menus"
 import { setSession } from "../session"
@@ -510,25 +510,18 @@ export async function handleRcCheckVoucher(
     await setSession(sessionId, { ...session, step: "RC_CHECK_CANDIDATE_TYPE" })
     return cont(rcCheckCandidateTypeMenu())
   }
-  const pin = input.trim()
-  if (pin.length < 3) return cont("Invalid PIN.\n" + rcCheckVoucherPrompt())
-  await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER_SERIAL", rcCheckVoucherPin: pin })
-  return cont(rcCheckVoucherSerialPrompt())
-}
-
-// ── RC_CHECK_VOUCHER_SERIAL ───────────────────────────────────────────────────
-export async function handleRcCheckVoucherSerial(
-  input: string,
-  sessionId: string,
-  session: USSDSession
-): Promise<UzoResponse> {
-  if (input.trim() === "0") {
-    await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER" })
-    return cont(rcCheckVoucherPrompt())
+  // Accept "PIN/Serial", "PIN Serial", or "PIN,Serial"
+  const raw = input.trim()
+  const parts = raw.split(/[\/,\s]+/)
+  if (parts.length < 2 || parts[0].length < 2 || parts[1].length < 2) {
+    return cont("Enter both PIN and serial.\nFormat: PIN/Serial\ne.g. 1234/567890\n\n0. Back")
   }
-  const serial = input.trim()
-  if (serial.length < 2) return cont("Invalid serial.\n" + rcCheckVoucherSerialPrompt())
-  await setSession(sessionId, { ...session, step: "RC_CHECK_INDEX", rcCheckVoucherSerial: serial })
+  await setSession(sessionId, {
+    ...session,
+    step: "RC_CHECK_INDEX",
+    rcCheckVoucherPin: parts[0],
+    rcCheckVoucherSerial: parts[1],
+  })
   return cont(rcCheckIndexPrompt())
 }
 
@@ -540,8 +533,8 @@ export async function handleRcCheckIndex(
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     if (session.rcCheckMode === 'own_voucher') {
-      await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER_SERIAL" })
-      return cont(rcCheckVoucherSerialPrompt())
+      await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER" })
+      return cont(rcCheckVoucherPrompt())
     }
     const comboTotal = session.rcCheckComboTotal
     if (comboTotal !== undefined) {

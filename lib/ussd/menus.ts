@@ -76,11 +76,7 @@ export function rcCheckModeMenu(comboTotal: number, checkFee: number): string {
 }
 
 export function rcCheckVoucherPrompt(): string {
-  return 'Enter your voucher PIN:\n\n0. Back'
-}
-
-export function rcCheckVoucherSerialPrompt(): string {
-  return 'Enter voucher serial\nnumber:\n\n0. Back'
+  return 'Enter voucher PIN\nand serial number:\n(PIN/Serial)\ne.g. 1234/567890\n\n0. Back'
 }
 
 export function rcCheckIndexPrompt(): string {
