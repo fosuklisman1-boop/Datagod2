@@ -25,6 +25,7 @@ import {
   mainMenu, bundleMenu, paymentMethodMenu,
   airtimePaymentMethodMenu, rcPaymentMethodMenu,
 } from "@/lib/ussd/menus"
+import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -75,9 +76,15 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
 
     case 'CONFIRM':
-      result = await handleConfirm(input, sessionId, session)
-      if (input === '1') {
-        void tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
+      if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.bundlePrice ?? 0))) {
+        // Guest or insufficient wallet → direct MoMo charge will fire. Ask for billing number first.
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+      } else {
+        result = await handleConfirm(input, sessionId, session)
+        if (input === '1') {
+          void tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
+        }
       }
       break
 
@@ -132,9 +139,14 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       result = await handleAirtimeEnterAmount(input, sessionId, session)
       break
     case 'AIRTIME_CONFIRM':
-      result = await handleAirtimeConfirm(input, sessionId, session)
-      if (input === '1') {
-        void tagOrderChannel(sessionId, phone, 'airtime_orders', false)
+      if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.airtimeAmount ?? 0))) {
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+      } else {
+        result = await handleAirtimeConfirm(input, sessionId, session)
+        if (input === '1') {
+          void tagOrderChannel(sessionId, phone, 'airtime_orders', false)
+        }
       }
       break
     case 'AIRTIME_PAYMENT_METHOD':
@@ -162,9 +174,14 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       result = await handleRcEnterQty(input, sessionId, session)
       break
     case 'RC_CONFIRM':
-      result = await handleRcConfirm(input, sessionId, session)
-      if (input === '1') {
-        void tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
+      if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.rcTotal ?? 0))) {
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+      } else {
+        result = await handleRcConfirm(input, sessionId, session)
+        if (input === '1') {
+          void tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
+        }
       }
       break
     case 'RC_PAYMENT_METHOD':
@@ -202,14 +219,20 @@ async function handleWaEnterPaymentPhone(
   sessionId: string,
   session: USSDSession
 ): Promise<UzoResponse> {
-  // Determine originating payment step from pendingOrderTable
-  const parentStep = session.pendingOrderTable === 'airtime_orders'
-    ? 'AIRTIME_PAYMENT_METHOD'
-    : session.pendingOrderTable === 'results_checker_orders'
-      ? 'RC_PAYMENT_METHOD'
-      : 'PAYMENT_METHOD'
+  // Determine originating payment step from waNextStep (confirm paths) or pendingOrderTable
+  const parentStep = session.waNextStep === 'CONFIRM_AIRTIME' ? 'AIRTIME_CONFIRM'
+    : session.waNextStep === 'CONFIRM_RC' ? 'RC_CONFIRM'
+    : session.waNextStep === 'CONFIRM_BUNDLE' ? 'CONFIRM'
+    : session.pendingOrderTable === 'airtime_orders' ? 'AIRTIME_PAYMENT_METHOD'
+    : session.pendingOrderTable === 'results_checker_orders' ? 'RC_PAYMENT_METHOD'
+    : 'PAYMENT_METHOD'
 
   if (input.trim() === '0') {
+    if (parentStep === 'CONFIRM' || parentStep === 'AIRTIME_CONFIRM' || parentStep === 'RC_CONFIRM') {
+      // Return to the confirm step by resetting step (user can re-review the order)
+      await setWaSession(sessionId, { ...session, step: parentStep as USSDSession['step'], waNextStep: undefined })
+      return { message: 'Order cancelled. Send any message to continue.', ussdServiceOp: 17 }
+    }
     const amount = parentStep === 'PAYMENT_METHOD' ? (session.bundlePrice ?? 0)
       : parentStep === 'AIRTIME_PAYMENT_METHOD' ? (session.airtimeAmount ?? 0)
       : (session.rcTotal ?? 0)
@@ -233,16 +256,35 @@ async function handleWaEnterPaymentPhone(
     }
   }
 
-  // Overwrite dialingPhone with the entered MoMo number so USSD payment
-  // handlers derive the correct Paystack provider and charge the right account.
+  // Overwrite dialingPhone and derive the correct Paystack provider from the entered number.
   const updatedSession: USSDSession = {
     ...session,
     dialingPhone: local,
     momoPhone: local,
+    paystackProvider: paystackProviderFromPhone(local) ?? undefined,
     step: parentStep as USSDSession['step'],
+    waNextStep: undefined,
   }
   await setWaSession(sessionId, updatedSession)
 
+  // Handle direct-charge confirm paths (guest/no-wallet users)
+  if (session.waNextStep === 'CONFIRM_BUNDLE') {
+    const res = await handleConfirm('1', sessionId, updatedSession)
+    void tagOrderChannel(sessionId, sessionId, 'ussd_orders', res.ussdServiceOp === 17)
+    return res
+  }
+  if (session.waNextStep === 'CONFIRM_AIRTIME') {
+    const res = await handleAirtimeConfirm('1', sessionId, updatedSession)
+    void tagOrderChannel(sessionId, sessionId, 'airtime_orders', false)
+    return res
+  }
+  if (session.waNextStep === 'CONFIRM_RC') {
+    const res = await handleRcConfirm('1', sessionId, updatedSession)
+    void tagOrderChannel(sessionId, sessionId, 'results_checker_orders', false)
+    return res
+  }
+
+  // Standard MoMo payment-method paths
   if (parentStep === 'PAYMENT_METHOD') return handlePaymentMethod('2', sessionId, updatedSession)
   if (parentStep === 'AIRTIME_PAYMENT_METHOD') return handleAirtimePaymentMethod('2', sessionId, updatedSession)
   return handleRcPaymentMethod('2', sessionId, updatedSession)

@@ -90,4 +90,6 @@ export interface USSDSession {
   rcSelectedOrderId?: string
   // WhatsApp-only: MoMo billing number entered by the user at WA_ENTER_PAYMENT_PHONE step
   momoPhone?: string
+  // WhatsApp-only: handler key to invoke after WA_ENTER_PAYMENT_PHONE for direct-charge confirm paths
+  waNextStep?: string
 }

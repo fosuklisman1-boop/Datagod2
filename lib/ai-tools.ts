@@ -1272,7 +1272,10 @@ export async function executeToolCall(
         const { mainMenu } = await import("@/lib/ussd/menus")
         const phone = String(input.phone ?? "").trim()
         if (!phone) return { error: "phone is required" }
-        await setWaSession(phone, { step: "MAIN", dialingPhone: phone })
+        const localPhone = phone.startsWith("+233") ? "0" + phone.slice(4)
+          : phone.startsWith("233") ? "0" + phone.slice(3)
+          : phone
+        await setWaSession(phone, { step: "MAIN", dialingPhone: localPhone })
         return { message: mainMenu() }
       }
 
