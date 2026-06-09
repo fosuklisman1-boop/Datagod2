@@ -32,6 +32,7 @@ interface MTNBalance {
     sykes: ProviderBalance
     datakazina: ProviderBalance
     xpress: ProviderBalance
+    eazyghdata: ProviderBalance
   }
   threshold: number
   active_provider: string
@@ -47,7 +48,8 @@ export default function MTNSettingsPage() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [toggling, setToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata">("sykes")
+  const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
 
   useEffect(() => {
@@ -178,7 +180,36 @@ export default function MTNSettingsPage() {
     }
   }
 
-  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress") => {
+  const handleSyncEazyGhDataPackages = async () => {
+    setSyncingPackages(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch("/api/admin/fulfillment/eazyghdata-packages", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        toast.success(`Synced ${data.count} EazyGhData packages`)
+      } else {
+        const err = await response.json()
+        toast.error(err.error || "Failed to sync packages")
+      }
+    } catch (error) {
+      console.error("Error syncing packages:", error)
+      toast.error("Error syncing EazyGhData packages")
+    } finally {
+      setSyncingPackages(false)
+    }
+  }
+
+  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata") => {
     setSavingProvider(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -335,8 +366,8 @@ export default function MTNSettingsPage() {
               </div>
             ) : balance ? (
               <div className="space-y-4">
-                {/* Triple Balance Display */}
-                <div className="grid md:grid-cols-3 gap-4">
+                {/* Quad Balance Display */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {/* Sykes Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.sykes.is_active
                     ? 'bg-primary/5 border-border shadow-md'
@@ -423,16 +454,46 @@ export default function MTNSettingsPage() {
                       <p className="text-sm text-muted-foreground">Unable to fetch</p>
                     )}
                   </div>
+
+                  {/* EazyGhData Balance */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.eazyghdata?.is_active
+                    ? 'bg-cyan-50 border-border shadow-md'
+                    : 'bg-muted/40 border-border'
+                    }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-foreground">EazyGhData</span>
+                      {balance.balances.eazyghdata?.is_active && (
+                        <Badge className="bg-cyan-600">Active</Badge>
+                      )}
+                    </div>
+                    {balance.balances.eazyghdata?.balance !== null && balance.balances.eazyghdata?.balance !== undefined ? (
+                      <>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-3xl font-bold ${balance.balances.eazyghdata.is_low ? 'text-orange-600' : 'text-emerald-900'
+                            }`}>
+                            ₵{balance.balances.eazyghdata.balance.toFixed(2)}
+                          </span>
+                          <span className="text-sm text-muted-foreground">GHS</span>
+                        </div>
+                        {balance.balances.eazyghdata.is_low && (
+                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Low Balance Alerts */}
-                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low) && (
+                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low) && (
                   <Alert className="border-border bg-orange-50">
                     <AlertCircle className="h-4 w-4 text-orange-600" />
                     <AlertDescription className="text-orange-700">
                       {balance.balances.sykes.alert && <p>• {balance.balances.sykes.alert}</p>}
                       {balance.balances.datakazina.alert && <p>• {balance.balances.datakazina.alert}</p>}
                       {balance.balances.xpress?.alert && <p>• {balance.balances.xpress.alert}</p>}
+                      {balance.balances.eazyghdata?.alert && <p>• {balance.balances.eazyghdata.alert}</p>}
                       <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
                     </AlertDescription>
                   </Alert>
@@ -479,7 +540,7 @@ export default function MTNSettingsPage() {
                 Choose your preferred MTN data provider. Switching only affects new orders.
               </p>
 
-              <div className="grid md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {/* Sykes Option */}
                 <button
                   onClick={() => handleMTNProviderChange("sykes")}
@@ -533,7 +594,51 @@ export default function MTNSettingsPage() {
                   </div>
                   <p className="text-sm text-muted-foreground">Batch-enabled provider</p>
                 </button>
+
+                {/* EazyGhData Option */}
+                <button
+                  onClick={() => handleMTNProviderChange("eazyghdata")}
+                  disabled={savingProvider || mtnProvider === "eazyghdata"}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "eazyghdata"
+                      ? "bg-cyan-50 border-cyan-500 shadow-md"
+                      : "bg-card border-border hover:border-border"
+                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-foreground">EazyGhData</span>
+                    {mtnProvider === "eazyghdata" && (
+                      <Badge className="bg-cyan-600">Active</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Package-based provider</p>
+                </button>
               </div>
+
+              {/* EazyGhData Package Sync */}
+              {mtnProvider === "eazyghdata" && (
+                <div className="p-4 bg-cyan-50 rounded-lg border border-cyan-200">
+                  <p className="text-sm font-medium text-cyan-900 mb-2">EazyGhData Package Mapping</p>
+                  <p className="text-xs text-cyan-700 mb-3">
+                    EazyGhData requires a package_id UUID per GB size. Sync packages to keep the mapping up to date.
+                  </p>
+                  <Button
+                    onClick={handleSyncEazyGhDataPackages}
+                    disabled={syncingPackages}
+                    variant="outline"
+                    size="sm"
+                    className="border-cyan-400 text-cyan-800 hover:bg-cyan-100"
+                  >
+                    {syncingPackages ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      "Sync EazyGhData Packages"
+                    )}
+                  </Button>
+                </div>
+              )}
 
               {savingProvider && (
                 <div className="flex items-center justify-center p-4 bg-muted/40 rounded-lg">

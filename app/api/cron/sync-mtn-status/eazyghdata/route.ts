@@ -8,7 +8,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-// Xpress allows 60 req/min; we stay well below that
+// Stay well below EazyGhData rate limits
 const BATCH_SIZE = 15
 const DELAY_BETWEEN_REQUESTS_MS = 1500
 const DELAY_ON_429_MS = 10000
@@ -18,37 +18,37 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * GET /api/cron/sync-mtn-status/xpress
+ * GET /api/cron/sync-mtn-status/eazyghdata
  *
- * Polls Xpress GET /orders/:id for each pending/processing order
- * and updates mtn_fulfillment_tracking + the originating order table.
- * Sends in-app notifications on completed/failed.
+ * Polls EazyGhData GET /api/agent/v1/orders?order_id=uuid for each pending/processing
+ * order and updates mtn_fulfillment_tracking + the originating order table.
+ * Sends in-app notifications on completed/failed — same as the main Sykes cron.
  */
 export async function GET(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)
     if (!authorized && errorResponse) return errorResponse
 
     try {
-        console.log("[CRON-XPRESS] Starting status sync...")
+        console.log("[CRON-EAZYGHDATA] Starting status sync...")
 
         const { data: pendingOrders, error: fetchError } = await supabase
             .from("mtn_fulfillment_tracking")
             .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type")
-            .eq("provider", "xpress")
+            .eq("provider", "eazyghdata")
             .in("status", ["pending", "processing"])
             .order("created_at", { ascending: true })
             .limit(BATCH_SIZE)
 
         if (fetchError) {
-            console.error("[CRON-XPRESS] Error fetching orders:", fetchError)
+            console.error("[CRON-EAZYGHDATA] Error fetching orders:", fetchError)
             return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 })
         }
 
         if (!pendingOrders || pendingOrders.length === 0) {
-            return NextResponse.json({ success: true, message: "No Xpress orders to sync" })
+            return NextResponse.json({ success: true, message: "No EazyGhData orders to sync" })
         }
 
-        console.log(`[CRON-XPRESS] Found ${pendingOrders.length} orders to sync`)
+        console.log(`[CRON-EAZYGHDATA] Found ${pendingOrders.length} orders to sync`)
 
         let synced = 0
         let failed = 0
@@ -59,12 +59,12 @@ export async function GET(request: NextRequest) {
             const order = pendingOrders[i]
 
             try {
-                console.log(`[CRON-XPRESS] Syncing ${i + 1}/${pendingOrders.length}: ${order.mtn_order_id}`)
+                console.log(`[CRON-EAZYGHDATA] Syncing ${i + 1}/${pendingOrders.length}: ${order.mtn_order_id}`)
 
-                const result = await checkMTNOrderStatus(order.mtn_order_id, "xpress")
+                const result = await checkMTNOrderStatus(order.mtn_order_id, "eazyghdata")
 
                 if (!result.success && result.message?.includes("429")) {
-                    console.warn(`[CRON-XPRESS] Rate limited on ${order.mtn_order_id}, waiting ${DELAY_ON_429_MS}ms...`)
+                    console.warn(`[CRON-EAZYGHDATA] Rate limited on ${order.mtn_order_id}, waiting ${DELAY_ON_429_MS}ms...`)
                     rateLimited++
                     failed++
                     results.push({ id: order.id, mtn_order_id: order.mtn_order_id, success: false, status: order.status, message: "Rate limited" })
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
                     const newPriority = statusPriority[newStatus] ?? 0
 
                     if (newPriority < currentPriority) {
-                        console.log(`[CRON-XPRESS] ⛔ Skipping regression ${oldStatus} -> ${newStatus} for order ${order.mtn_order_id}`)
+                        console.log(`[CRON-EAZYGHDATA] ⛔ Skipping regression ${oldStatus} -> ${newStatus} for order ${order.mtn_order_id}`)
                     } else if (newStatus !== oldStatus) {
                         await supabase
                             .from("mtn_fulfillment_tracking")
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
                                 .select("user_id, network, size, phone_number")
                                 .single()
                             if (orderError) {
-                                console.error(`[CRON-XPRESS] ⚠️ Failed to update bulk order ${order.order_id}:`, orderError)
+                                console.error(`[CRON-EAZYGHDATA] ⚠️ Failed to update bulk order ${order.order_id}:`, orderError)
                             } else if (orderData) {
                                 userId = orderData.user_id
                                 orderDetails = { network: orderData.network, size: orderData.size, phone: orderData.phone_number }
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
                                 .select("user_id, network, volume_gb, recipient_phone")
                                 .single()
                             if (apiError) {
-                                console.error(`[CRON-XPRESS] ⚠️ Failed to update API order ${apiId}:`, apiError)
+                                console.error(`[CRON-EAZYGHDATA] ⚠️ Failed to update API order ${apiId}:`, apiError)
                             } else if (apiData) {
                                 userId = apiData.user_id
                                 orderDetails = { network: apiData.network, size: `${apiData.volume_gb}GB`, phone: apiData.recipient_phone }
@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
                                 .select("network, package_size, recipient_phone")
                                 .single()
                             if (ussdError) {
-                                console.error(`[CRON-XPRESS] ⚠️ Failed to update USSD order ${order.order_id}:`, ussdError)
+                                console.error(`[CRON-EAZYGHDATA] ⚠️ Failed to update USSD order ${order.order_id}:`, ussdError)
                             } else if (ussdData) {
                                 orderDetails = { network: ussdData.network, size: ussdData.package_size, phone: ussdData.recipient_phone }
                             }
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
                                 .select("network, package_size, recipient_phone")
                                 .single()
                             if (ussdShopError) {
-                                console.error(`[CRON-XPRESS] ⚠️ Failed to update USSD shop order ${order.order_id}:`, ussdShopError)
+                                console.error(`[CRON-EAZYGHDATA] ⚠️ Failed to update USSD shop order ${order.order_id}:`, ussdShopError)
                             } else if (ussdShopData) {
                                 orderDetails = { network: ussdShopData.network, size: ussdShopData.package_size, phone: ussdShopData.recipient_phone }
                             }
@@ -158,7 +158,7 @@ export async function GET(request: NextRequest) {
                                 .select("shop_id, network, volume_gb, customer_phone")
                                 .single()
                             if (shopError) {
-                                console.error(`[CRON-XPRESS] ⚠️ Failed to update shop order ${order.shop_order_id}:`, shopError)
+                                console.error(`[CRON-EAZYGHDATA] ⚠️ Failed to update shop order ${order.shop_order_id}:`, shopError)
                             } else if (shopData) {
                                 const { data: shopOwner } = await supabase
                                     .from("user_shops")
@@ -196,9 +196,9 @@ export async function GET(request: NextRequest) {
                                 })
 
                             if (notifError) {
-                                console.error(`[CRON-XPRESS] ⚠️ Failed to send notification for order ${order.mtn_order_id}:`, notifError)
+                                console.error(`[CRON-EAZYGHDATA] ⚠️ Failed to send notification for order ${order.mtn_order_id}:`, notifError)
                             } else {
-                                console.log(`[CRON-XPRESS] 🔔 Notification sent to user ${userId} for order ${order.mtn_order_id} (${newStatus})`)
+                                console.log(`[CRON-EAZYGHDATA] 🔔 Notification sent to user ${userId} for order ${order.mtn_order_id} (${newStatus})`)
                             }
 
                             sendPushToUser(userId, {
@@ -214,13 +214,13 @@ export async function GET(request: NextRequest) {
                             }).catch(() => {})
                         }
 
-                        console.log(`[CRON-XPRESS] ✅ ${order.mtn_order_id}: ${oldStatus} -> ${newStatus}`)
+                        console.log(`[CRON-EAZYGHDATA] ✅ ${order.mtn_order_id}: ${oldStatus} -> ${newStatus}`)
                         synced++
                     } else {
-                        console.log(`[CRON-XPRESS] ${order.mtn_order_id}: unchanged (${newStatus})`)
+                        console.log(`[CRON-EAZYGHDATA] ${order.mtn_order_id}: unchanged (${newStatus})`)
                     }
                 } else {
-                    console.warn(`[CRON-XPRESS] Failed to get status for ${order.mtn_order_id}:`, result.message)
+                    console.warn(`[CRON-EAZYGHDATA] Failed to get status for ${order.mtn_order_id}:`, result.message)
                     failed++
                 }
 
@@ -236,7 +236,7 @@ export async function GET(request: NextRequest) {
                     await sleep(DELAY_BETWEEN_REQUESTS_MS)
                 }
             } catch (err) {
-                console.error(`[CRON-XPRESS] Error processing ${order.mtn_order_id}:`, err)
+                console.error(`[CRON-EAZYGHDATA] Error processing ${order.mtn_order_id}:`, err)
                 failed++
             }
         }
@@ -251,7 +251,7 @@ export async function GET(request: NextRequest) {
             config: { batchSize: BATCH_SIZE, delayBetweenRequests: DELAY_BETWEEN_REQUESTS_MS },
         })
     } catch (error) {
-        console.error("[CRON-XPRESS] Critical error:", error)
+        console.error("[CRON-EAZYGHDATA] Critical error:", error)
         return NextResponse.json({ error: "Internal server error" }, { status: 500 })
     }
 }

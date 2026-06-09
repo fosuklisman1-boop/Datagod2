@@ -334,7 +334,7 @@ export async function GET(request: NextRequest) {
         // Determine which provider this order used (default to sykes for backward compatibility)
         const orderProvider = order.provider || "sykes"
 
-        // Skip DataKazina sync to reduce rate limits as requested. 
+        // Skip DataKazina sync to reduce rate limits as requested.
         // DataKazina relies on webhooks or manual status checks.
         if (orderProvider === "datakazina") {
           continue

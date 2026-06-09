@@ -5,6 +5,7 @@ import { getMTNProvider } from "@/lib/mtn-providers/factory"
 import { SykesProvider } from "@/lib/mtn-providers/sykes-provider"
 import { DataKazinaProvider } from "@/lib/mtn-providers/datakazina-provider"
 import { XpressProvider } from "@/lib/mtn-providers/xpress-provider"
+import { EazyGhDataProvider } from "@/lib/mtn-providers/eazyghdata-provider"
 import { notifyAdmins } from "@/lib/email-service"
 
 /**
@@ -23,11 +24,13 @@ export async function GET(request: NextRequest) {
     const sykesProvider = new SykesProvider()
     const datakazinaProvider = new DataKazinaProvider()
     const xpressProvider = new XpressProvider()
+    const eazyghDataProvider = new EazyGhDataProvider()
 
-    const [sykesBalance, datakazinaBalance, xpressBalance] = await Promise.all([
+    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance] = await Promise.all([
       sykesProvider.checkBalance().catch(() => null),
       datakazinaProvider.checkBalance().catch(() => null),
       xpressProvider.checkBalance().catch(() => null),
+      eazyghDataProvider.checkBalance().catch(() => null),
     ])
 
     // Get the currently selected provider
@@ -46,10 +49,11 @@ export async function GET(request: NextRequest) {
     const sykesLow = sykesBalance !== null && sykesBalance < threshold
     const datakazinaLow = datakazinaBalance !== null && datakazinaBalance < threshold
     const xpressLow = xpressBalance !== null && xpressBalance < threshold
+    const eazyghDataLow = eazyghDataBalance !== null && eazyghDataBalance < threshold
 
     // Send SMS alert if any balance is low
-    if (sykesLow || datakazinaLow || xpressLow) {
-      await sendLowBalanceAlert(sykesBalance, datakazinaBalance, xpressBalance, threshold, sykesLow, datakazinaLow, xpressLow)
+    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow) {
+      await sendLowBalanceAlert(sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, threshold, sykesLow, datakazinaLow, xpressLow, eazyghDataLow)
     }
 
     return NextResponse.json({
@@ -76,6 +80,13 @@ export async function GET(request: NextRequest) {
           is_active: activeProvider.name === "xpress",
           alert: xpressLow && xpressBalance !== null ? `Xpress balance is below threshold of ₵${threshold}` : null,
         },
+        eazyghdata: {
+          balance: eazyghDataBalance,
+          currency: "GHS",
+          is_low: eazyghDataLow,
+          is_active: activeProvider.name === "eazyghdata",
+          alert: eazyghDataLow && eazyghDataBalance !== null ? `EazyGhData balance is below threshold of ₵${threshold}` : null,
+        },
       },
       threshold,
       active_provider: activeProvider.name,
@@ -97,10 +108,12 @@ async function sendLowBalanceAlert(
   sykesBalance: number | null,
   datakazinaBalance: number | null,
   xpressBalance: number | null,
+  eazyghDataBalance: number | null,
   threshold: number,
   sykesLow: boolean,
   datakazinaLow: boolean,
-  xpressLow: boolean
+  xpressLow: boolean,
+  eazyghDataLow: boolean
 ) {
   try {
     // Get admin phone number from settings
@@ -142,6 +155,9 @@ async function sendLowBalanceAlert(
     }
     if (xpressLow && xpressBalance !== null) {
       message += `Xpress: ₵${xpressBalance.toFixed(2)} (LOW)\n`
+    }
+    if (eazyghDataLow && eazyghDataBalance !== null) {
+      message += `EazyGhData: ₵${eazyghDataBalance.toFixed(2)} (LOW)\n`
     }
 
     message += `\nThreshold: ₵${threshold}\nPlease top up your MTN account(s).`
@@ -188,6 +204,9 @@ async function sendLowBalanceAlert(
       }
       if (xpressLow && xpressBalance !== null) {
         emailMessage += `<p style="margin: 10px 0;"><strong>Xpress Provider:</strong> ₵${xpressBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
+      }
+      if (eazyghDataLow && eazyghDataBalance !== null) {
+        emailMessage += `<p style="margin: 10px 0;"><strong>EazyGhData Provider:</strong> ₵${eazyghDataBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
       }
 
       emailMessage += `<p style="margin: 15px 0 0 0; padding-top: 15px; border-top: 1px solid #fca5a5;">

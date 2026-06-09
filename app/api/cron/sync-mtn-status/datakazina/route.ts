@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -118,16 +119,122 @@ export async function GET(request: NextRequest) {
 
                         // Update original order record (order_type-aware across all 5 types)
                         const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
+                        let userId: string | null = null
+                        let orderDetails: { network?: string; size?: string; phone?: string } = {}
+
                         if (order.order_type === "bulk" && order.order_id) {
-                            await supabase.from("orders").update({ status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
+                            const { data: orderData, error: orderError } = await supabase
+                                .from("orders")
+                                .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", order.order_id)
+                                .select("user_id, network, size, phone_number")
+                                .single()
+                            if (orderError) {
+                                console.error(`[CRON-DATAKAZINA] ⚠️ Failed to update bulk order ${order.order_id}:`, orderError)
+                            } else if (orderData) {
+                                userId = orderData.user_id
+                                orderDetails = { network: orderData.network, size: orderData.size, phone: orderData.phone_number }
+                            }
                         } else if (order.order_type === "api" && (order.api_order_id || order.order_id)) {
-                            await supabase.from("api_orders").update({ status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.api_order_id || order.order_id)
+                            const apiId = order.api_order_id || order.order_id
+                            const { data: apiData, error: apiError } = await supabase
+                                .from("api_orders")
+                                .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", apiId)
+                                .select("user_id, network, volume_gb, recipient_phone")
+                                .single()
+                            if (apiError) {
+                                console.error(`[CRON-DATAKAZINA] ⚠️ Failed to update API order ${apiId}:`, apiError)
+                            } else if (apiData) {
+                                userId = apiData.user_id
+                                orderDetails = { network: apiData.network, size: `${apiData.volume_gb}GB`, phone: apiData.recipient_phone }
+                            }
                         } else if (order.order_type === "ussd" && order.order_id) {
-                            await supabase.from("ussd_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
+                            const { data: ussdData, error: ussdError } = await supabase
+                                .from("ussd_orders")
+                                .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", order.order_id)
+                                .select("network, package_size, recipient_phone")
+                                .single()
+                            if (ussdError) {
+                                console.error(`[CRON-DATAKAZINA] ⚠️ Failed to update USSD order ${order.order_id}:`, ussdError)
+                            } else if (ussdData) {
+                                orderDetails = { network: ussdData.network, size: ussdData.package_size, phone: ussdData.recipient_phone }
+                            }
                         } else if (order.order_type === "ussd_shop" && order.order_id) {
-                            await supabase.from("ussd_shop_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.order_id)
+                            const { data: ussdShopData, error: ussdShopError } = await supabase
+                                .from("ussd_shop_orders")
+                                .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", order.order_id)
+                                .select("network, package_size, recipient_phone")
+                                .single()
+                            if (ussdShopError) {
+                                console.error(`[CRON-DATAKAZINA] ⚠️ Failed to update USSD shop order ${order.order_id}:`, ussdShopError)
+                            } else if (ussdShopData) {
+                                orderDetails = { network: ussdShopData.network, size: ussdShopData.package_size, phone: ussdShopData.recipient_phone }
+                            }
                         } else if (order.shop_order_id) {
-                            await supabase.from("shop_orders").update({ order_status: orderTableStatus, updated_at: new Date().toISOString() }).eq("id", order.shop_order_id)
+                            const { data: shopData, error: shopError } = await supabase
+                                .from("shop_orders")
+                                .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", order.shop_order_id)
+                                .select("shop_id, network, volume_gb, customer_phone")
+                                .single()
+                            if (shopError) {
+                                console.error(`[CRON-DATAKAZINA] ⚠️ Failed to update shop order ${order.shop_order_id}:`, shopError)
+                            } else if (shopData) {
+                                const { data: shopOwner } = await supabase
+                                    .from("user_shops")
+                                    .select("user_id")
+                                    .eq("id", shopData.shop_id)
+                                    .single()
+                                userId = shopOwner?.user_id || null
+                                orderDetails = { network: shopData.network, size: `${shopData.volume_gb}GB`, phone: shopData.customer_phone }
+                            }
+                        }
+
+                        // Send in-app notification on terminal status
+                        if (userId && (newStatus === "completed" || newStatus === "failed")) {
+                            const notifTitle = newStatus === "completed"
+                                ? "Order Delivered Successfully"
+                                : "Order Delivery Failed"
+                            const notifMessage = newStatus === "completed"
+                                ? `Your MTN ${orderDetails.size || ""} data order to ${orderDetails.phone || "recipient"} has been delivered successfully.`
+                                : `Your MTN ${orderDetails.size || ""} data order to ${orderDetails.phone || "recipient"} failed. Please contact support.`
+
+                            const { error: notifError } = await supabase
+                                .from("notifications")
+                                .insert({
+                                    user_id: userId,
+                                    title: notifTitle,
+                                    message: notifMessage,
+                                    type: newStatus === "completed" ? "order_completed" : "order_failed",
+                                    reference_id: order.api_order_id || order.order_id || order.shop_order_id,
+                                    action_url: order.order_type === "bulk"
+                                        ? `/dashboard/my-orders?orderId=${order.order_id}`
+                                        : order.order_type === "api"
+                                            ? `/dashboard/profile`
+                                            : `/dashboard/shop/orders`,
+                                    read: false,
+                                })
+
+                            if (notifError) {
+                                console.error(`[CRON-DATAKAZINA] ⚠️ Failed to send notification for order ${order.mtn_order_id}:`, notifError)
+                            } else {
+                                console.log(`[CRON-DATAKAZINA] 🔔 Notification sent to user ${userId} for order ${order.mtn_order_id} (${newStatus})`)
+                            }
+
+                            sendPushToUser(userId, {
+                                title: notifTitle,
+                                body: notifMessage,
+                                data: {
+                                    url: order.order_type === "bulk"
+                                        ? `/dashboard/my-orders?orderId=${order.order_id}`
+                                        : order.order_type === "api"
+                                            ? `/dashboard/profile`
+                                            : `/dashboard/shop/orders`,
+                                },
+                            }).catch(() => {})
                         }
 
                         console.log(`[CRON-DATAKAZINA] ✅ Order ${order.mtn_order_id} updated: ${oldStatus} -> ${newStatus}`)
