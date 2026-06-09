@@ -91,6 +91,17 @@ export function rcCheckWaNumberPrompt(): string {
   return 'Enter WhatsApp number\nto receive results:\n(e.g. 0244123456)\n\n0. Skip'
 }
 
+export function rcCheckPaymentMethodMenu(amount: number, balance: number, hasMomo: boolean): string {
+  const lines = [
+    `Pay GHS ${amount.toFixed(2)}`,
+    `1. Datagod Wallet`,
+    `   (GHS ${balance.toFixed(2)})`,
+  ]
+  if (hasMomo) lines.push('2. MoMo prompt')
+  lines.push('0. Cancel')
+  return lines.join('\n')
+}
+
 export function rcCheckYearPrompt(): string {
   return 'Enter exam year:\n(e.g. 2024)\n\n0. Back'
 }
@@ -123,14 +134,10 @@ export function rcCheckConfirmMenu(
       `Fee: GHS ${fee.toFixed(2)}\n\n1. Pay via MoMo\n0. Cancel`
     )
   }
-  // USSD (wallet)
+  // USSD — payment method selected on next screen
   const amount = mode === 'combo' ? (comboTotal ?? fee) : fee
-  const hasBalance = balance >= amount
-  const payLine = hasBalance
-    ? `1. Pay GHS ${amount.toFixed(2)}\n0. Cancel`
-    : `Insufficient wallet.\n0. Back`
   const detail = mode === 'combo' ? `Voucher+check` : `PIN: ${voucherPin ?? '—'}`
-  return `${boardLine}\n${indexNo} · ${year}\nDOB: ${dob}\n${detail}\n${payLine}`
+  return `${boardLine}\n${indexNo} · ${year}\nDOB: ${dob}\n${detail}\nGHS ${amount.toFixed(2)}\n1. Proceed\n0. Cancel`
 }
 
 export function rcMyVouchersMenu(orders: Array<{ exam_board: string; reference_code: string; created_at: string }>): string {

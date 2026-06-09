@@ -5,7 +5,8 @@ import {
   cont, end, mainMenu, rcMenu, rcBoardMenu, rcQtyPrompt, rcConfirmMenu, rcPaymentMethodMenu,
   rcMyVouchersMenu, rcVoucherDetailMenu, rcCheckBoardMenu, rcCheckCandidateTypeMenu,
   rcCheckModeMenu, rcCheckVoucherPrompt,
-  rcCheckIndexPrompt, rcCheckDobPrompt, rcCheckWaNumberPrompt, rcCheckYearPrompt, rcCheckConfirmMenu,
+  rcCheckIndexPrompt, rcCheckDobPrompt, rcCheckWaNumberPrompt, rcCheckYearPrompt,
+  rcCheckConfirmMenu, rcCheckPaymentMethodMenu,
 } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
@@ -513,8 +514,8 @@ export async function handleRcCheckVoucher(
   // Accept "PIN/Serial", "PIN Serial", or "PIN,Serial"
   const raw = input.trim()
   const parts = raw.split(/[\/,\s]+/)
-  if (parts.length < 2 || parts[0].length < 2 || parts[1].length < 2) {
-    return cont("Enter both PIN and serial.\nFormat: PIN/Serial\ne.g. 1234/567890\n\n0. Back")
+  if (parts.length < 2 || parts[0].length < 4 || parts[1].length < 4) {
+    return cont("Enter both PIN and serial.\nFormat: PIN/Serial\ne.g. 12345/567890\n\nPIN and serial must\neach be 4+ characters.\n\n0. Back")
   }
   await setSession(sessionId, {
     ...session,
@@ -544,9 +545,9 @@ export async function handleRcCheckIndex(
     await setSession(sessionId, { ...session, step: "RC_CHECK_CANDIDATE_TYPE" })
     return cont(rcCheckCandidateTypeMenu())
   }
-  const index = input.trim()
-  if (index.length < 4) {
-    return cont("Invalid index number.\n" + rcCheckIndexPrompt())
+  const index = input.trim().toUpperCase()
+  if (index.length < 5 || !/^[A-Z0-9\/\-]+$/.test(index)) {
+    return cont("Invalid index number.\nUse numbers/letters only\n(min 5 characters)\n\n0. Back")
   }
   await setSession(sessionId, { ...session, step: "RC_CHECK_YEAR", rcCheckIndex: index })
   return cont(rcCheckYearPrompt())
@@ -563,8 +564,9 @@ export async function handleRcCheckYear(
     return cont(rcCheckIndexPrompt())
   }
   const year = parseInt(input.trim(), 10)
-  if (isNaN(year) || year < 2000 || year > 2030) {
-    return cont("Invalid year.\n" + rcCheckYearPrompt())
+  const currentYear = new Date().getFullYear()
+  if (isNaN(year) || year < 2015 || year > currentYear) {
+    return cont(`Invalid year.\nEnter a year between\n2015 and ${currentYear}.\n\n0. Back`)
   }
   await setSession(sessionId, { ...session, step: "RC_CHECK_DOB", rcCheckYear: year })
   return cont(rcCheckDobPrompt())
@@ -690,7 +692,6 @@ export async function handleRcCheckConfirm(
 
   const userId = session.userId
   const amount = mode === 'combo' ? comboTotal : fee
-  const balance = session.walletBalance ?? 0
   const dialingPhone = session.dialingPhone!
   const localPhone = toLocal(dialingPhone)
   const channel = session.rcCheckChannel ?? "ussd"
@@ -700,9 +701,115 @@ export async function handleRcCheckConfirm(
     return end("Please create an account\nto use this service.")
   }
 
+  // For USSD channel: create a pending record and offer payment method choice
+  if (channel === 'ussd') {
+    const dialer = await resolveDialer(dialingPhone)
+    const balance = dialer.balance ?? 0
+    const provider = paystackProviderFromPhone(dialingPhone)
+    const walletEligible = !!dialer.userId && balance >= amount
+
+    if (!walletEligible && !provider) {
+      return cont(
+        `Insufficient wallet.\nNeeded: GHS ${amount.toFixed(2)}\nYours: GHS ${balance.toFixed(2)}\n\nTop up your wallet.\n0. Back`
+      )
+    }
+
+    const referenceCode = secureReference("RCK", 2, 3)
+    const { data: request, error: reqErr } = await supabase
+      .from("results_check_requests")
+      .insert([{
+        phone_number: localPhone,
+        exam_board: session.rcCheckBoard,
+        candidate_type: session.rcCheckCandidateType ?? 'school',
+        index_number: session.rcCheckIndex,
+        dob: session.rcCheckDob ?? null,
+        exam_year: session.rcCheckYear,
+        fee: amount,
+        payment_status: "pending_payment",
+        status: "pending",
+        channel,
+        user_id: userId,
+        payment_reference: referenceCode,
+        mode,
+        voucher_pin: mode === 'own_voucher' ? (session.rcCheckVoucherPin ?? null) : null,
+        voucher_serial: mode === 'own_voucher' ? (session.rcCheckVoucherSerial ?? null) : null,
+        whatsapp_number: session.rcCheckWaNumber ?? null,
+      }])
+      .select("id")
+      .single()
+
+    if (reqErr || !request) {
+      console.error("[RC-CHECK] Failed to create pending request:", reqErr)
+      return end("Error creating request.\nPlease try again.")
+    }
+
+    await setSession(sessionId, {
+      ...session,
+      step: "RC_CHECK_PAYMENT_METHOD",
+      walletBalance: balance,
+      userId: dialer.userId,
+      pendingOrderId: request.id,
+      pendingOrderTable: "results_check_requests",
+    })
+    return cont(rcCheckPaymentMethodMenu(amount, balance, !!provider))
+  }
+
+  // WA channel — only reached for non-'1' inputs (back/cancel); '1' is intercepted by WA router
+  return cont(rcCheckConfirmMenu(
+    session.rcCheckBoard!,
+    session.rcCheckCandidateType ?? 'school',
+    session.rcCheckIndex!,
+    session.rcCheckDob ?? '',
+    session.rcCheckYear!,
+    fee,
+    session.walletBalance ?? 0,
+    channel,
+    mode, comboTotal,
+    session.rcCheckVoucherPin,
+    session.rcCheckVoucherSerial,
+  ))
+}
+
+// ── RC_CHECK_PAYMENT_METHOD ───────────────────────────────────────────────────
+export async function handleRcCheckPaymentMethod(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  const orderId = session.pendingOrderId!
+  const mode = session.rcCheckMode ?? 'own_voucher'
+  const fee = session.rcCheckFee ?? 2
+  const comboTotal = session.rcCheckComboTotal ?? fee
+  const amount = mode === 'combo' ? comboTotal : fee
+  const dialingPhone = session.dialingPhone!
+  const provider = paystackProviderFromPhone(dialingPhone)
+
+  if (input.trim() === "0") {
+    await supabase.from("results_check_requests")
+      .update({ payment_status: "failed", status: "failed", updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+    await setSession(sessionId, { step: "MAIN", dialingPhone })
+    return end("Order cancelled.")
+  }
+
+  if (input.trim() === "2") {
+    if (!provider) return cont("MoMo not available\nfor your number.\n\n0. Cancel")
+    return chargeRcCheckMomo(sessionId, session, orderId, amount, provider)
+  }
+
+  if (input.trim() !== "1") {
+    return cont(rcCheckPaymentMethodMenu(amount, session.walletBalance ?? 0, !!provider))
+  }
+
+  // Wallet payment — re-verify balance at payment time
+  const userId = session.userId!
+  const { data: walletRow } = await supabase.from("wallets").select("balance").eq("user_id", userId).maybeSingle()
+  const balance = walletRow ? Number(walletRow.balance) : 0
   if (balance < amount) {
     return cont(
-      `Insufficient wallet.\nNeeded: GHS ${amount.toFixed(2)}\nYours: GHS ${balance.toFixed(2)}\n\nTop up wallet.\n0. Back`
+      `Insufficient balance.\nWallet: GHS ${balance.toFixed(2)}\nNeeded: GHS ${amount.toFixed(2)}\n\n` +
+      (provider ? "2. Pay via MoMo\n" : "") +
+      "0. Cancel"
     )
   }
 
@@ -711,21 +818,22 @@ export async function handleRcCheckConfirm(
     p_amount: amount,
   })
   if (deductError || !deductResult || deductResult.length === 0) {
-    return cont("Payment failed.\nInsufficient balance.\n\n0. Back")
+    return cont(
+      `Payment failed.\nWallet: GHS ${balance.toFixed(2)}\n\n` +
+      (provider ? "2. Pay via MoMo\n" : "") +
+      "0. Cancel"
+    )
   }
   const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
 
-  const referenceCode = secureReference("RCK", 2, 3)
-
-  // For combo mode, assign 1 voucher from inventory
-  let assignedVoucherPin: string | null = null
-  let assignedVoucherSerial: string | null = null
+  // Assign combo voucher at payment time
+  let voucherPin: string | null = null
+  let voucherSerial: string | null = null
   if (mode === 'combo') {
-    const board = session.rcCheckBoard!
     const { data: voucherRows } = await supabase
       .from("results_checker_inventory")
       .select("id, pin, serial_number")
-      .eq("exam_board", board)
+      .eq("exam_board", session.rcCheckBoard!)
       .eq("status", "available")
       .limit(1)
     if (voucherRows && voucherRows.length > 0) {
@@ -733,47 +841,20 @@ export async function handleRcCheckConfirm(
       await supabase.from("results_checker_inventory")
         .update({ status: "sold", updated_at: new Date().toISOString() })
         .eq("id", v.id)
-      assignedVoucherPin = v.pin
-      assignedVoucherSerial = v.serial_number ?? null
+      voucherPin = v.pin
+      voucherSerial = v.serial_number ?? null
     }
   }
 
-  const voucherPin = mode === 'own_voucher' ? (session.rcCheckVoucherPin ?? null) : assignedVoucherPin
-  const voucherSerial = mode === 'own_voucher' ? (session.rcCheckVoucherSerial ?? null) : assignedVoucherSerial
-
-  const { data: request, error: reqErr } = await supabase
-    .from("results_check_requests")
-    .insert([{
-      phone_number: localPhone,
-      exam_board: session.rcCheckBoard,
-      candidate_type: session.rcCheckCandidateType ?? 'school',
-      index_number: session.rcCheckIndex,
-      dob: session.rcCheckDob ?? null,
-      exam_year: session.rcCheckYear,
-      fee: amount,
-      payment_status: "paid",
-      status: "pending",
-      channel,
-      user_id: userId,
-      payment_reference: referenceCode,
-      mode,
-      voucher_pin: voucherPin,
-      voucher_serial: voucherSerial,
-      whatsapp_number: session.rcCheckWaNumber ?? null,
-    }])
-    .select("id")
-    .single()
-
-  if (reqErr || !request) {
-    await supabase.rpc("credit_wallet_safely", {
-      p_user_id: userId,
-      p_amount: amount,
-      p_reference_id: `refund-${referenceCode}`,
-    })
-    console.error("[RC-CHECK] Failed to create request:", reqErr)
-    await setSession(sessionId, { step: "MAIN", dialingPhone })
-    return end("Error occurred. Wallet refunded.")
+  const updateData: Record<string, unknown> = {
+    payment_status: "paid",
+    status: "pending",
+    updated_at: new Date().toISOString(),
   }
+  if (voucherPin) updateData.voucher_pin = voucherPin
+  if (voucherSerial) updateData.voucher_serial = voucherSerial
+
+  await supabase.from("results_check_requests").update(updateData).eq("id", orderId)
 
   void supabase.from("wallet_transactions").insert({
     user_id: userId,
@@ -783,13 +864,67 @@ export async function handleRcCheckConfirm(
     balance_before: balanceBefore,
     balance_after: newBalance,
     description: `Results check: ${session.rcCheckBoard} ${session.rcCheckIndex} ${session.rcCheckYear}`,
-    reference_id: request.id,
+    reference_id: orderId,
     status: "completed",
   })
 
   await setSession(sessionId, { step: "MAIN", dialingPhone })
   return end(
-    `Request submitted!\nRef: ${referenceCode}\nWe'll check your\n${session.rcCheckBoard} results and\nsend them to you shortly.`
+    `Payment successful!\nWe'll check your\n${session.rcCheckBoard} results and\nsend them to you shortly.`
+  )
+}
+
+// Fires the MoMo prompt for USSD results check. Webhook completes on charge.success.
+async function chargeRcCheckMomo(
+  sessionId: string,
+  session: USSDSession,
+  requestId: string,
+  amount: number,
+  provider: "mtn" | "vod" | "tgo"
+): Promise<UzoResponse> {
+  const dialingPhone = session.dialingPhone!
+  const localDialing = toLocal(dialingPhone)
+  const email = await resolveEmail(dialingPhone)
+
+  after(async () => {
+    await new Promise(r => setTimeout(r, 3000))
+    try {
+      const { status } = await chargeMobileMoney({
+        email,
+        amount,
+        phone: dialingPhone,
+        provider,
+        reference: requestId,
+        metadata: {
+          source: "ussd_results_check",
+          results_check_request_id: requestId,
+          exam_board: session.rcCheckBoard,
+          index_number: session.rcCheckIndex,
+          exam_year: session.rcCheckYear,
+          mode: session.rcCheckMode,
+        },
+      })
+      if (status === 'send_otp') {
+        await supabase.from("results_check_requests")
+          .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
+          .eq("id", requestId)
+      }
+    } catch (err) {
+      console.error("[RC-CHECK] MoMo charge failed:", err)
+      await supabase.from("results_check_requests")
+        .update({ payment_status: "failed", status: "failed", updated_at: new Date().toISOString() })
+        .eq("id", requestId)
+    }
+  })
+
+  await setSession(sessionId, {
+    ...session,
+    step: "SUBMIT_OTP",
+    pendingOrderId: requestId,
+    pendingOrderTable: "results_check_requests",
+  })
+  return cont(
+    `MoMo prompt sent to\n${localDialing}.\nEnter OTP if prompted:\n\n0. Cancel`
   )
 }
 

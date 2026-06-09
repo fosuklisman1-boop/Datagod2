@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export type OtpOrderTable = "airtime_orders" | "results_checker_orders"
+export type OtpOrderTable = "airtime_orders" | "results_checker_orders" | "results_check_requests"
 
 // Both airtime_orders and results_checker_orders carry a `status` column (the
 // data-bundle tables use `order_status` instead — those keep their own OTP

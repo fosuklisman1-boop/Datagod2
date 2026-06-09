@@ -50,6 +50,7 @@ export type USSDStep =
   | 'RC_CHECK_DOB'
   | 'RC_CHECK_WA_NUMBER'
   | 'RC_CHECK_YEAR'
+  | 'RC_CHECK_PAYMENT_METHOD'
   | 'RC_CHECK_CONFIRM'
   | 'WA_ENTER_PAYMENT_PHONE'
 
@@ -76,7 +77,7 @@ export interface USSDSession {
   userId?: string                   // registered user's DB id (if phone matched a user)
   walletBalance?: number            // fetched at network selection for display; re-verified at payment
   pendingOrderId?: string  // order created at CONFIRM; used by PAYMENT_METHOD + SUBMIT_OTP
-  pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' // which table SUBMIT_OTP targets (data bundles default to ussd_orders)
+  pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' // which table SUBMIT_OTP targets (data bundles default to ussd_orders)
   // AFA registration fields
   afaFullName?: string
   afaGhCard?: string

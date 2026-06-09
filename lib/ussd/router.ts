@@ -17,7 +17,8 @@ import {
   handleRcMyVouchers, handleRcVoucherDetail,
   handleRcCheckBoard, handleRcCheckCandidateType, handleRcCheckMode,
   handleRcCheckVoucher,
-  handleRcCheckIndex, handleRcCheckDob, handleRcCheckWaNumber, handleRcCheckYear, handleRcCheckConfirm,
+  handleRcCheckIndex, handleRcCheckDob, handleRcCheckWaNumber, handleRcCheckYear,
+  handleRcCheckConfirm, handleRcCheckPaymentMethod,
 } from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
 
@@ -43,7 +44,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
     const phoneFilter = `dialing_phone.eq.${msisdn},dialing_phone.eq.${localPhone}`
 
-    const [{ data: pendingData }, { data: pendingAirtime }, { data: pendingRc }] = await Promise.all([
+    const [{ data: pendingData }, { data: pendingAirtime }, { data: pendingRc }, { data: pendingCheck }] = await Promise.all([
       supabase.from("ussd_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -53,13 +54,17 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       supabase.from("results_checker_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").eq("channel", "ussd").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("results_check_requests").select("id, created_at")
+        .or(phoneFilter).eq("payment_status", "otp_required").eq("channel", "ussd").gte("created_at", cutoff)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle(),
     ])
 
     const candidates = [
       pendingData ? { id: pendingData.id, created_at: pendingData.created_at, table: undefined } : null,
       pendingAirtime ? { id: pendingAirtime.id, created_at: pendingAirtime.created_at, table: 'airtime_orders' as const } : null,
       pendingRc ? { id: pendingRc.id, created_at: pendingRc.created_at, table: 'results_checker_orders' as const } : null,
-    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' }>
+      pendingCheck ? { id: pendingCheck.id, created_at: pendingCheck.created_at, table: 'results_check_requests' as const } : null,
+    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' }>
 
     if (candidates.length) {
       candidates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -105,7 +110,11 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       return handlePaymentMethod(input, sessionID, session)
 
     case 'SUBMIT_OTP':
-      if (session.pendingOrderTable === 'airtime_orders' || session.pendingOrderTable === 'results_checker_orders') {
+      if (
+        session.pendingOrderTable === 'airtime_orders' ||
+        session.pendingOrderTable === 'results_checker_orders' ||
+        session.pendingOrderTable === 'results_check_requests'
+      ) {
         return handleOtpSubmit(input, session.pendingOrderId!, session.pendingOrderTable)
       }
       return handleSubmitOtp(input, sessionID, session)
@@ -172,6 +181,9 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'RC_CHECK_YEAR':
       return handleRcCheckYear(input, sessionID, session)
+
+    case 'RC_CHECK_PAYMENT_METHOD':
+      return handleRcCheckPaymentMethod(input, sessionID, session)
 
     case 'RC_CHECK_CONFIRM':
       return handleRcCheckConfirm(input, sessionID, session)
