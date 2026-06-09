@@ -40,6 +40,8 @@ interface BoardPricing {
   basePrice: number
   maxMarkup: number
   enabled: boolean
+  bulkMinQty: number   // 0 = disabled
+  bulkPrice: number    // 0 = disabled
 }
 
 export default function ResultsCheckerPage() {
@@ -51,8 +53,9 @@ export default function ResultsCheckerPage() {
   const [purchaseOpen, setPurchaseOpen] = useState(false)
   const [examBoard, setExamBoard] = useState<string>("WAEC")
   const [quantity, setQuantity] = useState(1)
+  const [maxQuantity, setMaxQuantity] = useState(50)
   const [shopId, setShopId] = useState<string | undefined>(undefined)
-  const [pricing, setPricing] = useState<{ unitPrice: number; totalPaid: number } | null>(null)
+  const [pricing, setPricing] = useState<{ unitPrice: number; totalPaid: number; bulkApplied: boolean } | null>(null)
 
   const [purchasing, setPurchasing] = useState(false)
   const [boardSettings, setBoardSettings] = useState<Record<string, BoardPricing>>({})
@@ -103,13 +106,22 @@ export default function ResultsCheckerPage() {
       console.warn("Could not load results-checker config:", e)
     }
 
+    const bulkMinQty: number = map["results_checker_bulk_min_quantity"]?.min ?? 0
+    const maxQty: number = map["results_checker_max_quantity"]?.max ?? 50
+    setMaxQuantity(maxQty)
+
     const settings: Record<string, BoardPricing> = {}
     for (const board of EXAM_BOARDS) {
       const bk = board.toLowerCase()
+      const basePrice: number = map[`results_checker_price_${bk}`]?.price ?? 0
+      const bulkBasePrice: number = map[`results_checker_bulk_price_${bk}`]?.price ?? 0
       settings[board] = {
-        basePrice: map[`results_checker_price_${bk}`]?.price ?? 0,
+        basePrice,
         maxMarkup: map[`results_checker_max_markup_${bk}`]?.max ?? 0,
         enabled: map[`results_checker_enabled_${bk}`]?.enabled !== false,
+        bulkMinQty,
+        // bulkPrice is only valid when it's lower than the base price
+        bulkPrice: bulkMinQty > 0 && bulkBasePrice > 0 && bulkBasePrice < basePrice ? bulkBasePrice : 0,
       }
     }
     setBoardSettings(settings)
@@ -119,8 +131,9 @@ export default function ResultsCheckerPage() {
   useEffect(() => {
     const board = boardSettings[examBoard]
     if (board) {
-      const unitPrice = board.basePrice
-      setPricing({ unitPrice, totalPaid: parseFloat((unitPrice * quantity).toFixed(2)) })
+      const bulkApplied = board.bulkMinQty > 0 && board.bulkPrice > 0 && quantity >= board.bulkMinQty
+      const unitPrice = bulkApplied ? board.bulkPrice : board.basePrice
+      setPricing({ unitPrice, totalPaid: parseFloat((unitPrice * quantity).toFixed(2)), bulkApplied })
     }
   }, [examBoard, quantity, boardSettings])
 
@@ -307,10 +320,10 @@ export default function ResultsCheckerPage() {
                 <div className="flex items-center gap-3 mt-2">
                   <button onClick={() => setQuantity(q => Math.max(1, q - 1))}
                     className="w-9 h-9 rounded-lg border border-border flex items-center justify-center font-bold text-foreground hover:bg-accent">−</button>
-                  <Input type="number" min="1" max="50" value={quantity}
-                    onChange={e => setQuantity(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+                  <Input type="number" min="1" max={maxQuantity} value={quantity}
+                    onChange={e => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value) || 1)))}
                     className="w-20 text-center font-bold text-lg" />
-                  <button onClick={() => setQuantity(q => Math.min(50, q + 1))}
+                  <button onClick={() => setQuantity(q => Math.min(maxQuantity, q + 1))}
                     className="w-9 h-9 rounded-lg border border-border flex items-center justify-center font-bold text-foreground hover:bg-accent">+</button>
                 </div>
               </div>
@@ -318,6 +331,29 @@ export default function ResultsCheckerPage() {
               {/* Price summary */}
               {pricing && (
                 <div className="bg-muted/40 rounded-lg p-4 space-y-2 text-sm">
+                  {(() => {
+                    const bs = boardSettings[examBoard]
+                    const need = bs?.bulkMinQty ? bs.bulkMinQty - quantity : 0
+                    if (pricing.bulkApplied && bs?.bulkPrice) {
+                      const saved = parseFloat(((bs.basePrice - bs.bulkPrice) * quantity).toFixed(2))
+                      return (
+                        <div className="text-xs bg-green-50 dark:bg-green-950/40 rounded px-2 py-1.5 space-y-0.5">
+                          <p className="font-bold text-green-700">Bulk rate applied — GHS {bs.bulkPrice.toFixed(2)}/voucher</p>
+                          <p className="text-green-600">You save GHS {saved.toFixed(2)} on this order</p>
+                        </div>
+                      )
+                    }
+                    if (!pricing.bulkApplied && bs?.bulkMinQty && bs?.bulkPrice) {
+                      return (
+                        <p className="text-xs text-violet-600 font-medium">
+                          {need > 0
+                            ? `Buy ${need} more to unlock bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`
+                            : `Buy ${bs.bulkMinQty}+ for bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`}
+                        </p>
+                      )
+                    }
+                    return null
+                  })()}
                   <div className="flex justify-between text-muted-foreground">
                     <span>Price per voucher</span>
                     <span>GHS {pricing.unitPrice.toFixed(2)}</span>
@@ -326,6 +362,12 @@ export default function ResultsCheckerPage() {
                     <span>Quantity</span>
                     <span>× {quantity}</span>
                   </div>
+                  {pricing.bulkApplied && boardSettings[examBoard]?.basePrice && (
+                    <div className="flex justify-between text-muted-foreground line-through text-xs">
+                      <span>Regular price</span>
+                      <span>GHS {(boardSettings[examBoard].basePrice * quantity).toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-bold text-foreground text-base border-t pt-2">
                     <span>Total</span>
                     <span>GHS {pricing.totalPaid.toFixed(2)}</span>
