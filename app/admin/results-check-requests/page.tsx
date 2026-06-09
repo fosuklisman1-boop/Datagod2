@@ -189,7 +189,15 @@ export default function ResultsCheckRequestsPage() {
         const body = await res.json().catch(() => ({}))
         throw new Error(body?.error || "Failed to send results")
       }
-      toast.success(`Results sent to ${req.phone_number}`)
+      const resBody = await res.json().catch(() => ({})) as { deliveryNotes?: string[] }
+      const notes = resBody.deliveryNotes ?? []
+      const failed = notes.filter(n => n.includes("FAILED"))
+      if (notes.length) console.log("[deliver] notes:", notes)
+      if (failed.length) {
+        toast.error(`Delivery issue: ${failed.join("; ")}`)
+      } else {
+        toast.success(`Results sent to ${req.phone_number}`)
+      }
       setMediaFiles(f => { const n = { ...f }; delete n[req.id]; return n })
       loadRequests()
     } catch (e: any) {

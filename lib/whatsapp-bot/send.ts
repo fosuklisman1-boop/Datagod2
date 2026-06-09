@@ -40,9 +40,16 @@ async function uploadMediaToWhatsApp(
   mimeType: string,
 ): Promise<string> {
   // Fetch the file from storage
-  const fileRes = await fetch(fileUrl)
-  if (!fileRes.ok) throw new Error(`Failed to fetch media from storage (${fileRes.status})`)
+  console.log("[WA-SEND] Fetching media from storage:", fileUrl)
+  let fileRes: Response
+  try {
+    fileRes = await fetch(fileUrl)
+  } catch (e) {
+    throw new Error(`Failed to fetch media from storage URL (network error): ${e instanceof Error ? e.message : String(e)}`)
+  }
+  if (!fileRes.ok) throw new Error(`Failed to fetch media from storage (${fileRes.status} ${fileRes.statusText}) for ${fileUrl}`)
   const fileBuffer = await fileRes.arrayBuffer()
+  console.log("[WA-SEND] Fetched media:", fileBuffer.byteLength, "bytes, mimeType:", mimeType)
 
   // Upload to WhatsApp media API as multipart/form-data
   const formData = new FormData()
@@ -51,6 +58,7 @@ async function uploadMediaToWhatsApp(
   const ext = fileUrl.split(".").pop()?.split("?")[0] ?? "bin"
   formData.append("file", new Blob([fileBuffer], { type: mimeType }), `upload.${ext}`)
 
+  console.log("[WA-SEND] Uploading media to WhatsApp, phoneNumberId:", phoneNumberId)
   const uploadRes = await fetch(
     `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
     { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData },
@@ -61,6 +69,7 @@ async function uploadMediaToWhatsApp(
   }
   const { id } = await uploadRes.json() as { id: string }
   if (!id) throw new Error("WhatsApp media upload returned no id")
+  console.log("[WA-SEND] Got media_id:", id)
   return id
 }
 
@@ -73,7 +82,9 @@ export async function sendWhatsAppMedia(
 ): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
-  if (!phoneNumberId || !token) return
+  if (!phoneNumberId || !token) {
+    throw new Error("WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not set")
+  }
 
   // Derive MIME type from file extension for the upload step
   const ext = link.split(".").pop()?.toLowerCase().split("?")[0] ?? ""
@@ -88,6 +99,8 @@ export async function sendWhatsAppMedia(
     type === "video" ? "video/mp4" :
     "application/octet-stream"
   )
+
+  console.log("[WA-SEND] sendWhatsAppMedia: to=%s type=%s link=%s", to, type, link)
 
   try {
     // Step 1: upload to WhatsApp to get a media_id
@@ -114,7 +127,9 @@ export async function sendWhatsAppMedia(
     if (!res.ok) {
       const err = await res.text()
       console.error("[WA-SEND] Media send error:", res.status, err)
+      throw new Error(`WhatsApp media send failed (${res.status}): ${err}`)
     }
+    console.log("[WA-SEND] Media message sent successfully to", to)
   } catch (e) {
     console.error("[WA-SEND] Media send failed:", e)
     throw e  // re-throw so caller's .catch() captures it

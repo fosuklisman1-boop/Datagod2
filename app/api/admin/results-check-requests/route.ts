@@ -71,9 +71,15 @@ export async function PATCH(request: NextRequest) {
   }
 
   // Deliver results if requested
+  const deliveryNotes: string[] = []
+
   if (body.deliver && (req.result_data || req.media_url)) {
     const mediaUrl: string | null = body.media_url ?? req.media_url ?? null
     const mediaType: string = body.media_type ?? req.media_type ?? "image"
+
+    deliveryNotes.push(
+      `delivery start: channel=${req.channel}, hasResultText=${!!req.result_data}, mediaUrl=${mediaUrl ?? "none"}, mediaType=${mediaType}, whatsapp_number=${req.whatsapp_number ?? "none"}`
+    )
 
     if (req.channel === "whatsapp") {
       const phone = req.phone_number.startsWith("0")
@@ -86,9 +92,13 @@ export async function PATCH(request: NextRequest) {
           `Your ${req.exam_board} results for index number ${req.index_number} (${req.exam_year}):\n\n` +
           req.result_data +
           `\n\nRef: ${req.payment_reference}`
-        await sendWhatsAppText(phone, resultMsg).catch(e =>
-          console.error("[RC-DELIVER] WhatsApp text send failed:", e)
-        )
+        await sendWhatsAppText(phone, resultMsg)
+          .then(() => deliveryNotes.push(`WhatsApp text sent to ${phone}`))
+          .catch(e => {
+            const msg = `WhatsApp text FAILED: ${e instanceof Error ? e.message : String(e)}`
+            console.error("[RC-DELIVER]", msg)
+            deliveryNotes.push(msg)
+          })
       }
 
       // Send media if provided
@@ -102,7 +112,13 @@ export async function PATCH(request: NextRequest) {
           mediaUrl,
           caption,
           mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
-        ).catch(e => console.error("[RC-DELIVER] WhatsApp media send failed:", e))
+        )
+          .then(() => deliveryNotes.push(`WhatsApp media sent to ${phone}`))
+          .catch(e => {
+            const msg = `WhatsApp media FAILED: ${e instanceof Error ? e.message : String(e)}`
+            console.error("[RC-DELIVER]", msg)
+            deliveryNotes.push(msg)
+          })
       }
     } else {
       // USSD: SMS to dialing phone
@@ -112,7 +128,12 @@ export async function PATCH(request: NextRequest) {
           req.result_data +
           `\nRef: ${req.payment_reference}`
         await sendSMS({ phone: req.phone_number, message: resultMsg, type: "results_check", reference: req.id })
-          .catch(e => console.error("[RC-DELIVER] SMS send failed:", e))
+          .then(() => deliveryNotes.push(`SMS sent to ${req.phone_number}`))
+          .catch(e => {
+            const msg = `SMS FAILED: ${e instanceof Error ? e.message : String(e)}`
+            console.error("[RC-DELIVER]", msg)
+            deliveryNotes.push(msg)
+          })
       }
 
       // Also send via WhatsApp if customer provided a WhatsApp number
@@ -126,9 +147,13 @@ export async function PATCH(request: NextRequest) {
             `Your ${req.exam_board} results for index ${req.index_number} (${req.exam_year}):\n\n` +
             req.result_data +
             `\n\nRef: ${req.payment_reference}`
-          await sendWhatsAppText(waPhone, waMsg).catch(e =>
-            console.error("[RC-DELIVER] WhatsApp text to USSD user failed:", e)
-          )
+          await sendWhatsAppText(waPhone, waMsg)
+            .then(() => deliveryNotes.push(`WhatsApp text sent to ${waPhone}`))
+            .catch(e => {
+              const msg = `WhatsApp text to USSD user FAILED: ${e instanceof Error ? e.message : String(e)}`
+              console.error("[RC-DELIVER]", msg)
+              deliveryNotes.push(msg)
+            })
         }
         if (mediaUrl) {
           const caption = req.result_data
@@ -140,10 +165,20 @@ export async function PATCH(request: NextRequest) {
             mediaUrl,
             caption,
             mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
-          ).catch(e => console.error("[RC-DELIVER] WhatsApp media to USSD user failed:", e))
+          )
+            .then(() => deliveryNotes.push(`WhatsApp media sent to ${waPhone}`))
+            .catch(e => {
+              const msg = `WhatsApp media to USSD user FAILED: ${e instanceof Error ? e.message : String(e)}`
+              console.error("[RC-DELIVER]", msg)
+              deliveryNotes.push(msg)
+            })
         }
+      } else if (!req.result_data) {
+        deliveryNotes.push("No SMS sent (no result text) and no whatsapp_number on file for media delivery")
       }
     }
+
+    deliveryNotes.forEach(n => console.log("[RC-DELIVER]", n))
 
     // Mark as completed
     await supabase
@@ -152,5 +187,5 @@ export async function PATCH(request: NextRequest) {
       .eq("id", req.id)
   }
 
-  return NextResponse.json({ success: true, request: req })
+  return NextResponse.json({ success: true, request: req, deliveryNotes })
 }
