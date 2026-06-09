@@ -41,6 +41,13 @@ export type USSDStep =
   | 'RC_PAYMENT_METHOD'
   | 'RC_MY_VOUCHERS'
   | 'RC_VOUCHER_DETAIL'
+  // Results Check Service (check results on behalf of user)
+  | 'RC_CHECK_BOARD'
+  | 'RC_CHECK_MODE'
+  | 'RC_CHECK_VOUCHER'
+  | 'RC_CHECK_INDEX'
+  | 'RC_CHECK_YEAR'
+  | 'RC_CHECK_CONFIRM'
   | 'WA_ENTER_PAYMENT_PHONE'
 
 export interface BundleOption {
@@ -88,6 +95,15 @@ export interface USSDSession {
   rcBoardOptions?: string[]   // boards shown on the SELECT_BOARD menu, in order
   rcMyOrders?: Array<{ id: string; exam_board: string; reference_code: string; created_at: string }>
   rcSelectedOrderId?: string
+  // Results Check Service fields
+  rcCheckBoard?: string          // 'WAEC' | 'BECE' | 'NOVDEC'
+  rcCheckMode?: 'combo' | 'own_voucher'
+  rcCheckVoucherPin?: string     // PIN the user provides (own_voucher mode)
+  rcCheckIndex?: string          // student's index number
+  rcCheckYear?: number           // exam year e.g. 2024
+  rcCheckFee?: number            // check-only fee from admin settings
+  rcCheckComboTotal?: number     // combo total: 1 voucher price + check fee
+  rcCheckChannel?: 'ussd' | 'whatsapp'
   // WhatsApp-only: MoMo billing number entered by the user at WA_ENTER_PAYMENT_PHONE step
   momoPhone?: string
   // WhatsApp-only: handler key to invoke after WA_ENTER_PAYMENT_PHONE for direct-charge confirm paths

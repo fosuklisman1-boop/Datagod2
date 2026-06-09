@@ -12,7 +12,12 @@ import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleCo
 import { handleStatus } from "./handlers/status"
 import { handleAfaEnterName, handleAfaEnterCard, handleAfaEnterLocation, handleAfaEnterRegion, handleAfaConfirm } from "./handlers/afa"
 import { handleAirtimeEnterRecipient, handleAirtimeSelectNetwork, handleAirtimeEnterAmount, handleAirtimeConfirm, handleAirtimePaymentMethod } from "./handlers/airtime"
-import { handleRcMenu, handleRcSelectBoard, handleRcEnterQty, handleRcConfirm, handleRcPaymentMethod, handleRcMyVouchers, handleRcVoucherDetail } from "./handlers/results-checker"
+import {
+  handleRcMenu, handleRcSelectBoard, handleRcEnterQty, handleRcConfirm, handleRcPaymentMethod,
+  handleRcMyVouchers, handleRcVoucherDetail,
+  handleRcCheckBoard, handleRcCheckMode, handleRcCheckVoucher,
+  handleRcCheckIndex, handleRcCheckYear, handleRcCheckConfirm,
+} from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
 
 const TERMINATE_THRESHOLD = 29
@@ -142,6 +147,24 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'RC_PAYMENT_METHOD':
       return handleRcPaymentMethod(input, sessionID, session)
+
+    case 'RC_CHECK_BOARD':
+      return handleRcCheckBoard(input, sessionID, session)
+
+    case 'RC_CHECK_MODE':
+      return handleRcCheckMode(input, sessionID, session)
+
+    case 'RC_CHECK_VOUCHER':
+      return handleRcCheckVoucher(input, sessionID, session)
+
+    case 'RC_CHECK_INDEX':
+      return handleRcCheckIndex(input, sessionID, session)
+
+    case 'RC_CHECK_YEAR':
+      return handleRcCheckYear(input, sessionID, session)
+
+    case 'RC_CHECK_CONFIRM':
+      return handleRcCheckConfirm(input, sessionID, session)
 
     case 'AFA_ENTER_NAME':
       return handleAfaEnterName(input, sessionID, session)

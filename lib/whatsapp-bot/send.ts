@@ -31,6 +31,42 @@ export async function sendWaTyping(to: string): Promise<void> {
   } catch {}
 }
 
+export async function sendWhatsAppMedia(
+  to: string,
+  type: "image" | "document" | "video",
+  link: string,
+  caption?: string,
+  filename?: string,
+): Promise<void> {
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const token = process.env.WHATSAPP_ACCESS_TOKEN
+  if (!phoneNumberId || !token) return
+
+  const mediaPayload: Record<string, unknown> = { link }
+  if (caption) mediaPayload.caption = caption
+  if (type === "document" && filename) mediaPayload.filename = filename
+
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: baseHeaders(token),
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type,
+        [type]: mediaPayload,
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      console.error("[WA-SEND] Media API error:", res.status, err)
+    }
+  } catch (e) {
+    console.error("[WA-SEND] Media fetch error:", e)
+  }
+}
+
 export async function sendWhatsAppText(to: string, body: string): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN

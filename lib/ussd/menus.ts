@@ -55,7 +55,59 @@ export function airtimePaymentMethodMenu(amount: number, balance: number): strin
 
 // ── Results Checker ───────────────────────────────────────────────────────────
 export function rcMenu(): string {
-  return 'Results Checker\n1. Buy Vouchers\n2. My Vouchers\n0. Back'
+  return 'Results Checker\n1. Buy Vouchers\n2. My Vouchers\n3. Check Results\n0. Back'
+}
+
+export function rcCheckBoardMenu(): string {
+  return 'Check Results Service\nSelect exam board:\n1. WAEC\n2. BECE\n3. NOVDEC\n0. Back'
+}
+
+export function rcCheckModeMenu(comboTotal: number, checkFee: number): string {
+  return (
+    `Check Results\nHow to pay?\n` +
+    `1. Buy voucher+check\n   GHS ${comboTotal.toFixed(2)}\n` +
+    `2. I have a voucher\n   GHS ${checkFee.toFixed(2)}\n` +
+    `0. Back`
+  )
+}
+
+export function rcCheckVoucherPrompt(): string {
+  return 'Enter your voucher PIN:\n\n0. Back'
+}
+
+export function rcCheckIndexPrompt(): string {
+  return 'Enter your index number:\n\n0. Back'
+}
+
+export function rcCheckYearPrompt(): string {
+  return 'Enter exam year:\n(e.g. 2024)\n\n0. Back'
+}
+
+export function rcCheckConfirmMenu(
+  board: string,
+  indexNo: string,
+  year: number,
+  fee: number,
+  balance: number,
+  channel: 'ussd' | 'whatsapp' = 'ussd',
+  mode: 'combo' | 'own_voucher' = 'own_voucher',
+  comboTotal?: number,
+  voucherPin?: string,
+): string {
+  if (channel === 'whatsapp') {
+    if (mode === 'combo') {
+      return `Check Results\n${board} · ${indexNo} · ${year}\n1 voucher + check\nTotal: GHS ${(comboTotal ?? fee).toFixed(2)}\n\n1. Pay via MoMo\n0. Cancel`
+    }
+    return `Check Results\n${board} · ${indexNo} · ${year}\nVoucher: ${voucherPin ?? '—'}\nFee: GHS ${fee.toFixed(2)}\n\n1. Pay via MoMo\n0. Cancel`
+  }
+  // USSD (wallet)
+  const amount = mode === 'combo' ? (comboTotal ?? fee) : fee
+  const hasBalance = balance >= amount
+  const payLine = hasBalance
+    ? `Wallet: GHS ${balance.toFixed(2)}\n1. Pay GHS ${amount.toFixed(2)}\n0. Cancel`
+    : `Wallet: GHS ${balance.toFixed(2)}\nInsufficient. Top up.\n0. Back`
+  const detail = mode === 'combo' ? `1 voucher+check` : `Voucher: ${voucherPin ?? '—'}`
+  return `Check Results\n${board} · ${indexNo} · ${year}\n${detail}\n${payLine}`
 }
 
 export function rcMyVouchersMenu(orders: Array<{ exam_board: string; reference_code: string; created_at: string }>): string {

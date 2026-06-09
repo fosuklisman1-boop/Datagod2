@@ -533,6 +533,77 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ received: true })
       }
 
+      // Handle WhatsApp results-check requests (reference IS the UUID)
+      const { data: checkReq } = await supabase
+        .from("results_check_requests")
+        .select("id, fee, payment_status, phone_number, exam_board, index_number, exam_year, payment_reference, mode, voucher_pin")
+        .eq("id", reference)
+        .maybeSingle()
+
+      if (checkReq) {
+        console.log("[WEBHOOK] Processing results check request:", checkReq.id)
+
+        if (checkReq.payment_status === "paid") {
+          console.log("[WEBHOOK] Results check request already paid:", checkReq.id)
+          return NextResponse.json({ received: true })
+        }
+
+        const paidGhs = amount / 100
+        if (paidGhs < Number(checkReq.fee) - 0.01) {
+          console.error(`[WEBHOOK] Check request underpayment! Paid: ${paidGhs}, Expected: ${checkReq.fee}`)
+          return NextResponse.json({ error: "Underpayment" }, { status: 400 })
+        }
+
+        // For combo mode: assign 1 voucher from inventory and store PIN + serial
+        let assignedVoucherPin: string | null = checkReq.voucher_pin ?? null
+        let assignedVoucherSerial: string | null = null
+        if (checkReq.mode === 'combo') {
+          const { data: voucherRows } = await supabase
+            .from("results_checker_inventory")
+            .select("id, pin, serial_number")
+            .eq("exam_board", checkReq.exam_board)
+            .eq("status", "available")
+            .limit(1)
+          if (voucherRows && voucherRows.length > 0) {
+            const v = voucherRows[0]
+            await supabase.from("results_checker_inventory")
+              .update({ status: "sold", updated_at: new Date().toISOString() })
+              .eq("id", v.id)
+            assignedVoucherPin = v.pin
+            assignedVoucherSerial = v.serial_number ?? null
+          }
+        }
+
+        const updatePayload: Record<string, unknown> = {
+          payment_status: "paid",
+          status: "pending",
+          updated_at: new Date().toISOString(),
+        }
+        if (assignedVoucherPin) updatePayload.voucher_pin = assignedVoucherPin
+        if (assignedVoucherSerial) updatePayload.voucher_serial = assignedVoucherSerial
+
+        await supabase
+          .from("results_check_requests")
+          .update(updatePayload)
+          .eq("id", checkReq.id)
+
+        // Notify user on WhatsApp that their request is confirmed
+        const localPhone = checkReq.phone_number
+        const waPhone = localPhone.startsWith("0")
+          ? `233${localPhone.slice(1)}`
+          : localPhone.replace(/^\+/, "")
+        const { sendWhatsAppText } = await import("@/lib/whatsapp-bot/send")
+        const modeNote = checkReq.mode === 'combo'
+          ? `\nSerial: ${assignedVoucherSerial ?? 'N/A'}\nPIN: ${assignedVoucherPin ?? 'will be assigned'}`
+          : ''
+        await sendWhatsAppText(
+          waPhone,
+          `✓ Payment confirmed! Your ${checkReq.exam_board} results check request has been submitted.\n\nIndex: ${checkReq.index_number}\nYear: ${checkReq.exam_year}\nRef: ${checkReq.payment_reference}${modeNote}\n\nWe'll send your results to this WhatsApp shortly.`,
+        ).catch(e => console.warn("[WEBHOOK] WA notify failed:", e))
+
+        return NextResponse.json({ received: true })
+      }
+
       // Find and update payment record (for non-USSD payments)
       const { data: paymentData, error: fetchError } = await supabase
         .from("wallet_payments")

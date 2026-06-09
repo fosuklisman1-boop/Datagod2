@@ -40,6 +40,7 @@ import {
   GraduationCap,
   Phone,
   PhoneOff,
+  ClipboardCheck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -808,6 +809,28 @@ export function Sidebar() {
                     <GraduationCap className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Results Checker"}
+                </Button>
+              </Link>
+              <Link href="/admin/results-check-requests" onClick={() => handleNavigation("/admin/results-check-requests")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/results-check-requests" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/results-check-requests" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/results-check-requests" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Check Requests" : undefined}
+                  disabled={loadingPath === "/admin/results-check-requests"}
+                >
+                  {loadingPath === "/admin/results-check-requests" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <ClipboardCheck className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Check Requests"}
                 </Button>
               </Link>
               <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>

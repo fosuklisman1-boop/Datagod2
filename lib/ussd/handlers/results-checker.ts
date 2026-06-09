@@ -1,7 +1,11 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession } from "../types"
-import { cont, end, mainMenu, rcMenu, rcBoardMenu, rcQtyPrompt, rcConfirmMenu, rcPaymentMethodMenu, rcMyVouchersMenu, rcVoucherDetailMenu } from "../menus"
+import {
+  cont, end, mainMenu, rcMenu, rcBoardMenu, rcQtyPrompt, rcConfirmMenu, rcPaymentMethodMenu,
+  rcMyVouchersMenu, rcVoucherDetailMenu, rcCheckBoardMenu, rcCheckModeMenu, rcCheckVoucherPrompt,
+  rcCheckIndexPrompt, rcCheckYearPrompt, rcCheckConfirmMenu,
+} from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
@@ -326,6 +330,12 @@ export async function handleRcMenu(
       await setSession(sessionId, { ...session, step: 'RC_MY_VOUCHERS', rcMyOrders: list })
       return cont(rcMyVouchersMenu(list))
     }
+    case '3': {
+      const { enabled } = await getRcCheckSettings()
+      if (!enabled) return cont('Service not available.\n\n' + rcMenu())
+      await setSession(sessionId, { ...session, step: 'RC_CHECK_BOARD', rcCheckChannel: 'ussd' })
+      return cont(rcCheckBoardMenu())
+    }
     case '0':
       await setSession(sessionId, { step: 'MAIN', dialingPhone: session.dialingPhone })
       return cont(mainMenu())
@@ -382,4 +392,348 @@ export async function handleRcVoucherDetail(
   }
 
   return end(`Vouchers sent to ${localPhone}.`)
+}
+
+// ── Results Check Service ─────────────────────────────────────────────────────
+
+async function getRcCheckSettings(): Promise<{ enabled: boolean; fee: number }> {
+  const { data } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", "results_check_settings")
+    .maybeSingle()
+  const v = data?.value as any
+  return {
+    enabled: v?.enabled !== false,
+    fee: typeof v?.fee === "number" ? v.fee : 2.00,
+  }
+}
+
+// ── RC_CHECK_BOARD ────────────────────────────────────────────────────────────
+export async function handleRcCheckBoard(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    await setSession(sessionId, { ...session, step: "RC_MENU" })
+    return cont(rcMenu())
+  }
+  const boards = ["WAEC", "BECE", "NOVDEC"]
+  const idx = parseInt(input.trim(), 10) - 1
+  const board = boards[idx]
+  if (!board) return cont(rcCheckBoardMenu())
+
+  // Compute combo total: 1 voucher price + check fee
+  const { fee: checkFee } = await getRcCheckSettings()
+  const pricing = await calculateRCPrice({ examBoard: board as ExamBoard, quantity: 1, applyBulk: false })
+  const comboTotal = pricing.unitPrice + checkFee
+
+  await setSession(sessionId, {
+    ...session,
+    step: "RC_CHECK_MODE",
+    rcCheckBoard: board,
+    rcCheckFee: checkFee,
+    rcCheckComboTotal: comboTotal,
+  })
+  return cont(rcCheckModeMenu(comboTotal, checkFee))
+}
+
+// ── RC_CHECK_MODE ─────────────────────────────────────────────────────────────
+export async function handleRcCheckMode(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_BOARD" })
+    return cont(rcCheckBoardMenu())
+  }
+  const comboTotal = session.rcCheckComboTotal ?? 0
+  const checkFee = session.rcCheckFee ?? 2
+  if (input.trim() === "1") {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_INDEX", rcCheckMode: "combo" })
+    return cont(rcCheckIndexPrompt())
+  }
+  if (input.trim() === "2") {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER", rcCheckMode: "own_voucher" })
+    return cont(rcCheckVoucherPrompt())
+  }
+  return cont(rcCheckModeMenu(comboTotal, checkFee))
+}
+
+// ── RC_CHECK_VOUCHER ──────────────────────────────────────────────────────────
+export async function handleRcCheckVoucher(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_MODE" })
+    return cont(rcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 2))
+  }
+  const pin = input.trim()
+  if (pin.length < 3) return cont("Invalid PIN.\n" + rcCheckVoucherPrompt())
+  await setSession(sessionId, { ...session, step: "RC_CHECK_INDEX", rcCheckVoucherPin: pin })
+  return cont(rcCheckIndexPrompt())
+}
+
+// ── RC_CHECK_INDEX ────────────────────────────────────────────────────────────
+export async function handleRcCheckIndex(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    // Back to voucher prompt if user had own_voucher, else back to mode selection
+    if (session.rcCheckMode === 'own_voucher') {
+      await setSession(sessionId, { ...session, step: "RC_CHECK_VOUCHER" })
+      return cont(rcCheckVoucherPrompt())
+    }
+    await setSession(sessionId, { ...session, step: "RC_CHECK_MODE" })
+    return cont(rcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 2))
+  }
+  const index = input.trim()
+  if (index.length < 4) {
+    return cont("Invalid index number.\n" + rcCheckIndexPrompt())
+  }
+  await setSession(sessionId, { ...session, step: "RC_CHECK_YEAR", rcCheckIndex: index })
+  return cont(rcCheckYearPrompt())
+}
+
+// ── RC_CHECK_YEAR ─────────────────────────────────────────────────────────────
+export async function handleRcCheckYear(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_INDEX" })
+    return cont(rcCheckIndexPrompt())
+  }
+  const year = parseInt(input.trim(), 10)
+  if (isNaN(year) || year < 2000 || year > 2030) {
+    return cont("Invalid year.\n" + rcCheckYearPrompt())
+  }
+  const { fee } = await getRcCheckSettings()
+  const dialer = await resolveDialer(session.dialingPhone ?? "")
+  const balance = dialer.balance ?? 0
+  await setSession(sessionId, {
+    ...session,
+    step: "RC_CHECK_CONFIRM",
+    rcCheckYear: year,
+    rcCheckFee: fee,
+    userId: dialer.userId,
+    walletBalance: balance,
+  })
+  return cont(rcCheckConfirmMenu(
+    session.rcCheckBoard!, session.rcCheckIndex!, year, fee, balance,
+    session.rcCheckChannel ?? 'ussd',
+    session.rcCheckMode ?? 'own_voucher',
+    session.rcCheckComboTotal,
+    session.rcCheckVoucherPin,
+  ))
+}
+
+// ── RC_CHECK_CONFIRM ──────────────────────────────────────────────────────────
+export async function handleRcCheckConfirm(
+  input: string,
+  sessionId: string,
+  session: USSDSession
+): Promise<UzoResponse> {
+  if (input.trim() === "0") {
+    await setSession(sessionId, { ...session, step: "RC_MENU" })
+    return cont(rcMenu())
+  }
+  const mode = session.rcCheckMode ?? 'own_voucher'
+  const fee = session.rcCheckFee ?? 2
+  const comboTotal = session.rcCheckComboTotal ?? fee
+
+  if (input.trim() !== "1") {
+    return cont(rcCheckConfirmMenu(
+      session.rcCheckBoard!, session.rcCheckIndex!, session.rcCheckYear!,
+      fee, session.walletBalance ?? 0, session.rcCheckChannel ?? 'ussd',
+      mode, comboTotal, session.rcCheckVoucherPin,
+    ))
+  }
+
+  const userId = session.userId
+  const amount = mode === 'combo' ? comboTotal : fee
+  const balance = session.walletBalance ?? 0
+  const dialingPhone = session.dialingPhone!
+  const localPhone = toLocal(dialingPhone)
+  const channel = session.rcCheckChannel ?? "ussd"
+
+  if (!userId) {
+    await setSession(sessionId, { step: "MAIN", dialingPhone })
+    return end("Please create an account\nto use this service.")
+  }
+
+  if (balance < amount) {
+    return cont(
+      `Insufficient wallet.\nNeeded: GHS ${amount.toFixed(2)}\nYours: GHS ${balance.toFixed(2)}\n\nTop up wallet.\n0. Back`
+    )
+  }
+
+  const { data: deductResult, error: deductError } = await supabase.rpc("deduct_wallet", {
+    p_user_id: userId,
+    p_amount: amount,
+  })
+  if (deductError || !deductResult || deductResult.length === 0) {
+    return cont("Payment failed.\nInsufficient balance.\n\n0. Back")
+  }
+  const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
+
+  const referenceCode = secureReference("RCK", 2, 3)
+
+  // For combo mode, assign 1 voucher from inventory
+  let assignedVoucherPin: string | null = null
+  let assignedVoucherSerial: string | null = null
+  if (mode === 'combo') {
+    const board = session.rcCheckBoard!
+    const { data: voucherRows } = await supabase
+      .from("results_checker_inventory")
+      .select("id, pin, serial_number")
+      .eq("exam_board", board)
+      .eq("status", "available")
+      .limit(1)
+    if (voucherRows && voucherRows.length > 0) {
+      const v = voucherRows[0]
+      await supabase.from("results_checker_inventory")
+        .update({ status: "sold", updated_at: new Date().toISOString() })
+        .eq("id", v.id)
+      assignedVoucherPin = v.pin
+      assignedVoucherSerial = v.serial_number ?? null
+    }
+  }
+
+  const voucherPin = mode === 'own_voucher' ? (session.rcCheckVoucherPin ?? null) : assignedVoucherPin
+  const voucherSerial = mode === 'combo' ? assignedVoucherSerial : null
+
+  const { data: request, error: reqErr } = await supabase
+    .from("results_check_requests")
+    .insert([{
+      phone_number: localPhone,
+      exam_board: session.rcCheckBoard,
+      index_number: session.rcCheckIndex,
+      exam_year: session.rcCheckYear,
+      fee: amount,
+      payment_status: "paid",
+      status: "pending",
+      channel,
+      user_id: userId,
+      payment_reference: referenceCode,
+      mode,
+      voucher_pin: voucherPin,
+      voucher_serial: voucherSerial,
+    }])
+    .select("id")
+    .single()
+
+  if (reqErr || !request) {
+    await supabase.rpc("credit_wallet_safely", {
+      p_user_id: userId,
+      p_amount: amount,
+      p_reference_id: `refund-${referenceCode}`,
+    })
+    console.error("[RC-CHECK] Failed to create request:", reqErr)
+    await setSession(sessionId, { step: "MAIN", dialingPhone })
+    return end("Error occurred. Wallet refunded.")
+  }
+
+  void supabase.from("wallet_transactions").insert({
+    user_id: userId,
+    type: "debit",
+    source: "results_check_request",
+    amount,
+    balance_before: balanceBefore,
+    balance_after: newBalance,
+    description: `Results check: ${session.rcCheckBoard} ${session.rcCheckIndex} ${session.rcCheckYear}`,
+    reference_id: request.id,
+    status: "completed",
+  })
+
+  await setSession(sessionId, { step: "MAIN", dialingPhone })
+  return end(
+    `Request submitted!\nRef: ${referenceCode}\nWe'll check your\n${session.rcCheckBoard} results and\nsend them to you shortly.`
+  )
+}
+
+// ── WhatsApp MoMo path for Results Check ─────────────────────────────────────
+// Called by the WA router when the user confirms. Creates a pending request
+// and fires a MoMo charge. Delivery happens via the Paystack webhook.
+export async function handleRcCheckConfirmMomo(
+  sessionId: string,
+  session: USSDSession,
+): Promise<UzoResponse> {
+  const mode = session.rcCheckMode ?? 'own_voucher'
+  const fee = session.rcCheckFee ?? 2
+  const amount = mode === 'combo' ? (session.rcCheckComboTotal ?? fee) : fee
+  const dialingPhone = session.dialingPhone!
+  const localDialing = toLocal(dialingPhone)
+  const provider = paystackProviderFromPhone(dialingPhone)
+
+  if (!provider) {
+    await setSession(sessionId, { ...session, step: "RC_CHECK_BOARD" })
+    return end("MoMo payment not available\nfor this number.")
+  }
+
+  const referenceCode = secureReference("RCK", 2, 3)
+  const { data: request, error } = await supabase
+    .from("results_check_requests")
+    .insert([{
+      phone_number: localDialing,
+      exam_board: session.rcCheckBoard,
+      index_number: session.rcCheckIndex,
+      exam_year: session.rcCheckYear,
+      fee: amount,
+      payment_status: "pending_payment",
+      status: "pending",
+      channel: "whatsapp",
+      user_id: session.userId ?? null,
+      payment_reference: referenceCode,
+      mode,
+      voucher_pin: mode === 'own_voucher' ? (session.rcCheckVoucherPin ?? null) : null,
+      voucher_serial: null,
+    }])
+    .select("id")
+    .single()
+
+  if (error || !request) {
+    console.error("[RC-CHECK] Failed to create pending request:", error)
+    return end("Error creating request.\nPlease try again.")
+  }
+
+  const email = await resolveEmail(dialingPhone)
+
+  after(async () => {
+    await new Promise(r => setTimeout(r, 3000))
+    try {
+      await chargeMobileMoney({
+        email,
+        amount,
+        phone: dialingPhone,
+        provider,
+        reference: request.id,
+        metadata: {
+          source: "whatsapp_results_check",
+          results_check_request_id: request.id,
+          exam_board: session.rcCheckBoard,
+          index_number: session.rcCheckIndex,
+          exam_year: session.rcCheckYear,
+          mode,
+        },
+      })
+    } catch (err) {
+      console.error("[RC-CHECK] MoMo charge failed:", err)
+      await supabase.from("results_check_requests")
+        .update({ payment_status: "failed", status: "failed", updated_at: new Date().toISOString() })
+        .eq("id", request.id)
+    }
+  })
+
+  await setSession(sessionId, { step: "MAIN", dialingPhone })
+  return end(
+    `MoMo prompt sent to ${localDialing}.\nApprove GHS ${amount.toFixed(2)} to submit\nyour results check request.\n\nReceived an OTP instead?\nRedial and enter the code.`
+  )
 }

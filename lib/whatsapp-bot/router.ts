@@ -18,6 +18,9 @@ import {
 import {
   handleRcMenu, handleRcSelectBoard, handleRcEnterQty, handleRcConfirm,
   handleRcPaymentMethod, handleRcMyVouchers, handleRcVoucherDetail,
+  handleRcCheckBoard, handleRcCheckMode, handleRcCheckVoucher,
+  handleRcCheckIndex, handleRcCheckYear,
+  handleRcCheckConfirm, handleRcCheckConfirmMomo,
 } from "@/lib/ussd/handlers/results-checker"
 import { handleOtpSubmit } from "@/lib/ussd/handlers/otp"
 import { handleStatus } from "@/lib/ussd/handlers/status"
@@ -25,6 +28,7 @@ import {
   mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt,
   recipientPrompt, paymentMethodMenu,
   airtimePaymentMethodMenu, rcPaymentMethodMenu,
+  rcCheckBoardMenu, rcCheckModeMenu, rcCheckIndexPrompt, rcCheckVoucherPrompt,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 
@@ -159,9 +163,23 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     'AIRTIME_SELECT_NETWORK', 'AIRTIME_CONFIRM', 'AIRTIME_PAYMENT_METHOD',
     'RC_MENU', 'RC_SELECT_BOARD', 'RC_CONFIRM', 'RC_PAYMENT_METHOD',
     'RC_MY_VOUCHERS', 'RC_VOUCHER_DETAIL',
+    'RC_CHECK_BOARD', 'RC_CHECK_MODE', 'RC_CHECK_CONFIRM',
   ])
   if (MENU_SELECTION_STEPS.has(session.step) && !/^\d+$/.test(input)) {
     const lc = input.toLowerCase()
+    // Allow typing board name directly when on the check board selection screen
+    if (session.step === 'RC_CHECK_BOARD') {
+      const board = lc.includes('waec') ? 'WAEC'
+        : lc.includes('bece') ? 'BECE'
+        : (lc.includes('novdec') || lc.includes('nov')) ? 'NOVDEC'
+        : null
+      if (board) {
+        // Route through RC_CHECK_BOARD handler to compute combo pricing
+        result = await handleRcCheckBoard(board === 'WAEC' ? '1' : board === 'BECE' ? '2' : '3', sessionId, { ...session, rcCheckChannel: 'whatsapp' })
+        await extendWaSession(sessionId)
+        return result.message
+      }
+    }
     if (lc.includes('data') || lc.includes('bundle')) {
       await setWaSession(sessionId, { ...session, step: 'SELECT_NETWORK' })
       await extendWaSession(sessionId)
@@ -342,9 +360,17 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       }
       break
 
-    case 'RC_MENU':
+    case 'RC_MENU': {
       result = await handleRcMenu(input, sessionId, session)
+      // Ensure check requests are tagged as whatsapp channel
+      if (result.ussdServiceOp === 2) {
+        const s2 = await getWaSession(sessionId)
+        if (s2?.step === 'RC_CHECK_BOARD' || s2?.step === 'RC_CHECK_MODE') {
+          await setWaSession(sessionId, { ...s2, rcCheckChannel: 'whatsapp' })
+        }
+      }
       break
+    }
     case 'RC_MY_VOUCHERS':
       result = await handleRcMyVouchers(input, sessionId, session)
       break
@@ -392,6 +418,38 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       }
       break
 
+    case 'RC_CHECK_BOARD':
+      result = await handleRcCheckBoard(input, sessionId, session)
+      break
+    case 'RC_CHECK_MODE':
+      result = await handleRcCheckMode(input, sessionId, session)
+      break
+    case 'RC_CHECK_VOUCHER':
+      result = await handleRcCheckVoucher(input, sessionId, session)
+      break
+    case 'RC_CHECK_INDEX':
+      result = await handleRcCheckIndex(input, sessionId, session)
+      break
+    case 'RC_CHECK_YEAR':
+      result = await handleRcCheckYear(input, sessionId, session)
+      break
+    case 'RC_CHECK_CONFIRM':
+      if (input === '1') {
+        // WhatsApp always pays via MoMo for the check service
+        if (hasValidDialingPhone(session)) {
+          const ss = withMomoFromDialingPhone(session)
+          await setWaSession(sessionId, ss)
+          const res = await handleRcCheckConfirmMomo(sessionId, ss)
+          result = { ...res, message: fixWaMomoMsg(res.message) }
+        } else {
+          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_CHECK' })
+          result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+        }
+      } else {
+        result = await handleRcCheckConfirm(input, sessionId, session)
+      }
+      break
+
     case 'WA_ENTER_PAYMENT_PHONE':
       result = await handleWaEnterPaymentPhone(input, sessionId, session)
       break
@@ -422,12 +480,16 @@ async function handleWaEnterPaymentPhone(
   const parentStep = session.waNextStep === 'CONFIRM_AIRTIME' ? 'AIRTIME_CONFIRM'
     : session.waNextStep === 'CONFIRM_RC' ? 'RC_CONFIRM'
     : session.waNextStep === 'CONFIRM_BUNDLE' ? 'CONFIRM'
+    : session.waNextStep === 'CONFIRM_CHECK' ? 'RC_CHECK_CONFIRM'
     : session.pendingOrderTable === 'airtime_orders' ? 'AIRTIME_PAYMENT_METHOD'
     : session.pendingOrderTable === 'results_checker_orders' ? 'RC_PAYMENT_METHOD'
     : 'PAYMENT_METHOD'
 
   if (input.trim() === '0') {
-    if (parentStep === 'CONFIRM' || parentStep === 'AIRTIME_CONFIRM' || parentStep === 'RC_CONFIRM') {
+    if (
+      parentStep === 'CONFIRM' || parentStep === 'AIRTIME_CONFIRM' ||
+      parentStep === 'RC_CONFIRM' || parentStep === 'RC_CHECK_CONFIRM'
+    ) {
       // Return to the confirm step by resetting step (user can re-review the order)
       await setWaSession(sessionId, { ...session, step: parentStep as USSDSession['step'], waNextStep: undefined })
       return { message: 'Order cancelled. Send any message to continue.', ussdServiceOp: 17 }
@@ -480,6 +542,10 @@ async function handleWaEnterPaymentPhone(
   if (session.waNextStep === 'CONFIRM_RC') {
     const res = await handleRcConfirm('1', sessionId, updatedSession)
     void tagOrderChannel(sessionId, sessionId, 'results_checker_orders', false)
+    return { ...res, message: fixWaMomoMsg(res.message) }
+  }
+  if (session.waNextStep === 'CONFIRM_CHECK') {
+    const res = await handleRcCheckConfirmMomo(sessionId, updatedSession)
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
 
