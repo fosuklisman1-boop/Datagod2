@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("results_check_requests")
     .select("*", { count: "exact" })
+    .eq("payment_status", "paid")   // never show unpaid/pending-payment requests
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1)
 

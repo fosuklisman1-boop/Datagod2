@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { ClipboardCheck, Send, RefreshCw, Settings2 } from "lucide-react"
+import { ClipboardCheck, Send, RefreshCw, Settings2, Paperclip, X } from "lucide-react"
 
 interface CheckRequest {
   id: string
@@ -46,7 +46,7 @@ export default function ResultsCheckRequestsPage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [resultInputs, setResultInputs] = useState<Record<string, string>>({})
-  const [mediaUrlInputs, setMediaUrlInputs] = useState<Record<string, string>>({})
+  const [mediaFiles, setMediaFiles] = useState<Record<string, File>>({})
   const [mediaTypeInputs, setMediaTypeInputs] = useState<Record<string, "image" | "document" | "video">>({})
   const [delivering, setDelivering] = useState<Record<string, boolean>>({})
   const [fee, setFee] = useState("2.00")
@@ -110,20 +110,39 @@ export default function ResultsCheckRequestsPage() {
 
   async function deliverResult(req: CheckRequest) {
     const resultText = resultInputs[req.id]?.trim() ?? req.result_data ?? ""
-    const mediaUrl = mediaUrlInputs[req.id]?.trim() ?? req.media_url ?? ""
-    if (!resultText && !mediaUrl) {
-      toast.error("Enter result text or a media URL first")
+    const file = mediaFiles[req.id]
+    if (!resultText && !file && !req.media_url) {
+      toast.error("Enter result text or attach a file first")
       return
     }
     setDelivering(d => ({ ...d, [req.id]: true }))
     try {
+      let mediaUrl = req.media_url ?? ""
+      let mediaType = mediaTypeInputs[req.id] ?? req.media_type ?? "image"
+
+      // Upload file to Supabase storage if one was selected
+      if (file) {
+        const ext = file.name.split(".").pop() ?? "bin"
+        const path = `results-check/${req.id}-${Date.now()}.${ext}`
+        const { error: uploadErr } = await supabase.storage
+          .from("admin-uploads")
+          .upload(path, file, { upsert: true, contentType: file.type })
+        if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
+        const { data: urlData } = supabase.storage.from("admin-uploads").getPublicUrl(path)
+        mediaUrl = urlData.publicUrl
+        // Derive media type from MIME
+        if (file.type.startsWith("image/")) mediaType = "image"
+        else if (file.type.startsWith("video/")) mediaType = "video"
+        else mediaType = "document"
+      }
+
       const headers = await getAuthHeader()
       const payload: Record<string, unknown> = {
         id: req.id,
         status: "completed",
         deliver: true,
         ...(resultText && { result_data: resultText }),
-        ...(mediaUrl && { media_url: mediaUrl, media_type: mediaTypeInputs[req.id] ?? "image" }),
+        ...(mediaUrl && { media_url: mediaUrl, media_type: mediaType }),
       }
       const res = await fetch("/api/admin/results-check-requests", {
         method: "PATCH",
@@ -132,9 +151,10 @@ export default function ResultsCheckRequestsPage() {
       })
       if (!res.ok) throw new Error()
       toast.success(`Results sent to ${req.phone_number}`)
+      setMediaFiles(f => { const n = { ...f }; delete n[req.id]; return n })
       loadRequests()
-    } catch {
-      toast.error("Failed to deliver results")
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to deliver results")
     } finally {
       setDelivering(d => ({ ...d, [req.id]: false }))
     }
@@ -273,22 +293,37 @@ export default function ResultsCheckRequestsPage() {
                         className="text-sm resize-none"
                       />
                       {req.channel === "whatsapp" && (
-                        <div className="flex gap-2 items-center">
-                          <select
-                            value={mediaTypeInputs[req.id] ?? "image"}
-                            onChange={e => setMediaTypeInputs(m => ({ ...m, [req.id]: e.target.value as any }))}
-                            className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card w-24 focus:outline-none"
-                          >
-                            <option value="image">Image</option>
-                            <option value="document">Document</option>
-                            <option value="video">Video</option>
-                          </select>
-                          <Input
-                            placeholder="Media URL (optional — paste image/PDF link)"
-                            value={mediaUrlInputs[req.id] ?? req.media_url ?? ""}
-                            onChange={e => setMediaUrlInputs(m => ({ ...m, [req.id]: e.target.value }))}
-                            className="text-xs flex-1"
-                          />
+                        <div className="space-y-1.5">
+                          {mediaFiles[req.id] ? (
+                            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs">
+                              <Paperclip size={13} className="shrink-0 text-muted-foreground" />
+                              <span className="flex-1 truncate font-medium">{mediaFiles[req.id].name}</span>
+                              <button
+                                onClick={() => setMediaFiles(f => { const n = { ...f }; delete n[req.id]; return n })}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ) : req.media_url ? (
+                            <p className="text-xs text-muted-foreground truncate">
+                              Attached: <span className="font-mono">{req.media_url.split("/").pop()}</span>
+                            </p>
+                          ) : null}
+                          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 transition-colors">
+                            <Paperclip size={13} />
+                            {mediaFiles[req.id] ? "Replace file" : "Attach image / PDF / video (optional)"}
+                            <input
+                              type="file"
+                              accept="image/*,application/pdf,video/*"
+                              className="sr-only"
+                              onChange={e => {
+                                const f = e.target.files?.[0]
+                                if (f) setMediaFiles(m => ({ ...m, [req.id]: f }))
+                                e.target.value = ""
+                              }}
+                            />
+                          </label>
                         </div>
                       )}
                       <div className="flex gap-2">

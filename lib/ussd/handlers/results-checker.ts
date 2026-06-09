@@ -424,8 +424,23 @@ export async function handleRcCheckBoard(
   const board = boards[idx]
   if (!board) return cont(rcCheckBoardMenu())
 
-  // Compute combo total: 1 voucher price + check fee
-  const { fee: checkFee } = await getRcCheckSettings()
+  const [{ fee: checkFee }, availCount] = await Promise.all([
+    getRcCheckSettings(),
+    getAvailableCount(board as ExamBoard),
+  ])
+
+  // No vouchers in stock — skip mode selection, force own_voucher
+  if (availCount === 0) {
+    await setSession(sessionId, {
+      ...session,
+      step: "RC_CHECK_INDEX",
+      rcCheckBoard: board,
+      rcCheckFee: checkFee,
+      rcCheckMode: "own_voucher",
+    })
+    return cont("No vouchers in stock.\nProvide your own PIN.\n\n" + rcCheckIndexPrompt())
+  }
+
   const pricing = await calculateRCPrice({ examBoard: board as ExamBoard, quantity: 1, applyBulk: false })
   const comboTotal = pricing.unitPrice + checkFee
 

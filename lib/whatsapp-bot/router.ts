@@ -435,16 +435,9 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
     case 'RC_CHECK_CONFIRM':
       if (input === '1') {
-        // WhatsApp always pays via MoMo for the check service
-        if (hasValidDialingPhone(session)) {
-          const ss = withMomoFromDialingPhone(session)
-          await setWaSession(sessionId, ss)
-          const res = await handleRcCheckConfirmMomo(sessionId, ss)
-          result = { ...res, message: fixWaMomoMsg(res.message) }
-        } else {
-          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_CHECK' })
-          result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-        }
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_CHECK' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
         result = await handleRcCheckConfirm(input, sessionId, session)
       }
