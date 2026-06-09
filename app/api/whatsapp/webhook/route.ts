@@ -125,7 +125,29 @@ async function processInbound(body: unknown): Promise<void> {
 
 // ── AI handler (non-bot messages) ────────────────────────────────────────────
 
+// Map bare main-menu digits to services — same shortcuts USSD users know
+const MAIN_MENU_SHORTCUTS: Record<string, string> = {
+  "1": "data", "2": "afa", "3": "airtime", "4": "rc",
+}
+
 async function handleWithAI(phone: string, text: string): Promise<string> {
+  // Fast-path: bare digit 1-4 → start ordering bot directly (no AI needed)
+  const shortcut = MAIN_MENU_SHORTCUTS[text.trim()]
+  if (shortcut) {
+    const { setWaSession } = await import("@/lib/whatsapp-bot/session")
+    const { mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
+    const localPhone = phone.startsWith("233") ? "0" + phone.slice(3) : phone
+    const stepMap: Record<string, { step: string; menu: () => string }> = {
+      data:    { step: "SELECT_NETWORK",          menu: networkMenu },
+      airtime: { step: "AIRTIME_ENTER_RECIPIENT", menu: airtimeRecipientPrompt },
+      afa:     { step: "AFA_ENTER_NAME",           menu: afaEnterNamePrompt },
+      rc:      { step: "RC_MENU",                  menu: rcMenu },
+    }
+    const mapped = stepMap[shortcut]
+    await setWaSession(phone, { step: mapped.step as any, dialingPhone: localPhone })
+    return mapped.menu()
+  }
+
   // Load AI config
   let aiConfig: AIProviderConfig = DEFAULT_CONFIG
   try {
@@ -174,20 +196,26 @@ The user's WhatsApp number is ${phone}${userId ? " and they have a registered Da
 When the user wants to buy something, call the start_ordering_bot tool — do not describe menus in text.
 For support questions, order status, and account queries, answer directly.`
 
-  const result = await runAgenticLoop({
-    provider,
-    model,
-    system,
-    context: "whatsapp",
-    messages,
-    toolCtx: {
-      userId,
-      userRole: userId ? "dashboard" : "guest",
-      baseUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
-    },
-    maxIterations: 5,
-    maxTokens: 600,
-  })
+  let result: { text: string; toolsUsed: string[] }
+  try {
+    result = await runAgenticLoop({
+      provider,
+      model,
+      system,
+      context: "whatsapp",
+      messages,
+      toolCtx: {
+        userId,
+        userRole: userId ? "dashboard" : "guest",
+        baseUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+      },
+      maxIterations: 5,
+      maxTokens: 600,
+    })
+  } catch (e) {
+    console.error("[WA-WEBHOOK] runAgenticLoop error:", e)
+    return "I'm having trouble right now. Please try again in a moment."
+  }
 
   // If start_ordering_bot was called THIS run, show the correct submenu immediately.
   // (Do NOT check for arbitrary existing sessions — that would catch stale post-purchase sessions.)
