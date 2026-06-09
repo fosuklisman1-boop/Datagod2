@@ -53,7 +53,7 @@ export interface USSDShopSession {
   airtimeFee?: number
   airtimeMerchantCommission?: number
   // Shop Results Checker (MoMo only)
-  rcBoard?: string                 // 'WAEC' | 'BECE' | 'NOVDEC'
+  rcBoard?: string                 // 'WASSCE' | 'BECE' | 'NOVDEC'
   rcQty?: number
   rcUnitPrice?: number
   rcTotal?: number

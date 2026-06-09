@@ -25,7 +25,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ALL_BOARDS: ExamBoard[] = ["WAEC", "BECE", "NOVDEC"]
+const ALL_BOARDS: ExamBoard[] = ["WASSCE", "BECE", "NOVDEC"]
 
 function toLocal(phone: string): string {
   if (phone.startsWith("+233")) return "0" + phone.slice(4)
@@ -421,7 +421,7 @@ export async function handleRcCheckBoard(
     await setSession(sessionId, { ...session, step: "RC_MENU" })
     return cont(rcMenu())
   }
-  const boards = ["WAEC", "BECE", "NOVDEC"]
+  const boards = ["WASSCE", "BECE", "NOVDEC"]
   const idx = parseInt(input.trim(), 10) - 1
   const board = boards[idx]
   if (!board) return cont(rcCheckBoardMenu())
@@ -512,10 +512,13 @@ export async function handleRcCheckVoucher(
     return cont(rcCheckCandidateTypeMenu())
   }
   // Accept "PIN/Serial", "PIN Serial", or "PIN,Serial"
-  const raw = input.trim()
+  const raw = input.trim().toUpperCase()
   const parts = raw.split(/[\/,\s]+/)
-  if (parts.length < 2 || parts[0].length < 4 || parts[1].length < 4) {
-    return cont("Enter both PIN and serial.\nFormat: PIN/Serial\ne.g. 12345/567890\n\nPIN and serial must\neach be 4+ characters.\n\n0. Back")
+  const pin = parts[0] ?? ''
+  const serial = parts[1] ?? ''
+  // PIN: exactly 12 digits. Serial: 1-4 letters followed by 7-15 digits (e.g. WGR1900112581)
+  if (!pin || !serial || !/^\d{12}$/.test(pin) || !/^[A-Z]{1,4}\d{7,15}$/.test(serial)) {
+    return cont("Invalid PIN or serial.\nPIN: 12 digits\nSerial: e.g. WGR1900112581\n\nFormat: PIN/Serial\ne.g. 012345678912/WGR1900112581\n\n0. Back")
   }
   await setSession(sessionId, {
     ...session,
@@ -545,12 +548,12 @@ export async function handleRcCheckIndex(
     await setSession(sessionId, { ...session, step: "RC_CHECK_CANDIDATE_TYPE" })
     return cont(rcCheckCandidateTypeMenu())
   }
-  // WAEC/WASSCE/NOVDEC: exactly 10 digits (7-digit centre + 3-digit candidate)
-  // BECE: 10 or 12 digits (10-digit base, optionally +2 year digits for placement)
+  // WASSCE/NOVDEC: exactly 10 digits (7-digit centre + 3-digit candidate)
+  // BECE: 10 digits (legacy) or 12 digits (school code + candidate + 2-digit year, adopted 2019)
   const index = input.trim().replace(/\s/g, '')
   const board = session.rcCheckBoard ?? ''
   const isBece = board === 'BECE'
-  const valid = isBece ? /^\d{10}(\d{2})?$/.test(index) : /^\d{10}$/.test(index)
+  const valid = isBece ? /^\d{10}$|^\d{12}$/.test(index) : /^\d{10}$/.test(index)
   if (!valid) {
     const hint = isBece ? '10 or 12 digits' : 'exactly 10 digits'
     return cont(`Invalid index number.\nMust be ${hint},\nnumbers only.\ne.g. 0070202043\n\n0. Back`)

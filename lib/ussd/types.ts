@@ -92,7 +92,7 @@ export interface USSDSession {
   airtimeToDeliver?: number   // amount the recipient receives (amount − fee)
   airtimeFee?: number
   // Results Checker fields
-  rcBoard?: string            // 'WAEC' | 'BECE' | 'NOVDEC'
+  rcBoard?: string            // 'WASSCE' | 'BECE' | 'NOVDEC'
   rcQty?: number
   rcUnitPrice?: number
   rcTotal?: number
@@ -100,7 +100,7 @@ export interface USSDSession {
   rcMyOrders?: Array<{ id: string; exam_board: string; reference_code: string; created_at: string }>
   rcSelectedOrderId?: string
   // Results Check Service fields
-  rcCheckBoard?: string                       // 'WAEC' | 'BECE' | 'NOVDEC'
+  rcCheckBoard?: string                       // 'WASSCE' | 'BECE' | 'NOVDEC'
   rcCheckCandidateType?: 'school' | 'private'
   rcCheckMode?: 'combo' | 'own_voucher'
   rcCheckVoucherPin?: string                  // PIN the user provides (own_voucher mode)

@@ -5,7 +5,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const EXAM_BOARDS = ["WAEC", "BECE", "NOVDEC"] as const
+const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"] as const
 export type ExamBoard = typeof EXAM_BOARDS[number]
 
 export interface VoucherPin {

@@ -643,7 +643,7 @@ const getAirtimeAvailabilityTool: Anthropic.Tool = {
 
 const getResultsCheckerAvailabilityTool: Anthropic.Tool = {
   name: "get_results_checker_availability",
-  description: "Check how many exam results checker vouchers are currently in stock (WAEC, BECE, NOVDEC).",
+  description: "Check how many exam results checker vouchers are currently in stock (WASSCE, BECE, NOVDEC).",
   input_schema: {
     type: "object" as const,
     properties: {},
@@ -2309,7 +2309,7 @@ export async function executeToolCall(
         if (!res.ok) return { error: data.error ?? "Failed to check availability" }
         return {
           available_vouchers: data.counts,
-          note: "WAEC = West African Senior School Certificate, BECE = Basic Education Certificate, NOVDEC = November/December exam",
+          note: "WASSCE = West African Senior School Certificate Examination, BECE = Basic Education Certificate Examination, NOVDEC = November/December WASSCE for private candidates",
         }
       }
 

@@ -36,7 +36,7 @@ export interface InventorySummary {
   novdec: { available: number; reserved: number; sold: number; invalid: number; expired: number }
 }
 
-const VALID_BOARDS = new Set(["WAEC", "BECE", "NOVDEC"])
+const VALID_BOARDS = new Set(["WASSCE", "BECE", "NOVDEC"])
 
 export function parseVoucherCSV(text: string): ParseResult {
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean)
@@ -61,12 +61,12 @@ export function parseVoucherCSV(text: string): ParseResult {
     }
 
     if (!VALID_BOARDS.has(exam_board.toUpperCase())) {
-      errors.push({ row: rowNum, reason: `Invalid exam_board "${exam_board}". Must be WAEC, BECE, or NOVDEC`, raw })
+      errors.push({ row: rowNum, reason: `Invalid exam_board "${exam_board}". Must be WASSCE, BECE, or NOVDEC`, raw })
       continue
     }
 
-    if (!/^\d{10,12}$/.test(pin)) {
-      errors.push({ row: rowNum, reason: "PIN must be 10–12 digits (numeric only)", raw })
+    if (!/^\d{12}$/.test(pin)) {
+      errors.push({ row: rowNum, reason: "PIN must be exactly 12 digits (numeric only)", raw })
       continue
     }
 

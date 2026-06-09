@@ -171,13 +171,13 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     const lc = input.toLowerCase()
     // Allow typing board name directly when on the check board selection screen
     if (session.step === 'RC_CHECK_BOARD') {
-      const board = lc.includes('waec') ? 'WAEC'
+      const board = (lc.includes('wassce') || lc.includes('waec') || lc.includes('wasce')) ? 'WASSCE'
         : lc.includes('bece') ? 'BECE'
         : (lc.includes('novdec') || lc.includes('nov')) ? 'NOVDEC'
         : null
       if (board) {
         result = await handleRcCheckBoard(
-          board === 'WAEC' ? '1' : board === 'BECE' ? '2' : '3',
+          board === 'WASSCE' ? '1' : board === 'BECE' ? '2' : '3',
           sessionId,
           { ...session, rcCheckChannel: 'whatsapp' },
         )

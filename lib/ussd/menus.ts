@@ -59,7 +59,7 @@ export function rcMenu(): string {
 }
 
 export function rcCheckBoardMenu(): string {
-  return 'Check Results Service\nSelect exam board:\n1. WAEC\n2. BECE\n3. NOVDEC\n0. Back'
+  return 'Check Results Service\nSelect exam board:\n1. WASSCE\n2. BECE\n3. NOVDEC\n0. Back'
 }
 
 export function rcCheckCandidateTypeMenu(): string {
