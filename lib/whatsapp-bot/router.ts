@@ -32,6 +32,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Replace USSD-specific "Redial" OTP instructions with WhatsApp-friendly text
+function fixWaMomoMsg(msg: string): string {
+  return msg
+    .replace(/Received an OTP instead\?[^\n]*/gi, 'If you receive an OTP code, reply here with it.')
+    .replace(/Redial\s+\S*\s*and\s+enter\s+the\s+code\.?/gi, 'Reply here with your OTP code.')
+}
+
 export async function waRouter(phone: string, text: string): Promise<string> {
   const sessionId = phone
   const session = await getWaSession(sessionId)
@@ -271,23 +278,30 @@ async function handleWaEnterPaymentPhone(
   if (session.waNextStep === 'CONFIRM_BUNDLE') {
     const res = await handleConfirm('1', sessionId, updatedSession)
     void tagOrderChannel(sessionId, updatedSession.dialingPhone ?? sessionId, 'ussd_orders', res.ussdServiceOp === 17)
-    return res
+    return { ...res, message: fixWaMomoMsg(res.message) }
   }
   if (session.waNextStep === 'CONFIRM_AIRTIME') {
     const res = await handleAirtimeConfirm('1', sessionId, updatedSession)
     void tagOrderChannel(sessionId, sessionId, 'airtime_orders', false)
-    return res
+    return { ...res, message: fixWaMomoMsg(res.message) }
   }
   if (session.waNextStep === 'CONFIRM_RC') {
     const res = await handleRcConfirm('1', sessionId, updatedSession)
     void tagOrderChannel(sessionId, sessionId, 'results_checker_orders', false)
-    return res
+    return { ...res, message: fixWaMomoMsg(res.message) }
   }
 
   // Standard MoMo payment-method paths
-  if (parentStep === 'PAYMENT_METHOD') return handlePaymentMethod('2', sessionId, updatedSession)
-  if (parentStep === 'AIRTIME_PAYMENT_METHOD') return handleAirtimePaymentMethod('2', sessionId, updatedSession)
-  return handleRcPaymentMethod('2', sessionId, updatedSession)
+  if (parentStep === 'PAYMENT_METHOD') {
+    const res = await handlePaymentMethod('2', sessionId, updatedSession)
+    return { ...res, message: fixWaMomoMsg(res.message) }
+  }
+  if (parentStep === 'AIRTIME_PAYMENT_METHOD') {
+    const res = await handleAirtimePaymentMethod('2', sessionId, updatedSession)
+    return { ...res, message: fixWaMomoMsg(res.message) }
+  }
+  const res = await handleRcPaymentMethod('2', sessionId, updatedSession)
+  return { ...res, message: fixWaMomoMsg(res.message) }
 }
 
 // ── Channel tagging ───────────────────────────────────────────────────────────

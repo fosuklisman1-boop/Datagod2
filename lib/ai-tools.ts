@@ -830,13 +830,18 @@ const notifySelfTool: Anthropic.Tool = {
 
 const startOrderingBotTool: Anthropic.Tool = {
   name: "start_ordering_bot",
-  description: "Switch the conversation to the structured ordering menu. Call this when the user expresses intent to buy a data bundle, airtime, AFA registration, or results checker vouchers. Do not call this for general queries about pricing or services.",
+  description: "Switch the conversation to the structured ordering menu. Call this when the user expresses intent to buy a data bundle, airtime, AFA registration, or results checker vouchers. Pass `service` to jump directly to the relevant submenu — do not make the user navigate from the main menu.",
   input_schema: {
     type: "object" as const,
     properties: {
       phone: {
         type: "string",
         description: "The user's WhatsApp phone number as received from Meta webhook (e.g. '233559919037').",
+      },
+      service: {
+        type: "string",
+        enum: ["data", "airtime", "afa", "rc"],
+        description: "'data' = data bundles, 'airtime' = airtime top-up, 'afa' = AFA registration, 'rc' = results checker vouchers. Omit only if the user hasn't specified which service they want.",
       },
     },
     required: ["phone"],
@@ -1269,14 +1274,22 @@ export async function executeToolCall(
 
       case "start_ordering_bot": {
         const { setWaSession } = await import("@/lib/whatsapp-bot/session")
-        const { mainMenu } = await import("@/lib/ussd/menus")
+        const { mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
         const phone = String(input.phone ?? "").trim()
         if (!phone) return { error: "phone is required" }
         const localPhone = phone.startsWith("+233") ? "0" + phone.slice(4)
           : phone.startsWith("233") ? "0" + phone.slice(3)
           : phone
-        await setWaSession(phone, { step: "MAIN", dialingPhone: localPhone })
-        return { message: mainMenu() }
+        const serviceSteps: Record<string, { step: string; menu: () => string }> = {
+          data:    { step: "SELECT_NETWORK",         menu: networkMenu },
+          airtime: { step: "AIRTIME_ENTER_RECIPIENT", menu: airtimeRecipientPrompt },
+          afa:     { step: "AFA_ENTER_NAME",          menu: afaEnterNamePrompt },
+          rc:      { step: "RC_MENU",                 menu: rcMenu },
+        }
+        const svc = String(input.service ?? "")
+        const mapped = serviceSteps[svc]
+        await setWaSession(phone, { step: (mapped?.step ?? "MAIN") as any, dialingPhone: localPhone })
+        return { message: mapped ? mapped.menu() : mainMenu() }
       }
 
       case "get_all_orders": {

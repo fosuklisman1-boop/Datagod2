@@ -185,14 +185,19 @@ For support questions, order status, and account queries, answer directly.`
     maxTokens: 600,
   })
 
-  // If the AI called start_ordering_bot (creating a session) but returned no text,
-  // fall through to the bot router so the user immediately sees the menu.
-  if (!result.text) {
-    const newSession = await getWaSession(phone)
-    if (newSession) {
-      const { mainMenu } = await import("@/lib/ussd/menus")
-      return mainMenu()
+  // If the AI called start_ordering_bot, a session now exists.
+  // Always show the bot's menu for the session step — ignore any AI conversational text.
+  const newSession = await getWaSession(phone)
+  if (newSession) {
+    const { mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
+    const stepMenus: Partial<Record<string, () => string>> = {
+      SELECT_NETWORK:          networkMenu,
+      AIRTIME_ENTER_RECIPIENT: airtimeRecipientPrompt,
+      AFA_ENTER_NAME:          afaEnterNamePrompt,
+      RC_MENU:                 rcMenu,
     }
+    const menuFn = stepMenus[newSession.step]
+    return menuFn ? menuFn() : mainMenu()
   }
   return result.text
 }

@@ -136,9 +136,16 @@ export function networkMenu(): string {
   return 'Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n4. AT-iShare\n0. Back'
 }
 
+function formatBundleSize(size: string): string {
+  const n = parseFloat(size)
+  if (isNaN(n)) return size
+  if (n < 1) return `${Math.round(n * 1000)}MB`
+  return `${Number.isInteger(n) ? n : n}GB`
+}
+
 export function bundleMenu(bundles: BundleOption[], page: number, total: number): string {
   const offset = page * PAGE_SIZE
-  const lines = bundles.map((b, i) => `${offset + i + 1}. ${b.size} - GHS ${b.price.toFixed(2)}`)
+  const lines = bundles.map((b, i) => `${offset + i + 1}. ${formatBundleSize(b.size)} - GHS ${b.price.toFixed(2)}`)
   const hasMore = offset + bundles.length < total
   if (hasMore) lines.push(`${offset + bundles.length + 1}. More...`)
   lines.push('0. Back')
@@ -164,7 +171,7 @@ export function confirmMenu(network: string, size: string, price: number, recipi
   const localRecipient = formatLocal(recipient)
   return (
     `Confirm:\n` +
-    `${size} ${network}\n` +
+    `${formatBundleSize(size)} ${network}\n` +
     `To: ${localRecipient}\n` +
     `GHS ${price.toFixed(2)} from\n${localDialing}\n\n` +
     `1. Pay now\n2. Cancel`
