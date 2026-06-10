@@ -128,20 +128,6 @@ async function handleSelectBundleWa(
   return { message: recipientPrompt(), ussdServiceOp: 2 }
 }
 
-// ── Payment-phone helpers ─────────────────────────────────────────────────────
-
-function hasValidDialingPhone(session: USSDSession): boolean {
-  return !!session.dialingPhone && /^0[0-9]{9}$/.test(session.dialingPhone)
-}
-
-function withMomoFromDialingPhone(session: USSDSession): USSDSession {
-  return {
-    ...session,
-    momoPhone: session.dialingPhone,
-    paystackProvider: paystackProviderFromPhone(session.dialingPhone!) ?? undefined,
-  }
-}
-
 export async function waRouter(phone: string, text: string): Promise<string> {
   const sessionId = phone
   const session = await getWaSession(sessionId)
@@ -251,17 +237,9 @@ export async function waRouter(phone: string, text: string): Promise<string> {
 
     case 'CONFIRM':
       if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.bundlePrice ?? 0))) {
-        if (hasValidDialingPhone(session)) {
-          // dialingPhone was shown in the summary — charge it directly, no second ask
-          const ss = withMomoFromDialingPhone(session)
-          await setWaSession(sessionId, ss)
-          const res = await handleConfirm('1', sessionId, ss)
-          void tagOrderChannel(sessionId, ss.dialingPhone!, 'ussd_orders', res.ussdServiceOp === 17)
-          result = { ...res, message: fixWaMomoMsg(res.message) }
-        } else {
-          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
-          result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-        }
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
         result = await handleConfirm(input, sessionId, session)
         if (input === '1') {
@@ -272,15 +250,9 @@ export async function waRouter(phone: string, text: string): Promise<string> {
 
     case 'PAYMENT_METHOD':
       if (input === '2') {
-        if (hasValidDialingPhone(session)) {
-          const ss = withMomoFromDialingPhone(session)
-          await setWaSession(sessionId, ss)
-          const res = await handlePaymentMethod('2', sessionId, ss)
-          result = { ...res, message: fixWaMomoMsg(res.message) }
-        } else {
-          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
-          result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-        }
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
         result = await handlePaymentMethod(input, sessionId, session)
       }
@@ -344,16 +316,9 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
     case 'AIRTIME_CONFIRM':
       if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.airtimeAmount ?? 0))) {
-        if (hasValidDialingPhone(session)) {
-          const ss = withMomoFromDialingPhone(session)
-          await setWaSession(sessionId, ss)
-          const res = await handleAirtimeConfirm('1', sessionId, ss)
-          void tagOrderChannel(sessionId, ss.dialingPhone!, 'airtime_orders', false)
-          result = { ...res, message: fixWaMomoMsg(res.message) }
-        } else {
-          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
-          result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-        }
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
         result = await handleAirtimeConfirm(input, sessionId, session)
         if (input === '1') {
@@ -363,15 +328,9 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
     case 'AIRTIME_PAYMENT_METHOD':
       if (input === '2') {
-        if (hasValidDialingPhone(session)) {
-          const ss = withMomoFromDialingPhone(session)
-          await setWaSession(sessionId, ss)
-          const res = await handleAirtimePaymentMethod('2', sessionId, ss)
-          result = { ...res, message: fixWaMomoMsg(res.message) }
-        } else {
-          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
-          result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-        }
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
         result = await handleAirtimePaymentMethod(input, sessionId, session)
       }
@@ -402,16 +361,9 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
     case 'RC_CONFIRM':
       if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.rcTotal ?? 0))) {
-        if (hasValidDialingPhone(session)) {
-          const ss = withMomoFromDialingPhone(session)
-          await setWaSession(sessionId, ss)
-          const res = await handleRcConfirm('1', sessionId, ss)
-          void tagOrderChannel(sessionId, ss.dialingPhone!, 'results_checker_orders', false)
-          result = { ...res, message: fixWaMomoMsg(res.message) }
-        } else {
-          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
-          result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-        }
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
         result = await handleRcConfirm(input, sessionId, session)
         if (input === '1') {
@@ -421,15 +373,9 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
     case 'RC_PAYMENT_METHOD':
       if (input === '2') {
-        if (hasValidDialingPhone(session)) {
-          const ss = withMomoFromDialingPhone(session)
-          await setWaSession(sessionId, ss)
-          const res = await handleRcPaymentMethod('2', sessionId, ss)
-          result = { ...res, message: fixWaMomoMsg(res.message) }
-        } else {
-          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
-          result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-        }
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
         result = await handleRcPaymentMethod(input, sessionId, session)
       }
