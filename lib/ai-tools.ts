@@ -830,7 +830,7 @@ const notifySelfTool: Anthropic.Tool = {
 
 const startOrderingBotTool: Anthropic.Tool = {
   name: "start_ordering_bot",
-  description: "Switch the conversation to the structured ordering menu. Call this when the user expresses intent to buy a data bundle, airtime, AFA registration, or results checker vouchers. Pass `service` to jump directly to the relevant submenu — do not make the user navigate from the main menu.",
+  description: "Switch the conversation to the structured ordering menu. Call this when the user expresses intent to buy a data bundle, airtime, AFA registration, results checker vouchers, OR wants Datagod to check their exam results on their behalf (Results Check Service). Pass `service` to jump directly to the relevant submenu — do not make the user navigate from the main menu.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -841,7 +841,7 @@ const startOrderingBotTool: Anthropic.Tool = {
       service: {
         type: "string",
         enum: ["data", "airtime", "afa", "rc"],
-        description: "'data' = data bundles, 'airtime' = airtime top-up, 'afa' = AFA registration, 'rc' = results checker vouchers. Omit only if the user hasn't specified which service they want.",
+        description: "'data' = data bundles, 'airtime' = airtime top-up, 'afa' = AFA registration, 'rc' = results checker vouchers AND Results Check Service (Datagod checks results on customer's behalf). Omit only if the user hasn't specified which service they want.",
       },
     },
     required: ["phone"],

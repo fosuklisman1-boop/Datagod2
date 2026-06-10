@@ -287,7 +287,8 @@ NETWORKS & SERVICES:
 - Telecel Ghana (formerly Vodafone) — data bundles
 - AirtelTigo (AT) — AT-iShare and AT-BigTime bundles
 - Airtime top-up (via dealer storefronts)
-- Exam results checker vouchers — WAEC, BECE, NOVDEC (via dealer storefronts)
+- Exam Results Checker Vouchers — WAEC (WASSCE), BECE, NOVDEC voucher codes; customers use them on the WAEC portal to check results themselves (via dealer storefronts)
+- Results Check Service — Datagod checks exam results on the customer's behalf; customer provides index number, date of birth, exam year, and WhatsApp number; results delivered by email and WhatsApp. Available on dealer storefronts under the "Check My Results" tab. Two modes: "Combo" (Datagod provides the voucher) or "Own Voucher" (customer already has a PIN/serial)
 
 HOW TO GET STARTED:
 1. Create a free account at /auth/register (or tap Sign Up)
@@ -357,10 +358,17 @@ AIRTIME TOP-UP:
 - Customer pays total (airtime + fee) via Paystack
 - Direct them to the Airtime section on the page if they want to proceed
 
-RESULTS CHECKER:
-- Vouchers for WAEC (WASSCE), BECE (Basic Certificate), NOVDEC (Nov/Dec sitting)
+RESULTS CHECKER VOUCHERS:
+- Buy WASSCE/BECE/NOVDEC voucher codes — customer uses them on the WAEC portal to check results themselves
 - Check stock with get_results_checker_availability before promising availability
 - Customer provides email + phone, pays via Paystack, receives voucher code by email
+
+RESULTS CHECK SERVICE ("Check My Results" tab):
+- Datagod checks exam results on the customer's behalf — no need for the customer to log into any portal
+- Customer provides: exam board, candidate type (school/private), index number, date of birth, exam year, WhatsApp number, and payment
+- Two modes: "Combo" — Datagod supplies the voucher + checks (higher fee); "Own Voucher" — customer already has a PIN and serial number (lower fee)
+- Results delivered by email (with file attachment if available) and WhatsApp
+- Customer should check spam folder if email doesn't arrive in inbox
 
 PAYMENT & REFUNDS:
 - All payments go through Paystack — the shop owner does not handle card details
@@ -409,7 +417,8 @@ DEALER-ONLY FEATURES (only available when role = dealer or admin):
 - Sub-agents: /dashboard/sub-agents — invite and manage sub-agents under your shop
 - Sub-agent Catalog: /dashboard/sub-agent-catalog — set up wholesale catalog for sub-agents
 - Airtime top-up sales: /dashboard/airtime — sell airtime to customers
-- Results Checker: /dashboard/results-checker — sell WAEC/BECE/NOVDEC exam vouchers
+- Results Checker: /dashboard/results-checker — sell WAEC/BECE/NOVDEC exam vouchers to customers
+- Results Check Service: dealers can enable a "Check My Results" tab on their storefront with a custom markup; Datagod checks exam results on the customer's behalf and delivers them by email and WhatsApp; admin manages delivery at /admin/results-check-requests
 - AFA Orders: /dashboard/afa-orders — AFA data bundle orders
 - USSD Shop: /dashboard/ussd-shop — activate a USSD shop code for the shop. Customers dial ${ussdDialCode}, get prompted "Enter shop code:", type the dealer's 4-digit code, then browse and buy bundles — no Datagod account needed. The dealer's 4-digit code is returned by get_my_shop. The shop code is ENTERED at the menu prompt, not appended to the dial string.
 - Customers: /dashboard/customers — view customer list and order history
@@ -479,7 +488,12 @@ ORDER TABLES (each has an 'id' field — use the 'table' value from get_all_orde
 - ussd_shop_orders: shop-specific USSD orders — customer dialed ${ussdDialCode}, entered a dealer's 4-digit shop code at the menu prompt, and bought from that shop (order_status field)
 - api_orders: V1 API key orders (status field; no payment_status)
 
-ADMIN PAGES: /admin, /admin/orders, /admin/users, /admin/shops, /admin/packages, /admin/blacklist, /admin/withdrawals, /admin/fulfillment, /admin/settings, /admin/subscription-plans, /admin/rate-limits, /admin/ai-knowledge
+ADMIN PAGES: /admin, /admin/orders, /admin/users, /admin/shops, /admin/packages, /admin/blacklist, /admin/withdrawals, /admin/fulfillment, /admin/settings, /admin/subscription-plans, /admin/rate-limits, /admin/ai-knowledge, /admin/results-check-requests
+
+RESULTS CHECK SERVICE (admin):
+- /admin/results-check-requests — view all paid results check requests awaiting delivery; admins type the result text and/or upload a photo/PDF, then click "Send" to deliver to the customer via email and WhatsApp
+- Configured WhatsApp admin phones receive a notification the moment a new paid request arrives; they can also claim and deliver requests entirely from WhatsApp by sending "pending"
+- Settings: enable/disable the service, set the base fee, configure admin WhatsApp notification numbers
 
 You have access to all platform admin tools:
 
