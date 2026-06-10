@@ -256,7 +256,14 @@ export async function waRouter(phone: string, text: string): Promise<string> {
           result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
         } else {
           result = await handleConfirm('1', sessionId, session)
-          void tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
+          await tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
+          // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
+          if (result.ussdServiceOp === 2) {
+            const updated = await getWaSession(sessionId)
+            if (updated?.step === 'PAYMENT_METHOD') {
+              result = await handlePaymentMethod('1', sessionId, updated)
+            }
+          }
         }
       } else if (input === '0') {
         result = await handleConfirm('2', sessionId, session) // cancel
@@ -349,7 +356,14 @@ export async function waRouter(phone: string, text: string): Promise<string> {
           result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
         } else {
           result = await handleAirtimeConfirm('1', sessionId, session)
-          void tagOrderChannel(sessionId, phone, 'airtime_orders', false)
+          await tagOrderChannel(sessionId, phone, 'airtime_orders', false)
+          // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
+          if (result.ussdServiceOp === 2) {
+            const updated = await getWaSession(sessionId)
+            if (updated?.step === 'AIRTIME_PAYMENT_METHOD') {
+              result = await handleAirtimePaymentMethod('1', sessionId, updated)
+            }
+          }
         }
       } else if (input === '0') {
         result = await handleAirtimeConfirm('2', sessionId, session)
@@ -408,7 +422,14 @@ export async function waRouter(phone: string, text: string): Promise<string> {
           result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
         } else {
           result = await handleRcConfirm('1', sessionId, session)
-          void tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
+          await tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
+          // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
+          if (result.ussdServiceOp === 2) {
+            const updated = await getWaSession(sessionId)
+            if (updated?.step === 'RC_PAYMENT_METHOD') {
+              result = await handleRcPaymentMethod('1', sessionId, updated)
+            }
+          }
         }
       } else if (input === '0') {
         result = await handleRcConfirm('2', sessionId, session)
