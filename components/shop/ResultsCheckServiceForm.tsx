@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -75,6 +75,16 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
   // Live "approve the prompt" modal for the direct-charge flow
   const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; orderId?: string; reference?: string; summary?: any; message?: string }>(null)
+
+  // Progressive-disclosure scroll targets. Each selection reveals the next
+  // section; we scroll it into view so the user isn't left below the fold.
+  const candidateRef = useRef<HTMLDivElement>(null)
+  const modeRef = useRef<HTMLDivElement>(null)
+  const detailsRef = useRef<HTMLDivElement>(null)
+  // Wait one frame for the newly-revealed section to mount before scrolling.
+  const scrollToRef = (ref: React.RefObject<HTMLDivElement | null>) => {
+    setTimeout(() => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120)
+  }
 
   useEffect(() => {
     loadBoardPricing()
@@ -227,6 +237,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
     setSelectedBoard(board)
     setCandidateType(null)
     setMode(null)
+    scrollToRef(candidateRef)
   }
 
   const validate = () => {
@@ -438,13 +449,13 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
       {selectedBoard && (
         <div className="space-y-6 animate-in fade-in duration-300">
           {/* Candidate type */}
-          <div>
+          <div ref={candidateRef} className="scroll-mt-24">
             <Label className="text-sm font-semibold text-foreground">Candidate Type</Label>
             <div className="grid grid-cols-2 gap-3 mt-2">
               {(["school", "private"] as const).map(ct => (
                 <button
                   key={ct}
-                  onClick={() => setCandidateType(ct)}
+                  onClick={() => { setCandidateType(ct); scrollToRef(modeRef) }}
                   className={`p-4 rounded-xl border-2 font-semibold transition-colors ${
                     candidateType === ct
                       ? "border-violet-600 bg-violet-50 text-violet-700"
@@ -459,11 +470,11 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
 
           {/* Mode selection */}
           {candidateType && activeBoardInfo && (
-            <div className="animate-in fade-in duration-300">
+            <div ref={modeRef} className="animate-in fade-in duration-300 scroll-mt-24">
               <Label className="text-sm font-semibold text-foreground">How would you like to pay?</Label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                 <Card
-                  onClick={() => setMode("own_voucher")}
+                  onClick={() => { setMode("own_voucher"); scrollToRef(detailsRef) }}
                   className={`cursor-pointer transition-all duration-300 border-2 ${
                     mode === "own_voucher" ? "border-violet-600 ring-2 ring-violet-200" : "border-border hover:border-violet-300"
                   }`}
@@ -475,7 +486,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                   </CardContent>
                 </Card>
                 <Card
-                  onClick={() => activeBoardInfo.availableCount > 0 && setMode("combo")}
+                  onClick={() => { if (activeBoardInfo.availableCount > 0) { setMode("combo"); scrollToRef(detailsRef) } }}
                   className={`transition-all duration-300 border-2 ${
                     activeBoardInfo.availableCount === 0
                       ? "opacity-40 cursor-not-allowed border-border"
@@ -498,7 +509,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
           )}
 
           {mode && (
-            <div className="space-y-6 animate-in fade-in duration-300">
+            <div ref={detailsRef} className="space-y-6 animate-in fade-in duration-300 scroll-mt-24">
               {/* Own-voucher fields */}
               {mode === "own_voucher" && (
                 <div className="space-y-4">
