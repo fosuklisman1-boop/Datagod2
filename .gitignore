@@ -80,3 +80,6 @@ desktop.ini
 # local-only assistant/editor settings
 .claude/settings.local.json
 .vscode/*.local.json
+
+# MCP server config (contains Supabase access token)
+.mcp.json
