@@ -25,11 +25,51 @@ function sleep(ms: number): Promise<void> {
 }
 
 function normalizeStatus(raw: string): "pending" | "processing" | "completed" | "failed" {
-    const s = raw.toLowerCase().trim()
-    if (["completed", "success", "successful", "delivered", "done", "sent"].includes(s)) return "completed"
-    if (["failed", "error", "cancelled", "rejected", "refunded"].includes(s)) return "failed"
-    if (["processing", "in_progress", "queued", "submitted"].includes(s)) return "processing"
+    const s = raw.toLowerCase().trim().replace(/[\s-]+/g, "_")
+    if (["completed", "complete", "success", "successful", "delivered", "done", "sent"].includes(s)) return "completed"
+    if (["failed", "error", "cancelled", "canceled", "rejected", "refunded"].includes(s)) return "failed"
+    if (["processing", "in_progress", "queued", "submitted", "accepted", "ongoing"].includes(s)) return "processing"
     return "pending"
+}
+
+/**
+ * EazyGhData wraps the order object differently across endpoints. Search
+ * direct fields, then common nested wrappers (data/order/result/orders[0]).
+ */
+function extractOrderStatus(data: any): { rawStatus: string; order: any } {
+    const statusFields = ["status", "order_status", "delivery_status", "state"]
+
+    const tryObject = (obj: any): string | null => {
+        if (!obj || typeof obj !== "object") return null
+        for (const f of statusFields) {
+            if (typeof obj[f] === "string" && obj[f].length > 0) return obj[f]
+        }
+        return null
+    }
+
+    // Direct
+    let status = tryObject(data)
+    if (status) return { rawStatus: status, order: data }
+
+    // Nested object wrappers: data.data, data.order, data.result
+    for (const key of ["data", "order", "result"]) {
+        const nested = data?.[key]
+        if (Array.isArray(nested) && nested.length > 0) {
+            status = tryObject(nested[0])
+            if (status) return { rawStatus: status, order: nested[0] }
+        } else {
+            status = tryObject(nested)
+            if (status) return { rawStatus: status, order: nested }
+        }
+    }
+
+    // Array wrapper: data.orders[0]
+    if (Array.isArray(data?.orders) && data.orders.length > 0) {
+        status = tryObject(data.orders[0])
+        if (status) return { rawStatus: status, order: data.orders[0] }
+    }
+
+    return { rawStatus: "pending", order: data }
 }
 
 /**
@@ -266,7 +306,9 @@ export class EazyGhDataProvider implements MTNProvider {
                     return { success: false, message: `Invalid JSON response: ${responseText.slice(0, 100)}` }
                 }
 
-                const rawStatus = data.status || data.order_status || "pending"
+                console.log(`[EazyGhData] Raw status response for ${orderId}:`, JSON.stringify(data))
+
+                const { rawStatus, order } = extractOrderStatus(data)
                 const normalizedStatus = normalizeStatus(rawStatus)
 
                 log("info", "StatusCheck", `EazyGhData status: ${rawStatus} -> ${normalizedStatus}`, { traceId })
@@ -275,7 +317,7 @@ export class EazyGhDataProvider implements MTNProvider {
                     success: true,
                     status: normalizedStatus,
                     message: data.message || `Status: ${rawStatus}`,
-                    order: data,
+                    order,
                 }
             } catch (error) {
                 if (attempt < maxRetries) {
