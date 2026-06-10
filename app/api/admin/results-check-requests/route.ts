@@ -11,6 +11,16 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Append the voucher serial/PIN used for this check, if any, so the customer
+// has a record of it (especially important for "combo" mode, where Datagod
+// purchased the voucher on their behalf).
+function voucherInfoBlock(req: { voucher_pin?: string | null; voucher_serial?: string | null }): string {
+  const lines: string[] = []
+  if (req.voucher_serial) lines.push(`Serial: ${req.voucher_serial}`)
+  if (req.voucher_pin) lines.push(`PIN: ${req.voucher_pin}`)
+  return lines.length ? `\n\n${lines.join("\n")}` : ""
+}
+
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
@@ -91,6 +101,7 @@ export async function PATCH(request: NextRequest) {
         const resultMsg =
           `Your ${req.exam_board} results for index number ${req.index_number} (${req.exam_year}):\n\n` +
           req.result_data +
+          voucherInfoBlock(req) +
           `\n\nRef: ${req.payment_reference}`
         await sendWhatsAppText(phone, resultMsg)
           .then(() => deliveryNotes.push(`WhatsApp text sent to ${phone}`))
@@ -105,7 +116,7 @@ export async function PATCH(request: NextRequest) {
       if (mediaUrl) {
         const caption = req.result_data
           ? undefined
-          : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})`
+          : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
         await sendWhatsAppMedia(
           phone,
           mediaType as "image" | "document" | "video",
@@ -126,6 +137,7 @@ export async function PATCH(request: NextRequest) {
         const resultMsg =
           `${req.exam_board} results for ${req.index_number} (${req.exam_year}):\n` +
           req.result_data +
+          voucherInfoBlock(req) +
           `\nRef: ${req.payment_reference}`
         await sendSMS({ phone: req.phone_number, message: resultMsg, type: "results_check", reference: req.id })
           .then(() => deliveryNotes.push(`SMS sent to ${req.phone_number}`))
@@ -146,6 +158,7 @@ export async function PATCH(request: NextRequest) {
           const waMsg =
             `Your ${req.exam_board} results for index ${req.index_number} (${req.exam_year}):\n\n` +
             req.result_data +
+            voucherInfoBlock(req) +
             `\n\nRef: ${req.payment_reference}`
           await sendWhatsAppText(waPhone, waMsg)
             .then(() => deliveryNotes.push(`WhatsApp text sent to ${waPhone}`))
@@ -158,7 +171,7 @@ export async function PATCH(request: NextRequest) {
         if (mediaUrl) {
           const caption = req.result_data
             ? undefined
-            : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})`
+            : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
           await sendWhatsAppMedia(
             waPhone,
             mediaType as "image" | "document" | "video",
