@@ -140,7 +140,7 @@ export default function BroadcastPage() {
 
     const handleSend = async () => {
         if (channels.length === 0) {
-            toast.error("Please select at least one channel (SMS, Email, or Push)")
+            toast.error("Please select at least one channel (SMS, Email, Push, or WhatsApp)")
             return
         }
 
@@ -253,7 +253,8 @@ export default function BroadcastPage() {
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                 body: JSON.stringify({
                     action: "finalize",
-                    broadcastId
+                    broadcastId,
+                    whatsapp: { sent: whatsappSent, failed: whatsappFailed }
                 })
             })
 

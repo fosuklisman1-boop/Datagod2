@@ -26,6 +26,11 @@ export interface EmailRecipient {
   name?: string
 }
 
+export interface EmailAttachment {
+  filename: string
+  url: string // public URL of the file to attach (provider fetches it)
+}
+
 export interface EmailPayload {
   to: EmailRecipient[]
   subject: string
@@ -35,6 +40,7 @@ export interface EmailPayload {
   referenceId?: string // For logging
   type?: string // For logging (e.g., 'order_confirmation')
   skipLogging?: boolean // NEW: Prevent duplicate logs during retries
+  attachments?: EmailAttachment[] // Files attached by public URL (Resend: path, Brevo: url)
 }
 
 export interface BatchEmailPayload {
@@ -865,7 +871,7 @@ async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: bool
 
     const replyToEmail = settings?.support_email || SENDER_EMAIL
 
-    const body = {
+    const body: any = {
       sender: {
         name: SENDER_NAME,
         email: SENDER_EMAIL,
@@ -877,6 +883,11 @@ async function sendEmailViaBrevo(payload: EmailPayload): Promise<{ success: bool
       replyTo: {
         email: replyToEmail
       }
+    }
+
+    // Attachments by public URL — Brevo fetches each `url`.
+    if (payload.attachments?.length) {
+      body.attachment = payload.attachments.map(a => ({ name: a.filename, url: a.url }))
     }
 
     const response = await fetch(BREVO_API_URL, {
@@ -952,6 +963,11 @@ async function sendEmailViaResend(payload: EmailPayload): Promise<{ success: boo
       html: payload.htmlContent,
       text: textContent,
       reply_to: replyToEmail
+    }
+
+    // Attachments by public URL — Resend fetches each `path`.
+    if (payload.attachments?.length) {
+      emailData.attachments = payload.attachments.map(a => ({ filename: a.filename, path: a.url }))
     }
 
     console.log(`[Resend] 📧 About to call resendClient.emails.send()...`)

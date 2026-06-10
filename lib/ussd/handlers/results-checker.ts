@@ -9,6 +9,7 @@ import {
   rcCheckConfirmMenu, rcCheckPaymentMethodMenu,
 } from "../menus"
 import { setSession } from "../session"
+import { isValidDob } from "../../results-check-validation"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
 import { chargeMobileMoney } from "../../paystack"
@@ -574,8 +575,8 @@ export async function handleRcCheckYear(
   }
   const year = parseInt(input.trim(), 10)
   const currentYear = new Date().getFullYear()
-  if (isNaN(year) || year < 2015 || year > currentYear) {
-    return cont(`Invalid year.\nEnter a year between\n2015 and ${currentYear}.\n\n0. Back`)
+  if (isNaN(year) || year < 1980 || year > currentYear) {
+    return cont(`Invalid year.\nEnter a year between\n1980 and ${currentYear}.\n\n0. Back`)
   }
   await setSession(sessionId, { ...session, step: "RC_CHECK_DOB", rcCheckYear: year })
   return cont(rcCheckDobPrompt())
@@ -592,10 +593,10 @@ export async function handleRcCheckDob(
     return cont(rcCheckYearPrompt())
   }
   const dob = input.trim()
-  // Accept DD/MM/YYYY or DD-MM-YYYY
+  // Accept DD/MM/YYYY or DD-MM-YYYY; validate it's a real past date.
   const normalised = dob.replace(/-/g, "/")
-  if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(normalised)) {
-    return cont("Invalid format.\nUse DD/MM/YYYY\ne.g. 15/06/2008\n\n0. Back")
+  if (!isValidDob(normalised)) {
+    return cont("Invalid date.\nUse DD/MM/YYYY\ne.g. 15/06/2008\n\n0. Back")
   }
   const { fee } = await getRcCheckSettings()
   const dialer = await resolveDialer(session.dialingPhone ?? "")
@@ -640,18 +641,17 @@ export async function handleRcCheckWaNumber(
   session: USSDSession
 ): Promise<UzoResponse> {
   const trimmed = input.trim()
-  // 0 = skip, proceed without WA number
-  const waNumber = trimmed === '0' ? null : trimmed.replace(/^0/, '233').replace(/^\+/, '')
-  if (trimmed !== '0' && !/^0[2345]\d{8}$/.test(trimmed) && !/^233[2345]\d{8}$/.test(trimmed)) {
-    return cont('Invalid number.\nEnter your WhatsApp\nnumber (0XXXXXXXXX)\nor press 0 to skip.')
+  // WhatsApp number is mandatory — results (incl. image/PDF) are delivered there.
+  if (!/^0[2345]\d{8}$/.test(trimmed) && !/^233[2345]\d{8}$/.test(trimmed)) {
+    return cont('Invalid number.\nEnter your WhatsApp\nnumber (0XXXXXXXXX)\nto receive your results.')
   }
-  const localWa = trimmed !== '0' ? (trimmed.startsWith('0') ? trimmed : '0' + trimmed.slice(3)) : null
+  const localWa = trimmed.startsWith('0') ? trimmed : '0' + trimmed.slice(3)
   const fee = session.rcCheckFee ?? 2
   const balance = session.walletBalance ?? 0
   await setSession(sessionId, {
     ...session,
     step: 'RC_CHECK_CONFIRM',
-    rcCheckWaNumber: localWa ?? undefined,
+    rcCheckWaNumber: localWa,
   })
   return cont(rcCheckConfirmMenu(
     session.rcCheckBoard!,

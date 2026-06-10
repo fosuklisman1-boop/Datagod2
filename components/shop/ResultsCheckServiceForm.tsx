@@ -240,43 +240,64 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
     scrollToRef(candidateRef)
   }
 
+  // Single source of truth for per-field error messages. Returns null when the
+  // field is valid. Used by both submit-time validate() and on-blur validation.
+  const fieldError = (field: string): string | null => {
+    switch (field) {
+      case "voucherPin":
+        return mode === "own_voucher" && !isValidVoucherPin(formData.voucherPin.trim())
+          ? "Enter a valid 12-digit voucher PIN" : null
+      case "voucherSerial":
+        return mode === "own_voucher" && !isValidVoucherSerial(formData.voucherSerial.trim())
+          ? "Enter a valid voucher serial number" : null
+      case "indexNumber":
+        if (!selectedBoard) return null
+        return (!formData.indexNumber.trim() || !isValidIndexNumber(selectedBoard, formData.indexNumber.trim()))
+          ? (selectedBoard === "BECE" ? "Enter a valid 10 or 12-digit index number" : "Enter a valid 10-digit index number")
+          : null
+      case "examYear":
+        return !isValidExamYear(parseInt(formData.examYear))
+          ? `Enter a valid exam year (1980–${new Date().getFullYear()})` : null
+      case "dob":
+        return !isValidDob(formData.dob)
+          ? "Enter a valid date of birth as DD/MM/YYYY" : null
+      case "customerName":
+        return !formData.customerName.trim() ? "Name is required" : null
+      case "customerEmail":
+        return (!formData.customerEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.customerEmail))
+          ? "Valid email is required" : null
+      case "phoneNumber":
+        return !isValidGhanaPhone(formData.phoneNumber.replace(/\s/g, ""))
+          ? "Valid 10-digit Mobile Money number required" : null
+      case "whatsappNumber":
+        return !isValidGhanaPhone(formData.whatsappNumber.replace(/\s/g, ""))
+          ? "Valid 10-digit WhatsApp number required" : null
+      default:
+        return null
+    }
+  }
+
+  // Validate a single field on blur, so the user is told early — before moving on.
+  const validateField = (field: string) => {
+    const err = fieldError(field)
+    setFormErrors(prev => {
+      const next = { ...prev }
+      if (err) next[field] = err
+      else delete next[field]
+      return next
+    })
+  }
+
   const validate = () => {
-    const errors: Record<string, string> = {}
     if (!selectedBoard) return false
+    const fields = ["indexNumber", "examYear", "dob", "customerName", "customerEmail", "phoneNumber", "whatsappNumber"]
+    if (mode === "own_voucher") fields.unshift("voucherPin", "voucherSerial")
 
-    if (mode === "own_voucher") {
-      if (!isValidVoucherPin(formData.voucherPin.trim())) {
-        errors.voucherPin = "Enter a valid 12-digit voucher PIN"
-      }
-      if (!isValidVoucherSerial(formData.voucherSerial.trim())) {
-        errors.voucherSerial = "Enter a valid voucher serial number"
-      }
+    const errors: Record<string, string> = {}
+    for (const f of fields) {
+      const e = fieldError(f)
+      if (e) errors[f] = e
     }
-
-    if (!formData.indexNumber.trim() || !isValidIndexNumber(selectedBoard, formData.indexNumber.trim())) {
-      errors.indexNumber = selectedBoard === "BECE" ? "Enter a valid 10 or 12-digit index number" : "Enter a valid 10-digit index number"
-    }
-
-    const examYear = parseInt(formData.examYear)
-    if (!isValidExamYear(examYear)) {
-      errors.examYear = `Enter a valid exam year (2015–${new Date().getFullYear()})`
-    }
-
-    if (!isValidDob(formData.dob)) {
-      errors.dob = "Enter date of birth as DD/MM/YYYY"
-    }
-
-    if (!formData.customerName.trim()) errors.customerName = "Name is required"
-    if (!formData.customerEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.customerEmail)) {
-      errors.customerEmail = "Valid email is required"
-    }
-    if (!isValidGhanaPhone(formData.phoneNumber.replace(/\s/g, ""))) {
-      errors.phoneNumber = "Valid 10-digit Mobile Money number required"
-    }
-    if (formData.whatsappNumber.trim() && !isValidGhanaPhone(formData.whatsappNumber.replace(/\s/g, ""))) {
-      errors.whatsappNumber = "Enter a valid 10-digit number, or leave blank"
-    }
-
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -406,7 +427,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
         <h2 className="text-2xl font-black mb-2 text-foreground border-l-4 border-violet-600 pl-4">Check My Results</h2>
-        <p className="text-muted-foreground text-sm pl-5">We&apos;ll check your WASSCE, BECE or NOVDEC results for you and send them by SMS</p>
+        <p className="text-muted-foreground text-sm pl-5">We&apos;ll check your WASSCE, BECE or NOVDEC results for you and send them to your email &amp; WhatsApp</p>
       </div>
 
       {/* Board selection */}
@@ -520,6 +541,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                       inputMode="numeric"
                       value={formData.voucherPin}
                       onChange={e => setFormData(p => ({ ...p, voucherPin: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
+                      onBlur={() => validateField("voucherPin")}
                       placeholder="12-digit PIN"
                       className={`mt-1 font-mono ${formErrors.voucherPin ? "border-red-400" : ""}`}
                     />
@@ -530,6 +552,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                     <Input
                       value={formData.voucherSerial}
                       onChange={e => setFormData(p => ({ ...p, voucherSerial: e.target.value.toUpperCase() }))}
+                      onBlur={() => validateField("voucherSerial")}
                       placeholder="e.g. WR1234567"
                       className={`mt-1 font-mono ${formErrors.voucherSerial ? "border-red-400" : ""}`}
                     />
@@ -547,6 +570,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                     inputMode="numeric"
                     value={formData.indexNumber}
                     onChange={e => setFormData(p => ({ ...p, indexNumber: e.target.value.replace(/\D/g, "") }))}
+                    onBlur={() => validateField("indexNumber")}
                     placeholder="e.g. 0070202043"
                     className={`mt-1 font-mono ${formErrors.indexNumber ? "border-red-400" : ""}`}
                   />
@@ -560,6 +584,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                     inputMode="numeric"
                     value={formData.examYear}
                     onChange={e => setFormData(p => ({ ...p, examYear: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
+                    onBlur={() => validateField("examYear")}
                     placeholder={`e.g. ${new Date().getFullYear()}`}
                     className={`mt-1 ${formErrors.examYear ? "border-red-400" : ""}`}
                   />
@@ -570,6 +595,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                   <Input
                     value={formData.dob}
                     onChange={e => setFormData(p => ({ ...p, dob: e.target.value }))}
+                    onBlur={() => validateField("dob")}
                     placeholder="DD/MM/YYYY e.g. 15/06/2008"
                     className={`mt-1 ${formErrors.dob ? "border-red-400" : ""}`}
                   />
@@ -583,14 +609,18 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                 <div>
                   <Label className="text-sm">Full Name</Label>
                   <Input value={formData.customerName} onChange={e => setFormData(p => ({ ...p, customerName: e.target.value }))}
+                    onBlur={() => validateField("customerName")}
                     placeholder="e.g. Kwame Mensah" className={`mt-1 ${formErrors.customerName ? "border-red-400" : ""}`} />
                   {formErrors.customerName && <p className="text-xs text-red-500 mt-1">{formErrors.customerName}</p>}
                 </div>
                 <div>
                   <Label className="text-sm">Email Address</Label>
                   <Input type="email" value={formData.customerEmail} onChange={e => setFormData(p => ({ ...p, customerEmail: e.target.value }))}
+                    onBlur={() => validateField("customerEmail")}
                     placeholder="e.g. kwame@example.com" className={`mt-1 ${formErrors.customerEmail ? "border-red-400" : ""}`} />
-                  {formErrors.customerEmail && <p className="text-xs text-red-500 mt-1">{formErrors.customerEmail}</p>}
+                  {formErrors.customerEmail
+                    ? <p className="text-xs text-red-500 mt-1">{formErrors.customerEmail}</p>
+                    : <p className="text-xs text-muted-foreground mt-1">Your results will be sent to this email address</p>}
                 </div>
                 <div>
                   <Label className="text-sm">Phone Number</Label>
@@ -598,16 +628,19 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                       setFormData(p => ({ ...p, phoneNumber: e.target.value }))
                       if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
                     }}
+                    onBlur={() => validateField("phoneNumber")}
                     placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.phoneNumber ? "border-red-400" : ""}`} />
                   {formErrors.phoneNumber && <p className="text-xs text-red-500 mt-1">{formErrors.phoneNumber}</p>}
-                  <p className="text-xs text-muted-foreground mt-1">We&apos;ll send confirmation &amp; your results to this number via SMS</p>
+                  <p className="text-xs text-muted-foreground mt-1">We&apos;ll send your payment confirmation to this number via SMS</p>
                 </div>
                 <div>
-                  <Label className="text-sm">WhatsApp Number (optional)</Label>
+                  <Label className="text-sm">WhatsApp Number</Label>
                   <Input value={formData.whatsappNumber} onChange={e => setFormData(p => ({ ...p, whatsappNumber: e.target.value }))}
+                    onBlur={() => validateField("whatsappNumber")}
                     placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.whatsappNumber ? "border-red-400" : ""}`} />
-                  {formErrors.whatsappNumber && <p className="text-xs text-red-500 mt-1">{formErrors.whatsappNumber}</p>}
-                  <p className="text-xs text-muted-foreground mt-1">So we can send your results as an image/PDF if needed</p>
+                  {formErrors.whatsappNumber
+                    ? <p className="text-xs text-red-500 mt-1">{formErrors.whatsappNumber}</p>
+                    : <p className="text-xs text-muted-foreground mt-1">We&apos;ll also send your results here as an image/PDF</p>}
                 </div>
               </div>
 
@@ -697,7 +730,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
 
               <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
                 <AlertCircle className="w-3 h-3" />
-                We&apos;ll check your results and send them to you by SMS once ready
+                We&apos;ll check your results and send them to your email &amp; WhatsApp once ready
               </p>
             </div>
           )}
@@ -735,7 +768,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Your request has been received. We&apos;ll check your results and send them by SMS shortly.</p>
+                  <p className="text-sm text-muted-foreground mt-1">Your request has been received. We&apos;ll check your results and send them to your email &amp; WhatsApp shortly. 📩 If you don&apos;t see the email, please check your Spam/Junk folder.</p>
                 </div>
                 <div className="text-left p-4 rounded-lg bg-muted/40 border border-border space-y-1.5 text-sm">
                   <div className="flex justify-between"><span className="text-muted-foreground">Item</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>

@@ -154,13 +154,15 @@ export async function downloadWaMedia(mediaId: string): Promise<{ buffer: ArrayB
   return { buffer: await fileRes.arrayBuffer(), mimeType: mime_type }
 }
 
-export async function sendWhatsAppText(to: string, body: string): Promise<void> {
+// Returns true if WhatsApp accepted the message, false otherwise. Never throws
+// (logs and returns false) — callers that ignore the return value are unaffected.
+export async function sendWhatsAppText(to: string, body: string): Promise<boolean> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
 
   if (!phoneNumberId || !token) {
     console.error("[WA-SEND] WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not set")
-    return
+    return false
   }
 
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`
@@ -182,9 +184,11 @@ export async function sendWhatsAppText(to: string, body: string): Promise<void> 
     if (!res.ok) {
       const err = await res.text()
       console.error("[WA-SEND] API error:", res.status, err)
-      return
+      return false
     }
+    return true
   } catch (e) {
     console.error("[WA-SEND] fetch error:", e)
+    return false
   }
 }

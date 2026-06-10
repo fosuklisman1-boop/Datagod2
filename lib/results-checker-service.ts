@@ -121,6 +121,7 @@ export async function deliverResultsCheckRequest(
 
   const { sendWhatsAppText, sendWhatsAppMedia } = await import("@/lib/whatsapp-bot/send")
   const { sendSMS } = await import("@/lib/sms-service")
+  const { sendEmail } = await import("@/lib/email-service")
 
   deliveryNotes.push(
     `delivery start: channel=${req.channel}, hasResultText=${!!req.result_data}, mediaUrl=${mediaUrl ?? "none"}, mediaType=${mediaType}, whatsapp_number=${req.whatsapp_number ?? "none"}`
@@ -165,7 +166,69 @@ export async function deliverResultsCheckRequest(
         })
     }
   } else {
-    if (req.result_data) {
+    // Web (storefront) → EMAIL with the results file attached; fires whenever
+    // there's result text OR a media file. USSD → SMS (text only; the file goes
+    // over WhatsApp). The customer is told to check spam in case it's filtered.
+    if (req.channel === "web" && req.customer_email) {
+      if (req.result_data || mediaUrl) {
+        const esc = (s: string) =>
+          s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        const resultHtml = req.result_data ? esc(req.result_data).replace(/\n/g, "<br>") : ""
+        const voucherLines = [
+          req.voucher_serial ? `Serial: <strong>${esc(req.voucher_serial)}</strong>` : null,
+          req.voucher_pin ? `PIN: <strong>${esc(req.voucher_pin)}</strong>` : null,
+        ].filter(Boolean).join("<br>")
+
+        let attachments: { filename: string; url: string }[] | undefined
+        if (mediaUrl) {
+          const urlExt = mediaUrl.split("?")[0].split(".").pop()?.toLowerCase()
+          const ext = urlExt && urlExt.length <= 4 ? urlExt : (mediaType === "document" ? "pdf" : "jpg")
+          attachments = [{ filename: `${req.exam_board}_results_${req.exam_year}.${ext}`, url: mediaUrl }]
+        }
+
+        const html =
+          `<div style="font-family:Inter,Arial,sans-serif;color:#374151;max-width:600px;margin:0 auto;padding:8px">` +
+          `<h2 style="color:#0f172a;margin:0 0 4px">Your ${req.exam_board} Results</h2>` +
+          `<p style="margin:0 0 16px;color:#6b7280">Index number <strong>${esc(req.index_number)}</strong> · ${req.exam_year}</p>` +
+          (resultHtml ? `<div style="background:#f3f4f6;border-radius:8px;padding:16px;white-space:pre-wrap">${resultHtml}</div>` : "") +
+          (mediaUrl
+            ? `<p style="margin-top:16px">📎 Your results ${mediaType === "document" ? "document" : "slip"} is attached to this email. You can also view it here: <a href="${mediaUrl}">${mediaType === "document" ? "Download PDF" : "View image"}</a></p>`
+            : "") +
+          (voucherLines ? `<p style="margin-top:16px">${voucherLines}</p>` : "") +
+          `<p style="color:#9ca3af;font-size:12px;margin-top:20px">Ref: ${esc(req.payment_reference ?? "")}</p>` +
+          `<p style="color:#9ca3af;font-size:12px;margin-top:8px">📩 Don&apos;t see this email in your inbox? Please check your Spam or Junk folder.</p>` +
+          `</div>`
+
+        const textContent =
+          (req.result_data
+            ? `${req.exam_board} results for ${req.index_number} (${req.exam_year}):\n${req.result_data}${voucherInfoBlock(req)}`
+            : `Your ${req.exam_board} results for ${req.index_number} (${req.exam_year}) are attached to this email.${voucherInfoBlock(req)}`) +
+          (mediaUrl ? `\n\nResults file: ${mediaUrl}` : "") +
+          `\nRef: ${req.payment_reference}` +
+          `\n\nDon't see this email? Check your Spam/Junk folder.`
+
+        await sendEmail({
+          to: [{ email: req.customer_email, name: req.customer_name ?? undefined }],
+          subject: `Your ${req.exam_board} Results — ${req.index_number}`,
+          htmlContent: html,
+          textContent,
+          type: "results_check",
+          referenceId: req.id,
+          attachments,
+        })
+          .then(r => deliveryNotes.push(
+            r.success
+              ? `Email sent to ${req.customer_email}${attachments ? " (with attachment)" : ""}`
+              : `Email FAILED: ${r.error ?? "unknown error"}`
+          ))
+          .catch(e => {
+            const msg = `Email FAILED: ${e instanceof Error ? e.message : String(e)}`
+            console.error("[RC-DELIVER]", msg)
+            deliveryNotes.push(msg)
+          })
+      }
+    } else if (req.result_data) {
+      // USSD (no email on file) → SMS, text only.
       const resultMsg =
         `${req.exam_board} results for ${req.index_number} (${req.exam_year}):\n` +
         req.result_data +
@@ -217,8 +280,8 @@ export async function deliverResultsCheckRequest(
             deliveryNotes.push(msg)
           })
       }
-    } else if (!req.result_data) {
-      deliveryNotes.push("No SMS sent (no result text) and no whatsapp_number on file for media delivery")
+    } else if (!req.result_data && !mediaUrl) {
+      deliveryNotes.push("Nothing to deliver and no whatsapp_number on file for media delivery")
     }
   }
 

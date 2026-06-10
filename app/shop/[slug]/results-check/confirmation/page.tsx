@@ -117,9 +117,10 @@ export default function ResultsCheckConfirmationPage() {
           <div className="bg-green-50 border border-border rounded-xl p-4 text-sm text-green-800 space-y-1">
             <p className="font-semibold">We&apos;ll check your {checkRequest.exam_board} results ✓</p>
             <p>
-              Once your results are out, we&apos;ll send them to your phone via SMS
+              Once your results are out, we&apos;ll send them to your email
               {checkRequest.whatsapp_number ? " and WhatsApp" : ""}.
             </p>
+            <p className="text-xs text-green-700 mt-1">📩 Don&apos;t see the email? Please check your Spam or Junk folder.</p>
             <p className="text-xs text-green-700 mt-1">No further action is needed from you.</p>
           </div>
         )}

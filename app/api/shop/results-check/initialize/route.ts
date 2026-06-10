@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 })
     }
 
-    if (!examBoard || !candidateType || !mode || !indexNumber || !rawExamYear || !dob || !customerEmail || !phoneNumber) {
+    if (!examBoard || !candidateType || !mode || !indexNumber || !rawExamYear || !dob || !customerEmail || !phoneNumber || !whatsappNumber) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid phone number" }, { status: 400 })
     }
 
-    if (whatsappNumber && !isValidGhanaPhone(String(whatsappNumber))) {
+    if (!isValidGhanaPhone(String(whatsappNumber))) {
       return NextResponse.json({ error: "Invalid WhatsApp number" }, { status: 400 })
     }
 

@@ -88,7 +88,7 @@ export function rcCheckDobPrompt(): string {
 }
 
 export function rcCheckWaNumberPrompt(): string {
-  return 'Enter WhatsApp number\nto receive results:\n(e.g. 0244123456)\n\n0. Skip'
+  return 'Enter WhatsApp number\nto receive your results\n(e.g. 0244123456):'
 }
 
 export function rcCheckPaymentMethodMenu(amount: number, balance: number, hasMomo: boolean): string {

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
 import { sendPushToUser } from "@/lib/push-service"
+import { sendWhatsAppText } from "@/lib/whatsapp-bot/send"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -21,10 +22,14 @@ export async function POST(req: NextRequest) {
         if (action === "init") {
             const { channels, recipients, subject, message, targetDescription } = body
 
-            if (!subject || typeof subject !== "string" || subject.trim().length === 0) {
-              return NextResponse.json({ error: "subject is required" }, { status: 400 })
+            // Subject is only required for channels that actually use it (email
+            // subject line, push notification title). SMS and WhatsApp don't —
+            // so the UI hides the subject for them, and the API must match.
+            const subjectRequired = Array.isArray(channels) && (channels.includes("email") || channels.includes("push"))
+            if (subjectRequired && (!subject || typeof subject !== "string" || subject.trim().length === 0)) {
+              return NextResponse.json({ error: "subject is required for email/push channels" }, { status: 400 })
             }
-            if (subject.length > 200) {
+            if (typeof subject === "string" && subject.length > 200) {
               return NextResponse.json({ error: "subject must be 200 characters or fewer" }, { status: 400 })
             }
             if (!message || typeof message !== "string" || message.trim().length === 0) {
@@ -44,13 +49,14 @@ export async function POST(req: NextRequest) {
                     channels: channels,
                     target_type: recipients.type,
                     target_group: recipients.roles || ["specific"],
-                    subject: subject,
+                    subject: (typeof subject === "string" ? subject : ""),
                     message: message,
                     status: "processing",
                     results: {
                         total: body.estimatedCount || 0,
                         sms: { sent: 0, failed: 0, pending: 0 },
                         email: { sent: 0, failed: 0, pending: 0 },
+                        whatsapp: { sent: 0, failed: 0, pending: 0 },
                     }
                 })
                 .select()
@@ -80,6 +86,7 @@ export async function POST(req: NextRequest) {
                 sms: { sent: 0, failed: 0 },
                 email: { sent: 0, failed: 0 },
                 push: { sent: 0, failed: 0, skipped: 0 },
+                whatsapp: { sent: 0, failed: 0 },
             }
 
             await Promise.all(recipients.map(async (user: any) => {
@@ -135,6 +142,23 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
+                // WhatsApp (Cloud API). Free-form text only reaches users inside
+                // the 24h customer-service window; others fail unless a template
+                // is used. sendWhatsAppText returns false (never throws) on failure.
+                if (channels.includes("whatsapp") && user.phone) {
+                    try {
+                        const raw = String(user.phone).replace(/\s/g, "")
+                        const waPhone = raw.startsWith("0")
+                            ? `233${raw.slice(1)}`
+                            : raw.replace(/^\+/, "")
+                        const ok = await sendWhatsAppText(waPhone, message)
+                        if (ok) batchResults.whatsapp.sent++
+                        else batchResults.whatsapp.failed++
+                    } catch (e) {
+                        batchResults.whatsapp.failed++
+                    }
+                }
+
             }))
 
             return NextResponse.json({ success: true, results: batchResults })
@@ -142,7 +166,13 @@ export async function POST(req: NextRequest) {
 
         // --- ACTION: FINALIZE (Update final stats) ---
         if (action === "finalize") {
-            const { broadcastId } = body
+            const { broadcastId, whatsapp } = body
+            // WhatsApp isn't written to a *_logs table keyed by reference, so its
+            // totals can't be re-aggregated here — the client passes the live counts.
+            const whatsappStats = {
+                sent: Number(whatsapp?.sent) || 0,
+                failed: Number(whatsapp?.failed) || 0,
+            }
 
             // Aggregate actual logs to get truth
             const [emailSent, emailFailed, emailPending, smsSent, smsFailed, smsPending] = await Promise.all([
@@ -155,7 +185,7 @@ export async function POST(req: NextRequest) {
             ])
 
             const finalResults = {
-                total: (emailSent.count || 0) + (emailFailed.count || 0) + (emailPending.count || 0) + (smsSent.count || 0) + (smsFailed.count || 0) + (smsPending.count || 0), // Approx
+                total: (emailSent.count || 0) + (emailFailed.count || 0) + (emailPending.count || 0) + (smsSent.count || 0) + (smsFailed.count || 0) + (smsPending.count || 0) + whatsappStats.sent + whatsappStats.failed, // Approx
                 email: {
                     sent: emailSent.count || 0,
                     failed: emailFailed.count || 0,
@@ -165,6 +195,11 @@ export async function POST(req: NextRequest) {
                     sent: smsSent.count || 0,
                     failed: smsFailed.count || 0,
                     pending: smsPending.count || 0
+                },
+                whatsapp: {
+                    sent: whatsappStats.sent,
+                    failed: whatsappStats.failed,
+                    pending: 0
                 }
             }
 
