@@ -39,6 +39,199 @@ async function getAdminSetting(key: string): Promise<any> {
   return data?.value ?? null
 }
 
+// Append the voucher serial/PIN used for this check, if any, so the customer
+// has a record of it (especially important for "combo" mode, where Datagod
+// purchased the voucher on their behalf).
+export function voucherInfoBlock(req: { voucher_pin?: string | null; voucher_serial?: string | null }): string {
+  const lines: string[] = []
+  if (req.voucher_serial) lines.push(`Serial: ${req.voucher_serial}`)
+  if (req.voucher_pin) lines.push(`PIN: ${req.voucher_pin}`)
+  return lines.length ? `\n\n${lines.join("\n")}` : ""
+}
+
+// admin_settings.results_check_admin_phones.phones — Ghana numbers (0XXXXXXXXX)
+// of admins notified on WhatsApp for new Results Check requests, and who can
+// claim/deliver requests via the WhatsApp admin flow.
+export async function getResultsCheckAdminPhones(): Promise<string[]> {
+  const value = await getAdminSetting("results_check_admin_phones")
+  const phones = Array.isArray(value?.phones) ? value.phones : []
+  return phones.filter((p: unknown): p is string => typeof p === "string" && p.length > 0)
+}
+
+// Notifies all configured admin WhatsApp numbers that a new results-check
+// request is ready for processing. Re-fetches the row by id (rather than
+// taking it as a param) so it always reflects any combo-voucher assignment
+// the caller just performed.
+export async function notifyAdminsNewResultsCheckRequest(requestId: string): Promise<void> {
+  const phones = await getResultsCheckAdminPhones()
+  if (phones.length === 0) return
+
+  const { data: req } = await supabase
+    .from("results_check_requests")
+    .select("*")
+    .eq("id", requestId)
+    .single()
+  if (!req) return
+
+  const channelLabel = req.channel === "whatsapp" ? "WhatsApp" : req.channel === "web" ? "Web" : "USSD"
+  const modeLabel = req.mode === "combo" ? "Combo (voucher assigned)" : "Own voucher"
+  const message =
+    `🔔 New Results Check Request\n\n` +
+    `${req.exam_board} · ${modeLabel}\n` +
+    `Index: ${req.index_number} (${req.exam_year})\n` +
+    `Channel: ${channelLabel} · ${req.phone_number}\n` +
+    `Ref: ${req.payment_reference}` +
+    voucherInfoBlock(req) +
+    `\n\nReply "pending" to view and pick up requests.`
+
+  const { sendWhatsAppText } = await import("@/lib/whatsapp-bot/send")
+  for (const phone of phones) {
+    const waPhone = phone.startsWith("0") ? `233${phone.slice(1)}` : phone.replace(/^\+/, "")
+    await sendWhatsAppText(waPhone, message).catch(e =>
+      console.warn(`[RC-CHECK] Admin notify to ${phone} failed:`, e)
+    )
+  }
+}
+
+// Sends the result text and/or media stored on a results_check_requests row to
+// the customer (and WhatsApp number, for USSD/web requests that provided one),
+// then marks the request completed and releases any WhatsApp-admin claim.
+// Shared by the web admin dashboard (app/api/admin/results-check-requests) and
+// the WhatsApp admin flow (lib/whatsapp-bot/admin-router.ts).
+export async function deliverResultsCheckRequest(
+  requestId: string
+): Promise<{ success: boolean; deliveryNotes: string[] }> {
+  const { data: req, error } = await supabase
+    .from("results_check_requests")
+    .select("*")
+    .eq("id", requestId)
+    .single()
+
+  if (error || !req) {
+    return { success: false, deliveryNotes: [`Request not found: ${error?.message ?? requestId}`] }
+  }
+
+  if (!req.result_data && !req.media_url) {
+    return { success: false, deliveryNotes: ["Nothing to deliver — no result text or media"] }
+  }
+
+  const deliveryNotes: string[] = []
+  const mediaUrl: string | null = req.media_url ?? null
+  const mediaType: string = req.media_type ?? "image"
+
+  const { sendWhatsAppText, sendWhatsAppMedia } = await import("@/lib/whatsapp-bot/send")
+  const { sendSMS } = await import("@/lib/sms-service")
+
+  deliveryNotes.push(
+    `delivery start: channel=${req.channel}, hasResultText=${!!req.result_data}, mediaUrl=${mediaUrl ?? "none"}, mediaType=${mediaType}, whatsapp_number=${req.whatsapp_number ?? "none"}`
+  )
+
+  if (req.channel === "whatsapp") {
+    const phone = req.phone_number.startsWith("0")
+      ? `233${req.phone_number.slice(1)}`
+      : req.phone_number.replace(/^\+/, "")
+
+    if (req.result_data) {
+      const resultMsg =
+        `Your ${req.exam_board} results for index number ${req.index_number} (${req.exam_year}):\n\n` +
+        req.result_data +
+        voucherInfoBlock(req) +
+        `\n\nRef: ${req.payment_reference}`
+      await sendWhatsAppText(phone, resultMsg)
+        .then(() => deliveryNotes.push(`WhatsApp text sent to ${phone}`))
+        .catch(e => {
+          const msg = `WhatsApp text FAILED: ${e instanceof Error ? e.message : String(e)}`
+          console.error("[RC-DELIVER]", msg)
+          deliveryNotes.push(msg)
+        })
+    }
+
+    if (mediaUrl) {
+      const caption = req.result_data
+        ? undefined
+        : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
+      await sendWhatsAppMedia(
+        phone,
+        mediaType as "image" | "document" | "video",
+        mediaUrl,
+        caption,
+        mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
+      )
+        .then(() => deliveryNotes.push(`WhatsApp media sent to ${phone}`))
+        .catch(e => {
+          const msg = `WhatsApp media FAILED: ${e instanceof Error ? e.message : String(e)}`
+          console.error("[RC-DELIVER]", msg)
+          deliveryNotes.push(msg)
+        })
+    }
+  } else {
+    if (req.result_data) {
+      const resultMsg =
+        `${req.exam_board} results for ${req.index_number} (${req.exam_year}):\n` +
+        req.result_data +
+        voucherInfoBlock(req) +
+        `\nRef: ${req.payment_reference}`
+      await sendSMS({ phone: req.phone_number, message: resultMsg, type: "results_check", reference: req.id })
+        .then(() => deliveryNotes.push(`SMS sent to ${req.phone_number}`))
+        .catch(e => {
+          const msg = `SMS FAILED: ${e instanceof Error ? e.message : String(e)}`
+          console.error("[RC-DELIVER]", msg)
+          deliveryNotes.push(msg)
+        })
+    }
+
+    if (req.whatsapp_number) {
+      const waPhone = req.whatsapp_number.startsWith("0")
+        ? `233${req.whatsapp_number.slice(1)}`
+        : req.whatsapp_number.replace(/^\+/, "")
+
+      if (req.result_data) {
+        const waMsg =
+          `Your ${req.exam_board} results for index ${req.index_number} (${req.exam_year}):\n\n` +
+          req.result_data +
+          voucherInfoBlock(req) +
+          `\n\nRef: ${req.payment_reference}`
+        await sendWhatsAppText(waPhone, waMsg)
+          .then(() => deliveryNotes.push(`WhatsApp text sent to ${waPhone}`))
+          .catch(e => {
+            const msg = `WhatsApp text to USSD user FAILED: ${e instanceof Error ? e.message : String(e)}`
+            console.error("[RC-DELIVER]", msg)
+            deliveryNotes.push(msg)
+          })
+      }
+      if (mediaUrl) {
+        const caption = req.result_data
+          ? undefined
+          : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
+        await sendWhatsAppMedia(
+          waPhone,
+          mediaType as "image" | "document" | "video",
+          mediaUrl,
+          caption,
+          mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
+        )
+          .then(() => deliveryNotes.push(`WhatsApp media sent to ${waPhone}`))
+          .catch(e => {
+            const msg = `WhatsApp media to USSD user FAILED: ${e instanceof Error ? e.message : String(e)}`
+            console.error("[RC-DELIVER]", msg)
+            deliveryNotes.push(msg)
+          })
+      }
+    } else if (!req.result_data) {
+      deliveryNotes.push("No SMS sent (no result text) and no whatsapp_number on file for media delivery")
+    }
+  }
+
+  deliveryNotes.forEach(n => console.log("[RC-DELIVER]", n))
+
+  await supabase
+    .from("results_check_requests")
+    .update({ status: "completed", claimed_by: null, claimed_at: null, updated_at: new Date().toISOString() })
+    .eq("id", req.id)
+
+  return { success: true, deliveryNotes }
+}
+
 function generateRCReference(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
   const seg = (n: number) =>
@@ -538,6 +731,8 @@ export async function fulfillPaidResultsCheckRequest(
     .from("results_check_requests")
     .update(updatePayload)
     .eq("id", req.id)
+
+  await notifyAdminsNewResultsCheckRequest(req.id).catch(e => console.warn("[RC-CHECK] Admin notify failed:", e))
 
   if (req.shop_id && req.merchant_commission > 0) {
     const { error: profitError } = await supabase.from("shop_profits").insert([{

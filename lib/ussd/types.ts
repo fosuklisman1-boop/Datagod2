@@ -53,6 +53,9 @@ export type USSDStep =
   | 'RC_CHECK_PAYMENT_METHOD'
   | 'RC_CHECK_CONFIRM'
   | 'WA_ENTER_PAYMENT_PHONE'
+  // WhatsApp admin: results-check delivery
+  | 'ADMIN_RC_LIST'
+  | 'ADMIN_RC_AWAIT_CONTENT'
 
 export interface BundleOption {
   id: string
@@ -116,4 +119,10 @@ export interface USSDSession {
   momoPhone?: string
   // WhatsApp-only: handler key to invoke after WA_ENTER_PAYMENT_PHONE for direct-charge confirm paths
   waNextStep?: string
+  // Admin WhatsApp results-check delivery
+  adminRcRequestIds?: string[]    // ids shown by the "pending" list, in display order (1-based)
+  adminRcSelectedId?: string      // claimed request id, set at ADMIN_RC_AWAIT_CONTENT
+  adminRcDraftText?: string       // accumulated result text typed by the admin
+  adminRcDraftMediaUrl?: string   // public admin-uploads URL after a photo/PDF is received
+  adminRcDraftMediaType?: 'image' | 'document'
 }

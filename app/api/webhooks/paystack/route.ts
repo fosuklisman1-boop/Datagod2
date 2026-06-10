@@ -5,6 +5,7 @@ import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { getJoinCommunityLink } from "@/lib/app-settings"
 import { sendPushToUser } from "@/lib/push-service"
 import { getInternalBaseUrl } from "@/lib/internal-url"
+import { notifyAdminsNewResultsCheckRequest } from "@/lib/results-checker-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -586,6 +587,8 @@ export async function POST(request: NextRequest) {
           .from("results_check_requests")
           .update(updatePayload)
           .eq("id", checkReq.id)
+
+        await notifyAdminsNewResultsCheckRequest(checkReq.id).catch(e => console.warn("[WEBHOOK] Admin notify failed:", e))
 
         // Notify user on WhatsApp that their request is confirmed
         const localPhone = checkReq.phone_number

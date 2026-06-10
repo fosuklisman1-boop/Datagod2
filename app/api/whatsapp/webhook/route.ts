@@ -3,9 +3,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { after } from "next/server"
 import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
-import { getWaSession } from "@/lib/whatsapp-bot/session"
+import { getWaSession, setWaSession } from "@/lib/whatsapp-bot/session"
 import { waRouter } from "@/lib/whatsapp-bot/router"
-import { sendWhatsAppText, markWaMessageRead, sendWaTyping } from "@/lib/whatsapp-bot/send"
+import { isResultsCheckAdmin, adminRcRouter } from "@/lib/whatsapp-bot/admin-router"
+import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia } from "@/lib/whatsapp-bot/send"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
 
@@ -80,9 +81,40 @@ async function processInbound(body: unknown): Promise<void> {
   if (messages.length === 0) return // status update or other event — ignore
 
   const msg = messages[0]
-  if (msg.type !== "text") return // ignore non-text (images, reactions, etc.)
-
   const from: string = msg.from   // e.g. "233559919037"
+
+  // Non-text messages: only meaningful for an admin mid-delivery (photo/PDF of
+  // results). Everyone else's media is ignored, as before.
+  if (msg.type !== "text") {
+    if (!(await isResultsCheckAdmin(from))) return
+    const session = await getWaSession(from)
+    if (session?.step !== "ADMIN_RC_AWAIT_CONTENT") return
+
+    if (msg.type !== "image" && msg.type !== "document") {
+      await sendWhatsAppText(from, "Unsupported file type — please send a photo or PDF.")
+      return
+    }
+
+    const mediaId = (msg.image ?? msg.document).id
+    try {
+      const { buffer, mimeType } = await downloadWaMedia(mediaId)
+      const ext = mimeType === "application/pdf" ? "pdf" : (mimeType.split("/")[1] ?? "bin")
+      const path = `results-check/${session.adminRcSelectedId}-${Date.now()}.${ext}`
+      await supabase.storage.from("admin-uploads").upload(path, Buffer.from(buffer), { contentType: mimeType, upsert: true })
+      const { data: { publicUrl } } = supabase.storage.from("admin-uploads").getPublicUrl(path)
+      await setWaSession(from, {
+        ...session,
+        adminRcDraftMediaUrl: publicUrl,
+        adminRcDraftMediaType: mimeType === "application/pdf" ? "document" : "image",
+      })
+      await sendWhatsAppText(from, "📎 File received. Reply 'send' to deliver now, or add more text first.")
+    } catch (e) {
+      console.error("[WA-WEBHOOK] Admin media handling failed:", e)
+      await sendWhatsAppText(from, "Sorry, that file couldn't be processed. Please try again.")
+    }
+    return
+  }
+
   const text: string = msg.text?.body ?? ""
   if (!from || !text.trim()) return
 
@@ -106,6 +138,23 @@ async function processInbound(body: unknown): Promise<void> {
 
   // Log inbound message
   await logMessage(from, "inbound", text, msg.id)
+
+  // Admin Results Check WhatsApp queue: "pending" (from any state) or mid-flow.
+  if (await isResultsCheckAdmin(from)) {
+    const adminSession = await getWaSession(from)
+    if (
+      text.trim().toLowerCase() === "pending" ||
+      adminSession?.step === "ADMIN_RC_LIST" ||
+      adminSession?.step === "ADMIN_RC_AWAIT_CONTENT"
+    ) {
+      const reply = await adminRcRouter(from, text, adminSession)
+      if (reply) {
+        await sendWhatsAppText(from, reply)
+        await logMessage(from, "outbound", reply, null)
+      }
+      return
+    }
+  }
 
   // Route: bot session active → bot router; else → AI
   // waRouter returns '' when the user sent off-script freetext and the session was cleared,

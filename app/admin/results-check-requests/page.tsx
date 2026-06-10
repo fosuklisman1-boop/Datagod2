@@ -33,6 +33,8 @@ interface CheckRequest {
   whatsapp_number: string | null
   payment_reference: string
   created_at: string
+  claimed_by: string | null
+  claimed_at: string | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -58,6 +60,8 @@ export default function ResultsCheckRequestsPage() {
   const [enabled, setEnabled] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [adminPhones, setAdminPhones] = useState<string[]>([])
+  const [newAdminPhone, setNewAdminPhone] = useState("")
 
   useEffect(() => { loadRequests() }, [statusFilter, page])
   useEffect(() => { loadSettings() }, [])
@@ -87,11 +91,32 @@ export default function ResultsCheckRequestsPage() {
     try {
       const headers = await getAuthHeader()
       const res = await fetch("/api/admin/results-check-settings", { headers })
-      if (!res.ok) return
-      const data = await res.json()
-      setEnabled(data.enabled)
-      setFee(String(data.fee))
+      if (res.ok) {
+        const data = await res.json()
+        setEnabled(data.enabled)
+        setFee(String(data.fee))
+      }
+      const phonesRes = await fetch("/api/admin/results-check-requests/admin-phones", { headers })
+      if (phonesRes.ok) {
+        const data = await phonesRes.json()
+        setAdminPhones(data.phones ?? [])
+      }
     } catch {}
+  }
+
+  function addAdminPhone() {
+    const value = newAdminPhone.trim()
+    if (!value) return
+    if (adminPhones.includes(value)) {
+      toast.error("Number already added")
+      return
+    }
+    setAdminPhones(p => [...p, value])
+    setNewAdminPhone("")
+  }
+
+  function removeAdminPhone(phone: string) {
+    setAdminPhones(p => p.filter(x => x !== phone))
   }
 
   async function saveSettings() {
@@ -104,10 +129,23 @@ export default function ResultsCheckRequestsPage() {
         body: JSON.stringify({ enabled, fee: parseFloat(fee) }),
       })
       if (!res.ok) throw new Error()
+
+      const phonesRes = await fetch("/api/admin/results-check-requests/admin-phones", {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ phones: adminPhones }),
+      })
+      if (!phonesRes.ok) {
+        const body = await phonesRes.json().catch(() => ({}))
+        throw new Error(body?.error || "Failed to save admin phone numbers")
+      }
+      const phonesBody = await phonesRes.json()
+      setAdminPhones(phonesBody.phones ?? adminPhones)
+
       toast.success("Settings saved")
       setShowSettings(false)
-    } catch {
-      toast.error("Failed to save settings")
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save settings")
     } finally {
       setSavingSettings(false)
     }
@@ -289,6 +327,40 @@ export default function ResultsCheckRequestsPage() {
                   className="text-sm"
                 />
               </div>
+              <div className="space-y-2">
+                <Label className="text-sm">Admin WhatsApp numbers</Label>
+                <p className="text-xs text-muted-foreground">
+                  These numbers get a WhatsApp notification for new requests and can claim &amp; deliver them by replying &quot;pending&quot;.
+                </p>
+                {adminPhones.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {adminPhones.map(phone => (
+                      <Badge key={phone} variant="outline" className="gap-1 pr-1 text-xs">
+                        {phone}
+                        <button
+                          onClick={() => removeAdminPhone(phone)}
+                          className="ml-1 rounded-full hover:bg-muted"
+                          title="Remove"
+                        >
+                          <X size={12} />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2 max-w-xs">
+                  <Input
+                    placeholder="0XXXXXXXXX"
+                    value={newAdminPhone}
+                    onChange={e => setNewAdminPhone(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addAdminPhone() } }}
+                    className="text-sm"
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={addAdminPhone}>
+                    Add
+                  </Button>
+                </div>
+              </div>
               <Button onClick={saveSettings} disabled={savingSettings} size="sm" className="gap-1.5">
                 {savingSettings ? "Saving..." : "Save Settings"}
               </Button>
@@ -326,6 +398,11 @@ export default function ResultsCheckRequestsPage() {
                         <Badge className={`text-xs border ${STATUS_COLORS[req.status] ?? ""} capitalize`}>
                           {req.status}
                         </Badge>
+                        {req.claimed_by && req.claimed_at && Date.now() - new Date(req.claimed_at).getTime() < 15 * 60 * 1000 && (
+                          <Badge className="text-xs border bg-purple-100 text-purple-800 border-purple-200">
+                            Claimed via WhatsApp
+                          </Badge>
+                        )}
                       </div>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
                         <span className="text-muted-foreground">Board</span>

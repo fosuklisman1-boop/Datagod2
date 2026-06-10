@@ -1,8 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { sendWhatsAppText, sendWhatsAppMedia } from "@/lib/whatsapp-bot/send"
-import { sendSMS } from "@/lib/sms-service"
+import { deliverResultsCheckRequest } from "@/lib/results-checker-service"
 
 export const dynamic = "force-dynamic"
 
@@ -10,16 +9,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-// Append the voucher serial/PIN used for this check, if any, so the customer
-// has a record of it (especially important for "combo" mode, where Datagod
-// purchased the voucher on their behalf).
-function voucherInfoBlock(req: { voucher_pin?: string | null; voucher_serial?: string | null }): string {
-  const lines: string[] = []
-  if (req.voucher_serial) lines.push(`Serial: ${req.voucher_serial}`)
-  if (req.voucher_pin) lines.push(`PIN: ${req.voucher_pin}`)
-  return lines.length ? `\n\n${lines.join("\n")}` : ""
-}
 
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -84,120 +73,8 @@ export async function PATCH(request: NextRequest) {
   const deliveryNotes: string[] = []
 
   if (body.deliver && (req.result_data || req.media_url)) {
-    const mediaUrl: string | null = body.media_url ?? req.media_url ?? null
-    const mediaType: string = body.media_type ?? req.media_type ?? "image"
-
-    deliveryNotes.push(
-      `delivery start: channel=${req.channel}, hasResultText=${!!req.result_data}, mediaUrl=${mediaUrl ?? "none"}, mediaType=${mediaType}, whatsapp_number=${req.whatsapp_number ?? "none"}`
-    )
-
-    if (req.channel === "whatsapp") {
-      const phone = req.phone_number.startsWith("0")
-        ? `233${req.phone_number.slice(1)}`
-        : req.phone_number.replace(/^\+/, "")
-
-      // Send text results first if present
-      if (req.result_data) {
-        const resultMsg =
-          `Your ${req.exam_board} results for index number ${req.index_number} (${req.exam_year}):\n\n` +
-          req.result_data +
-          voucherInfoBlock(req) +
-          `\n\nRef: ${req.payment_reference}`
-        await sendWhatsAppText(phone, resultMsg)
-          .then(() => deliveryNotes.push(`WhatsApp text sent to ${phone}`))
-          .catch(e => {
-            const msg = `WhatsApp text FAILED: ${e instanceof Error ? e.message : String(e)}`
-            console.error("[RC-DELIVER]", msg)
-            deliveryNotes.push(msg)
-          })
-      }
-
-      // Send media if provided
-      if (mediaUrl) {
-        const caption = req.result_data
-          ? undefined
-          : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
-        await sendWhatsAppMedia(
-          phone,
-          mediaType as "image" | "document" | "video",
-          mediaUrl,
-          caption,
-          mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
-        )
-          .then(() => deliveryNotes.push(`WhatsApp media sent to ${phone}`))
-          .catch(e => {
-            const msg = `WhatsApp media FAILED: ${e instanceof Error ? e.message : String(e)}`
-            console.error("[RC-DELIVER]", msg)
-            deliveryNotes.push(msg)
-          })
-      }
-    } else {
-      // USSD: SMS to dialing phone
-      if (req.result_data) {
-        const resultMsg =
-          `${req.exam_board} results for ${req.index_number} (${req.exam_year}):\n` +
-          req.result_data +
-          voucherInfoBlock(req) +
-          `\nRef: ${req.payment_reference}`
-        await sendSMS({ phone: req.phone_number, message: resultMsg, type: "results_check", reference: req.id })
-          .then(() => deliveryNotes.push(`SMS sent to ${req.phone_number}`))
-          .catch(e => {
-            const msg = `SMS FAILED: ${e instanceof Error ? e.message : String(e)}`
-            console.error("[RC-DELIVER]", msg)
-            deliveryNotes.push(msg)
-          })
-      }
-
-      // Also send via WhatsApp if customer provided a WhatsApp number
-      if (req.whatsapp_number) {
-        const waPhone = req.whatsapp_number.startsWith("0")
-          ? `233${req.whatsapp_number.slice(1)}`
-          : req.whatsapp_number.replace(/^\+/, "")
-
-        if (req.result_data) {
-          const waMsg =
-            `Your ${req.exam_board} results for index ${req.index_number} (${req.exam_year}):\n\n` +
-            req.result_data +
-            voucherInfoBlock(req) +
-            `\n\nRef: ${req.payment_reference}`
-          await sendWhatsAppText(waPhone, waMsg)
-            .then(() => deliveryNotes.push(`WhatsApp text sent to ${waPhone}`))
-            .catch(e => {
-              const msg = `WhatsApp text to USSD user FAILED: ${e instanceof Error ? e.message : String(e)}`
-              console.error("[RC-DELIVER]", msg)
-              deliveryNotes.push(msg)
-            })
-        }
-        if (mediaUrl) {
-          const caption = req.result_data
-            ? undefined
-            : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
-          await sendWhatsAppMedia(
-            waPhone,
-            mediaType as "image" | "document" | "video",
-            mediaUrl,
-            caption,
-            mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
-          )
-            .then(() => deliveryNotes.push(`WhatsApp media sent to ${waPhone}`))
-            .catch(e => {
-              const msg = `WhatsApp media to USSD user FAILED: ${e instanceof Error ? e.message : String(e)}`
-              console.error("[RC-DELIVER]", msg)
-              deliveryNotes.push(msg)
-            })
-        }
-      } else if (!req.result_data) {
-        deliveryNotes.push("No SMS sent (no result text) and no whatsapp_number on file for media delivery")
-      }
-    }
-
-    deliveryNotes.forEach(n => console.log("[RC-DELIVER]", n))
-
-    // Mark as completed
-    await supabase
-      .from("results_check_requests")
-      .update({ status: "completed", updated_at: new Date().toISOString() })
-      .eq("id", req.id)
+    const result = await deliverResultsCheckRequest(req.id)
+    deliveryNotes.push(...result.deliveryNotes)
   }
 
   return NextResponse.json({ success: true, request: req, deliveryNotes })

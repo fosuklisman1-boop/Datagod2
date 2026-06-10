@@ -136,6 +136,24 @@ export async function sendWhatsAppMedia(
   }
 }
 
+// Inverse of uploadMediaToWhatsApp: resolve a media id to its bytes via the
+// 2-step Graph API flow (GET /{media-id} -> {url, mime_type}, then GET {url}).
+export async function downloadWaMedia(mediaId: string): Promise<{ buffer: ArrayBuffer; mimeType: string }> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN
+  if (!token) throw new Error("WHATSAPP_ACCESS_TOKEN not set")
+
+  const metaRes = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${mediaId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!metaRes.ok) throw new Error(`Failed to get media metadata (${metaRes.status})`)
+  const { url, mime_type } = await metaRes.json() as { url: string; mime_type: string }
+
+  const fileRes = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+  if (!fileRes.ok) throw new Error(`Failed to download media (${fileRes.status})`)
+
+  return { buffer: await fileRes.arrayBuffer(), mimeType: mime_type }
+}
+
 export async function sendWhatsAppText(to: string, body: string): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
