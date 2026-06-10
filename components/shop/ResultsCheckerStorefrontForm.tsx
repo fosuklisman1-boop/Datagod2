@@ -16,7 +16,7 @@ interface ResultsCheckerStorefrontFormProps {
   shopSlug: string
 }
 
-const EXAM_BOARDS = ["WAEC", "BECE", "NOVDEC"]
+const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 
 interface BoardInfo {
   basePrice: number
@@ -162,7 +162,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       }
 
       // Count available inventory per board via server-side API (anon key cannot read inventory table)
-      const availableCounts: Record<string, number> = { WAEC: 0, BECE: 0, NOVDEC: 0 }
+      const availableCounts: Record<string, number> = { WASSCE: 0, BECE: 0, NOVDEC: 0 }
       try {
         const avRes = await fetch("/api/shop/results-checker/availability")
         if (avRes.ok) {
@@ -425,7 +425,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
         <h2 className="text-2xl font-black mb-2 text-foreground border-l-4 border-violet-600 pl-4">Results Checker Vouchers</h2>
-        <p className="text-muted-foreground text-sm pl-5">WAEC · BECE · NOVDEC — instant serial &amp; PIN delivery</p>
+        <p className="text-muted-foreground text-sm pl-5">WASSCE · BECE · NOVDEC — instant serial &amp; PIN delivery</p>
       </div>
 
       {/* Board selection */}

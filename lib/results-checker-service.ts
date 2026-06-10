@@ -138,6 +138,72 @@ export async function calculateRCPrice(params: {
   return { basePrice, markupPerVoucher, unitPrice, totalPaid, merchantCommission, bulkApplied, bulkMinQty }
 }
 
+export interface ResultsCheckPriceResult {
+  checkFee: number
+  checkFeeMarkup: number
+  effectiveCheckFee: number
+  voucherPrice?: number       // combo only
+  totalPaid: number
+  merchantCommission: number  // checkFeeMarkup (+ voucher commission if combo)
+}
+
+/**
+ * Pricing for the Results Check Service (Datagod checks results on the
+ * customer's behalf — distinct from the voucher-purchase flow above).
+ * own_voucher mode charges only the check fee (+ shop markup); combo mode
+ * also bundles a voucher purchase via calculateRCPrice.
+ */
+export async function calculateResultsCheckPrice(params: {
+  examBoard: ExamBoard
+  mode: "combo" | "own_voucher"
+  shopId?: string
+}): Promise<ResultsCheckPriceResult> {
+  const { examBoard, mode, shopId } = params
+
+  const settings = await getAdminSetting("results_check_settings")
+  const checkFee = parseFloat(settings?.fee ?? 0)
+
+  let checkFeeMarkup = 0
+  if (shopId) {
+    const { data: shop } = await supabase
+      .from("user_shops")
+      .select("results_check_markup")
+      .eq("id", shopId)
+      .single()
+
+    if (shop) {
+      const rawMarkup = parseFloat((shop as any).results_check_markup ?? 0)
+      const maxMarkupSetting = await getAdminSetting("results_check_max_markup")
+      const maxMarkup = parseFloat(maxMarkupSetting?.max ?? 0)
+      checkFeeMarkup = Math.min(rawMarkup, maxMarkup)
+    }
+  }
+
+  const effectiveCheckFee = parseFloat((checkFee + checkFeeMarkup).toFixed(2))
+
+  if (mode === "combo") {
+    const voucherPricing = await calculateRCPrice({ examBoard, quantity: 1, shopId, applyBulk: false })
+    const totalPaid = parseFloat((voucherPricing.unitPrice + effectiveCheckFee).toFixed(2))
+    const merchantCommission = parseFloat((voucherPricing.merchantCommission + checkFeeMarkup).toFixed(2))
+    return {
+      checkFee,
+      checkFeeMarkup,
+      effectiveCheckFee,
+      voucherPrice: voucherPricing.unitPrice,
+      totalPaid,
+      merchantCommission,
+    }
+  }
+
+  return {
+    checkFee,
+    checkFeeMarkup,
+    effectiveCheckFee,
+    totalPaid: effectiveCheckFee,
+    merchantCommission: checkFeeMarkup,
+  }
+}
+
 export async function purchaseResultsCheckerVouchers(params: {
   userId: string
   examBoard: ExamBoard
@@ -416,5 +482,110 @@ export async function fulfillPaidResultsCheckerOrder(
 
   console.log(`[RC-SERVICE] ✓ RC order ${rcOrder.reference_code} completed: ${rcOrder.quantity}x ${rcOrder.exam_board}`)
   return { success: true, status: "completed", message: "Vouchers delivered" }
+}
+
+/**
+ * Fulfils a storefront Results Check Service request (table
+ * `results_check_requests`) whose payment has just been confirmed.
+ * For combo mode, assigns one voucher from results_checker_inventory
+ * (same two-step pattern as the WhatsApp webhook branch). Marks
+ * payment_status 'paid' (status stays 'pending' — admin still needs to
+ * perform the actual results check via app/admin/results-check-requests),
+ * records merchant commission, and sends a payment-confirmation message
+ * (not the results themselves).
+ */
+export async function fulfillPaidResultsCheckRequest(
+  requestId: string
+): Promise<{ success: boolean; status: "paid" | "already_paid" | "not_found"; message: string }> {
+  const { data: req } = await supabase
+    .from("results_check_requests")
+    .select("*")
+    .eq("id", requestId)
+    .single()
+
+  if (!req) return { success: false, status: "not_found", message: "Results check request not found" }
+  if (req.payment_status === "paid") return { success: true, status: "already_paid", message: "Already paid" }
+
+  let assignedVoucherPin: string | null = req.voucher_pin ?? null
+  let assignedVoucherSerial: string | null = req.voucher_serial ?? null
+  if (req.mode === "combo") {
+    const { data: voucherRows } = await supabase
+      .from("results_checker_inventory")
+      .select("id, pin, serial_number")
+      .eq("exam_board", req.exam_board)
+      .eq("status", "available")
+      .limit(1)
+    if (voucherRows && voucherRows.length > 0) {
+      const v = voucherRows[0]
+      await supabase.from("results_checker_inventory")
+        .update({ status: "sold", updated_at: new Date().toISOString() })
+        .eq("id", v.id)
+      assignedVoucherPin = v.pin
+      assignedVoucherSerial = v.serial_number ?? null
+    } else {
+      console.warn(`[RC-CHECK] ⚠ No available ${req.exam_board} voucher for combo request ${req.id}`)
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    payment_status: "paid",
+    updated_at: new Date().toISOString(),
+  }
+  if (assignedVoucherPin) updatePayload.voucher_pin = assignedVoucherPin
+  if (assignedVoucherSerial) updatePayload.voucher_serial = assignedVoucherSerial
+
+  await supabase
+    .from("results_check_requests")
+    .update(updatePayload)
+    .eq("id", req.id)
+
+  if (req.shop_id && req.merchant_commission > 0) {
+    const { error: profitError } = await supabase.from("shop_profits").insert([{
+      shop_id: req.shop_id,
+      results_check_request_id: req.id,
+      profit_amount: req.merchant_commission,
+      status: "credited",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }])
+    if (profitError && profitError.code !== "23505") {
+      // Fallback: insert without FK column if migration 20260610 not yet applied
+      await supabase.from("shop_profits").insert([{
+        shop_id: req.shop_id,
+        profit_amount: req.merchant_commission,
+        status: "credited",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }]).then(({ error: e }) => {
+        if (e && e.code !== "23505") console.error("[RC-CHECK] ❌ profit fallback failed:", e.message)
+      })
+    } else if (!profitError) {
+      console.log(`[RC-CHECK] ✓ Shop profit recorded: GHS ${req.merchant_commission}`)
+    }
+  }
+
+  // Payment-confirmation message — actual results follow later via the admin delivery queue.
+  const voucherNote = req.mode === "combo"
+    ? `\nSerial: ${assignedVoucherSerial ?? "N/A"}\nPIN: ${assignedVoucherPin ?? "will be assigned"}`
+    : ""
+  const confirmMsg =
+    `Payment received! Your ${req.exam_board} results check request (Index: ${req.index_number}, ${req.exam_year}) is being processed.\n` +
+    `Ref: ${req.payment_reference}${voucherNote}\n\n` +
+    `We'll send your results via SMS${req.whatsapp_number ? " and WhatsApp" : ""} shortly.`
+
+  const { sendSMS } = await import("@/lib/sms-service")
+  await sendSMS({ phone: req.phone_number, message: confirmMsg, type: "results_check_payment", reference: req.id })
+    .catch(e => console.warn("[RC-CHECK] SMS confirmation failed:", e))
+
+  if (req.whatsapp_number) {
+    const { sendWhatsAppText } = await import("@/lib/whatsapp-bot/send")
+    const waPhone = req.whatsapp_number.startsWith("0")
+      ? `233${req.whatsapp_number.slice(1)}`
+      : req.whatsapp_number.replace(/^\+/, "")
+    await sendWhatsAppText(waPhone, confirmMsg).catch(e => console.warn("[RC-CHECK] WhatsApp confirmation failed:", e))
+  }
+
+  console.log(`[RC-CHECK] ✓ Results check request ${req.payment_reference} marked paid (mode=${req.mode})`)
+  return { success: true, status: "paid", message: "Payment confirmed" }
 }
 

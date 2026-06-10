@@ -103,6 +103,13 @@ export const RATE_LIMITS = {
         windowMs: 60 * 1000, // 1 minute per IP
         message: 'Too many requests. Please wait a moment before trying again.',
     },
+
+    // Shop results-check service request initialization (unauthenticated — same abuse surface)
+    SHOP_RC_CHECK_INITIALIZE: {
+        maxRequests: 5,
+        windowMs: 60 * 1000, // 1 minute per IP
+        message: 'Too many requests. Please wait a moment before trying again.',
+    },
 } as const
 
 /**

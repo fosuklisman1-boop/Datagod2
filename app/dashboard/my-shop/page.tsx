@@ -14,7 +14,7 @@ import { shopService, shopPackageService } from "@/lib/shop-service"
 import { shopOrigin } from "@/lib/shop-url"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
-import { AlertCircle, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Megaphone, Loader2, Save, GraduationCap } from "lucide-react"
+import { AlertCircle, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Megaphone, Loader2, Save, GraduationCap, ClipboardCheck } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
 
@@ -52,6 +52,9 @@ export default function MyShopPage() {
   const [rcMarkups, setRcMarkups] = useState({ waec: "0", bece: "0", novdec: "0" })
   const [rcMaxMarkups, setRcMaxMarkups] = useState({ waec: 0, bece: 0, novdec: 0 })
   const [savingRcMarkups, setSavingRcMarkups] = useState(false)
+  const [rcCheckMarkup, setRcCheckMarkup] = useState("0")
+  const [rcCheckMaxMarkup, setRcCheckMaxMarkup] = useState(0)
+  const [savingRcCheckMarkup, setSavingRcCheckMarkup] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -143,6 +146,7 @@ export default function MyShopPage() {
           bece:   (userShop.results_checker_markup_bece   ?? 0).toString(),
           novdec: (userShop.results_checker_markup_novdec ?? 0).toString(),
         })
+        setRcCheckMarkup((userShop.results_check_markup ?? 0).toString())
 
         // Load RC max markups via curated public-config (admin_settings is
         // service-role only).
@@ -154,10 +158,11 @@ export default function MyShopPage() {
             Object.assign(rcMap, cfg.admin_settings ?? {})
           }
           setRcMaxMarkups({
-            waec:   rcMap["results_checker_max_markup_waec"]?.max   ?? 0,
+            waec:   rcMap["results_checker_max_markup_wassce"]?.max ?? 0,
             bece:   rcMap["results_checker_max_markup_bece"]?.max   ?? 0,
             novdec: rcMap["results_checker_max_markup_novdec"]?.max ?? 0,
           })
+          setRcCheckMaxMarkup(rcMap["results_check_max_markup"]?.max ?? 0)
         } catch (e) {
           console.warn("Failed to load RC max markups:", e)
         }
@@ -322,6 +327,24 @@ export default function MyShopPage() {
       toast.error(err?.message ?? "Failed to save markups")
     } finally {
       setSavingRcMarkups(false)
+    }
+  }
+
+  const handleSaveRcCheckMarkup = async () => {
+    if (!shop) return
+    setSavingRcCheckMarkup(true)
+    try {
+      const markup = Math.min(parseFloat(rcCheckMarkup || "0"), rcCheckMaxMarkup)
+      const updated = await shopService.updateShop(shop.id, {
+        results_check_markup: markup,
+      })
+      setShop(updated)
+      setRcCheckMarkup(markup.toString())
+      toast.success("Results Check Service markup saved")
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to save markup")
+    } finally {
+      setSavingRcCheckMarkup(false)
     }
   }
 
@@ -987,7 +1010,7 @@ export default function MyShopPage() {
               <GraduationCap className="w-5 h-5 text-violet-600" />
               Results Checker Profit Markups
             </CardTitle>
-            <CardDescription>Set your extra charge per voucher for WAEC, BECE &amp; NOVDEC</CardDescription>
+            <CardDescription>Set your extra charge per voucher for WASSCE, BECE &amp; NOVDEC</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1030,6 +1053,56 @@ export default function MyShopPage() {
               className="w-full bg-violet-600 hover:bg-violet-700"
             >
               {savingRcMarkups ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Results Checker Markups"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Results Check Service Markup Card */}
+        <Card className="bg-card backdrop-blur-xl border border-border">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5 text-violet-600" />
+              Results Check Service Markup
+            </CardTitle>
+            <CardDescription>Set your extra charge on the &quot;Check My Results&quot; service fee</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="rc-check-markup" className="flex justify-between">
+                <span>Markup (GHS)</span>
+                {rcCheckMaxMarkup > 0 && (
+                  <span className="text-[10px] text-violet-500 font-medium">Max: GHS {rcCheckMaxMarkup.toFixed(2)}</span>
+                )}
+              </Label>
+              <Input
+                id="rc-check-markup"
+                type="number"
+                step="0.01"
+                min="0"
+                max={rcCheckMaxMarkup || undefined}
+                value={rcCheckMarkup}
+                onChange={e => {
+                  const val = parseFloat(e.target.value) || 0
+                  if (rcCheckMaxMarkup > 0 && val > rcCheckMaxMarkup) {
+                    toast.error(`Markup cannot exceed GHS ${rcCheckMaxMarkup.toFixed(2)}`)
+                    setRcCheckMarkup(rcCheckMaxMarkup.toString())
+                  } else {
+                    setRcCheckMarkup(e.target.value)
+                  }
+                }}
+                placeholder="0.00"
+                className="mt-1"
+              />
+            </div>
+            <p className="text-xs text-violet-500/80 bg-violet-50/50 p-2 rounded-lg border border-border">
+              This amount is added on top of the base &quot;Check My Results&quot; fee. The maximum is set by the admin and enforced at checkout.
+            </p>
+            <Button
+              onClick={handleSaveRcCheckMarkup}
+              disabled={savingRcCheckMarkup}
+              className="w-full bg-violet-600 hover:bg-violet-700"
+            >
+              {savingRcCheckMarkup ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Results Check Markup"}
             </Button>
           </CardContent>
         </Card>

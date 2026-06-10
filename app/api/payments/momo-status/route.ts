@@ -55,18 +55,22 @@ export async function GET(request: NextRequest) {
 
   const table = orderType === "airtime" ? "airtime_orders"
     : orderType === "results_checker" ? "results_checker_orders"
+    : orderType === "results_check_service" ? "results_check_requests"
     : "shop_orders"
 
   try {
+    // results_check_requests has no order_status column (that's shop_orders-only)
+    // and uses payment_status: 'paid' (not 'completed') once payment is confirmed.
+    const selectColumns = orderType === "results_check_service" ? "payment_status" : "payment_status, order_status"
     const { data } = await supabase
       .from(table)
-      .select("payment_status, order_status")
+      .select(selectColumns)
       .eq("id", orderId)
       .maybeSingle()
 
     const ps = (data as any)?.payment_status
     let status: "pending" | "completed" | "failed" = "pending"
-    if (ps === "completed") status = "completed"
+    if (ps === "completed" || (orderType === "results_check_service" && ps === "paid")) status = "completed"
     else if (ps === "failed" || ps === "abandoned" || ps === "expired") status = "failed"
 
     return NextResponse.json(

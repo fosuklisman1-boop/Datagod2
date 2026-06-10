@@ -136,6 +136,7 @@ export async function POST(request: NextRequest) {
       // Determine which table the order lives in based on orderType, then resolve its shop slug
       const orderTable = orderType === "airtime" ? "airtime_orders"
         : orderType === "results_checker" ? "results_checker_orders"
+        : orderType === "results_check_service" ? "results_check_requests"
         : "shop_orders"
       const { data: orderShopRef } = await supabase
         .from(orderTable)
@@ -311,15 +312,22 @@ export async function POST(request: NextRequest) {
 
     // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
     if (orderId) {
-      const table = orderType === "airtime" ? "airtime_orders" : orderType === "results_checker" ? "results_checker_orders" : "shop_orders"
+      const table = orderType === "airtime" ? "airtime_orders"
+        : orderType === "results_checker" ? "results_checker_orders"
+        : orderType === "results_check_service" ? "results_check_requests"
+        : "shop_orders"
       console.log(`[PAYMENT-INIT] ${orderType} order detected (${orderId}). Verifying price from database...`)
 
-      const amountColumn = (orderType === "airtime" || orderType === "results_checker") ? "total_paid" : "total_price"
-      // shop_orders uses order_status; airtime/results_checker use status
-      const isShopOrder = orderType !== "airtime" && orderType !== "results_checker"
+      const amountColumn = orderType === "results_check_service" ? "fee"
+        : (orderType === "airtime" || orderType === "results_checker") ? "total_paid"
+        : "total_price"
+      // shop_orders uses order_status; airtime/results_checker/results_check_service use status
+      const isShopOrder = orderType !== "airtime" && orderType !== "results_checker" && orderType !== "results_check_service"
       const statusField = isShopOrder ? "order_status" : "status"
-      // Beneficiary column differs by table (airtime = beneficiary_phone).
-      const phoneColumn = orderType === "airtime" ? "beneficiary_phone" : "customer_phone"
+      // Beneficiary column differs by table (airtime = beneficiary_phone, results_check_service = phone_number).
+      const phoneColumn = orderType === "airtime" ? "beneficiary_phone"
+        : orderType === "results_check_service" ? "phone_number"
+        : "customer_phone"
       const selectColumns = `${amountColumn}, ${statusField}, payment_status, ${phoneColumn}`
       const { data: orderData, error: orderError } = await supabase
         .from(table)
@@ -340,6 +348,7 @@ export async function POST(request: NextRequest) {
       const orderStatus = (orderData as any)[statusField]
       const orderPaymentStatus = (orderData as any).payment_status
       const alreadyPaid = orderPaymentStatus === "completed"
+        || (orderType === "results_check_service" && orderPaymentStatus === "paid")
       const notPayable = ["failed", "expired", "cancelled", "completed"].includes(orderStatus)
 
       if (alreadyPaid || notPayable) {
@@ -457,8 +466,9 @@ export async function POST(request: NextRequest) {
     const confirmationPath =
       orderType === "airtime" ? "airtime/confirmation" :
       orderType === "results_checker" ? "results-checker/confirmation" :
+      orderType === "results_check_service" ? "results-check/confirmation" :
       `order-confirmation/${orderId}`
-    const appendOrderId = orderType === "airtime" || orderType === "results_checker"
+    const appendOrderId = orderType === "airtime" || orderType === "results_checker" || orderType === "results_check_service"
     // SECURITY: Never use request.headers.get("origin") — it's attacker-controlled
     // and would let a crafted request steer Paystack's post-payment redirect to a
     // phishing site. Use server env exclusively.
@@ -495,6 +505,7 @@ export async function POST(request: NextRequest) {
       type === "dealer_upgrade" ? "dealer_upgrade"
         : orderType === "airtime" ? "shop_airtime"
         : orderType === "results_checker" ? "shop_results_checker"
+        : orderType === "results_check_service" ? "shop_results_check"
         : orderId ? "shop_data"
         : "wallet_topup"
 
@@ -503,6 +514,7 @@ export async function POST(request: NextRequest) {
       type === "dealer_upgrade" ? "Dealer Upgrade"
         : orderType === "airtime" ? "Airtime top-up"
         : orderType === "results_checker" ? "Results Checker voucher"
+        : orderType === "results_check_service" ? "Results Check Service"
         : orderId ? "Data bundle"
         : "Wallet Top-up"
 

@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic"
 
 // admin_settings key PREFIXES that are safe to expose (pricing / fees / enablement
 // flags — all of which are already reflected in customer-facing prices).
-const SAFE_ADMIN_PREFIXES = ["results_checker_", "airtime_"]
+const SAFE_ADMIN_PREFIXES = ["results_checker_", "airtime_", "results_check_"]
 
 // app_settings COLUMNS that are safe to expose.
 const SAFE_APP_COLUMNS = [

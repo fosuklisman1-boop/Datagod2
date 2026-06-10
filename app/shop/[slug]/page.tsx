@@ -37,6 +37,7 @@ import {
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
+import { ResultsCheckServiceForm } from "@/components/shop/ResultsCheckServiceForm"
 import { VoucherLookup } from "@/components/shop/VoucherLookup"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
@@ -57,7 +58,7 @@ export default function ShopStorefront() {
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [activeTab, setActiveTab] = useState<"products" | "airtime" | "vouchers" | "about" | "track-order">("products")
-  const [rcTab, setRcTab] = useState<"buy" | "retrieve">("buy")
+  const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
     customer_name: "",
@@ -958,10 +959,18 @@ export default function ShopStorefront() {
                       >
                         Retrieve Vouchers
                       </button>
+                      <button
+                        onClick={() => setRcTab("check")}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "check" ? "bg-card text-violet-700 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        Check My Results
+                      </button>
                     </div>
                     {rcTab === "buy"
                       ? <ResultsCheckerStorefrontForm shop={shop} shopSlug={shopSlug} />
-                      : <VoucherLookup />
+                      : rcTab === "retrieve"
+                      ? <VoucherLookup />
+                      : <ResultsCheckServiceForm shop={shop} shopSlug={shopSlug} />
                     }
                   </div>
                 )}

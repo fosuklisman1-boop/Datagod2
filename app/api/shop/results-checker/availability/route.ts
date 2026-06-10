@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const EXAM_BOARDS = ["WAEC", "BECE", "NOVDEC"]
+const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 
 export async function GET() {
   const results = await Promise.all(

@@ -622,6 +622,7 @@ export async function POST(request: NextRequest) {
       const isDealerUpgrade = (metadata?.type === "dealer_upgrade") || (paymentData.order_type === "dealer_upgrade")
       const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
       const isResultsChecker = (paymentData.order_type === "results_checker") || (metadata?.orderType === "results_checker")
+      const isResultsCheckService = (paymentData.order_type === "results_check_service") || (metadata?.orderType === "results_check_service")
       const isUssdShopActivation = paymentData.order_type === "ussd_shop_activation"
       const isUssdShopToken = paymentData.order_type === "ussd_shop_token"
       // CRITICAL SECURITY CHECK: Re-verify price
@@ -661,6 +662,16 @@ export async function POST(request: NextRequest) {
 
           if (rcOrder) {
             verifiedTotalPrice = Number(rcOrder.total_paid)
+          }
+        } else if (isResultsCheckService) {
+          const { data: rcCheckRequest } = await supabase
+            .from("results_check_requests")
+            .select("fee")
+            .eq("id", paymentData.order_id)
+            .single()
+
+          if (rcCheckRequest) {
+            verifiedTotalPrice = Number(rcCheckRequest.fee)
           }
         } else if (isUssdShopActivation || isUssdShopToken) {
           // amount is set explicitly at charge time — no separate order record to verify against
@@ -797,7 +808,7 @@ export async function POST(request: NextRequest) {
 
       // 1. Handle Shop Orders and Airtime
       if (paymentData.order_id && !isDealerUpgrade) {
-        if (!isAirtime && !isResultsChecker) {
+        if (!isAirtime && !isResultsChecker && !isResultsCheckService) {
           // Shop Order fulfillment logic
           const { data: shopOrderData } = await supabase
             .from("shop_orders")
@@ -910,6 +921,11 @@ export async function POST(request: NextRequest) {
           // (shared with the USSD path).
           const { fulfillPaidResultsCheckerOrder } = await import("@/lib/results-checker-service")
           await fulfillPaidResultsCheckerOrder(paymentData.order_id)
+        } else if (isResultsCheckService) {
+          // Results Check Service storefront request — assign combo voucher (if
+          // applicable), record merchant commission, send payment confirmation.
+          const { fulfillPaidResultsCheckRequest } = await import("@/lib/results-checker-service")
+          await fulfillPaidResultsCheckRequest(paymentData.order_id)
         }
       }
 
