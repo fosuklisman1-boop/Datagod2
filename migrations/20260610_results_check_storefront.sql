@@ -11,6 +11,14 @@ CREATE INDEX IF NOT EXISTS idx_results_check_requests_shop ON results_check_requ
 ALTER TABLE user_shops
   ADD COLUMN IF NOT EXISTS results_check_markup NUMERIC(10,2) DEFAULT 0;
 
+-- user_shops uses COLUMN-LEVEL SELECT grants for the anon role (the public
+-- storefront client). A new column is NOT covered by the existing grant, so
+-- selecting it makes the whole statement fail with "permission denied for table
+-- user_shops" (42501) — which surfaced as every /shop/[slug] page showing
+-- "Store not found" because getShopBySlug() now selects results_check_markup.
+-- Extend the anon grant to the new column.
+GRANT SELECT (results_check_markup) ON user_shops TO anon;
+
 -- Admin cap (mirrors results_checker_max_markup_<board> pattern)
 INSERT INTO admin_settings (key, value, description)
 VALUES ('results_check_max_markup', '{"max": 5.00}'::jsonb, 'Max GHS markup shops can add to the Results Check Service fee')
