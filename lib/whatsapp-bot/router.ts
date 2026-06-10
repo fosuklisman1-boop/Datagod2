@@ -31,6 +31,7 @@ import {
   airtimePaymentMethodMenu, rcPaymentMethodMenu,
   rcCheckBoardMenu, rcCheckCandidateTypeMenu, rcCheckModeMenu,
   rcCheckVoucherPrompt, rcCheckIndexPrompt,
+  waConfirmMenu, waAirtimeConfirmMenu, waRcConfirmMenu,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 
@@ -231,22 +232,39 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       result = await handleSelectBundleWa(input, sessionId, session)
       break
 
-    case 'ENTER_RECIPIENT':
+    case 'ENTER_RECIPIENT': {
       result = await handleEnterRecipient(input, sessionId, session)
-      break
-
-    case 'CONFIRM':
-      if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.bundlePrice ?? 0))) {
-        // Always ask for MoMo number — don't auto-use the WhatsApp number
-        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
-        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-      } else {
-        result = await handleConfirm(input, sessionId, session)
-        if (input === '1') {
-          void tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
+      // Replace USSD confirm screen (shows WA number as payment source) with
+      // a WhatsApp menu showing wallet vs MoMo options
+      if (result.ussdServiceOp === 2) {
+        const updated = await getWaSession(sessionId)
+        if (updated?.step === 'CONFIRM') {
+          result = { message: waConfirmMenu(updated.network!, updated.bundleSize!, updated.bundlePrice!, updated.recipientPhone!, updated.walletBalance ?? 0), ussdServiceOp: 2 }
         }
       }
       break
+    }
+
+    case 'CONFIRM': {
+      if (input === '2') {
+        // MoMo payment
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+      } else if (input === '1') {
+        if (!session.userId || (session.walletBalance ?? 0) < (session.bundlePrice ?? 0)) {
+          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
+          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+        } else {
+          result = await handleConfirm('1', sessionId, session)
+          void tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
+        }
+      } else if (input === '0') {
+        result = await handleConfirm('2', sessionId, session) // cancel
+      } else {
+        result = { message: waConfirmMenu(session.network!, session.bundleSize!, session.bundlePrice!, session.recipientPhone!, session.walletBalance ?? 0), ussdServiceOp: 2 }
+      }
+      break
+    }
 
     case 'PAYMENT_METHOD':
       if (input === '2') {
@@ -311,21 +329,35 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     case 'AIRTIME_SELECT_NETWORK':
       result = await handleAirtimeSelectNetwork(input, sessionId, session)
       break
-    case 'AIRTIME_ENTER_AMOUNT':
+    case 'AIRTIME_ENTER_AMOUNT': {
       result = await handleAirtimeEnterAmount(input, sessionId, session)
-      break
-    case 'AIRTIME_CONFIRM':
-      if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.airtimeAmount ?? 0))) {
-        // Always ask for MoMo number — don't auto-use the WhatsApp number
-        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
-        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-      } else {
-        result = await handleAirtimeConfirm(input, sessionId, session)
-        if (input === '1') {
-          void tagOrderChannel(sessionId, phone, 'airtime_orders', false)
+      if (result.ussdServiceOp === 2) {
+        const updated = await getWaSession(sessionId)
+        if (updated?.step === 'AIRTIME_CONFIRM') {
+          result = { message: waAirtimeConfirmMenu(updated.airtimeNetwork!, updated.airtimeRecipient!, updated.airtimeAmount!, updated.airtimeToDeliver!, updated.walletBalance ?? 0), ussdServiceOp: 2 }
         }
       }
       break
+    }
+    case 'AIRTIME_CONFIRM': {
+      if (input === '2') {
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+      } else if (input === '1') {
+        if (!session.userId || (session.walletBalance ?? 0) < (session.airtimeAmount ?? 0)) {
+          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
+          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+        } else {
+          result = await handleAirtimeConfirm('1', sessionId, session)
+          void tagOrderChannel(sessionId, phone, 'airtime_orders', false)
+        }
+      } else if (input === '0') {
+        result = await handleAirtimeConfirm('2', sessionId, session)
+      } else {
+        result = { message: waAirtimeConfirmMenu(session.airtimeNetwork!, session.airtimeRecipient!, session.airtimeAmount!, session.airtimeToDeliver!, session.walletBalance ?? 0), ussdServiceOp: 2 }
+      }
+      break
+    }
     case 'AIRTIME_PAYMENT_METHOD':
       if (input === '2') {
         // Always ask for MoMo number — don't auto-use the WhatsApp number
@@ -356,21 +388,35 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     case 'RC_SELECT_BOARD':
       result = await handleRcSelectBoard(input, sessionId, session)
       break
-    case 'RC_ENTER_QTY':
+    case 'RC_ENTER_QTY': {
       result = await handleRcEnterQty(input, sessionId, session)
-      break
-    case 'RC_CONFIRM':
-      if (input === '1' && (!session.userId || (session.walletBalance ?? 0) < (session.rcTotal ?? 0))) {
-        // Always ask for MoMo number — don't auto-use the WhatsApp number
-        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
-        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
-      } else {
-        result = await handleRcConfirm(input, sessionId, session)
-        if (input === '1') {
-          void tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
+      if (result.ussdServiceOp === 2) {
+        const updated = await getWaSession(sessionId)
+        if (updated?.step === 'RC_CONFIRM') {
+          result = { message: waRcConfirmMenu(updated.rcBoard!, updated.rcQty!, updated.rcTotal!, updated.walletBalance ?? 0), ussdServiceOp: 2 }
         }
       }
       break
+    }
+    case 'RC_CONFIRM': {
+      if (input === '2') {
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+      } else if (input === '1') {
+        if (!session.userId || (session.walletBalance ?? 0) < (session.rcTotal ?? 0)) {
+          await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
+          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+        } else {
+          result = await handleRcConfirm('1', sessionId, session)
+          void tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
+        }
+      } else if (input === '0') {
+        result = await handleRcConfirm('2', sessionId, session)
+      } else {
+        result = { message: waRcConfirmMenu(session.rcBoard!, session.rcQty!, session.rcTotal!, session.walletBalance ?? 0), ussdServiceOp: 2 }
+      }
+      break
+    }
     case 'RC_PAYMENT_METHOD':
       if (input === '2') {
         // Always ask for MoMo number — don't auto-use the WhatsApp number

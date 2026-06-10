@@ -264,6 +264,43 @@ export function otpPrompt(): string {
   return 'Enter the OTP sent\nto your phone:\n\n0. Cancel'
 }
 
+// ── WhatsApp-specific confirm menus ───────────────────────────────────────────
+// These replace the USSD confirm screens (which show the dialing number as
+// payment source) with options that make sense on WhatsApp: Wallet vs MoMo.
+
+export function waConfirmMenu(network: string, size: string, price: number, recipient: string, balance: number): string {
+  return (
+    `Confirm:\n` +
+    `${formatBundleSize(size)} ${network}\n` +
+    `To: ${formatLocal(recipient)}\n` +
+    `GHS ${price.toFixed(2)}\n\n` +
+    `1. Pay via Wallet\n   (GHS ${balance.toFixed(2)})\n` +
+    `2. Pay via MoMo\n0. Cancel`
+  )
+}
+
+export function waAirtimeConfirmMenu(network: string, recipient: string, amountPay: number, amountGet: number, balance: number): string {
+  return (
+    `Confirm Airtime\n` +
+    `${network} to ${formatLocal(recipient)}\n` +
+    `You pay GHS ${amountPay.toFixed(2)}\n` +
+    `They get GHS ${amountGet.toFixed(2)}\n\n` +
+    `1. Pay via Wallet\n   (GHS ${balance.toFixed(2)})\n` +
+    `2. Pay via MoMo\n0. Cancel`
+  )
+}
+
+export function waRcConfirmMenu(board: string, qty: number, total: number, balance: number): string {
+  return (
+    `Confirm Vouchers\n` +
+    `${board} x ${qty}\n` +
+    `GHS ${total.toFixed(2)}\n` +
+    `PIN(s) sent by SMS\n\n` +
+    `1. Pay via Wallet\n   (GHS ${balance.toFixed(2)})\n` +
+    `2. Pay via MoMo\n0. Cancel`
+  )
+}
+
 // Formats +233XXXXXXXXX → 0XXXXXXXXX for display
 function formatLocal(phone: string): string {
   if (phone.startsWith('+233')) return '0' + phone.slice(4)
