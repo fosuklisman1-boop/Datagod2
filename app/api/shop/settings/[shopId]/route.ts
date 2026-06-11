@@ -1,15 +1,31 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { shopHandleOrFilter } from "@/lib/shop-handle"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// GET shop settings
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// GET shop settings — param accepts a shop UUID (dashboard) or a public
+// slug/subdomain (storefront, which no longer sees internal shop ids).
 export async function GET(request: NextRequest, { params }: { params: Promise<{ shopId: string }> }) {
   try {
-    const { shopId } = await params
+    let { shopId } = await params
+
+    if (!UUID_RE.test(shopId)) {
+      const { data: shopRow } = await supabase
+        .from("user_shops")
+        .select("id")
+        .or(shopHandleOrFilter(shopId))
+        .single()
+      if (!shopRow) {
+        return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+      }
+      shopId = shopRow.id
+    }
 
     const { data: settings, error } = await supabase
       .from("shop_settings")

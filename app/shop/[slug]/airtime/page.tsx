@@ -41,7 +41,9 @@ export default function ShopAirtimePage() {
   }, [shopSlug])
 
   useEffect(() => {
-    if (shop?.id && selectedNetwork) {
+    // getShopBySlug no longer exposes shop.id — gate on the shop object itself
+    // (loadConstraints fetches by slug, so the id was never needed here).
+    if (shop && selectedNetwork) {
       loadConstraints()
     }
   }, [shop, selectedNetwork])

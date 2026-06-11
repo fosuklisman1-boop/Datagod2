@@ -94,7 +94,9 @@ export default function ShopStorefront() {
   const [showAnnouncement, setShowAnnouncement] = useState(false)
   const [activeAnnouncement, setActiveAnnouncement] = useState<{title: string, message: string} | null>(null)
 
-  const { settings: shopSettings } = useShopSettings(shop?.id)
+  // Pass the slug — getShopBySlug no longer exposes the internal shop id;
+  // the settings API resolves slug/subdomain server-side.
+  const { settings: shopSettings } = useShopSettings(shop ? shopSlug : undefined)
 
   useEffect(() => {
     loadShopData()
