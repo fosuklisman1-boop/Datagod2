@@ -562,19 +562,40 @@ async function handleWaEnterPaymentPhone(
   }
   await setWaSession(sessionId, updatedSession)
 
-  // Handle direct-charge confirm paths (guest/no-wallet users)
+  // Handle direct-charge confirm paths. The USSD confirm handlers detour
+  // wallet-eligible users to a payment-method screen — but this user already
+  // chose "Pay via MoMo" AND entered the charge number, so auto-select
+  // "2. MoMo prompt" instead of re-asking (mirrors the wallet-path skip in CONFIRM).
   if (session.waNextStep === 'CONFIRM_BUNDLE') {
-    const res = await handleConfirm('1', sessionId, updatedSession)
+    let res = await handleConfirm('1', sessionId, updatedSession)
+    if (res.ussdServiceOp === 2) {
+      const s2 = await getWaSession(sessionId)
+      if (s2?.step === 'PAYMENT_METHOD') {
+        res = await handlePaymentMethod('2', sessionId, s2)
+      }
+    }
     void tagOrderChannel(sessionId, updatedSession.dialingPhone ?? sessionId, 'ussd_orders', res.ussdServiceOp === 17)
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
   if (session.waNextStep === 'CONFIRM_AIRTIME') {
-    const res = await handleAirtimeConfirm('1', sessionId, updatedSession)
+    let res = await handleAirtimeConfirm('1', sessionId, updatedSession)
+    if (res.ussdServiceOp === 2) {
+      const s2 = await getWaSession(sessionId)
+      if (s2?.step === 'AIRTIME_PAYMENT_METHOD') {
+        res = await handleAirtimePaymentMethod('2', sessionId, s2)
+      }
+    }
     void tagOrderChannel(sessionId, sessionId, 'airtime_orders', false)
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
   if (session.waNextStep === 'CONFIRM_RC') {
-    const res = await handleRcConfirm('1', sessionId, updatedSession)
+    let res = await handleRcConfirm('1', sessionId, updatedSession)
+    if (res.ussdServiceOp === 2) {
+      const s2 = await getWaSession(sessionId)
+      if (s2?.step === 'RC_PAYMENT_METHOD') {
+        res = await handleRcPaymentMethod('2', sessionId, s2)
+      }
+    }
     void tagOrderChannel(sessionId, sessionId, 'results_checker_orders', false)
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
