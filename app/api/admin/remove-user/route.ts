@@ -92,7 +92,7 @@ export async function DELETE(req: NextRequest) {
     const { error: invitedAsUserError } = await supabaseAdmin
       .from("shop_invites")
       .delete()
-      .eq("invited_user_id", userId)
+      .eq("accepted_by_user_id", userId)
     
     if (invitedAsUserError) {
       console.warn(`[REMOVE-USER] Warning deleting shop_invites (as invited user): ${invitedAsUserError.message}`)
@@ -121,7 +121,7 @@ export async function DELETE(req: NextRequest) {
       const { error: invitedByError } = await supabaseAdmin
         .from("shop_invites")
         .delete()
-        .eq("invited_user_id", userId)
+        .eq("accepted_by_user_id", userId)
       
       if (invitedByError) {
         console.warn(`[REMOVE-USER] Warning deleting shop_invites (invited_user): ${invitedByError.message}`)

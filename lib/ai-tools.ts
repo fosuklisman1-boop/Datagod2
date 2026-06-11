@@ -2222,9 +2222,9 @@ export async function executeToolCall(
             .maybeSingle(),
           supabaseAdmin
             .from("shop_invites")
-            .select("code, status, created_at")
-            .eq("shop_id", shop.id)
-            .eq("status", "active")
+            .select("invite_code, status, created_at")
+            .eq("inviter_shop_id", shop.id)
+            .eq("status", "pending")
             .order("created_at", { ascending: false })
             .limit(3),
         ])
@@ -2245,7 +2245,7 @@ export async function executeToolCall(
                 activated: ussdRes.data.activation_fee_paid,
               }
             : null,
-          invite_codes: (invitesRes.data ?? []).map(i => i.code),
+          invite_codes: (invitesRes.data ?? []).map(i => i.invite_code),
         }
       }
 

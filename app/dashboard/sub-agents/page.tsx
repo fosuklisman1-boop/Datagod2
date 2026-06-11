@@ -435,20 +435,6 @@ export default function SubAgentsPage() {
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="inviteEmail">Email Address (optional)</Label>
-                  <Input
-                    id="inviteEmail"
-                    type="email"
-                    placeholder="user@example.com"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    We&apos;ll send the invite link via SMS or Email if provided.
-                  </p>
-                </div>
-
                 <Alert>
                   <TrendingUp className="w-4 h-4" />
                   <AlertDescription>
