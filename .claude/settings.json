@@ -4,5 +4,29 @@
       "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")",
       "Bash(grep -rn \"fetch\\(\\\\\"/api/admin/orders/pending\\\\\"\\\\|fetch\\(\\\\`/api/admin/orders/pending\\\\|fetch\\(\\\\\"/api/admin/orders/batches\\\\\"\\\\|fetch\\(\\\\\"/api/admin/batch\\\\|fetch\\(\\\\\"/api/admin/shop-orders/pending\\\\\"\\\\|fetch\\(\\\\\"/api/admin/debug\\\\|fetch\\(\\\\\"/api/admin/support-settings\\\\\"\\\\|fetch\\(\\\\\"/api/admin/christmas\\\\\"\\\\|fetch\\(\\\\\"/api/admin/test-email\\\\\"\\\\|fetch\\(\\\\\"/api/admin/settings/auto-fulfillment\\\\\"\" --include=\"*.tsx\" --include=\"*.ts\")"
     ]
+  },
+  "enabledPlugins": {
+    "firecrawl@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "jdtls-lsp@claude-plugins-official": true,
+    "php-lsp@claude-plugins-official": true,
+    "coderabbit@claude-plugins-official": true,
+    "clangd-lsp@claude-plugins-official": true,
+    "firebase@claude-plugins-official": true,
+    "mcp-server-dev@claude-plugins-official": true,
+    "microsoft-docs@claude-plugins-official": true,
+    "postman@claude-plugins-official": true,
+    "atomic-agents@claude-plugins-official": true,
+    "imessage@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "greptile@claude-plugins-official": true,
+    "cloudflare@claude-plugins-official": true,
+    "expo@claude-plugins-official": true,
+    "session-report@claude-plugins-official": true,
+    "mongodb@claude-plugins-official": true
   }
 }

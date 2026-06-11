@@ -114,7 +114,9 @@ export default function OrderStatusPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone: normalizedPhone,
-          shopId: shop?.id,
+          // getShopBySlug no longer exposes the shop id (server-only); send the
+          // slug — the API resolves it server-side (subdomain OR shop_slug).
+          shopSlug,
         })
       })
 

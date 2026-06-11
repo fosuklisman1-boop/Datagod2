@@ -1030,7 +1030,7 @@ export default function ShopStorefront() {
                     <CardDescription>Enter your phone number to check order status</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <OrderStatusSearch shopId={shop?.id} shopName={shop?.shop_name} />
+                    <OrderStatusSearch shopSlug={shopSlug} shopName={shop?.shop_name} />
                   </CardContent>
                 </Card>
               </div>
@@ -1402,7 +1402,7 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
   )
 }
 
-function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: string }) {
+function OrderStatusSearch({ shopSlug, shopName }: { shopSlug: string; shopName: string }) {
   const [phoneNumber, setPhoneNumber] = useState("")
   const [orders, setOrders] = useState<any[]>([])
   const [searching, setSearching] = useState(false)
@@ -1452,7 +1452,9 @@ function OrderStatusSearch({ shopId, shopName }: { shopId: string; shopName: str
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone: normalizedPhone,
-          shopId: shopId
+          // getShopBySlug no longer exposes the shop id (server-only); send the
+          // slug — the API resolves it server-side (subdomain OR shop_slug).
+          shopSlug,
         })
       })
 
