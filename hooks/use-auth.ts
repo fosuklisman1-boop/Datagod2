@@ -100,7 +100,9 @@ export function useAuth() {
         sessionStorage.clear()
       }
       
-      const { error } = await supabase.auth.signOut()
+      // Explicit local scope — supabase-js defaults to "global", which would
+      // revoke the user's sessions on ALL devices, not just this one.
+      const { error } = await supabase.auth.signOut({ scope: "local" })
 
       if (error) throw error
 

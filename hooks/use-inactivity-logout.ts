@@ -31,9 +31,13 @@ export function useInactivityLogout() {
       // Set logout timeout (4 hours)
       timeoutRef.current = setTimeout(async () => {
         try {
-          // Global scope revokes the refresh token server-side so the session
-          // cannot be silently re-used from another tab or device.
-          await supabase.auth.signOut({ scope: "global" })
+          // Local scope: sign out THIS device's session only. Every device runs
+          // its own inactivity timer, so idle devices still log themselves out.
+          // Global scope here destroyed ALL of the user's sessions server-side,
+          // so an idle tab going stale broke actively-used devices elsewhere:
+          // their unexpired JWTs failed auth.getUser() with session_not_found
+          // and API routes returned 401 "Unauthorized" mid-session.
+          await supabase.auth.signOut({ scope: "local" })
           toast.info("You have been logged out due to inactivity")
           router.push("/auth/login")
         } catch (error) {

@@ -77,7 +77,10 @@ export const authService = {
 
   async logout() {
     try {
-      const { error } = await supabase.auth.signOut({ scope: "global" })
+      // Local scope: log out this device only. Global scope killed the user's
+      // sessions on every device, leaving other devices with unexpired JWTs
+      // that fail server-side getUser() (session_not_found → 401 Unauthorized).
+      const { error } = await supabase.auth.signOut({ scope: "local" })
       if (error) throw error
     } catch (error) {
       console.error("Logout error:", error)
