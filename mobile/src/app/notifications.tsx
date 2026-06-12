@@ -2,17 +2,16 @@ import { useCallback, useState } from "react"
 import {
   FlatList, Text, View, TouchableOpacity, StyleSheet, RefreshControl, Alert,
 } from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
-import { useFocusEffect, useRouter } from "expo-router"
-import { Card, Muted } from "@/components/ui"
+import { useFocusEffect } from "expo-router"
+import { Ionicons } from "@expo/vector-icons"
+import { Screen, Card, Muted } from "@/components/ui"
 import {
   listNotifications, markRead, markAllRead, removeNotification,
-  timeAgo, notificationEmoji, type AppNotification,
+  timeAgo, notificationIcon, type AppNotification,
 } from "@/lib/notifications"
 import { colors, radius } from "@/lib/theme"
 
 export default function NotificationsScreen() {
-  const router = useRouter()
   const [items, setItems] = useState<AppNotification[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,17 +58,15 @@ export default function NotificationsScreen() {
   }
 
   return (
-    <SafeAreaView style={s.safe} edges={["top"]}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-          <Text style={s.back}>‹</Text>
-        </TouchableOpacity>
-        <Text style={s.title}>Notifications</Text>
+    <Screen
+      title="Notifications"
+      back
+      right={
         <TouchableOpacity onPress={onMarkAll} hitSlop={8}>
           <Text style={s.markAll}>Mark all read</Text>
         </TouchableOpacity>
-      </View>
-
+      }
+    >
       {error ? <Text style={s.error}>{error}</Text> : null}
 
       <FlatList
@@ -90,7 +87,9 @@ export default function NotificationsScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity onPress={() => onTap(item)} onLongPress={() => onLongPress(item)}>
             <Card style={{ ...s.row, ...(item.read ? {} : s.unread) }}>
-              <Text style={s.emoji}>{notificationEmoji(item.type)}</Text>
+              <View style={s.iconCircle}>
+                <Ionicons name={notificationIcon(item.type) as any} size={18} color={colors.primary} />
+              </View>
               <View style={{ flex: 1 }}>
                 <View style={s.titleRow}>
                   <Text style={[s.itemTitle, !item.read && { fontWeight: "800" }]} numberOfLines={1}>
@@ -107,23 +106,20 @@ export default function NotificationsScreen() {
         ListEmptyComponent={<Card><Muted>No notifications yet.</Muted></Card>}
         contentContainerStyle={{ paddingBottom: 24 }}
       />
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 16 },
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    marginTop: 8, marginBottom: 16,
-  },
-  back: { color: colors.text, fontSize: 32, fontWeight: "600", marginTop: -4 },
-  title: { color: colors.text, fontSize: 20, fontWeight: "800" },
-  markAll: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  markAll: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
   error: { color: colors.danger, marginBottom: 12, textAlign: "center" },
   row: { flexDirection: "row", gap: 12 },
   unread: { borderLeftWidth: 3, borderLeftColor: colors.primary },
-  emoji: { fontSize: 22, marginTop: 2 },
+  iconCircle: {
+    width: 38, height: 38, borderRadius: radius.full,
+    backgroundColor: `${colors.primary}14`, alignItems: "center", justifyContent: "center",
+    marginTop: 2,
+  },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   itemTitle: { color: colors.text, fontWeight: "600", flexShrink: 1 },
   dot: { width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.primary },

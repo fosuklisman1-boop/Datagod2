@@ -49,7 +49,8 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="dark" />
+      {/* Light status-bar icons sit on the purple gradient headers. */}
+      <StatusBar style="light" />
       <Stack
         screenOptions={{
           headerShown: false,

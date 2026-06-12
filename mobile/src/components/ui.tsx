@@ -1,22 +1,68 @@
-// Tiny shared UI kit for v1 — keeps screens consistent without a UI library.
-// Visual language mirrors the web app's "Modern Fintech" reskin: light surfaces,
-// white soft-shadow cards, indigo primary, soft-fill status badges.
+// Tiny shared UI kit — visual language mirrors the web app's dealer skin:
+// purple gradient chrome (top bar / nav / primary buttons), light surfaces,
+// white soft-shadow cards, pill buttons, vector icons (no emojis).
 import { ReactNode, useRef } from "react"
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, Pressable,
+  View, Text, TextInput, StyleSheet, Pressable, TouchableOpacity,
   Animated, Platform, ActivityIndicator, ViewStyle, TextInputProps,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { LinearGradient } from "expo-linear-gradient"
+import { Ionicons } from "@expo/vector-icons"
 import * as Haptics from "expo-haptics"
-import { colors, radius, cardShadow } from "@/lib/theme"
+import { useRouter } from "expo-router"
+import { colors, radius, cardShadow, purpleGradient } from "@/lib/theme"
 
-export function Screen({ title, children }: { title: string; children: ReactNode }) {
+// Purple gradient top bar + light content area. `back` shows a back arrow,
+// `right` renders an action (e.g. the Home bell) on the right edge.
+export function Screen({
+  title, children, back, right,
+}: {
+  title: string
+  children: ReactNode
+  back?: boolean
+  right?: ReactNode
+}) {
+  const router = useRouter()
   return (
-    <SafeAreaView style={s.safe} edges={["top"]}>
-      <Text style={s.title}>{title}</Text>
-      {children}
-    </SafeAreaView>
+    <View style={s.root}>
+      <LinearGradient colors={purpleGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+        <SafeAreaView edges={["top"]}>
+          <View style={s.headerBar}>
+            <View style={s.headerLeft}>
+              {back && (
+                <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={s.backBtn}>
+                  <Ionicons name="arrow-back" size={22} color="#ffffff" />
+                </TouchableOpacity>
+              )}
+              <Text style={s.headerTitle}>{title}</Text>
+            </View>
+            {right}
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+      <View style={s.content}>{children}</View>
+    </View>
+  )
+}
+
+// Round white-on-purple icon button for the header `right` slot.
+export function HeaderIconButton({
+  icon, onPress, badge,
+}: {
+  icon: keyof typeof Ionicons.glyphMap
+  onPress: () => void
+  badge?: number
+}) {
+  return (
+    <TouchableOpacity style={s.headerIconBtn} onPress={onPress} hitSlop={8}>
+      <Ionicons name={icon} size={20} color="#ffffff" />
+      {badge != null && badge > 0 && (
+        <View style={s.headerBadge}>
+          <Text style={s.headerBadgeText}>{badge > 9 ? "9+" : badge}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
   )
 }
 
@@ -24,17 +70,17 @@ export function Card({ children, style }: { children: ReactNode; style?: ViewSty
   return <View style={[s.card, style]}>{children}</View>
 }
 
-// Modern button: gradient primary (same indigo→violet pair as the wallet
-// hero), spring scale-down on press, light haptic tick. Same prop API as v1
-// plus a soft-fill "secondary" variant.
+// Pill button: gradient purple primary, green success CTA, soft secondary,
+// outline ghost, red danger. Spring press animation + light haptic tick.
 export function Button({
-  label, onPress, busy, disabled, variant = "primary",
+  label, onPress, busy, disabled, variant = "primary", icon,
 }: {
   label: string
   onPress: () => void
   busy?: boolean
   disabled?: boolean
-  variant?: "primary" | "secondary" | "danger" | "ghost"
+  variant?: "primary" | "secondary" | "success" | "danger" | "ghost"
+  icon?: keyof typeof Ionicons.glyphMap
 }) {
   const scale = useRef(new Animated.Value(1)).current
   const pressIn = () => {
@@ -49,16 +95,21 @@ export function Button({
 
   const fg =
     variant === "ghost" || variant === "secondary" ? colors.primary : colors.primaryForeground
-  const inner = busy
-    ? <ActivityIndicator color={fg} />
-    : <Text style={[s.buttonText, { color: fg }]}>{label}</Text>
+  const inner = busy ? (
+    <ActivityIndicator color={fg} />
+  ) : (
+    <View style={s.buttonInner}>
+      {icon && <Ionicons name={icon} size={17} color={fg} />}
+      <Text style={[s.buttonText, { color: fg }]}>{label}</Text>
+    </View>
+  )
 
   return (
     <Animated.View style={{ transform: [{ scale }], opacity: disabled || busy ? 0.5 : 1 }}>
       <Pressable onPressIn={pressIn} onPressOut={pressOut} onPress={onPress} disabled={disabled || busy}>
         {variant === "primary" ? (
           <LinearGradient
-            colors={[colors.primary, colors.violet]}
+            colors={purpleGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={[s.button, s.buttonShadow]}
@@ -70,6 +121,7 @@ export function Button({
             style={[
               s.button,
               variant === "secondary" && { backgroundColor: `${colors.primary}1A` },
+              variant === "success" && [{ backgroundColor: colors.success }, s.buttonShadow],
               variant === "danger" && [{ backgroundColor: colors.danger }, s.buttonShadow],
               variant === "ghost" && s.ghost,
             ]}
@@ -115,13 +167,37 @@ export function StatusBadge({ status }: { status?: string }) {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 16 },
-  title: { color: colors.text, fontSize: 24, fontWeight: "800", marginTop: 8, marginBottom: 16 },
+  root: { flex: 1, backgroundColor: colors.bg },
+  headerBar: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingTop: 6, paddingBottom: 14,
+  },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  backBtn: {
+    width: 34, height: 34, borderRadius: radius.full,
+    backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center",
+  },
+  headerTitle: { color: "#ffffff", fontSize: 20, fontWeight: "800" },
+  headerIconBtn: {
+    width: 38, height: 38, borderRadius: radius.full,
+    backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center",
+  },
+  headerBadge: {
+    position: "absolute", top: -3, right: -3, backgroundColor: colors.danger,
+    borderRadius: radius.full, minWidth: 17, height: 17, paddingHorizontal: 4,
+    alignItems: "center", justifyContent: "center",
+  },
+  headerBadgeText: { color: "#ffffff", fontSize: 10, fontWeight: "800" },
+  content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
   card: {
     backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1,
     borderRadius: radius.lg, padding: 16, marginBottom: 12, ...cardShadow,
   },
-  button: { borderRadius: radius.md, padding: 14, alignItems: "center", marginTop: 4 },
+  button: {
+    borderRadius: radius.full, paddingVertical: 14, paddingHorizontal: 18,
+    alignItems: "center", marginTop: 4,
+  },
+  buttonInner: { flexDirection: "row", alignItems: "center", gap: 7 },
   buttonShadow: {
     shadowColor: colors.primary, shadowOpacity: 0.3, shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 }, elevation: 3,

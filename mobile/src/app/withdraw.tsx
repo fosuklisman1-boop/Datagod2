@@ -2,9 +2,9 @@ import { useEffect, useState } from "react"
 import {
   ScrollView, Text, View, TouchableOpacity, StyleSheet, Alert, Modal, FlatList,
 } from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
 import { useRouter } from "expo-router"
-import { Card, Button, Field, Muted } from "@/components/ui"
+import { Ionicons } from "@expo/vector-icons"
+import { Screen, Card, Button, Field, Muted } from "@/components/ui"
 import {
   getMyShop, getShopAvailableBalance, getBanks, validateWithdrawalAccount,
   getWithdrawalFeePercentage, createWithdrawal, type MyShop, type MoolreBank,
@@ -124,15 +124,7 @@ export default function WithdrawScreen() {
   }
 
   return (
-    <SafeAreaView style={s.safe} edges={["top"]}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-          <Text style={s.back}>‹</Text>
-        </TouchableOpacity>
-        <Text style={s.title}>Withdraw</Text>
-        <View style={{ width: 20 }} />
-      </View>
-
+    <Screen title="Withdraw" back>
       {shop === undefined ? (
         <Card><Muted>Loading…</Muted></Card>
       ) : shop === null ? (
@@ -216,7 +208,10 @@ export default function WithdrawScreen() {
 
             {verified && accountName ? (
               <View style={s.verifiedBox}>
-                <Text style={s.verifiedName}>✓ {accountName}</Text>
+                <View style={s.verifiedRow}>
+                  <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                  <Text style={s.verifiedName}>{accountName}</Text>
+                </View>
                 <Muted>Account name verified</Muted>
               </View>
             ) : (
@@ -244,7 +239,7 @@ export default function WithdrawScreen() {
         </ScrollView>
       )}
 
-      {/* Bank picker */}
+      {/* Bank picker — content unchanged below */}
       <Modal visible={bankPickerOpen} transparent animationType="slide" onRequestClose={() => setBankPickerOpen(false)}>
         <View style={s.modalWrap}>
           <View style={s.modal}>
@@ -271,18 +266,11 @@ export default function WithdrawScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 16 },
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    marginTop: 8, marginBottom: 16,
-  },
-  back: { color: colors.text, fontSize: 32, fontWeight: "600", marginTop: -4 },
-  title: { color: colors.text, fontSize: 20, fontWeight: "800" },
   balance: { color: colors.text, fontSize: 28, fontWeight: "800", marginTop: 4 },
   segmentRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
   segment: {
@@ -313,7 +301,8 @@ const s = StyleSheet.create({
     backgroundColor: `${colors.success}1A`, borderRadius: radius.md,
     padding: 12, marginTop: 4,
   },
-  verifiedName: { color: colors.success, fontWeight: "700", marginBottom: 2 },
+  verifiedRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
+  verifiedName: { color: colors.success, fontWeight: "700" },
   feeRow: { marginBottom: 10, gap: 2 },
   netAmount: { color: colors.text, fontWeight: "700", fontSize: 14 },
   modalWrap: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.45)" },

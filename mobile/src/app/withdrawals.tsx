@@ -1,8 +1,7 @@
 import { useCallback, useState } from "react"
-import { FlatList, Text, View, TouchableOpacity, StyleSheet, RefreshControl } from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
-import { useFocusEffect, useRouter } from "expo-router"
-import { Card, Muted, StatusBadge } from "@/components/ui"
+import { FlatList, Text, View, StyleSheet, RefreshControl } from "react-native"
+import { useFocusEffect } from "expo-router"
+import { Screen, Card, Muted, StatusBadge } from "@/components/ui"
 import { getWithdrawals, type WithdrawalRecord } from "@/lib/datagod"
 import { colors } from "@/lib/theme"
 
@@ -11,7 +10,6 @@ function methodLabel(method: string) {
 }
 
 export default function WithdrawalsScreen() {
-  const router = useRouter()
   const [items, setItems] = useState<WithdrawalRecord[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -32,15 +30,7 @@ export default function WithdrawalsScreen() {
   )
 
   return (
-    <SafeAreaView style={s.safe} edges={["top"]}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-          <Text style={s.back}>‹</Text>
-        </TouchableOpacity>
-        <Text style={s.title}>Withdrawal History</Text>
-        <View style={{ width: 20 }} />
-      </View>
-
+    <Screen title="Withdrawal History" back>
       {error ? <Text style={s.error}>{error}</Text> : null}
 
       <FlatList
@@ -74,18 +64,11 @@ export default function WithdrawalsScreen() {
         ListEmptyComponent={<Card><Muted>No withdrawals yet.</Muted></Card>}
         contentContainerStyle={{ paddingBottom: 24 }}
       />
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 16 },
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    marginTop: 8, marginBottom: 16,
-  },
-  back: { color: colors.text, fontSize: 32, fontWeight: "600", marginTop: -4 },
-  title: { color: colors.text, fontSize: 20, fontWeight: "800" },
   error: { color: colors.danger, marginBottom: 12, textAlign: "center" },
   row: { flexDirection: "row", alignItems: "center" },
   amount: { color: colors.text, fontSize: 17, fontWeight: "800", marginBottom: 2 },

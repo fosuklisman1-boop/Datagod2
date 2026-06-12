@@ -71,14 +71,15 @@ export function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString()
 }
 
-export function notificationEmoji(type: string): string {
+// Ionicons name per notification type (rendered in a tinted circle).
+export function notificationIcon(type: string): string {
   switch (type) {
-    case "order_update": return "📦"
-    case "payment_success": return "💳"
-    case "balance_updated": return "💰"
-    case "withdrawal_approved": return "✅"
-    case "withdrawal_rejected": return "❌"
-    case "complaint_resolved": return "🛠️"
-    default: return "📣"
+    case "order_update": return "cube-outline"
+    case "payment_success": return "card-outline"
+    case "balance_updated": return "wallet-outline"
+    case "withdrawal_approved": return "checkmark-circle-outline"
+    case "withdrawal_rejected": return "close-circle-outline"
+    case "complaint_resolved": return "construct-outline"
+    default: return "megaphone-outline"
   }
 }

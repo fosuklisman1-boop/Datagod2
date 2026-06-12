@@ -1,5 +1,5 @@
-// "Modern Fintech" palette — mirrors the web app's design tokens in
-// app/globals.css (:root, light). Keep in sync with the web reskin.
+// "Bold Telco" dealer palette — mirrors the web app's dealer skin (purple
+// gradient chrome) on top of the Modern Fintech neutrals from app/globals.css.
 export const colors = {
   bg: "#f6f7f9",            // --background 220 20% 97%
   card: "#ffffff",          // --card
@@ -7,14 +7,19 @@ export const colors = {
   text: "#0f172a",          // --foreground 222 47% 11%
   textMuted: "#64748b",     // --muted-foreground 215 16% 47%
   muted: "#f1f5f9",         // --muted 210 40% 96%
-  primary: "#4f46e5",       // --primary 243 75% 59% (indigo)
-  primaryDark: "#4338ca",   // indigo-700, pressed state
+  primary: "#7c1bd6",       // dealer purple (web bottom-nav/hero gradient end)
+  primaryDark: "#5b21b6",   // pressed state
   primaryForeground: "#ffffff",
-  violet: "#7c3aed",        // violet-600 — gradient partner on the web wallet hero
-  success: "#16a34a",       // --success 142 71% 40%
+  purpleDeep: "#37146b",    // dealer hero gradient start (web from-[#37146b])
+  violet: "#9333ea",        // bright gradient partner for chrome/buttons
+  success: "#16a34a",       // --success 142 71% 40% — green CTA (Top Up)
   danger: "#dc2626",        // --destructive 0 72% 51%
   warning: "#d97706",       // --warning 35 92% 44%
 }
+
+// Chrome gradients (top bar, bottom nav, primary buttons).
+export const purpleGradient = [colors.primary, colors.violet] as const
+export const heroGradient = [colors.purpleDeep, colors.primary] as const
 
 // --radius is 0.9rem on the web (~14px); md/sm step down by 2px like tailwind config.
 export const radius = { lg: 14, md: 12, sm: 10, full: 999 }

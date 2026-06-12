@@ -107,7 +107,7 @@ export default function WalletScreen() {
                 value={amount}
                 onChangeText={setAmount}
               />
-              <Button label="Top Up via Paystack" onPress={topUp} busy={busy} />
+              <Button label="Top Up Wallet" variant="success" icon="add" onPress={topUp} busy={busy} />
             </Card>
 
             {shop && (

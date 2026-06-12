@@ -1,13 +1,13 @@
 import { useCallback, useState } from "react"
 import { ScrollView, RefreshControl, Text, View, TouchableOpacity, StyleSheet } from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
 import { useFocusEffect, useRouter } from "expo-router"
 import { LinearGradient } from "expo-linear-gradient"
-import { Card, Muted, StatusBadge } from "@/components/ui"
+import { Ionicons } from "@expo/vector-icons"
+import { Screen, HeaderIconButton, Card, Muted, StatusBadge } from "@/components/ui"
 import { getWalletBalance, getOrders, type Order, type WalletBalance } from "@/lib/datagod"
 import { unreadCount } from "@/lib/notifications"
 import { supabase } from "@/lib/supabase"
-import { colors, radius, cardShadow } from "@/lib/theme"
+import { colors, radius, cardShadow, heroGradient } from "@/lib/theme"
 
 export default function HomeScreen() {
   const router = useRouter()
@@ -47,27 +47,25 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={s.safe} edges={["top"]}>
-      <View style={s.headerRow}>
-        <Text style={s.headerTitle}>Datagod</Text>
-        <TouchableOpacity style={s.bell} onPress={() => router.push("/notifications")} hitSlop={8}>
-          <Text style={{ fontSize: 20 }}>🔔</Text>
-          {unread > 0 && (
-            <View style={s.bellBadge}>
-              <Text style={s.bellBadgeText}>{unread > 9 ? "9+" : unread}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
+    <Screen
+      title="Dashboard"
+      right={
+        <HeaderIconButton
+          icon="notifications-outline"
+          badge={unread}
+          onPress={() => router.push("/notifications")}
+        />
+      }
+    >
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         showsVerticalScrollIndicator={false}
       >
         <Muted>{email}</Muted>
 
-        {/* Wallet hero — same indigo→violet gradient as the web dashboard. */}
+        {/* Wallet hero — the web dealer skin's deep-purple gradient card. */}
         <LinearGradient
-          colors={[colors.primary, colors.violet]}
+          colors={heroGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={s.hero}
@@ -75,13 +73,11 @@ export default function HomeScreen() {
           <View style={s.heroCircle} />
           <Text style={s.heroLabel}>Wallet Balance</Text>
           <Text style={s.balance}>GHS {(wallet?.balance ?? 0).toFixed(2)}</Text>
-          <Text style={s.heroHint}>Available funds</Text>
+          <Text style={s.heroHint}>Available now</Text>
           <View style={s.heroActions}>
             <TouchableOpacity style={s.heroBtnSolid} onPress={() => router.push("/wallet")}>
-              <Text style={s.heroBtnSolidText}>＋ Top Up</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.heroBtnGhost} onPress={() => router.push("/data")}>
-              <Text style={s.heroBtnGhostText}>Buy Data</Text>
+              <Ionicons name="add" size={16} color="#ffffff" />
+              <Text style={s.heroBtnSolidText}>Top Up Wallet</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.heroBtnGhost} onPress={() => router.push("/orders")}>
               <Text style={s.heroBtnGhostText}>My Orders</Text>
@@ -90,9 +86,9 @@ export default function HomeScreen() {
         </LinearGradient>
 
         <View style={s.quickRow}>
-          <QuickAction label="Buy Data" emoji="📶" onPress={() => router.push("/data")} />
-          <QuickAction label="Airtime" emoji="📞" onPress={() => router.push("/airtime")} />
-          <QuickAction label="Top Up" emoji="💰" onPress={() => router.push("/wallet")} />
+          <QuickAction label="Buy Data" icon="wifi-outline" onPress={() => router.push("/data")} />
+          <QuickAction label="Airtime" icon="call-outline" onPress={() => router.push("/airtime")} />
+          <QuickAction label="Top Up" icon="wallet-outline" onPress={() => router.push("/wallet")} />
         </View>
 
         <Text style={s.section}>Recent orders</Text>
@@ -114,37 +110,28 @@ export default function HomeScreen() {
           ))
         )}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
-function QuickAction({ label, emoji, onPress }: { label: string; emoji: string; onPress: () => void }) {
+function QuickAction({
+  label, icon, onPress,
+}: {
+  label: string
+  icon: keyof typeof Ionicons.glyphMap
+  onPress: () => void
+}) {
   return (
     <TouchableOpacity style={s.quick} onPress={onPress}>
-      <Text style={{ fontSize: 22 }}>{emoji}</Text>
+      <View style={s.quickIcon}>
+        <Ionicons name={icon} size={20} color={colors.primary} />
+      </View>
       <Text style={s.quickLabel}>{label}</Text>
     </TouchableOpacity>
   )
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 16 },
-  headerRow: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    marginTop: 8, marginBottom: 16,
-  },
-  headerTitle: { color: colors.text, fontSize: 24, fontWeight: "800" },
-  bell: {
-    backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1,
-    borderRadius: radius.full, width: 40, height: 40,
-    alignItems: "center", justifyContent: "center", ...cardShadow,
-  },
-  bellBadge: {
-    position: "absolute", top: -4, right: -4, backgroundColor: colors.danger,
-    borderRadius: radius.full, minWidth: 18, height: 18, paddingHorizontal: 4,
-    alignItems: "center", justifyContent: "center",
-  },
-  bellBadgeText: { color: "#ffffff", fontSize: 10, fontWeight: "800" },
   hero: {
     borderRadius: radius.lg, padding: 20, marginTop: 12, marginBottom: 12,
     overflow: "hidden",
@@ -158,20 +145,25 @@ const s = StyleSheet.create({
   heroHint: { color: "rgba(255,255,255,0.75)", fontSize: 12, marginTop: 2 },
   heroActions: { flexDirection: "row", gap: 8, marginTop: 18 },
   heroBtnSolid: {
-    backgroundColor: "#ffffff", borderRadius: radius.md,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: colors.success, borderRadius: radius.full,
     paddingHorizontal: 16, paddingVertical: 10,
   },
-  heroBtnSolidText: { color: colors.violet, fontWeight: "700", fontSize: 13 },
+  heroBtnSolidText: { color: "#ffffff", fontWeight: "700", fontSize: 13 },
   heroBtnGhost: {
-    backgroundColor: "rgba(255,255,255,0.15)", borderRadius: radius.md,
-    paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: "rgba(255,255,255,0.15)", borderRadius: radius.full,
+    paddingHorizontal: 16, paddingVertical: 10, justifyContent: "center",
   },
   heroBtnGhostText: { color: "#ffffff", fontWeight: "600", fontSize: 13 },
   quickRow: { flexDirection: "row", gap: 10, marginBottom: 8 },
   quick: {
     flex: 1, backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1,
-    borderRadius: radius.lg, alignItems: "center", paddingVertical: 14, gap: 4,
+    borderRadius: radius.lg, alignItems: "center", paddingVertical: 14, gap: 6,
     ...cardShadow,
+  },
+  quickIcon: {
+    width: 38, height: 38, borderRadius: radius.full,
+    backgroundColor: `${colors.primary}14`, alignItems: "center", justifyContent: "center",
   },
   quickLabel: { color: colors.text, fontSize: 12, fontWeight: "600" },
   section: { color: colors.text, fontSize: 16, fontWeight: "700", marginVertical: 10 },
