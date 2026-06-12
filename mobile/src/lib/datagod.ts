@@ -128,3 +128,98 @@ export function purchaseAirtime(network: string, beneficiaryPhone: string, airti
     body: JSON.stringify({ network, beneficiaryPhone, airtimeAmount }),
   })
 }
+
+// ── Shop & withdrawals ────────────────────────────────────────────────────────
+// Contracts mirror the web shop-dashboard page exactly (withdrawal_method is
+// "mobile_money" | "bank_transfer"; account_details shapes match the web's).
+
+export interface MyShop {
+  id: string
+  shop_name?: string | null
+}
+
+export interface WithdrawalRecord {
+  id: string
+  amount: number
+  fee_amount?: number | null
+  net_amount?: number | null
+  withdrawal_method: string
+  status: string
+  reference_code?: string | null
+  account_details?: any
+  created_at: string
+}
+
+export interface MoolreBank {
+  name: string
+  sublistid: string
+}
+
+export async function getMyShop(): Promise<MyShop | null> {
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) return null
+  const { data } = await supabase
+    .from("user_shops")
+    .select("id, shop_name")
+    .eq("user_id", auth.user.id)
+    .maybeSingle()
+  return (data as MyShop) ?? null
+}
+
+// Mirrors the web's getShopBalanceFromTable with the RPC as fallback.
+export async function getShopAvailableBalance(shopId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("shop_available_balance")
+    .select("available_balance")
+    .eq("shop_id", shopId)
+    .maybeSingle()
+  if (!error && data) return Number(data.available_balance) || 0
+  const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: shopId })
+  if (!breakdown) return 0
+  return (Number(breakdown.credited_p) || 0) - (Number(breakdown.total_w) || 0)
+}
+
+export async function getWithdrawals(): Promise<WithdrawalRecord[]> {
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) return []
+  const { data, error } = await supabase
+    .from("withdrawal_requests")
+    .select("*")
+    .eq("user_id", auth.user.id)
+    .order("created_at", { ascending: false })
+  if (error) throw error
+  return (data ?? []) as WithdrawalRecord[]
+}
+
+export function getBanks() {
+  return apiFetch<MoolreBank[]>("/api/user/withdrawals/banks")
+}
+
+// MoMo: {phone, network} • Bank: {network: "BANK", accountNumber, sublistid}
+export function validateWithdrawalAccount(payload: {
+  phone?: string
+  network: string
+  accountNumber?: string
+  sublistid?: string
+}) {
+  return apiFetch<{ accountName: string }>("/api/user/withdrawals/validate-account", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getWithdrawalFeePercentage() {
+  return apiFetch<{ withdrawal_fee_percentage: number }>("/api/settings/fees")
+}
+
+export function createWithdrawal(input: {
+  shopId: string
+  amount: number
+  withdrawal_method: "mobile_money" | "bank_transfer"
+  account_details: Record<string, string>
+}) {
+  return apiFetch<{ success: boolean; withdrawal: WithdrawalRecord }>(
+    "/api/user/withdrawals/create",
+    { method: "POST", body: JSON.stringify(input) },
+  )
+}

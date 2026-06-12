@@ -1,27 +1,39 @@
 import { useCallback, useState } from "react"
 import { FlatList, Text, View, StyleSheet, Alert, RefreshControl } from "react-native"
 import * as WebBrowser from "expo-web-browser"
-import { useFocusEffect } from "expo-router"
+import { useFocusEffect, useRouter } from "expo-router"
 import { Screen, Card, Button, Field, Muted } from "@/components/ui"
 import {
   getWalletBalance, getTransactions, initializeTopup, verifyPayment,
-  type WalletTransaction,
+  getMyShop, getShopAvailableBalance,
+  type WalletTransaction, type MyShop,
 } from "@/lib/datagod"
 import { supabase } from "@/lib/supabase"
 import { colors } from "@/lib/theme"
 
 export default function WalletScreen() {
+  const router = useRouter()
   const [balance, setBalance] = useState(0)
   const [txns, setTxns] = useState<WalletTransaction[]>([])
+  const [shop, setShop] = useState<MyShop | null>(null)
+  const [shopBalance, setShopBalance] = useState(0)
   const [amount, setAmount] = useState("")
   const [busy, setBusy] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const [w, t] = await Promise.all([getWalletBalance(), getTransactions(1, 20)])
+      const [w, t, myShop] = await Promise.all([
+        getWalletBalance(),
+        getTransactions(1, 20),
+        getMyShop().catch(() => null),
+      ])
       setBalance(w.balance)
       setTxns(t)
+      setShop(myShop)
+      if (myShop) {
+        getShopAvailableBalance(myShop.id).then(setShopBalance).catch(() => {})
+      }
     } catch {
       // pull-to-refresh retries
     }
@@ -97,6 +109,16 @@ export default function WalletScreen() {
               />
               <Button label="Top Up via Paystack" onPress={topUp} busy={busy} />
             </Card>
+
+            {shop && (
+              <Card>
+                <Muted>Shop earnings{shop.shop_name ? ` — ${shop.shop_name}` : ""}</Muted>
+                <Text style={s.balance}>GHS {shopBalance.toFixed(2)}</Text>
+                <Button label="Withdraw" onPress={() => router.push("/withdraw")} />
+                <Button label="Withdrawal History" variant="ghost" onPress={() => router.push("/withdrawals")} />
+              </Card>
+            )}
+
             <Text style={s.section}>Transactions</Text>
           </>
         }
