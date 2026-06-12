@@ -1,7 +1,7 @@
 // Slide-in side menu, opened by tapping the active bottom tab again — same
 // gesture as the web app's "Tap the active tab again to open the side menu".
-// In-app destinations route natively; features not yet in the app open the
-// web dashboard in the in-app browser.
+// In-app destinations route natively; everything else opens inside the
+// authenticated WebView (/web), so ALL web features are available in-app.
 import { useEffect, useRef, useState } from "react"
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, Animated,
@@ -10,14 +10,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context"
 import { LinearGradient } from "expo-linear-gradient"
 import { Ionicons } from "@expo/vector-icons"
-import * as WebBrowser from "expo-web-browser"
 import { useRouter } from "expo-router"
 import { supabase } from "@/lib/supabase"
 import { unregisterPush } from "@/lib/push"
 import { colors, radius, purpleGradient } from "@/lib/theme"
 
 const MENU_WIDTH = Math.min(Dimensions.get("window").width * 0.78, 320)
-const WEB_BASE = "https://www.datagod.store"
 
 type Item = {
   label: string
@@ -36,12 +34,16 @@ const ITEMS: Item[] = [
   { label: "Withdrawals", icon: "cash-outline", route: "/withdrawals" },
   { label: "Profile", icon: "person-outline", route: "/profile" },
   { label: "Results Checker", icon: "school-outline", web: "/dashboard/results-checker" },
-  { label: "AFA Orders", icon: "star-outline", web: "/dashboard/afa-orders" },
-  { label: "Transactions", icon: "time-outline", web: "/dashboard/transactions" },
-  { label: "My Complaints", icon: "alert-circle-outline", web: "/dashboard/complaints" },
   { label: "My Shop", icon: "storefront-outline", web: "/dashboard/my-shop" },
   { label: "Shop Dashboard", icon: "trending-up-outline", web: "/dashboard/shop-dashboard" },
   { label: "Sub-Agents", icon: "people-outline", web: "/dashboard/sub-agents" },
+  { label: "Sub-Agent Catalog", icon: "albums-outline", web: "/dashboard/sub-agent-catalog" },
+  { label: "AFA Orders", icon: "star-outline", web: "/dashboard/afa-orders" },
+  { label: "Transactions", icon: "time-outline", web: "/dashboard/transactions" },
+  { label: "My Complaints", icon: "alert-circle-outline", web: "/dashboard/complaints" },
+  { label: "USSD Shop", icon: "keypad-outline", web: "/dashboard/ussd-shop" },
+  { label: "Payment Reverify", icon: "refresh-circle-outline", web: "/dashboard/payment-reverify" },
+  { label: "Upgrade to Dealer", icon: "sparkles-outline", web: "/dashboard/upgrade" },
 ]
 
 export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -63,7 +65,8 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
     if (item.route) {
       router.push(item.route as any)
     } else if (item.web) {
-      WebBrowser.openBrowserAsync(`${WEB_BASE}${item.web}`).catch(() => {})
+      // Opens inside the app, already signed in (session handoff in /web).
+      router.push({ pathname: "/web", params: { path: item.web, title: item.label } } as any)
     }
   }
 
@@ -106,9 +109,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
                   <Ionicons name={item.icon} size={18} color={colors.primary} />
                 </View>
                 <Text style={s.itemLabel}>{item.label}</Text>
-                {item.web && (
-                  <Ionicons name="open-outline" size={14} color={colors.textMuted} />
-                )}
+                <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               </TouchableOpacity>
             ))}
 

@@ -24,6 +24,19 @@ export const heroGradient = [colors.purpleDeep, colors.primary] as const
 // --radius is 0.9rem on the web (~14px); md/sm step down by 2px like tailwind config.
 export const radius = { lg: 14, md: 12, sm: 10, full: 999 }
 
+// 4-pt spacing scale — use these instead of magic numbers in new/edited styles.
+export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32 } as const
+
+// Type ramp (size / weight pairs used across the app).
+export const type = {
+  display: { fontSize: 36, fontWeight: "800" as const },
+  title: { fontSize: 20, fontWeight: "800" as const },
+  section: { fontSize: 16, fontWeight: "700" as const },
+  body: { fontSize: 14, fontWeight: "400" as const },
+  label: { fontSize: 13, fontWeight: "600" as const },
+  caption: { fontSize: 12, fontWeight: "400" as const },
+} as const
+
 // Soft card shadow — the web's shadow-sm look, translated to RN.
 export const cardShadow = {
   shadowColor: "#0f172a",

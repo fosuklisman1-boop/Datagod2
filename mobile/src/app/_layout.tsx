@@ -62,6 +62,7 @@ export default function RootLayout() {
         <Stack.Screen name="notifications" />
         <Stack.Screen name="withdraw" />
         <Stack.Screen name="withdrawals" />
+        <Stack.Screen name="web" />
       </Stack>
     </>
   )
