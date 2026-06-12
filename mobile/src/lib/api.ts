@@ -38,6 +38,13 @@ export async function apiFetch<T = any>(path: string, init: RequestInit = {}): P
     if (!error && data.session?.access_token) {
       res = await doFetch(data.session.access_token)
     }
+    if (res.status === 401) {
+      // Refresh failed or the token is still rejected — the session is dead
+      // (e.g. refresh-token family revoked). Sign out locally so the auth
+      // gate returns the user to the login screen instead of leaving every
+      // screen stuck on "Unauthorized".
+      supabase.auth.signOut({ scope: "local" }).catch(() => {})
+    }
   }
 
   const body = await res.json().catch(() => ({}))
