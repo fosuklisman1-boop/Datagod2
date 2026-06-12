@@ -1,5 +1,5 @@
 import { Stack, useRouter, useSegments } from "expo-router"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { StatusBar } from "expo-status-bar"
 import { View, ActivityIndicator } from "react-native"
 import * as Notifications from "expo-notifications"
@@ -11,9 +11,12 @@ export default function RootLayout() {
   const { session, loading } = useSession()
   const segments = useSegments()
   const router = useRouter()
+  const booted = useRef(false)
 
   // Auth gate: unauthenticated users only see /login; authenticated users
-  // are kept out of /login.
+  // are kept out of /login. On cold start with a session, always begin at
+  // Home — dev-mode state restoration otherwise reopens the last visited
+  // route (e.g. the Data tab), which is confusing.
   useEffect(() => {
     if (loading) return
     const onLogin = segments[0] === "login"
@@ -21,7 +24,12 @@ export default function RootLayout() {
       router.replace("/login")
     } else if (session && onLogin) {
       router.replace("/")
+    } else if (session && !booted.current) {
+      const seg1 = segments[1] as string | undefined
+      const atHome = segments[0] === "(tabs)" && (!seg1 || seg1 === "index")
+      if (!atHome) router.replace("/")
     }
+    booted.current = true
   }, [session, loading, segments])
 
   // Register this device for push once a session exists. Silent no-op in
