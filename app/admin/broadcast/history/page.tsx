@@ -102,40 +102,29 @@ export default function MessagingHistoryPage() {
                 return
             }
 
-            let hasMore = true
-            let totalRetried = 0
+            // Single, terminating call. The server resets the failed recipients
+            // and sends the first chunk; the drain-broadcasts cron finishes any
+            // remainder. No client-side polling loop (the old one spun forever on
+            // permanently-failing messages).
+            const response = await fetch("/api/admin/broadcast/retry", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({ broadcastId })
+            })
 
-            while (hasMore) {
-                const response = await fetch("/api/admin/broadcast/retry", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${session.access_token}`
-                    },
-                    body: JSON.stringify({ broadcastId, limit: 20 })
-                })
+            const result = await response.json()
 
-                const result = await response.json()
-
-                if (!response.ok) {
-                    toast.error(result.error || "Retry failed")
-                    hasMore = false
-                } else {
-                    totalRetried += result.retriedCount
-                    hasMore = result.hasMore
-
-                    if (hasMore) {
-                        toast.loading(`Processing... ${totalRetried} sent, ${result.remainingCount} remaining`, { id: 'retry-toast' })
-                        // Wait a bit before next chunk
-                        await new Promise(r => setTimeout(r, 500))
-                    } else {
-                        toast.success(`Successfully retried ${totalRetried} messages`, { id: 'retry-toast' })
-                    }
-                }
+            if (!response.ok) {
+                toast.error(result.error || "Retry failed")
+            } else if (result.retriedCount > 0) {
+                toast.success(`Re-queued ${result.retriedCount} failed recipients. Remaining sends finish in the background.`)
+                loadData()
+            } else {
+                toast.info(result.message || "No failed recipients to retry.")
             }
-
-            // Only reload if we actually did something
-            if (totalRetried > 0) loadData()
 
         } catch (error) {
             console.error("Retry error:", error)
@@ -210,7 +199,7 @@ export default function MessagingHistoryPage() {
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <Badge variant="outline" className="bg-card px-3 py-1">{log.status}</Badge>
-                                                        {((log.results?.email?.failed > 0) || (log.results?.sms?.failed > 0)) && (
+                                                        {((log.results?.email?.failed > 0) || (log.results?.sms?.failed > 0) || (log.results?.push?.failed > 0) || (log.results?.whatsapp?.failed > 0)) && (
                                                             <Button
                                                                 variant="destructive"
                                                                 size="sm"
@@ -220,7 +209,7 @@ export default function MessagingHistoryPage() {
                                                                     handleRetry(log.id)
                                                                 }}
                                                             >
-                                                                Retry {(log.results?.email?.failed || 0) + (log.results?.sms?.failed || 0)} Failed
+                                                                Retry {(log.results?.email?.failed || 0) + (log.results?.sms?.failed || 0) + (log.results?.push?.failed || 0) + (log.results?.whatsapp?.failed || 0)} Failed
                                                             </Button>
                                                         )}
                                                     </div>

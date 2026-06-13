@@ -1,28 +1,32 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
-import { sendSMS } from "@/lib/sms-service"
-import { sendEmail, EmailTemplates } from "@/lib/email-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { drainBroadcasts, MAX_ATTEMPTS } from "@/lib/broadcast-drain"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+// Retry is now a single, terminating operation: reset the failed recipients
+// back into the queue and run one drain. There is no client-side while(hasMore)
+// loop anymore — the old logic re-counted permanently-failing rows every round
+// and spun forever. Each recipient carries an attempt counter, so even repeated
+// retries can't loop indefinitely; only channels that previously failed are
+// re-sent, so retrying never double-delivers.
 export async function POST(req: NextRequest) {
     const { isAdmin, errorResponse } = await verifyAdminAccess(req)
     if (!isAdmin) return errorResponse
 
     try {
         const supabase = createClient(supabaseUrl, serviceRoleKey)
-        const { broadcastId, limit = 50 } = await req.json()
+        const { broadcastId } = await req.json()
 
         if (!broadcastId) {
             return NextResponse.json({ error: "Missing broadcastId" }, { status: 400 })
         }
 
-        // Fetch the broadcast log
         const { data: broadcastLog, error: logError } = await supabase
             .from("broadcast_logs")
-            .select("*")
+            .select("id")
             .eq("id", broadcastId)
             .single()
 
@@ -30,199 +34,48 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Broadcast not found" }, { status: 404 })
         }
 
-        const results = broadcastLog.results || { sms: { sent: 0, failed: 0 }, email: { sent: 0, failed: 0 } }
-        let retriedCount = 0
-
-        // Count total failed first to know if we have more
-        const { count: failedEmailCount } = await supabase
-            .from("email_logs")
-            .select("id", { count: 'exact', head: true })
-            .eq("reference_id", broadcastId)
+        // Reset failed recipients so they're eligible again (fresh attempt budget).
+        // Channels that already succeeded stay recorded in channel_status and are
+        // skipped on the next drain, so this only re-sends the failures.
+        const { data: reset, error: resetError } = await supabase
+            .from("broadcast_recipients")
+            .update({ status: "pending", attempts: 0, last_error: null, claimed_at: null })
+            .eq("broadcast_id", broadcastId)
             .eq("status", "failed")
+            .select("id")
 
-        const { count: failedSmsCount } = await supabase
-            .from("sms_logs")
-            .select("id", { count: 'exact', head: true })
-            .eq("reference_id", broadcastId)
-            .eq("status", "failed")
+        if (resetError) throw resetError
 
-        const totalFailedStart = (failedEmailCount || 0) + (failedSmsCount || 0)
+        const resetCount = reset?.length || 0
 
-        // Fetch FAILED email logs for this broadcast (LIMITED)
-        const { data: failedEmails, error: emailError } = await supabase
-            .from("email_logs")
-            .select("*, user:users!user_id(id, first_name, email)")
-            .eq("reference_id", broadcastId)
-            .eq("status", "failed")
-            .limit(limit)
-
-        let processedCount = 0
-
-        if (failedEmails && failedEmails.length > 0) {
-            console.log(`[RETRY] Found ${failedEmails.length} failed emails to retry (limit: ${limit}).`)
-
-            // Deduplication and "Already Sent" check
-            const uniqueUsers = new Map<string, any[]>()
-            const userIds = new Set<string>()
-
-            failedEmails.forEach(log => {
-                if (log.user?.id) {
-                    if (!uniqueUsers.has(log.user.id)) {
-                        uniqueUsers.set(log.user.id, [])
-                        userIds.add(log.user.id)
-                    }
-                    uniqueUsers.get(log.user.id)?.push(log)
-                }
+        if (resetCount === 0) {
+            // Either nothing failed, or this broadcast predates the queue system
+            // (no recipient rows were ever persisted for it).
+            return NextResponse.json({
+                success: true,
+                retriedCount: 0,
+                message: "No failed recipients to retry for this broadcast.",
             })
-
-            // Check if these users ALREADY have a 'sent' log for this broadcast
-            const { data: alreadySentLogs } = await supabase
-                .from("email_logs")
-                .select("user_id")
-                .eq("reference_id", broadcastId)
-                .eq("status", "sent")
-                .in("user_id", Array.from(userIds))
-
-            const sentUserIds = new Set(alreadySentLogs?.map(l => l.user_id) || [])
-
-            // Convert map to array for processing
-            const usersToProcess = Array.from(uniqueUsers.entries())
-
-            const batchSize = 5
-            for (let i = 0; i < usersToProcess.length; i += batchSize) {
-                const batch = usersToProcess.slice(i, i + batchSize)
-
-                // Rate limiting delay
-                if (i > 0) await new Promise(r => setTimeout(r, 1000))
-
-                await Promise.all(batch.map(async ([userId, logs]) => {
-                    const primaryLog = logs[0]
-                    processedCount += logs.length
-
-                    // If already sent, just update these failed logs to sent and skip valid send
-                    if (sentUserIds.has(userId)) {
-                        console.log(`[RETRY] User ${userId} already has sent log. Skipping send.`)
-                        await supabase
-                            .from("email_logs")
-                            .update({ status: "sent", sent_at: new Date().toISOString(), error_message: null })
-                            .in("id", logs.map(l => l.id))
-
-                        results.email.sent += logs.length
-                        results.email.failed = Math.max(0, results.email.failed - logs.length)
-                        retriedCount += logs.length
-                        return
-                    }
-
-                    if (!primaryLog.user?.email) return
-
-                    try {
-                        const emailData = EmailTemplates.broadcastMessage(broadcastLog.subject || "Notification from DataGod", broadcastLog.message)
-
-                        const res = await sendEmail({
-                            to: [{ email: primaryLog.user.email, name: primaryLog.user.first_name || "User" }],
-                            subject: emailData.subject,
-                            htmlContent: emailData.html,
-                            userId: userId,
-                            type: "broadcast",
-                            referenceId: broadcastId,
-                            skipLogging: true
-                        })
-
-                        if (res.success) {
-                            retriedCount += logs.length
-                            results.email.sent += logs.length
-                            results.email.failed = Math.max(0, results.email.failed - logs.length)
-
-                            // Update ALL failed logs for this user to success
-                            await supabase
-                                .from("email_logs")
-                                .update({ status: "sent", sent_at: new Date().toISOString(), error_message: null })
-                                .in("id", logs.map(l => l.id))
-                        }
-                    } catch (e) {
-                        console.error(`[RETRY] Failed to resend email to ${primaryLog.user.email}:`, e)
-                    }
-                }))
-            }
         }
 
-        // If we haven't hit the limit with emails, check SMS
-        // Note: This simple logic prioritizes emails. If emails take up the whole limit, SMS waits for next batch.
-        const remainingLimit = limit - processedCount
+        // Re-open the broadcast and send the first chunk now; the cron drains the rest.
+        await supabase.from("broadcast_logs").update({ status: "processing" }).eq("id", broadcastId)
+        await drainBroadcasts(supabase, { broadcastId, maxRecipients: 30 })
 
-        if (remainingLimit > 0) {
-            // Fetch FAILED SMS logs for this broadcast
-            const { data: failedSMS, error: smsError } = await supabase
-                .from("sms_logs")
-                .select("*, user:users!user_id(id, first_name, phone_number)")
-                .eq("reference_id", broadcastId)
-                .eq("status", "failed")
-                .limit(remainingLimit)
-
-            if (failedSMS && failedSMS.length > 0) {
-                console.log(`[RETRY] Found ${failedSMS.length} failed SMS to retry.`)
-
-                const batchSize = 10
-                for (let i = 0; i < failedSMS.length; i += batchSize) {
-                    const batch = failedSMS.slice(i, i + batchSize)
-
-                    // Rate limiting delay
-                    if (i > 0) await new Promise(r => setTimeout(r, 1000))
-
-                    await Promise.all(batch.map(async (log) => {
-                        processedCount++
-                        if (!log.user?.phone_number) return
-
-                        try {
-                            const res = await sendSMS({
-                                phone: log.user.phone_number,
-                                message: broadcastLog.message,
-                                type: "broadcast",
-                                userId: log.user.id,
-                                reference: broadcastId,
-                                skipLogging: true
-                            })
-
-                            if (res.success) {
-                                retriedCount++
-                                results.sms.sent++
-                                results.sms.failed = Math.max(0, results.sms.failed - 1)
-
-                                // Update this specific log entry to success
-                                await supabase
-                                    .from("sms_logs")
-                                    .update({ status: "sent", sent_at: new Date().toISOString(), error_message: null })
-                                    .eq("id", log.id)
-                            }
-                        } catch (e) {
-                            console.error(`[RETRY] Failed to resend SMS to ${log.user.phone_number}:`, e)
-                        }
-                    }))
-                }
-            }
-        }
-
-        // Update the main broadcast log with new stats
-        const { error: updateError } = await supabase
+        // Return the freshly recomputed stats so the UI can refresh in one shot.
+        const { data: updated } = await supabase
             .from("broadcast_logs")
-            .update({ results: results })
+            .select("results, status")
             .eq("id", broadcastId)
-
-        if (updateError) {
-            console.error("[RETRY] Failed to update broadcast stats:", updateError)
-        }
-
-        const remainingCount = Math.max(0, totalFailedStart - processedCount)
+            .single()
 
         return NextResponse.json({
             success: true,
-            retriedCount,
-            results,
-            processedCount,
-            remainingCount,
-            hasMore: remainingCount > 0
+            retriedCount: resetCount,
+            maxAttempts: MAX_ATTEMPTS,
+            results: updated?.results,
+            status: updated?.status,
         })
-
     } catch (error: any) {
         console.error("[RETRY] API Error:", error)
         return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 })

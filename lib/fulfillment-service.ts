@@ -100,11 +100,16 @@ export async function processManualFulfillment(
     // Check existing tracking/logs strictly for MTN orders to avoid dual execution
     let existingTracking: any = null
     if (isMTN) {
-      const trackingQuery = orderType === "bulk"
-        ? supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count, provider").eq("order_id", orderId.trim())
-        : supabase.from("mtn_fulfillment_tracking").select("id, mtn_order_id, status, retry_count, provider").eq("shop_order_id", orderId.trim())
+      // Tracking rows are keyed by order type (see saveMTNTracking): bulk -> order_id,
+      // api -> api_order_id, shop -> shop_order_id.
+      const trackingColumn = orderType === "bulk" ? "order_id" : orderType === "api" ? "api_order_id" : "shop_order_id"
 
-      const { data } = await trackingQuery.order("created_at", { ascending: false }).limit(1)
+      const { data } = await supabase
+        .from("mtn_fulfillment_tracking")
+        .select("id, mtn_order_id, status, retry_count, provider")
+        .eq(trackingColumn, orderId.trim())
+        .order("created_at", { ascending: false })
+        .limit(1)
       existingTracking = data
 
       if (existingTracking && existingTracking.length > 0) {

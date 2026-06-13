@@ -705,6 +705,9 @@ export const adminOrderService = {
 // Admin Messaging Management
 export const adminMessagingService = {
   async getBroadcastLogs() {
+    // broadcast_logs.results is kept authoritative by the recompute_broadcast_results
+    // SQL function on every drain (initial send, cron, and retry), so we read the
+    // stored value directly instead of re-aggregating per-channel counts here.
     const { data, error } = await supabase
       .from("broadcast_logs")
       .select(`
@@ -714,74 +717,7 @@ export const adminMessagingService = {
       .order("created_at", { ascending: false })
 
     if (error) throw error
-
-    // Fetch dynamic counts for robustness (in case initial send crashed)
-    const enrichedData = await Promise.all(data.map(async (log) => {
-
-      const [emailSent, emailFailed, emailPending, smsSent, smsFailed, smsPending] = await Promise.all([
-        // Email Sent
-        supabase.from("email_logs")
-          .select("id", { count: 'exact', head: true })
-          .eq("reference_id", log.id)
-          .or('status.eq.sent,status.eq.delivered'),
-
-        // Email Failed
-        supabase.from("email_logs")
-          .select("id", { count: 'exact', head: true })
-          .eq("reference_id", log.id)
-          .eq("status", "failed"),
-
-        // Email Pending
-        supabase.from("email_logs")
-          .select("id", { count: 'exact', head: true })
-          .eq("reference_id", log.id)
-          .eq("status", "pending"),
-
-        // SMS Sent
-        supabase.from("sms_logs")
-          .select("id", { count: 'exact', head: true })
-          .eq("reference_id", log.id)
-          .or('status.eq.sent,status.eq.delivered'),
-
-        // SMS Failed
-        supabase.from("sms_logs")
-          .select("id", { count: 'exact', head: true })
-          .eq("reference_id", log.id)
-          .eq("status", "failed"),
-
-        // SMS Pending
-        supabase.from("sms_logs")
-          .select("id", { count: 'exact', head: true })
-          .eq("reference_id", log.id)
-          .eq("status", "pending")
-      ])
-
-      const emailSentCount = emailSent.count || 0
-      const emailFailedCount = emailFailed.count || 0
-      const emailPendingCount = emailPending.count || 0
-      const smsSentCount = smsSent.count || 0
-      const smsFailedCount = smsFailed.count || 0
-      const smsPendingCount = smsPending.count || 0
-
-      const totalLogs = emailSentCount + emailFailedCount + emailPendingCount + smsSentCount + smsFailedCount + smsPendingCount
-      const hasLogs = totalLogs > 0
-
-      if (hasLogs) {
-        return {
-          ...log,
-          results: {
-            ...log.results,
-            email: { sent: emailSentCount, failed: emailFailedCount, pending: emailPendingCount },
-            sms: { sent: smsSentCount, failed: smsFailedCount, pending: smsPendingCount },
-            total: totalLogs
-          }
-        }
-      }
-
-      return log
-    }))
-
-    return enrichedData
+    return data
   },
 
   async getEmailLogs(limit = 100) {

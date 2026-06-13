@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -53,10 +53,58 @@ export default function BroadcastPage() {
 
     // Progress
     const [results, setResults] = useState<any | null>(null)
+    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     useEffect(() => {
         checkAdminAccess()
     }, [])
+
+    // Stop polling if the admin leaves the page — the server cron keeps sending.
+    useEffect(() => {
+        return () => {
+            if (pollRef.current) clearInterval(pollRef.current)
+        }
+    }, [])
+
+    // Poll the broadcast row for live progress. Because the send runs server-side,
+    // this is purely cosmetic: closing the tab does NOT stop the broadcast.
+    const startProgressPolling = (broadcastId: string, total: number) => {
+        if (pollRef.current) clearInterval(pollRef.current)
+        const startedAt = Date.now()
+        pollRef.current = setInterval(async () => {
+            try {
+                const { count } = await supabase
+                    .from("broadcast_recipients")
+                    .select("id", { count: "exact", head: true })
+                    .eq("broadcast_id", broadcastId)
+                    .in("status", ["sent", "failed"])
+
+                const { data: log } = await supabase
+                    .from("broadcast_logs")
+                    .select("results, status")
+                    .eq("id", broadcastId)
+                    .single()
+
+                const done = count || 0
+                setProgress({
+                    sent: done,
+                    total,
+                    percentage: total > 0 ? Math.round((done / total) * 100) : 100,
+                })
+
+                const elapsed = Date.now() - startedAt
+                if (log?.status === "completed" || elapsed > 10 * 60 * 1000) {
+                    if (pollRef.current) clearInterval(pollRef.current)
+                    pollRef.current = null
+                    setResults(log?.results || null)
+                    setSending(false)
+                    if (log?.status === "completed") toast.success("Broadcast complete!")
+                }
+            } catch {
+                // transient read error — keep polling
+            }
+        }, 2500)
+    }
 
     // Update recipient count when selections change
     useEffect(() => {
@@ -179,102 +227,42 @@ export default function BroadcastPage() {
             const { data: { session } } = await supabase.auth.getSession()
             const token = session?.access_token
 
-            // 1. Identify Target Users (Client-side filtering)
-            let targetList: any[] = []
-            if (targetType === "specific") {
-                targetList = selectedUsers
-            } else {
-                targetList = allUsers.filter(u => selectedRoles.includes(u.role))
-            }
+            // Build the targeting payload. For role targets the server resolves the
+            // audience itself; for specific users we send the chosen list. The send
+            // itself runs server-side (init enqueues + sends the first batch, the
+            // drain-broadcasts cron finishes the rest), so it no longer depends on
+            // this tab staying open.
+            const recipientsPayload = targetType === "specific"
+                ? {
+                    type: "specific",
+                    users: selectedUsers.map(u => ({ id: u.id, email: u.email, phone: u.phone_number, name: u.first_name }))
+                }
+                : { type: "roles", roles: selectedRoles }
 
-            // 2. INIT Broadcast
             const initRes = await fetch("/api/admin/broadcast", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({
-                    action: "init",
-                    channels,
-                    recipients: { type: targetType, roles: selectedRoles }, // Just for logging metadata
-                    subject,
-                    message,
-                    estimatedCount: targetList.length
-                })
+                body: JSON.stringify({ action: "init", channels, recipients: recipientsPayload, subject, message })
             })
 
             const initData = await initRes.json()
-            if (!initRes.ok) throw new Error(initData.error || "Failed to initialize broadcast")
+            if (!initRes.ok) throw new Error(initData.error || "Failed to start broadcast")
 
             const broadcastId = initData.broadcastId
+            const total = initData.total || recipientCount
+            setProgress({ sent: 0, total, percentage: 0 })
+            toast.success("Broadcast started — it keeps sending in the background even if you close this page.")
 
-            // 3. SEND BATCHES
-            const batchSize = 2 // Process 2 users at a time (same as retries)
-            let sentCount = 0
-            let whatsappSent = 0
-            let whatsappFailed = 0
-
-            for (let i = 0; i < targetList.length; i += batchSize) {
-                const batch = targetList.slice(i, i + batchSize)
-
-                // Map to minimal user object for API
-                const recipientsPayload = batch.map(u => ({
-                    id: u.id,
-                    email: u.email,
-                    phone: u.phone_number,
-                    name: u.first_name
-                }))
-
-                const batchRes = await fetch("/api/admin/broadcast", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                    body: JSON.stringify({
-                        action: "batch",
-                        broadcastId,
-                        recipients: recipientsPayload,
-                        channels,
-                        subject,
-                        message
-                    })
-                })
-                const batchData = await batchRes.json().catch(() => null)
-                whatsappSent += batchData?.results?.whatsapp?.sent ?? 0
-                whatsappFailed += batchData?.results?.whatsapp?.failed ?? 0
-
-                sentCount += batch.length
-                setProgress({
-                    sent: Math.min(sentCount, targetList.length),
-                    total: targetList.length,
-                    percentage: Math.round((Math.min(sentCount, targetList.length) / targetList.length) * 100)
-                })
-            }
-
-            // 4. FINALIZE
-            const finalizeRes = await fetch("/api/admin/broadcast", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({
-                    action: "finalize",
-                    broadcastId,
-                    whatsapp: { sent: whatsappSent, failed: whatsappFailed }
-                })
-            })
-
-            const finalData = await finalizeRes.json()
-            setResults({
-                ...finalData.results,
-                whatsapp: { sent: whatsappSent, failed: whatsappFailed }
-            })
-            toast.success("Broadcast sent successfully!")
-
-            // Clear form
+            // Clear the form immediately; the broadcast is now owned by the server.
             setMessage("")
             setSubject("")
             setSelectedUsers([])
             // Keep roles/channels as they might be reused
 
+            startProgressPolling(broadcastId, total)
         } catch (error: any) {
             console.error("Broadcast error:", error)
             toast.error(error.message || "An error occurred during broadcast")
-        } finally {
             setSending(false)
             setProgress({ sent: 0, total: 0, percentage: 0 })
         }

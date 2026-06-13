@@ -60,6 +60,10 @@
     {
       "path": "/api/cron/sync-digiwapy",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/drain-broadcasts",
+      "schedule": "* * * * *"
     }
   ]
 }

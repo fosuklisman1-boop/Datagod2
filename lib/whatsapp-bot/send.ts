@@ -154,6 +154,62 @@ export async function downloadWaMedia(mediaId: string): Promise<{ buffer: ArrayB
   return { buffer: await fileRes.arrayBuffer(), mimeType: mime_type }
 }
 
+export interface WaTemplateComponent {
+  type: "header" | "body" | "button"
+  parameters: Array<
+    | { type: "text"; text: string }
+    | { type: "document"; document: { link: string; filename?: string } }
+    | { type: "image"; image: { link: string } }
+  >
+}
+
+// Sends a pre-approved template message — the only way to reach a customer
+// outside the 24h customer-service window (free-form sendWhatsAppText/Media
+// fail with error 131047 once that window closes). The template name,
+// language code and component shape must match what's approved in Meta
+// Business Manager. Returns false on failure rather than throwing, matching
+// sendWhatsAppText.
+export async function sendWhatsAppTemplate(
+  to: string,
+  templateName: string,
+  languageCode: string,
+  components?: WaTemplateComponent[],
+): Promise<boolean> {
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const token = process.env.WHATSAPP_ACCESS_TOKEN
+
+  if (!phoneNumberId || !token) {
+    console.error("[WA-SEND] WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not set")
+    return false
+  }
+
+  try {
+    const res = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: baseHeaders(token),
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: languageCode },
+          ...(components && components.length > 0 ? { components } : {}),
+        },
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      console.error("[WA-SEND] Template send error:", res.status, err)
+      return false
+    }
+    return true
+  } catch (e) {
+    console.error("[WA-SEND] Template fetch error:", e)
+    return false
+  }
+}
+
 // Returns true if WhatsApp accepted the message, false otherwise. Never throws
 // (logs and returns false) — callers that ignore the return value are unaffected.
 export async function sendWhatsAppText(to: string, body: string): Promise<boolean> {

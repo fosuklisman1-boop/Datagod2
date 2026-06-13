@@ -93,6 +93,74 @@ export async function notifyAdminsNewResultsCheckRequest(requestId: string): Pro
   }
 }
 
+// Sends the result text and/or media for a results-check request to one
+// WhatsApp number. When a PDF is attached, tries the approved
+// "results_check_delivery" Utility template first — it bundles the document
+// and a summary into one message and (unlike free-form sends) works even
+// outside the 24h customer-service window. Falls back to the free-text +
+// media flow if the template send fails or there's no PDF to attach.
+async function deliverResultsViaWhatsApp(
+  waPhone: string,
+  req: Record<string, any>,
+  mediaUrl: string | null,
+  mediaType: string,
+  deliveryNotes: string[],
+): Promise<void> {
+  const { sendWhatsAppText, sendWhatsAppMedia, sendWhatsAppTemplate } = await import("@/lib/whatsapp-bot/send")
+
+  let templateDelivered = false
+  if (mediaUrl && mediaType === "document") {
+    templateDelivered = await sendWhatsAppTemplate(waPhone, "results_check_delivery", "en", [
+      {
+        type: "header",
+        parameters: [{ type: "document", document: { link: mediaUrl, filename: `${req.exam_board}_results_${req.exam_year}.pdf` } }],
+      },
+      {
+        type: "body",
+        parameters: [
+          { type: "text", text: String(req.exam_board) },
+          { type: "text", text: String(req.index_number) },
+          { type: "text", text: String(req.exam_year) },
+          { type: "text", text: String(req.payment_reference ?? "") },
+        ],
+      },
+    ])
+    if (templateDelivered) deliveryNotes.push(`WhatsApp template (results_check_delivery) sent to ${waPhone}`)
+  }
+
+  if (req.result_data) {
+    const resultMsg =
+      `Your ${req.exam_board} results for index number ${req.index_number} (${req.exam_year}):\n\n` +
+      req.result_data +
+      voucherInfoBlock(req) +
+      `\n\nRef: ${req.payment_reference}`
+    await sendWhatsAppText(waPhone, resultMsg)
+      .then(ok => deliveryNotes.push(ok
+        ? `WhatsApp text sent to ${waPhone}`
+        : `WhatsApp text FAILED to ${waPhone} (outside 24h window?)`))
+      .catch(e => deliveryNotes.push(`WhatsApp text FAILED: ${e instanceof Error ? e.message : String(e)}`))
+  }
+
+  if (mediaUrl && !templateDelivered) {
+    const caption = req.result_data
+      ? undefined
+      : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
+    await sendWhatsAppMedia(
+      waPhone,
+      mediaType as "image" | "document" | "video",
+      mediaUrl,
+      caption,
+      mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
+    )
+      .then(() => deliveryNotes.push(`WhatsApp media sent to ${waPhone}`))
+      .catch(e => {
+        const msg = `WhatsApp media FAILED: ${e instanceof Error ? e.message : String(e)}`
+        console.error("[RC-DELIVER]", msg)
+        deliveryNotes.push(msg)
+      })
+  }
+}
+
 // Sends the result text and/or media stored on a results_check_requests row to
 // the customer (and WhatsApp number, for USSD/web requests that provided one),
 // then marks the request completed and releases any WhatsApp-admin claim.
@@ -119,7 +187,6 @@ export async function deliverResultsCheckRequest(
   const mediaUrl: string | null = req.media_url ?? null
   const mediaType: string = req.media_type ?? "image"
 
-  const { sendWhatsAppText, sendWhatsAppMedia } = await import("@/lib/whatsapp-bot/send")
   const { sendSMS } = await import("@/lib/sms-service")
   const { sendEmail } = await import("@/lib/email-service")
 
@@ -132,39 +199,7 @@ export async function deliverResultsCheckRequest(
       ? `233${req.phone_number.slice(1)}`
       : req.phone_number.replace(/^\+/, "")
 
-    if (req.result_data) {
-      const resultMsg =
-        `Your ${req.exam_board} results for index number ${req.index_number} (${req.exam_year}):\n\n` +
-        req.result_data +
-        voucherInfoBlock(req) +
-        `\n\nRef: ${req.payment_reference}`
-      await sendWhatsAppText(phone, resultMsg)
-        .then(() => deliveryNotes.push(`WhatsApp text sent to ${phone}`))
-        .catch(e => {
-          const msg = `WhatsApp text FAILED: ${e instanceof Error ? e.message : String(e)}`
-          console.error("[RC-DELIVER]", msg)
-          deliveryNotes.push(msg)
-        })
-    }
-
-    if (mediaUrl) {
-      const caption = req.result_data
-        ? undefined
-        : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
-      await sendWhatsAppMedia(
-        phone,
-        mediaType as "image" | "document" | "video",
-        mediaUrl,
-        caption,
-        mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
-      )
-        .then(() => deliveryNotes.push(`WhatsApp media sent to ${phone}`))
-        .catch(e => {
-          const msg = `WhatsApp media FAILED: ${e instanceof Error ? e.message : String(e)}`
-          console.error("[RC-DELIVER]", msg)
-          deliveryNotes.push(msg)
-        })
-    }
+    await deliverResultsViaWhatsApp(phone, req, mediaUrl, mediaType, deliveryNotes)
   } else {
     // Web (storefront) → EMAIL with the results file attached; fires whenever
     // there's result text OR a media file. USSD → SMS (text only; the file goes
@@ -248,38 +283,7 @@ export async function deliverResultsCheckRequest(
         ? `233${req.whatsapp_number.slice(1)}`
         : req.whatsapp_number.replace(/^\+/, "")
 
-      if (req.result_data) {
-        const waMsg =
-          `Your ${req.exam_board} results for index ${req.index_number} (${req.exam_year}):\n\n` +
-          req.result_data +
-          voucherInfoBlock(req) +
-          `\n\nRef: ${req.payment_reference}`
-        await sendWhatsAppText(waPhone, waMsg)
-          .then(() => deliveryNotes.push(`WhatsApp text sent to ${waPhone}`))
-          .catch(e => {
-            const msg = `WhatsApp text to USSD user FAILED: ${e instanceof Error ? e.message : String(e)}`
-            console.error("[RC-DELIVER]", msg)
-            deliveryNotes.push(msg)
-          })
-      }
-      if (mediaUrl) {
-        const caption = req.result_data
-          ? undefined
-          : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
-        await sendWhatsAppMedia(
-          waPhone,
-          mediaType as "image" | "document" | "video",
-          mediaUrl,
-          caption,
-          mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
-        )
-          .then(() => deliveryNotes.push(`WhatsApp media sent to ${waPhone}`))
-          .catch(e => {
-            const msg = `WhatsApp media to USSD user FAILED: ${e instanceof Error ? e.message : String(e)}`
-            console.error("[RC-DELIVER]", msg)
-            deliveryNotes.push(msg)
-          })
-      }
+      await deliverResultsViaWhatsApp(waPhone, req, mediaUrl, mediaType, deliveryNotes)
     } else if (!req.result_data && !mediaUrl) {
       deliveryNotes.push("Nothing to deliver and no whatsapp_number on file for media delivery")
     }
