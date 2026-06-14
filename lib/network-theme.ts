@@ -23,13 +23,13 @@ export const NETWORK_THEMES: Record<string, NetworkTheme> = {
     text: "#ffffff",
     ring: "ring-[#e3001b]",
   },
-  "AT-iShare": {
+  "AT - iShare": {
     hex: "#0a5bd3",
     soft: "#e6edfb",
     text: "#ffffff",
     ring: "ring-[#0a5bd3]",
   },
-  "AT-BigTime": {
+  "AT - BigTime": {
     hex: "#0d9488",
     soft: "#e3f5f3",
     text: "#ffffff",
@@ -49,10 +49,11 @@ export function getNetworkTheme(network: string): NetworkTheme {
   return NETWORK_THEMES[network] ?? DEFAULT_THEME
 }
 
-// "AT-iShare" -> "AT iShare" for display labels (DB values keep the hyphen).
+// "AT - iShare" -> "AT iShare" for display labels (DB values keep the " - ").
 export function formatNetworkLabel(network: string): string {
-  return network.replace(/-/g, " ")
+  return network.replace(/\s*-\s*/g, " ")
 }
 
 // Canonical display order — selector cards and sort order both use this.
-export const NETWORK_ORDER = ["MTN", "Telecel", "AT-iShare", "AT-BigTime"]
+// Must match the exact `packages.network` values stored in the DB.
+export const NETWORK_ORDER = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]

@@ -349,7 +349,7 @@ export default function DataPackagesPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 px-2 sm:px-4 md:px-8 w-full max-w-full">
+      <div className="space-y-6 px-2 sm:px-4 md:px-8 pb-20 md:pb-0 w-full max-w-full">
         {!globalOrderingEnabled && (
           <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
             <AlertDescription className="text-red-800 font-bold text-center">
@@ -478,57 +478,54 @@ export default function DataPackagesPage() {
                 </CardContent>
               </Card>
             ) : viewMode === "grid" ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
                 {filteredPackages.map((pkg) => {
                   const theme = getNetworkTheme(pkg.network)
                   return (
                     <Card
                       key={pkg.id}
-                      style={{ borderLeftColor: theme.hex }}
-                      className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border-l-4 border border-border overflow-hidden flex flex-col w-full min-w-0"
+                      style={{ backgroundColor: theme.soft, borderColor: theme.hex }}
+                      className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border overflow-hidden flex flex-col w-full min-w-0 py-2 gap-2"
                     >
                       {/* Logo Section */}
-                      <div className="h-16 sm:h-20 md:h-32 w-full bg-muted flex items-center justify-center overflow-hidden">
+                      <div className="h-10 sm:h-14 md:h-24 w-full bg-white/40 flex items-center justify-center overflow-hidden">
                         {getNetworkLogo(pkg.network) && (
                           <img
                             src={getNetworkLogo(pkg.network)}
                             alt={pkg.network}
-                            className="h-12 sm:h-16 md:h-24 w-12 sm:w-16 md:w-24 object-contain"
+                            className="h-7 sm:h-10 md:h-16 w-7 sm:w-10 md:w-16 object-contain"
                           />
                         )}
                       </div>
 
-                      <CardHeader>
-                        <div className="flex justify-between items-start gap-2">
+                      <CardHeader className="px-2 sm:px-4 gap-1">
+                        <div className="flex justify-between items-start gap-1">
                           <div>
                             <Badge
-                              style={{ backgroundColor: theme.soft, color: theme.hex }}
-                              className="mb-2 text-xs sm:text-sm transition-all border-0"
+                              style={{ backgroundColor: theme.hex, color: theme.text }}
+                              className="mb-1 text-[10px] sm:text-xs transition-all border-0 px-1.5 py-0"
                             >
                               {pkg.network}
                             </Badge>
-                            <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-amber-600" : "group-hover:text-cyan-600"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
+                            <CardTitle className="text-base sm:text-lg md:text-2xl transition-colors text-foreground">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                           </div>
                           <div className="text-right">
-                            <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent transition-colors ${isDealer
-                              ? "bg-gradient-to-r from-amber-600 to-orange-600 group-hover:from-amber-700 group-hover:to-orange-700"
-                              : "bg-gradient-to-r from-cyan-600 to-primary/80 group-hover:from-violet-600 group-hover:to-fuchsia-600"
-                              }`}>GHS {(pkg.price || 0).toFixed(2)}</p>
+                            <p className="text-sm sm:text-base md:text-2xl font-bold transition-colors" style={{ color: theme.hex }}>GHS {(pkg.price || 0).toFixed(2)}</p>
                           </div>
                         </div>
                       </CardHeader>
-                      <CardContent className="space-y-4 flex-1 flex flex-col justify-between">
+                      <CardContent className="space-y-2 flex-1 flex flex-col justify-between px-2 sm:px-4">
                         {pkg.description && (
-                          <p className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+                          <p className="hidden sm:block text-sm text-muted-foreground group-hover:text-foreground transition-colors">
                             {pkg.description}
                           </p>
                         )}
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-sm text-green-600 group-hover:text-green-700 transition-colors">
+                        <div className="hidden sm:block space-y-1">
+                          <div className="flex items-center gap-2 text-xs sm:text-sm text-green-700 group-hover:text-green-800 transition-colors">
                             <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
                             No expiry
                           </div>
-                          <div className="flex items-center gap-2 text-sm text-green-600 group-hover:text-green-700 transition-colors">
+                          <div className="flex items-center gap-2 text-xs sm:text-sm text-green-700 group-hover:text-green-800 transition-colors">
                             <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
                             Instant delivery
                           </div>
@@ -537,7 +534,7 @@ export default function DataPackagesPage() {
                           onClick={() => handlePurchase(pkg)}
                           disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                           style={{ backgroundColor: theme.hex, color: theme.text }}
-                          className="w-full shadow-lg hover:shadow-xl hover:opacity-90 transition-all duration-300 font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                          className="w-full shadow-lg hover:shadow-xl hover:opacity-90 transition-all duration-300 font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm h-8 sm:h-9"
                         >
                           {purchasing === pkg.id ? (
                             <>
