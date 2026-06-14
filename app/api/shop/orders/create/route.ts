@@ -566,8 +566,8 @@ export async function POST(request: NextRequest) {
     // increment is atomic at the Lua-script level. Fails open if Upstash is
     // misconfigured (the DB count below remains as fallback).
     const [emailCap, phoneCap, shop5mCap, shop1hCap] = await Promise.all([
-      applyRateLimit(request, "shop_order_cap_email", 5, 60 * 60 * 1000, `e:${customer_email.toLowerCase()}`),
-      applyRateLimit(request, "shop_order_cap_phone", 5, 60 * 60 * 1000, `p:${customer_phone}`),
+      applyRateLimit(request, "shop_order_cap_email", 20, 60 * 60 * 1000, `e:${customer_email.toLowerCase()}`),
+      applyRateLimit(request, "shop_order_cap_phone", 20, 60 * 60 * 1000, `p:${customer_phone}`),
       applyRateLimit(request, "shop_order_cap_shop_5m", 15, 5 * 60 * 1000, `s:${shop_id}`),
       applyRateLimit(request, "shop_order_cap_shop_1h", 60, 60 * 60 * 1000, `s:${shop_id}`),
     ])
@@ -591,14 +591,14 @@ export async function POST(request: NextRequest) {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
     const [{ count: pendingByEmail }, { count: pendingByPhone }, { count: pendingByShop5m }, { count: pendingByShop1h }] = await Promise.all([
-      // Same email: max 5 pending in last hour (covers buying for ~5 family members + payment retries)
+      // Same email: max 20 pending in last hour (covers buying for many family members + payment retries)
       supabase
         .from("shop_orders")
         .select("id", { count: "exact", head: true })
         .eq("customer_email", customer_email)
         .eq("payment_status", "pending")
         .gte("created_at", oneHourAgo),
-      // Same phone: max 5 pending in last hour (covers payment failures + retries)
+      // Same phone: max 20 pending in last hour (covers payment failures + retries)
       supabase
         .from("shop_orders")
         .select("id", { count: "exact", head: true })
@@ -621,7 +621,7 @@ export async function POST(request: NextRequest) {
         .gte("created_at", oneHourAgo),
     ])
 
-    if ((pendingByEmail ?? 0) >= 5 || (pendingByPhone ?? 0) >= 5) {
+    if ((pendingByEmail ?? 0) >= 20 || (pendingByPhone ?? 0) >= 20) {
       return NextResponse.json(
         { error: "Too many pending orders. Please complete or wait for existing orders to expire." },
         { status: 429 }
