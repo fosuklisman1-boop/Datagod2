@@ -515,6 +515,8 @@ export default function DataPackagesPage() {
                           <img
                             src={getNetworkLogo(pkg.network)}
                             alt={pkg.network}
+                            loading="lazy"
+                            decoding="async"
                             className="h-7 sm:h-10 md:h-16 w-7 sm:w-10 md:w-16 object-contain"
                           />
                         )}
@@ -575,7 +577,7 @@ export default function DataPackagesPage() {
                 })}
               </div>
             ) : (
-              <Card className={`hover:shadow-md transition-all duration-300 border w-full ${isDealer
+              <Card className={`border w-full ${isDealer
                 ? "bg-card border-border dark:border-amber-500/20"
                 : "bg-card border-border"
                 }`}>
@@ -602,6 +604,8 @@ export default function DataPackagesPage() {
                                   <img
                                     src={getNetworkLogo(pkg.network)}
                                     alt={pkg.network}
+                                    loading="lazy"
+                                    decoding="async"
                                     className="h-6 w-6 sm:h-8 sm:w-8 object-contain"
                                   />
                                 )}

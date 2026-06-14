@@ -570,7 +570,7 @@ export function BulkOrdersForm({
   }
 
   return (
-    <Card className="bg-card backdrop-blur-xl border hover:shadow-2xl transition-all duration-300" style={{ borderColor: theme.soft }}>
+    <Card className="bg-card border" style={{ borderColor: theme.soft }}>
       <CardHeader>
         <div className="flex items-center gap-2">
           <Download className="h-5 w-5" style={{ color: theme.hex }} />
@@ -630,7 +630,7 @@ export function BulkOrdersForm({
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               rows={6}
-              className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:ring-2 focus:ring-primary/30"
+              className="font-mono text-sm bg-card border-border focus-visible:ring-2 focus-visible:ring-primary/30"
             />
             <p className="text-xs text-muted-foreground">
               Format: Phone number followed by space and volume in GB
@@ -667,7 +667,7 @@ export function BulkOrdersForm({
           onClick={handleValidate}
           disabled={isValidating || !selectedNetworkId || loading}
           style={{ backgroundColor: theme.hex, color: theme.text }}
-          className="w-full shadow-lg hover:shadow-xl hover:opacity-90 transition-all duration-300 font-semibold"
+          className="w-full shadow-sm hover:opacity-90 transition-opacity font-semibold"
         >
           {loading ? "Loading..." : isValidating ? "Validating..." : "Validate"}
         </Button>
@@ -717,9 +717,9 @@ export function BulkOrdersForm({
             </div>
 
             {/* Results Table */}
-            <div className="overflow-x-auto border rounded-lg bg-card backdrop-blur border-border">
+            <div className="overflow-x-auto border rounded-lg bg-card border-border">
               <table className="w-full text-sm">
-                <thead className="bg-card backdrop-blur border-b border-border">
+                <thead className="bg-muted/40 border-b border-border">
                   <tr>
                     <th className="px-4 py-2 text-left font-semibold text-foreground">#</th>
                     <th className="px-4 py-2 text-left font-semibold text-foreground">Phone Number</th>
@@ -797,7 +797,7 @@ export function BulkOrdersForm({
                     onClick={handleSubmitOrders}
                     disabled={isSubmitting}
                     style={{ backgroundColor: theme.hex, color: theme.text }}
-                    className="px-6 shadow-lg hover:shadow-xl hover:opacity-90 transition-all font-semibold"
+                    className="px-6 shadow-sm hover:opacity-90 transition-opacity font-semibold"
                   >
                     {isSubmitting ? (
                       "Submitting..."
