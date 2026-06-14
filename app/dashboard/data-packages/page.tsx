@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Grid3x3, List, Search, Loader2 } from "lucide-react"
+import { Grid3x3, List, Search, Loader2, Wallet, ShoppingBag } from "lucide-react"
+import { useCountUp } from "@/hooks/use-count-up"
 import { PhoneNumberModal } from "@/components/phone-number-modal"
 import { SuccessModal } from "@/components/success-modal"
 import { NetworkSelector } from "@/components/network-selector"
@@ -47,6 +48,7 @@ export default function DataPackagesPage() {
   const [loading, setLoading] = useState(true)
   const [purchasing, setPurchasing] = useState<string | null>(null)
   const [wallet, setWallet] = useState<{ balance: number } | null>(null)
+  const [todayOrders, setTodayOrders] = useState(0)
   const [phoneModalOpen, setPhoneModalOpen] = useState(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
@@ -75,6 +77,7 @@ export default function DataPackagesPage() {
     if (user) {
       loadPackages()
       loadWallet()
+      loadOrderStats()
     }
   }, [user, role])
 
@@ -142,6 +145,23 @@ export default function DataPackagesPage() {
     } catch (error) {
       console.error("[DATA-PACKAGES] Error loading wallet:", error)
       setWallet({ balance: 0 })
+    }
+  }
+
+  const loadOrderStats = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+
+      const response = await fetch("/api/orders/stats", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!response.ok) return
+
+      const data = await response.json()
+      setTodayOrders(data.todayOrders ?? 0)
+    } catch (error) {
+      console.error("Error loading order stats:", error)
     }
   }
 
@@ -335,6 +355,9 @@ export default function DataPackagesPage() {
     return status
   }, [allPackages])
 
+  const animatedBalance = useCountUp(Math.max(0, wallet?.balance || 0))
+  const animatedTodayOrders = useCountUp(todayOrders)
+
   const filteredPackages = useMemo(() => {
     const search = searchTerm.toLowerCase()
     return packages
@@ -358,30 +381,42 @@ export default function DataPackagesPage() {
           </Alert>
         )}
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-          <div>
-            <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold bg-clip-text text-transparent ${isDealer
-              ? "bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600"
-              : "bg-gradient-to-r from-cyan-600 via-primary to-violet-600"
-              }`}>Data Packages</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
-          </div>
-          {wallet && (
-            <Card className={`border w-full sm:w-auto ${isDealer
-              ? "bg-card border-border dark:border-amber-500/20"
-              : "bg-card border-border"
-              }`}>
-              <CardContent className="pt-4 sm:pt-6">
+        <div>
+          <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold bg-clip-text text-transparent ${isDealer
+            ? "bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600"
+            : "bg-gradient-to-r from-cyan-600 via-primary to-violet-600"
+            }`}>Data Packages</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
+        </div>
+
+        {/* Stat Row */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          <Card className="border border-border bg-card">
+            <CardContent className="pt-4 sm:pt-6 flex items-center gap-3">
+              <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                <Wallet className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div className="min-w-0">
                 <p className="text-xs sm:text-sm text-muted-foreground">Wallet Balance</p>
-                <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent ${isDealer
-                  ? "bg-gradient-to-r from-amber-600 to-orange-600"
-                  : "bg-gradient-to-r from-emerald-600 to-teal-600"
-                  }`}>
-                  GHS {Math.max(0, wallet.balance || 0).toFixed(2)}
+                <p className="text-lg sm:text-2xl font-bold text-foreground truncate">
+                  GHS {animatedBalance.toFixed(2)}
                 </p>
-              </CardContent>
-            </Card>
-          )}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border border-border bg-card">
+            <CardContent className="pt-4 sm:pt-6 flex items-center gap-3">
+              <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center shrink-0">
+                <ShoppingBag className="h-5 w-5 sm:h-6 sm:w-6 text-violet-600 dark:text-violet-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs sm:text-sm text-muted-foreground">Orders Today</p>
+                <p className="text-lg sm:text-2xl font-bold text-foreground truncate">
+                  {Math.round(animatedTodayOrders)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Network Selector */}
@@ -640,6 +675,11 @@ export default function DataPackagesPage() {
           onSubmit={handlePhoneNumberSubmit}
           isLoading={purchasing !== null}
           packageName={selectedPackageForPurchase ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}` : "Data Package"}
+          network={selectedPackageForPurchase?.network}
+          size={selectedPackageForPurchase ? `${selectedPackageForPurchase.size.toString().replace(/[^0-9]/g, "")}GB` : undefined}
+          price={selectedPackageForPurchase?.price}
+          walletBalance={Math.max(0, wallet?.balance || 0)}
+          logo={selectedPackageForPurchase ? getNetworkLogo(selectedPackageForPurchase.network) : undefined}
         />
 
         {/* Success Modal */}

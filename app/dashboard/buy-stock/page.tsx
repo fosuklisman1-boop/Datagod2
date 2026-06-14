@@ -490,10 +490,13 @@ export default function BuyStockPage() {
         onSubmit={handlePhoneNumberSubmit}
         isLoading={purchasing !== null}
         packageName={selectedPackageForPurchase
-          ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size} (GHS ${(selectedPackageForPurchase.parent_price || 0).toFixed(2)})`
+          ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}`
           : "Data Package"
         }
         network={selectedPackageForPurchase?.network}
+        size={selectedPackageForPurchase?.size}
+        price={selectedPackageForPurchase?.parent_price}
+        walletBalance={walletBalance}
       />
 
       {/* Success Modal */}

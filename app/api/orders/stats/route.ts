@@ -30,15 +30,19 @@ export async function GET(request: NextRequest) {
         .select("id", { count: "exact", head: true })
         .eq("shop_owner_id", userId)
 
-    const [totalRes, completedRes, processingRes, failedRes, pendingRes] = await Promise.all([
+    const startOfToday = new Date()
+    startOfToday.setUTCHours(0, 0, 0, 0)
+
+    const [totalRes, completedRes, processingRes, failedRes, pendingRes, todayRes] = await Promise.all([
       base(),
       base().eq("status", "completed"),
       base().eq("status", "processing"),
       base().eq("status", "failed"),
       base().eq("status", "pending"),
+      base().gte("created_at", startOfToday.toISOString()),
     ])
 
-    const anyError = totalRes.error || completedRes.error || processingRes.error || failedRes.error || pendingRes.error
+    const anyError = totalRes.error || completedRes.error || processingRes.error || failedRes.error || pendingRes.error || todayRes.error
     if (anyError) {
       console.error("Error fetching orders stats:", anyError)
       return NextResponse.json(
@@ -52,6 +56,7 @@ export async function GET(request: NextRequest) {
     const processing = processingRes.count ?? 0
     const failed = failedRes.count ?? 0
     const pending = pendingRes.count ?? 0
+    const todayOrders = todayRes.count ?? 0
     const successRate = total > 0 ? (completed / total) * 100 : 0
 
     return NextResponse.json({
@@ -60,6 +65,7 @@ export async function GET(request: NextRequest) {
       processing,
       failed,
       pending,
+      todayOrders,
       successRate,
     })
   } catch (error) {
