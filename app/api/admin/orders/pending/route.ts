@@ -187,11 +187,19 @@ export async function GET(request: NextRequest) {
       type: "shop"
     })) || []
 
-    // Map api orders
-    const { data: apiOrders, count: apiTrueCount, error: apiError } = await supabase
+    // Build API orders query. Unlike the bulk/shop/ussd queries above, this one had no
+    // auto-fulfillment exclusion, so MTN API orders kept showing in the queue even when
+    // MTN auto-fulfillment was on. Mirror the same MTN exclusion the other order types use.
+    let apiQuery = supabase
       .from("api_orders")
       .select("id, created_at, recipient_phone, price, status, volume_gb, network", { count: "exact" })
       .eq("status", "pending")
+
+    if (mtnAutoFulfillEnabled) {
+      apiQuery = apiQuery.neq("network", "MTN")
+    }
+
+    const { data: apiOrders, count: apiTrueCount, error: apiError } = await apiQuery
       .order("created_at", { ascending: false })
       .range(0, 9999)
 
