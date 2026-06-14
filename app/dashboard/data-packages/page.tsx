@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -13,9 +13,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Grid3x3, List, Search, Loader2 } from "lucide-react"
 import { PhoneNumberModal } from "@/components/phone-number-modal"
 import { SuccessModal } from "@/components/success-modal"
+import { NetworkSelector } from "@/components/network-selector"
+import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
+import { NETWORK_ORDER, getNetworkTheme } from "@/lib/network-theme"
+import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
 interface Package {
@@ -24,18 +28,22 @@ interface Package {
   size: string
   price: number
   description?: string
+  is_available?: boolean
 }
 
 export default function DataPackagesPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
-  const { isDealer } = useUserRole()
+  const { isDealer, role } = useUserRole()
+  const [mode, setMode] = useState<"single" | "bulk">("single")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
-  const [selectedNetwork, setSelectedNetwork] = useState("All")
+  const [selectedNetwork, setSelectedNetwork] = useState<string>(() => {
+    if (typeof window === "undefined") return "MTN"
+    return localStorage.getItem("dataPackages.selectedNetwork") || "MTN"
+  })
   const [searchTerm, setSearchTerm] = useState("")
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
-  const [packages, setPackages] = useState<Package[]>([])
-  const [networks, setNetworks] = useState<string[]>(["All"])
+  const [allPackages, setAllPackages] = useState<Package[]>([])
   const [loading, setLoading] = useState(true)
   const [purchasing, setPurchasing] = useState<string | null>(null)
   const [wallet, setWallet] = useState<{ balance: number } | null>(null)
@@ -68,17 +76,18 @@ export default function DataPackagesPage() {
       loadPackages()
       loadWallet()
     }
-  }, [user])
+  }, [user, role])
+
+  // Remember the selected network across visits
+  useEffect(() => {
+    localStorage.setItem("dataPackages.selectedNetwork", selectedNetwork)
+  }, [selectedNetwork])
 
   const loadGlobalSettings = async () => {
     try {
-      // Fetch via API to bypass RLS and use our hardened query logic
-      const response = await fetch("/api/shop/public-packages?slug=default", { cache: "no-store" })
+      const response = await fetch("/api/settings/public", { cache: "no-store" })
       const data = await response.json()
-
-      if (data.ordering_enabled !== undefined) {
-        setGlobalOrderingEnabled(data.ordering_enabled)
-      }
+      setGlobalOrderingEnabled(data.ordering_enabled ?? true)
     } catch (error) {
       console.error("Error loading global settings:", error)
     }
@@ -147,21 +156,9 @@ export default function DataPackagesPage() {
 
   const loadPackages = async () => {
     try {
-      // First, get user role
-      let userRole = "user"
-      if (user) {
-        const { data: userData } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", user.id)
-          .single()
-        userRole = userData?.role || "user"
-      }
-
       const { data, error } = await supabase
         .from("packages")
         .select("*, dealer_price")
-        .eq("is_available", true)
         .order("network, size")
 
       if (error) {
@@ -171,20 +168,16 @@ export default function DataPackagesPage() {
 
       // For dealers, use dealer_price instead of price
       let processedPackages = data || []
-      if (userRole === "dealer") {
+      if (role === "dealer") {
         processedPackages = processedPackages.map((pkg: any) => ({
           ...pkg,
-          price: pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price
+          price: pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price,
         }))
       }
 
       // Apply price adjustments based on network settings
       const adjustedPackages = await applyPriceAdjustmentsToPackages(processedPackages)
-      setPackages(adjustedPackages)
-
-      // Extract unique networks
-      const uniqueNetworks = ["All", ...Array.from(new Set(adjustedPackages?.map((pkg: Package) => pkg.network) || []))]
-      setNetworks(uniqueNetworks as string[])
+      setAllPackages(adjustedPackages)
     } catch (error) {
       console.error("Error loading packages:", error)
     } finally {
@@ -320,25 +313,38 @@ export default function DataPackagesPage() {
     }
   }
 
+  // Available packages drive the Single grid; the full set (including
+  // unavailable ones) feeds the network selector's Live/Out of Stock badges.
+  const packages = useMemo(
+    () => allPackages.filter((p) => p.is_available !== false),
+    [allPackages]
+  )
+
+  const networks = useMemo(() => {
+    const fromDb = Array.from(new Set(allPackages.map((p) => p.network)))
+    const ordered = NETWORK_ORDER.filter((n) => fromDb.includes(n))
+    const extras = fromDb.filter((n) => !NETWORK_ORDER.includes(n))
+    return [...ordered, ...extras]
+  }, [allPackages])
+
+  const liveStatus = useMemo(() => {
+    const status: Record<string, boolean> = {}
+    for (const n of NETWORK_ORDER) {
+      status[n] = allPackages.some((p) => p.network === n && p.is_available !== false)
+    }
+    return status
+  }, [allPackages])
+
   const filteredPackages = useMemo(() => {
-    const NETWORK_ORDER = ["MTN", "Telecel", "AT-iShare", "AT-BigTime"]
     const search = searchTerm.toLowerCase()
     return packages
-      .filter((pkg) => {
-        const networkMatch = selectedNetwork === "All" || pkg.network === selectedNetwork
-        const searchMatch = !search ||
-          pkg.size.toLowerCase().includes(search) ||
-          pkg.network.toLowerCase().includes(search)
-        return networkMatch && searchMatch
-      })
-      .sort((a, b) => {
-        const ai = NETWORK_ORDER.indexOf(a.network)
-        const bi = NETWORK_ORDER.indexOf(b.network)
-        const aNI = ai >= 0 ? ai : 999
-        const bNI = bi >= 0 ? bi : 999
-        if (aNI !== bNI) return aNI - bNI
-        return extractSizeValue(a.size) - extractSizeValue(b.size)
-      })
+      .filter((pkg) => pkg.network === selectedNetwork)
+      .filter((pkg) =>
+        !search ||
+        pkg.size.toLowerCase().includes(search) ||
+        pkg.network.toLowerCase().includes(search)
+      )
+      .sort((a, b) => extractSizeValue(a.size) - extractSizeValue(b.size))
   }, [packages, selectedNetwork, searchTerm])
 
   return (
@@ -378,230 +384,257 @@ export default function DataPackagesPage() {
           )}
         </div>
 
-        {/* Search and Filters */}
-        <Card className={`hover:shadow-md transition-all duration-300 border ${isDealer
-          ? "bg-card border-border dark:border-amber-500/20"
-          : "bg-card border-border"
-          }`}>
-          <CardHeader>
-            <CardTitle>Search & Filter</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search packages..."
-                className={`pl-10 focus:ring-2 transition-all bg-card/70 backdrop-blur ${isDealer
-                  ? "focus:ring-amber-500 border-border focus:border-amber-400"
-                  : "focus:ring-cyan-500 border-border focus:border-cyan-400"
-                  }`}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
+        {/* Network Selector */}
+        <NetworkSelector
+          networks={networks}
+          selected={selectedNetwork}
+          onSelect={setSelectedNetwork}
+          logos={networkLogos}
+          liveStatus={liveStatus}
+        />
 
-            {/* Network Filter */}
-            <div className="flex flex-wrap gap-1 sm:gap-2">
-              {networks.map((network) => (
-                <Button
-                  key={network}
-                  variant={selectedNetwork === network ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedNetwork(network)}
-                  className={`text-xs sm:text-sm transition-all duration-200 ${selectedNetwork === network
-                    ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 shadow-lg text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 shadow-lg text-white"
-                    : isDealer
-                      ? "hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50/60 bg-amber-50/30 backdrop-blur border-border text-foreground"
-                      : "hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50/60 bg-cyan-50/30 backdrop-blur border-border text-foreground"
-                    }`}
-                >
-                  {network}
-                </Button>
-              ))}
-            </div>
+        {/* Single / Bulk pill tabs */}
+        <div className="inline-flex rounded-full border border-border bg-muted p-1">
+          <button
+            onClick={() => setMode("single")}
+            className={cn(
+              "px-4 sm:px-6 py-2 rounded-full text-sm font-semibold transition-all",
+              mode === "single" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"
+            )}
+          >
+            Single
+          </button>
+          <button
+            onClick={() => setMode("bulk")}
+            className={cn(
+              "px-4 sm:px-6 py-2 rounded-full text-sm font-semibold transition-all",
+              mode === "bulk" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"
+            )}
+          >
+            Bulk Order
+          </button>
+        </div>
 
-            {/* View Mode Toggle */}
-            <div className="flex gap-2">
-              <Button
-                variant={viewMode === "grid" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setViewMode("grid")}
-                className={`transition-all duration-200 ${viewMode === "grid"
-                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
-                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
-                  }`}
-              >
-                <Grid3x3 className="w-4 h-4 mr-2" />
-                Grid
-              </Button>
-              <Button
-                variant={viewMode === "list" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setViewMode("list")}
-                className={`transition-all duration-200 ${viewMode === "list"
-                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
-                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
-                  }`}
-              >
-                <List className="w-4 h-4 mr-2" />
-                List
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Packages Display */}
-        {viewMode === "grid" ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredPackages.map((pkg) => (
-              <Card key={pkg.id} className={`hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border-l-4 border overflow-hidden flex flex-col w-full min-w-0 ${isDealer
-                ? "border-l-amber-500 bg-card border-border hover:border-border"
-                : "border-l-primary bg-card border-border hover:border-primary/40"
-                }`}>
-                {/* Logo Section */}
-                <div className="h-16 sm:h-20 md:h-32 w-full bg-muted flex items-center justify-center overflow-hidden">
-                  {getNetworkLogo(pkg.network) && (
-                    <img
-                      src={getNetworkLogo(pkg.network)}
-                      alt={pkg.network}
-                      className="h-12 sm:h-16 md:h-24 w-12 sm:w-16 md:w-24 object-contain"
-                    />
-                  )}
+        {mode === "single" ? (
+          <>
+            {/* Search and View Toggle */}
+            <Card className={`hover:shadow-md transition-all duration-300 border ${isDealer
+              ? "bg-card border-border dark:border-amber-500/20"
+              : "bg-card border-border"
+              }`}>
+              <CardHeader>
+                <CardTitle>Search & Filter</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Search Bar */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search packages..."
+                    className={`pl-10 focus:ring-2 transition-all bg-card/70 backdrop-blur ${isDealer
+                      ? "focus:ring-amber-500 border-border focus:border-amber-400"
+                      : "focus:ring-cyan-500 border-border focus:border-cyan-400"
+                      }`}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
                 </div>
 
-                <CardHeader>
-                  <div className="flex justify-between items-start gap-2">
-                    <div>
-                      <Badge className={`mb-2 text-xs sm:text-sm backdrop-blur transition-all bg-opacity-40 border border-opacity-60 ${isDealer
-                        ? "bg-gradient-to-r from-amber-400/40 to-orange-400/30 text-amber-900 group-hover:bg-gradient-to-r group-hover:from-amber-600 group-hover:to-orange-600 group-hover:text-white border-border"
-                        : "bg-gradient-to-r from-cyan-400/40 to-blue-400/30 text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-primary/80 group-hover:text-white border-border"
-                        }`}>{pkg.network}</Badge>
-                      <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-amber-600" : "group-hover:text-cyan-600"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent transition-colors ${isDealer
-                        ? "bg-gradient-to-r from-amber-600 to-orange-600 group-hover:from-amber-700 group-hover:to-orange-700"
-                        : "bg-gradient-to-r from-cyan-600 to-primary/80 group-hover:from-violet-600 group-hover:to-fuchsia-600"
-                        }`}>GHS {(pkg.price || 0).toFixed(2)}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4 flex-1 flex flex-col justify-between">
-                  {pkg.description && (
-                    <p className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
-                      {pkg.description}
-                    </p>
-                  )}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-green-600 group-hover:text-green-700 transition-colors">
-                      <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
-                      No expiry
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-green-600 group-hover:text-green-700 transition-colors">
-                      <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
-                      Instant delivery
-                    </div>
-                  </div>
+                {/* View Mode Toggle */}
+                <div className="flex gap-2">
                   <Button
-                    onClick={() => handlePurchase(pkg)}
-                    disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
-                    className={`w-full shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
-                      ? "bg-card0 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600"
-                      : "bg-gradient-to-r from-cyan-600 via-primary to-violet-600 hover:from-cyan-700 hover:via-primary/90 hover:to-violet-700"
+                    variant={viewMode === "grid" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setViewMode("grid")}
+                    className={`transition-all duration-200 ${viewMode === "grid"
+                      ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
+                      : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
                       }`}
                   >
-                    {purchasing === pkg.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : !wallet || wallet.balance < pkg.price ? (
-                      "Insufficient Balance"
-                    ) : (
-                      "Buy Now"
-                    )}
+                    <Grid3x3 className="w-4 h-4 mr-2" />
+                    Grid
                   </Button>
+                  <Button
+                    variant={viewMode === "list" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setViewMode("list")}
+                    className={`transition-all duration-200 ${viewMode === "list"
+                      ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
+                      : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
+                      }`}
+                  >
+                    <List className="w-4 h-4 mr-2" />
+                    List
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Packages Display */}
+            {filteredPackages.length === 0 ? (
+              <Card className="border border-border">
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                  No {selectedNetwork} packages available right now — check back soon.
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        ) : (
-          <Card className={`hover:shadow-md transition-all duration-300 border w-full ${isDealer
-            ? "bg-card border-border dark:border-amber-500/20"
-            : "bg-card border-border"
-            }`}>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto w-full">
-                <table className="min-w-[600px] sm:min-w-full w-full text-xs sm:text-sm">
-                  <thead className={`border-b ${isDealer
-                    ? "bg-muted/40 border-border"
-                    : "bg-muted/40 border-border"
-                    }`}>
-                    <tr>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Logo</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Network</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Size</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Price</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Description</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className={`divide-y ${isDealer ? "divide-amber-100/40" : "divide-cyan-100/40"}`}>
-                    {filteredPackages.map((pkg) => (
-                      <tr key={pkg.id} className={`hover:backdrop-blur transition-colors duration-200 cursor-pointer ${isDealer ? "hover:bg-amber-100/30" : "hover:bg-cyan-100/30"
-                        }`}>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4">
-                          {getNetworkLogo(pkg.network) && (
-                            <img
-                              src={getNetworkLogo(pkg.network)}
-                              alt={pkg.network}
-                              className="h-6 w-6 sm:h-8 sm:w-8 object-contain"
-                            />
-                          )}
-                        </td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4 font-medium text-foreground whitespace-nowrap">{pkg.network}</td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4 font-semibold text-foreground whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
-                        <td className={`px-2 sm:px-6 py-2 sm:py-4 font-bold bg-clip-text text-transparent whitespace-nowrap ${isDealer
-                          ? "bg-gradient-to-r from-amber-600 to-orange-600"
-                          : "bg-gradient-to-r from-cyan-600 to-primary/80"
-                          }`}>GHS {(pkg.price || 0).toFixed(2)}</td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4 text-muted-foreground whitespace-nowrap">{pkg.description || "-"}</td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4">
-                          <Button
-                            size="sm"
-                            onClick={() => handlePurchase(pkg)}
-                            disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
-                            className={`shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
-                              ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
-                              : "bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80"
-                              }`}
-                          >
-                            {purchasing === pkg.id ? (
-                              <>
-                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                Processing...
-                              </>
-                            ) : !wallet || wallet.balance < pkg.price ? (
-                              "No Balance"
-                            ) : (
-                              "Buy"
-                            )}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+            ) : viewMode === "grid" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredPackages.map((pkg) => {
+                  const theme = getNetworkTheme(pkg.network)
+                  return (
+                    <Card
+                      key={pkg.id}
+                      style={{ borderLeftColor: theme.hex }}
+                      className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border-l-4 border border-border overflow-hidden flex flex-col w-full min-w-0"
+                    >
+                      {/* Logo Section */}
+                      <div className="h-16 sm:h-20 md:h-32 w-full bg-muted flex items-center justify-center overflow-hidden">
+                        {getNetworkLogo(pkg.network) && (
+                          <img
+                            src={getNetworkLogo(pkg.network)}
+                            alt={pkg.network}
+                            className="h-12 sm:h-16 md:h-24 w-12 sm:w-16 md:w-24 object-contain"
+                          />
+                        )}
+                      </div>
 
-        {/* Results Count */}
-        <p className="text-xs sm:text-sm text-muted-foreground px-1 sm:px-0">
-          Showing {filteredPackages.length} of {packages.length} packages
-        </p>
+                      <CardHeader>
+                        <div className="flex justify-between items-start gap-2">
+                          <div>
+                            <Badge
+                              style={{ backgroundColor: theme.soft, color: theme.hex }}
+                              className="mb-2 text-xs sm:text-sm transition-all border-0"
+                            >
+                              {pkg.network}
+                            </Badge>
+                            <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-amber-600" : "group-hover:text-cyan-600"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
+                          </div>
+                          <div className="text-right">
+                            <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent transition-colors ${isDealer
+                              ? "bg-gradient-to-r from-amber-600 to-orange-600 group-hover:from-amber-700 group-hover:to-orange-700"
+                              : "bg-gradient-to-r from-cyan-600 to-primary/80 group-hover:from-violet-600 group-hover:to-fuchsia-600"
+                              }`}>GHS {(pkg.price || 0).toFixed(2)}</p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4 flex-1 flex flex-col justify-between">
+                        {pkg.description && (
+                          <p className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+                            {pkg.description}
+                          </p>
+                        )}
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-green-600 group-hover:text-green-700 transition-colors">
+                            <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
+                            No expiry
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-green-600 group-hover:text-green-700 transition-colors">
+                            <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
+                            Instant delivery
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => handlePurchase(pkg)}
+                          disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
+                          style={{ backgroundColor: theme.hex, color: theme.text }}
+                          className="w-full shadow-lg hover:shadow-xl hover:opacity-90 transition-all duration-300 font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                        >
+                          {purchasing === pkg.id ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Processing...
+                            </>
+                          ) : !wallet || wallet.balance < pkg.price ? (
+                            "Insufficient Balance"
+                          ) : (
+                            "Buy Now"
+                          )}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            ) : (
+              <Card className={`hover:shadow-md transition-all duration-300 border w-full ${isDealer
+                ? "bg-card border-border dark:border-amber-500/20"
+                : "bg-card border-border"
+                }`}>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto w-full">
+                    <table className="min-w-[600px] sm:min-w-full w-full text-xs sm:text-sm">
+                      <thead className="bg-muted/40 border-b border-border">
+                        <tr>
+                          <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Logo</th>
+                          <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Network</th>
+                          <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Size</th>
+                          <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Price</th>
+                          <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Description</th>
+                          <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {filteredPackages.map((pkg) => {
+                          const theme = getNetworkTheme(pkg.network)
+                          return (
+                            <tr key={pkg.id} className="hover:bg-muted/40 transition-colors duration-200 cursor-pointer">
+                              <td className="px-2 sm:px-6 py-2 sm:py-4">
+                                {getNetworkLogo(pkg.network) && (
+                                  <img
+                                    src={getNetworkLogo(pkg.network)}
+                                    alt={pkg.network}
+                                    className="h-6 w-6 sm:h-8 sm:w-8 object-contain"
+                                  />
+                                )}
+                              </td>
+                              <td className="px-2 sm:px-6 py-2 sm:py-4 font-medium text-foreground whitespace-nowrap">{pkg.network}</td>
+                              <td className="px-2 sm:px-6 py-2 sm:py-4 font-semibold text-foreground whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
+                              <td style={{ color: theme.hex }} className="px-2 sm:px-6 py-2 sm:py-4 font-bold whitespace-nowrap">GHS {(pkg.price || 0).toFixed(2)}</td>
+                              <td className="px-2 sm:px-6 py-2 sm:py-4 text-muted-foreground whitespace-nowrap">{pkg.description || "-"}</td>
+                              <td className="px-2 sm:px-6 py-2 sm:py-4">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handlePurchase(pkg)}
+                                  disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
+                                  style={{ backgroundColor: theme.hex, color: theme.text }}
+                                  className="shadow-md hover:shadow-lg hover:opacity-90 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                                >
+                                  {purchasing === pkg.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                      Processing...
+                                    </>
+                                  ) : !wallet || wallet.balance < pkg.price ? (
+                                    "No Balance"
+                                  ) : (
+                                    "Buy"
+                                  )}
+                                </Button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Results Count */}
+            <p className="text-xs sm:text-sm text-muted-foreground px-1 sm:px-0">
+              Showing {filteredPackages.length} of {packages.length} packages
+            </p>
+          </>
+        ) : (
+          <BulkOrdersForm
+            packages={allPackages}
+            networks={networks}
+            selectedNetwork={selectedNetwork}
+            onSelectNetwork={setSelectedNetwork}
+            hideNetworkPicker
+          />
+        )}
 
         {/* Phone Number Modal */}
         <PhoneNumberModal

@@ -13,12 +13,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "sonner"
-import { Download, CheckCircle, AlertCircle } from "lucide-react"
+import { Download, CheckCircle, Trash2, X } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
+import { getNetworkTheme } from "@/lib/network-theme"
 import {
   Dialog,
   DialogContent,
@@ -42,9 +42,25 @@ interface ValidationResult {
   }>
 }
 
-export function BulkOrdersForm() {
+interface BulkOrdersFormProps {
+  /** When provided, skip internal package fetch and use these instead. */
+  packages?: Array<{ network: string; size: string | number; price: number; is_available?: boolean }>
+  /** When provided with `selectedNetwork`/`onSelectNetwork`, hide the internal network <Select>. */
+  networks?: string[]
+  selectedNetwork?: string
+  onSelectNetwork?: (network: string) => void
+  hideNetworkPicker?: boolean
+}
+
+export function BulkOrdersForm({
+  packages: externalPackages,
+  networks: externalNetworks,
+  selectedNetwork: externalSelectedNetwork,
+  onSelectNetwork,
+  hideNetworkPicker = false,
+}: BulkOrdersFormProps = {}) {
   const [activeTab, setActiveTab] = useState<"excel" | "text">("text")
-  const [selectedNetwork, setSelectedNetwork] = useState("")
+  const [internalSelectedNetwork, setInternalSelectedNetwork] = useState("")
   const [textInput, setTextInput] = useState("")
   const [isValidating, setIsValidating] = useState(false)
   const [validationResults, setValidationResults] = useState<ValidationResult | null>(null)
@@ -56,10 +72,41 @@ export function BulkOrdersForm() {
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const excelFileInput = useRef<HTMLInputElement | null>(null)
 
-  // Load packages from database on mount
+  // When controlled, the selected network comes from the parent (shared with
+  // the Single tab's NetworkSelector); otherwise from the internal <Select>.
+  const selectedNetworkId = hideNetworkPicker
+    ? (externalSelectedNetwork ?? "").toLowerCase().replace(/\s+/g, "")
+    : internalSelectedNetwork
+
+  const selectedNetworkLabel = networks.find((n) => n.id === selectedNetworkId)?.label
+  const theme = getNetworkTheme(selectedNetworkLabel ?? "MTN")
+
+  // Load packages — either from the parent (shared with the Single tab) or
+  // via our own fetch when used standalone (e.g. on /dashboard).
   useEffect(() => {
+    if (externalPackages) {
+      setPackages(
+        externalPackages
+          .filter((p) => p.is_available !== false)
+          .map((p) => ({ network: p.network, size: parseFloat(String(p.size)), price: p.price }))
+      )
+      setNetworks(
+        (externalNetworks ?? Array.from(new Set(externalPackages.map((p) => p.network)))).map((n) => ({
+          id: n.toLowerCase().replace(/\s+/g, ""),
+          label: n,
+        }))
+      )
+      setLoading(false)
+      return
+    }
     loadPackages()
-  }, [])
+  }, [externalPackages, externalNetworks])
+
+  // Stale validation results from a previous network selection no longer
+  // match the currently selected network — clear them when it changes.
+  useEffect(() => {
+    setValidationResults(null)
+  }, [selectedNetworkId])
 
   const loadPackages = async () => {
     try {
@@ -79,7 +126,7 @@ export function BulkOrdersForm() {
       const { data, error } = await supabase
         .from("packages")
         .select("*, dealer_price")
-        .eq("active", true)
+        .eq("is_available", true)
         .order("network", { ascending: true })
         .order("size", { ascending: true })
 
@@ -127,7 +174,7 @@ export function BulkOrdersForm() {
     let invalid = 0
 
     // Get selected network from the networks list
-    const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
+    const selectedNetworkLabel = networks.find(n => n.id === selectedNetworkId)?.label
 
     if (!selectedNetworkLabel) {
       toast.error("Invalid network selected")
@@ -229,7 +276,7 @@ export function BulkOrdersForm() {
   }
 
   const handleValidate = async () => {
-    if (!selectedNetwork) {
+    if (!selectedNetworkId) {
       toast.error("Please select a network")
       return
     }
@@ -241,8 +288,6 @@ export function BulkOrdersForm() {
 
     setIsValidating(true)
     try {
-      // Parse and validate
-      await new Promise(resolve => setTimeout(resolve, 500))
       const results = parseAndValidate(textInput)
       setValidationResults(results)
 
@@ -333,7 +378,7 @@ export function BulkOrdersForm() {
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (!selectedNetwork) {
+    if (!selectedNetworkId) {
       toast.error("Please select a network first")
       return
     }
@@ -461,7 +506,7 @@ export function BulkOrdersForm() {
     setIsSubmitting(true)
     try {
       // Get the selected network label
-      const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
+      const selectedNetworkLabel = networks.find(n => n.id === selectedNetworkId)?.label
       if (!selectedNetworkLabel) {
         throw new Error("Invalid network selected")
       }
@@ -503,7 +548,7 @@ export function BulkOrdersForm() {
       // Reset form
       setValidationResults(null)
       setTextInput("")
-      setSelectedNetwork("")
+      if (!hideNetworkPicker) setInternalSelectedNetwork("")
       setWalletBalance(null)
 
       console.log("Orders created:", data.orders)
@@ -516,10 +561,10 @@ export function BulkOrdersForm() {
   }
 
   return (
-    <Card className="bg-card backdrop-blur-xl border border-primary/20 hover:border-border hover:shadow-2xl transition-all duration-300">
+    <Card className="bg-card backdrop-blur-xl border hover:shadow-2xl transition-all duration-300" style={{ borderColor: theme.soft }}>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Download className="h-5 w-5 text-violet-600" />
+          <Download className="h-5 w-5" style={{ color: theme.hex }} />
           <div>
             <CardTitle className="text-foreground">Bulk Orders (Excel/Text)</CardTitle>
             <CardDescription>Upload multiple phone numbers at once</CardDescription>
@@ -528,35 +573,39 @@ export function BulkOrdersForm() {
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Network Selection */}
-        <div className="space-y-2">
-          <Label htmlFor="network">Select Network</Label>
-          <Select value={selectedNetwork} onValueChange={setSelectedNetwork} disabled={loading}>
-            <SelectTrigger id="network">
-              <SelectValue placeholder={loading ? "Loading networks..." : "Choose network"} />
-            </SelectTrigger>
-            <SelectContent>
-              {networks.map((network) => (
-                <SelectItem key={network.id} value={network.id}>
-                  {network.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {!hideNetworkPicker && (
+          <div className="space-y-2">
+            <Label htmlFor="network">Select Network</Label>
+            <Select value={internalSelectedNetwork} onValueChange={setInternalSelectedNetwork} disabled={loading}>
+              <SelectTrigger id="network">
+                <SelectValue placeholder={loading ? "Loading networks..." : "Choose network"} />
+              </SelectTrigger>
+              <SelectContent>
+                {networks.map((network) => (
+                  <SelectItem key={network.id} value={network.id}>
+                    {network.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Tab Buttons */}
         <div className="flex gap-2">
           <Button
             variant={activeTab === "text" ? "default" : "outline"}
             onClick={() => setActiveTab("text")}
-            className={activeTab === "text" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-border text-foreground"}
+            style={activeTab === "text" ? { backgroundColor: theme.hex, color: theme.text } : undefined}
+            className={activeTab === "text" ? "hover:opacity-90" : "border-border text-foreground hover:bg-muted"}
           >
             Text Input
           </Button>
           <Button
             variant={activeTab === "excel" ? "default" : "outline"}
             onClick={() => setActiveTab("excel")}
-            className={activeTab === "excel" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-border text-foreground"}
+            style={activeTab === "excel" ? { backgroundColor: theme.hex, color: theme.text } : undefined}
+            className={activeTab === "excel" ? "hover:opacity-90" : "border-border text-foreground hover:bg-muted"}
           >
             Excel Upload
           </Button>
@@ -572,7 +621,7 @@ export function BulkOrdersForm() {
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               rows={6}
-              className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-violet-400 focus:ring-2 focus:ring-violet-500/50"
+              className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:ring-2 focus:ring-primary/30"
             />
             <p className="text-xs text-muted-foreground">
               Format: Phone number followed by space and volume in GB
@@ -583,7 +632,7 @@ export function BulkOrdersForm() {
         {/* Excel Upload Tab */}
         {activeTab === "excel" && (
           <div className="space-y-4">
-            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-violet-500 transition-colors cursor-pointer">
+            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-muted-foreground/40 transition-colors cursor-pointer">
               <p className="text-muted-foreground mb-2">Click to upload Excel file or drag and drop</p>
               <p className="text-xs text-muted-foreground">CSV or XLSX files only</p>
               <Input
@@ -607,8 +656,9 @@ export function BulkOrdersForm() {
         {/* Validate Button */}
         <Button
           onClick={handleValidate}
-          disabled={isValidating || !selectedNetwork || loading}
-          className="w-full bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
+          disabled={isValidating || !selectedNetworkId || loading}
+          style={{ backgroundColor: theme.hex, color: theme.text }}
+          className="w-full shadow-lg hover:shadow-xl hover:opacity-90 transition-all duration-300 font-semibold"
         >
           {loading ? "Loading..." : isValidating ? "Validating..." : "Validate"}
         </Button>
@@ -639,7 +689,8 @@ export function BulkOrdersForm() {
                   }}
                   className="text-amber-700 border-border hover:bg-amber-50"
                 >
-                  🗑️ Clear Invalid
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Clear Invalid
                 </Button>
                 <Button
                   variant="outline"
@@ -650,15 +701,16 @@ export function BulkOrdersForm() {
                   }}
                   className="text-rose-700 border-border hover:bg-rose-50"
                 >
-                  ✕ Clear All
+                  <X className="h-4 w-4 mr-1" />
+                  Clear All
                 </Button>
               </div>
             </div>
 
             {/* Results Table */}
-            <div className="overflow-x-auto border rounded-lg bg-card backdrop-blur border-primary/20">
+            <div className="overflow-x-auto border rounded-lg bg-card backdrop-blur border-border">
               <table className="w-full text-sm">
-                <thead className="bg-card backdrop-blur border-b border-primary/20">
+                <thead className="bg-card backdrop-blur border-b border-border">
                   <tr>
                     <th className="px-4 py-2 text-left font-semibold text-foreground">#</th>
                     <th className="px-4 py-2 text-left font-semibold text-foreground">Phone Number</th>
@@ -722,7 +774,7 @@ export function BulkOrdersForm() {
                   </p>
                   <p className="text-lg font-bold">
                     Total Cost:{" "}
-                    <span className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">
+                    <span style={{ color: theme.hex }}>
                       GHS{" "}
                       {validationResults.orders
                         .filter((o) => o.status === "valid")
@@ -735,9 +787,17 @@ export function BulkOrdersForm() {
                   <Button
                     onClick={handleSubmitOrders}
                     disabled={isSubmitting}
-                    className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 px-6 shadow-lg hover:shadow-xl transition-all text-white font-semibold"
+                    style={{ backgroundColor: theme.hex, color: theme.text }}
+                    className="px-6 shadow-lg hover:shadow-xl hover:opacity-90 transition-all font-semibold"
                   >
-                    {isSubmitting ? "Submitting..." : "✓ SUBMIT ORDER"}
+                    {isSubmitting ? (
+                      "Submitting..."
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Submit Order
+                      </>
+                    )}
                   </Button>
                 )}
               </div>
@@ -765,12 +825,12 @@ export function BulkOrdersForm() {
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Network:</span>
                     <span className="font-semibold">
-                      {networks.find(n => n.id === selectedNetwork)?.label}
+                      {networks.find(n => n.id === selectedNetworkId)?.label}
                     </span>
                   </div>
                   <div className="border-t pt-2 flex justify-between">
                     <span className="text-sm text-muted-foreground">Total Cost:</span>
-                    <span className="font-bold text-lg text-violet-600">
+                    <span className="font-bold text-lg" style={{ color: theme.hex }}>
                       ₵{validationResults.orders
                         .filter(o => o.status === "valid")
                         .reduce((sum, o) => sum + o.price, 0)
@@ -810,7 +870,8 @@ export function BulkOrdersForm() {
               <Button
                 onClick={handleConfirmSubmission}
                 disabled={isSubmitting}
-                className="bg-gradient-to-r from-violet-600 to-purple-600"
+                style={{ backgroundColor: theme.hex, color: theme.text }}
+                className="hover:opacity-90"
               >
                 {isSubmitting ? "Processing..." : "Confirm & Submit"}
               </Button>
