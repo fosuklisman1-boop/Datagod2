@@ -21,7 +21,7 @@ export function NetworkSelector({
   liveStatus,
 }: NetworkSelectorProps) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+    <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
       {networks.map((network) => {
         const theme = getNetworkTheme(network)
         const isSelected = selected === network
@@ -33,10 +33,11 @@ export function NetworkSelector({
             key={network}
             role="button"
             tabIndex={0}
+            aria-pressed={isSelected}
             onClick={() => onSelect(network)}
             onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect(network)}
             className={cn(
-              "relative flex flex-col items-center gap-2 p-3 sm:p-4 cursor-pointer transition-all border-2",
+              "relative flex flex-col items-center gap-1.5 sm:gap-2 p-2 sm:p-4 cursor-pointer transition-colors border-2",
               isSelected
                 ? cn("border-transparent ring-2", theme.ring)
                 : "border-border hover:border-muted-foreground/30"
@@ -44,13 +45,13 @@ export function NetworkSelector({
           >
             {isSelected && (
               <span
-                className="absolute top-2 right-2 w-4 h-4 rounded-full grid place-items-center text-white text-[10px]"
+                className="absolute top-1 right-1 sm:top-2 sm:right-2 w-4 h-4 rounded-full grid place-items-center text-[10px]"
                 style={{ backgroundColor: theme.hex, color: theme.text }}
               >
                 ✓
               </span>
             )}
-            <div className="h-10 w-10 sm:h-12 sm:w-12 grid place-items-center">
+            <div className="h-9 w-9 sm:h-12 sm:w-12 grid place-items-center">
               {logo ? (
                 <img src={logo} alt={network} className="h-full w-full object-contain" />
               ) : (
@@ -60,19 +61,22 @@ export function NetworkSelector({
                 />
               )}
             </div>
-            <span className="text-xs sm:text-sm font-semibold text-foreground text-center">
+            <span className="text-[11px] leading-tight sm:text-sm font-semibold text-foreground text-center line-clamp-2">
               {formatNetworkLabel(network)}
             </span>
+            {/* Compact dot on mobile, full pill from sm up */}
             <span
               className={cn(
-                "inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium px-2 py-0.5 rounded-full",
+                "inline-flex items-center gap-1 font-medium rounded-full",
+                "text-[10px] sm:text-xs px-1 sm:px-2 py-0.5",
                 isLive
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
-                  : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                  : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
               )}
             >
-              <span className={cn("w-1.5 h-1.5 rounded-full", isLive ? "bg-emerald-500" : "bg-red-500")} />
-              {isLive ? "Live" : "Out of Stock"}
+              <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", isLive ? "bg-emerald-500" : "bg-red-500")} />
+              <span className="sm:hidden">{isLive ? "Live" : "Out"}</span>
+              <span className="hidden sm:inline">{isLive ? "Live" : "Out of Stock"}</span>
             </span>
           </Card>
         )

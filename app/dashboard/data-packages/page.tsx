@@ -392,26 +392,27 @@ export default function DataPackagesPage() {
         {/* Stat Row */}
         <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <Card className="border border-border bg-card">
-            <CardContent className="pt-4 sm:pt-6 flex items-center gap-3">
-              <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+            <CardContent className="pt-4 sm:pt-6 flex items-center gap-2.5 sm:gap-3">
+              <div className="h-9 w-9 sm:h-12 sm:w-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
                 <Wallet className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs sm:text-sm text-muted-foreground">Wallet Balance</p>
-                <p className="text-lg sm:text-2xl font-bold text-foreground truncate">
-                  GHS {animatedBalance.toFixed(2)}
+                <p className="font-bold text-foreground whitespace-nowrap tabular-nums text-base sm:text-2xl">
+                  <span className="text-[0.7em] font-semibold text-muted-foreground mr-0.5">GHS</span>
+                  {animatedBalance.toFixed(2)}
                 </p>
               </div>
             </CardContent>
           </Card>
           <Card className="border border-border bg-card">
-            <CardContent className="pt-4 sm:pt-6 flex items-center gap-3">
-              <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center shrink-0">
+            <CardContent className="pt-4 sm:pt-6 flex items-center gap-2.5 sm:gap-3">
+              <div className="h-9 w-9 sm:h-12 sm:w-12 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center shrink-0">
                 <ShoppingBag className="h-5 w-5 sm:h-6 sm:w-6 text-violet-600 dark:text-violet-400" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs sm:text-sm text-muted-foreground">Orders Today</p>
-                <p className="text-lg sm:text-2xl font-bold text-foreground truncate">
+                <p className="font-bold text-foreground whitespace-nowrap tabular-nums text-base sm:text-2xl">
                   {Math.round(animatedTodayOrders)}
                 </p>
               </div>
@@ -453,22 +454,16 @@ export default function DataPackagesPage() {
         {mode === "single" ? (
           <>
             {/* Search and View Toggle */}
-            <Card className={`hover:shadow-md transition-all duration-300 border ${isDealer
-              ? "bg-card border-border dark:border-amber-500/20"
-              : "bg-card border-border"
-              }`}>
-              <CardHeader>
-                <CardTitle>Search & Filter</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <Card className="border border-border bg-card">
+              <CardContent className="pt-6 space-y-4">
                 {/* Search Bar */}
                 <div className="relative">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search packages..."
-                    className={`pl-10 focus:ring-2 transition-all bg-card/70 backdrop-blur ${isDealer
-                      ? "focus:ring-amber-500 border-border focus:border-amber-400"
-                      : "focus:ring-cyan-500 border-border focus:border-cyan-400"
+                    className={`pl-10 focus-visible:ring-2 ${isDealer
+                      ? "focus-visible:ring-amber-500"
+                      : "focus-visible:ring-cyan-500"
                       }`}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -481,10 +476,6 @@ export default function DataPackagesPage() {
                     variant={viewMode === "grid" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setViewMode("grid")}
-                    className={`transition-all duration-200 ${viewMode === "grid"
-                      ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
-                      : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
-                      }`}
                   >
                     <Grid3x3 className="w-4 h-4 mr-2" />
                     Grid
@@ -493,10 +484,6 @@ export default function DataPackagesPage() {
                     variant={viewMode === "list" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setViewMode("list")}
-                    className={`transition-all duration-200 ${viewMode === "list"
-                      ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
-                      : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
-                      }`}
                   >
                     <List className="w-4 h-4 mr-2" />
                     List
@@ -520,7 +507,7 @@ export default function DataPackagesPage() {
                     <Card
                       key={pkg.id}
                       style={{ backgroundColor: theme.soft, borderColor: theme.hex }}
-                      className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border overflow-hidden flex flex-col w-full min-w-0 py-2 gap-2"
+                      className="hover:shadow-md transition-shadow border overflow-hidden flex flex-col w-full min-w-0 py-2 gap-2"
                     >
                       {/* Logo Section */}
                       <div className="h-10 sm:h-14 md:h-24 w-full bg-white/40 flex items-center justify-center overflow-hidden">
@@ -538,29 +525,29 @@ export default function DataPackagesPage() {
                           <div>
                             <Badge
                               style={{ backgroundColor: theme.hex, color: theme.text }}
-                              className="mb-1 text-[10px] sm:text-xs transition-all border-0 px-1.5 py-0"
+                              className="mb-1 text-[10px] sm:text-xs border-0 px-1.5 py-0"
                             >
                               {pkg.network}
                             </Badge>
-                            <CardTitle className="text-base sm:text-lg md:text-2xl transition-colors text-foreground">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
+                            <CardTitle className="text-base sm:text-lg md:text-2xl text-slate-900">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                           </div>
                           <div className="text-right">
-                            <p className="text-sm sm:text-base md:text-2xl font-bold transition-colors" style={{ color: theme.hex }}>GHS {(pkg.price || 0).toFixed(2)}</p>
+                            <p className="text-sm sm:text-base md:text-2xl font-bold" style={{ color: theme.ink }}>GHS {(pkg.price || 0).toFixed(2)}</p>
                           </div>
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-2 flex-1 flex flex-col justify-between px-2 sm:px-4">
                         {pkg.description && (
-                          <p className="hidden sm:block text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+                          <p className="hidden sm:block text-sm text-slate-600">
                             {pkg.description}
                           </p>
                         )}
                         <div className="hidden sm:block space-y-1">
-                          <div className="flex items-center gap-2 text-xs sm:text-sm text-green-700 group-hover:text-green-800 transition-colors">
+                          <div className="flex items-center gap-2 text-xs sm:text-sm text-green-800">
                             <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
                             No expiry
                           </div>
-                          <div className="flex items-center gap-2 text-xs sm:text-sm text-green-700 group-hover:text-green-800 transition-colors">
+                          <div className="flex items-center gap-2 text-xs sm:text-sm text-green-800">
                             <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
                             Instant delivery
                           </div>
@@ -569,7 +556,7 @@ export default function DataPackagesPage() {
                           onClick={() => handlePurchase(pkg)}
                           disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                           style={{ backgroundColor: theme.hex, color: theme.text }}
-                          className="w-full shadow-lg hover:shadow-xl hover:opacity-90 transition-all duration-300 font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm h-8 sm:h-9"
+                          className="w-full shadow-sm hover:opacity-90 transition-opacity font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm h-8 sm:h-9"
                         >
                           {purchasing === pkg.id ? (
                             <>
@@ -621,7 +608,7 @@ export default function DataPackagesPage() {
                               </td>
                               <td className="px-2 sm:px-6 py-2 sm:py-4 font-medium text-foreground whitespace-nowrap">{pkg.network}</td>
                               <td className="px-2 sm:px-6 py-2 sm:py-4 font-semibold text-foreground whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
-                              <td style={{ color: theme.hex }} className="px-2 sm:px-6 py-2 sm:py-4 font-bold whitespace-nowrap">GHS {(pkg.price || 0).toFixed(2)}</td>
+                              <td style={{ color: theme.ink }} className="px-2 sm:px-6 py-2 sm:py-4 font-bold whitespace-nowrap">GHS {(pkg.price || 0).toFixed(2)}</td>
                               <td className="px-2 sm:px-6 py-2 sm:py-4 text-muted-foreground whitespace-nowrap">{pkg.description || "-"}</td>
                               <td className="px-2 sm:px-6 py-2 sm:py-4">
                                 <Button
@@ -629,7 +616,7 @@ export default function DataPackagesPage() {
                                   onClick={() => handlePurchase(pkg)}
                                   disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                                   style={{ backgroundColor: theme.hex, color: theme.text }}
-                                  className="shadow-md hover:shadow-lg hover:opacity-90 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                                  className="shadow-sm hover:opacity-90 transition-opacity font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
                                 >
                                   {purchasing === pkg.id ? (
                                     <>

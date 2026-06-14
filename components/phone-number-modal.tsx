@@ -72,6 +72,9 @@ export function PhoneNumberModal({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton
+        // Don't yank focus to the phone input on open — that forces the mobile
+        // keyboard up before the sheet finishes sliding in. User taps to focus.
+        onOpenAutoFocus={(e) => e.preventDefault()}
         className={cn(
           "p-0 gap-0 border-0 bg-card overflow-hidden",
           "max-w-full w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl",
