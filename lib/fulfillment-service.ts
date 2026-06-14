@@ -50,9 +50,13 @@ export async function processManualFulfillment(
         orderData.customer_name = "Bulk Order"
       }
     } else if (orderType === "api") {
+      // NOTE: api_orders has no `queue` column (it never joined the blacklist-queue
+      // feature). Selecting it errors with "column does not exist", which surfaced as
+      // a misleading "Order not found". The orderData.queue check below is simply
+      // skipped for API orders; the isPhoneBlacklisted() check still applies.
       const response = await supabase
         .from(tableName)
-        .select("id, network, volume_gb, recipient_phone, status, queue, user_id")
+        .select("id, network, volume_gb, recipient_phone, status, user_id")
         .eq("id", orderId.trim())
         .single()
       orderData = response.data
@@ -73,7 +77,9 @@ export async function processManualFulfillment(
     }
 
     if (fetchError || !orderData) {
-      console.error(`${logPrefix} Order not found in ${tableName}`)
+      // Log the underlying error too — a query error (e.g. a bad column) otherwise
+      // masquerades as a missing row and makes this very hard to diagnose.
+      console.error(`${logPrefix} Order not found in ${tableName}`, fetchError ? `(${fetchError.message})` : "(no matching row)")
       return { success: false, message: "Order not found", orderId }
     }
 
