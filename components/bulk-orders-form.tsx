@@ -71,6 +71,7 @@ export function BulkOrdersForm({
   const [showSummary, setShowSummary] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const excelFileInput = useRef<HTMLInputElement | null>(null)
+  const resultsRef = useRef<HTMLDivElement | null>(null)
 
   // When controlled, the selected network comes from the parent (shared with
   // the Single tab's NetworkSelector); otherwise from the internal <Select>.
@@ -107,6 +108,14 @@ export function BulkOrdersForm({
   useEffect(() => {
     setValidationResults(null)
   }, [selectedNetworkId])
+
+  // After validation, scroll the results/submit section into view so the user
+  // doesn't have to hunt for the Submit button below the fold.
+  useEffect(() => {
+    if (validationResults) {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    }
+  }, [validationResults])
 
   const loadPackages = async () => {
     try {
@@ -759,7 +768,7 @@ export function BulkOrdersForm({
             </div>
 
             {/* Summary Statistics */}
-            <div className="bg-card backdrop-blur-xl p-4 rounded-lg border border-border">
+            <div ref={resultsRef} className="bg-card p-4 rounded-lg border border-border scroll-mb-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">

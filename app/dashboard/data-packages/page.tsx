@@ -429,12 +429,12 @@ export default function DataPackagesPage() {
           liveStatus={liveStatus}
         />
 
-        {/* Single / Bulk pill tabs */}
-        <div className="inline-flex rounded-full border border-border bg-muted p-1">
+        {/* Single / Bulk pill tabs — full width, 2 side-by-side */}
+        <div className="grid grid-cols-2 gap-1 rounded-full border border-border bg-muted p-1">
           <button
             onClick={() => setMode("single")}
             className={cn(
-              "px-4 sm:px-6 py-2 rounded-full text-sm font-semibold transition-all",
+              "py-2 rounded-full text-sm font-semibold transition-colors text-center",
               mode === "single" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"
             )}
           >
@@ -443,7 +443,7 @@ export default function DataPackagesPage() {
           <button
             onClick={() => setMode("bulk")}
             className={cn(
-              "px-4 sm:px-6 py-2 rounded-full text-sm font-semibold transition-all",
+              "py-2 rounded-full text-sm font-semibold transition-colors text-center",
               mode === "bulk" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"
             )}
           >
