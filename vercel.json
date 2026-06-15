@@ -64,6 +64,10 @@
     {
       "path": "/api/cron/drain-broadcasts",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/wa-delivery-notify",
+      "schedule": "* * * * *"
     }
   ]
 }

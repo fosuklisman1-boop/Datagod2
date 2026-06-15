@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendPushToUser } from "./push-service"
+import { netCreditAmount } from "@/lib/payment-amounts"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -141,9 +142,9 @@ export async function cleanupAbandonedPayments(
           .eq("reference", payment.reference)
           .maybeSingle()
 
-        // Fallback to net amount calculation if attempt doesn't exist
-        // Note: wallet_payments.amount usually includes the fee!
-        const netAmount = attempt?.amount ?? (payment.amount - (payment.fee || 0)) // net = gross - fee when no attempt row
+        // Net (fee-exclusive) amount to credit; see netCreditAmount. Note:
+        // wallet_payments.amount usually INCLUDES the fee.
+        const netAmount = netCreditAmount(attempt?.amount, payment.amount, payment.fee)
 
         // Use the atomic credit_wallet_safely RPC
         // This handles: Idempotency (transactions table), atomic wallet update, and transaction logging
@@ -345,8 +346,8 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
           .eq("reference", payment.reference)
           .maybeSingle()
 
-        // Fallback to net amount calculation if attempt doesn't exist
-        const netAmount = attempt?.amount ?? (payment.amount - (payment.fee || 0)) // net = gross - fee when no attempt row
+        // Net (fee-exclusive) amount to credit; see netCreditAmount.
+        const netAmount = netCreditAmount(attempt?.amount, payment.amount, payment.fee)
 
         // Use the atomic credit_wallet_safely RPC
         // This handles: Idempotency (transactions table), atomic wallet update, and transaction logging
@@ -372,8 +373,8 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
           credited++
 
           // Send SMS, email, and in-app notification for verified payment
+          // (netAmount from above is identical — same inputs — so reuse it).
           const { new_balance: newBalance } = rpcData[0]
-          const netAmount = attempt?.amount ?? (payment.amount - (payment.fee || 0))
           try {
             const { data: userData } = await supabase
               .from("users")
@@ -501,7 +502,7 @@ export async function verifyUserPaymentByReference(
     .select("amount")
     .eq("reference", ref)
     .maybeSingle()
-  const netAmount = attempt?.amount ?? (payment.amount - (payment.fee || 0))
+  const netAmount = netCreditAmount(attempt?.amount, payment.amount, payment.fee)
 
   const { data: rpcData, error: rpcError } = await supabase.rpc("credit_wallet_safely", {
     p_user_id: userId,
