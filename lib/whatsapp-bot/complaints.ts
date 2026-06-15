@@ -92,6 +92,31 @@ export async function createComplaint(
   return { complaint: data as WaComplaint, isNew: true }
 }
 
+// Resolve OPEN complaints for a phone — used when an admin replies from the web
+// inbox, so a complaint handled there doesn't stay open. Only touches "open"
+// (unclaimed) complaints: "claimed" ones are being actively worked via the
+// WhatsApp admin flow (adminComplaintRouter) and must be resolved through it, so
+// we don't clobber their resolution/owner. Returns how many were resolved.
+export async function resolveOpenComplaintsForPhone(
+  phone: string,
+  resolvedBy: string,
+  resolution: string
+): Promise<number> {
+  const { data } = await supabase
+    .from("whatsapp_complaints")
+    .update({
+      status: "resolved",
+      resolved_by: resolvedBy,
+      resolved_at: new Date().toISOString(),
+      resolution: resolution.slice(0, 2000),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("phone_number", phone)
+    .eq("status", "open")
+    .select("id")
+  return data?.length ?? 0
+}
+
 // The customer's most recent open/claimed complaint, for attaching a screenshot
 // they send shortly after filing. Null if none within the window.
 export async function findRecentOpenComplaint(phone: string): Promise<{ id: string } | null> {

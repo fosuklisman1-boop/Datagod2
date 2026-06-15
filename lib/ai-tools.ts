@@ -897,8 +897,14 @@ const fileComplaintTool: Anthropic.Tool = {
 
 const reverifyPaymentTool: Anthropic.Tool = {
   name: "reverify_payment",
-  description: "Re-check the customer's recent wallet top-up(s) with Paystack and INSTANTLY credit any that genuinely succeeded but weren't credited (a 'stuck' top-up). Call this when a registered customer says they topped up their Datagod wallet but the balance didn't reflect. It ONLY credits top-ups Paystack confirms as successful, only for this customer's own account, and is safe to run repeatedly (idempotent — never double-credits). After calling, tell the customer the outcome (credited + new balance, still pending, payment failed, or nothing found).",
-  input_schema: { type: "object" as const, properties: {}, required: [] },
+  description: "Re-check the customer's wallet top-up(s) with Paystack and INSTANTLY credit any that genuinely succeeded but weren't credited (a 'stuck' top-up). Call this when a registered customer says they topped up their Datagod wallet but the balance didn't reflect. By default it scans their top-ups from the last 24h; if the customer gives a specific Paystack reference (or it's an older payment), pass it as `reference` to check that exact one. It ONLY credits top-ups Paystack confirms as successful, only for this customer's own account, and is safe to run repeatedly (idempotent — never double-credits). After calling, tell the customer the outcome (credited + new balance, still pending, payment failed, or nothing found).",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      reference: { type: "string", description: "Optional Paystack reference for a specific top-up the customer names (e.g. for an older payment). Omit to scan their last-24h top-ups." },
+    },
+    required: [],
+  },
 }
 
 const startAccountVerificationTool: Anthropic.Tool = {
@@ -1398,6 +1404,22 @@ export async function executeToolCall(
         if (!payUserId) {
           return { error: "no_account", message: "This WhatsApp number isn't linked to a Datagod account yet, so the top-up can't be auto-checked. Offer to verify their account: ask for the phone number on their Datagod account and call start_account_verification. Alternatively they can sign in and re-verify at /dashboard/payment-reverify, or you can log a wallet_topup complaint with their payment reference." }
         }
+
+        // Specific reference path: verify+credit exactly that top-up (e.g. an older one).
+        const reference = String(input.reference ?? "").trim()
+        if (reference) {
+          const { verifyUserPaymentByReference } = await import("@/lib/payment-cleanup-service")
+          const r = await verifyUserPaymentByReference(payUserId, reference)
+          const outcomeByRef: Record<string, string> = {
+            credited: `Credited that top-up. New wallet balance: GHS ${r.newBalance != null ? Number(r.newBalance).toFixed(2) : "(check dashboard)"}.`,
+            already_credited: "That payment was already credited — the balance is up to date.",
+            failed: "That payment did not succeed on Paystack — the customer was not charged for it.",
+            pending: "That payment is still pending on Paystack — ask them to wait a few minutes and try again.",
+            not_found: "I couldn't find a wallet top-up with that reference on this account. Double-check the reference, or log a wallet_topup complaint.",
+          }
+          return { outcome: outcomeByRef[r.outcome], result: r.outcome, new_balance: r.newBalance ?? null }
+        }
+
         const { verifyUserPendingPayments } = await import("@/lib/payment-cleanup-service")
         const res = await verifyUserPendingPayments(payUserId)
         let newBalance: number | null = null
@@ -1413,7 +1435,7 @@ export async function executeToolCall(
         } else if (res.checked > 0) {
           outcome = "The top-up is still pending on Paystack — ask the customer to wait a few minutes and try again."
         } else {
-          outcome = "No pending top-up found in the last 24 hours for this account. If they insist they paid, gather the payment reference and file a wallet_topup complaint."
+          outcome = "No pending top-up found in the last 24 hours. If they have a specific Paystack reference (or it's older), ask for it and call reverify_payment again with that reference; otherwise file a wallet_topup complaint."
         }
         return { checked: res.checked, credited: res.credited, failed: res.failed, new_balance: newBalance, outcome }
       }

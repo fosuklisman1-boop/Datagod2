@@ -93,7 +93,7 @@ export async function cleanupAbandonedPayments(
   // Find pending wallet payments older than cutoff
   const { data: pendingPayments, error } = await supabase
     .from("wallet_payments")
-    .select("id, reference, user_id, amount, created_at, shop_id, order_id, order_type")
+    .select("id, reference, user_id, amount, fee, created_at, shop_id, order_id, order_type")
     .eq("status", "pending")
     .lt("created_at", cutoffTime)
     .limit(100) // Process in batches
@@ -143,7 +143,7 @@ export async function cleanupAbandonedPayments(
 
         // Fallback to net amount calculation if attempt doesn't exist
         // Note: wallet_payments.amount usually includes the fee!
-        const netAmount = attempt?.amount || payment.amount // amount from payment_attempts is net
+        const netAmount = attempt?.amount ?? (payment.amount - (payment.fee || 0)) // net = gross - fee when no attempt row
 
         // Use the atomic credit_wallet_safely RPC
         // This handles: Idempotency (transactions table), atomic wallet update, and transaction logging
@@ -315,7 +315,7 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
   
   const { data: pendingPayments, error } = await supabase
     .from("wallet_payments")
-    .select("id, reference, amount, shop_id, order_type")
+    .select("id, reference, amount, fee, shop_id, order_type")
     .eq("user_id", userId)
     .eq("status", "pending")
     .gt("created_at", cutoffTime)
@@ -338,8 +338,6 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
       checked++
 
       if (paystackStatus.status === "success") {
-        checked++
-
         // Fetch the net amount from payment_attempts to be 100% sure we credit ONLY the net amount (excluding fee)
         const { data: attempt } = await supabase
           .from("payment_attempts")
@@ -348,7 +346,7 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
           .maybeSingle()
 
         // Fallback to net amount calculation if attempt doesn't exist
-        const netAmount = attempt?.amount || payment.amount // amount from payment_attempts is net
+        const netAmount = attempt?.amount ?? (payment.amount - (payment.fee || 0)) // net = gross - fee when no attempt row
 
         // Use the atomic credit_wallet_safely RPC
         // This handles: Idempotency (transactions table), atomic wallet update, and transaction logging
@@ -375,7 +373,7 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
 
           // Send SMS, email, and in-app notification for verified payment
           const { new_balance: newBalance } = rpcData[0]
-          const netAmount = attempt?.amount || payment.amount
+          const netAmount = attempt?.amount ?? (payment.amount - (payment.fee || 0))
           try {
             const { data: userData } = await supabase
               .from("users")
@@ -446,7 +444,6 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
 
         console.log(`[PAYMENT-VERIFY] ✓ Payment ${payment.reference} verified and completed`)
       } else if (paystackStatus.status === "failed") {
-        checked++
         await supabase
           .from("wallet_payments")
           .update({ status: "failed", updated_at: new Date().toISOString() })
@@ -462,4 +459,75 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
   }
 
   return { checked, credited, failed }
+}
+
+/**
+ * Verify and (if successful) credit a SINGLE wallet top-up by its Paystack
+ * reference — for a customer who names a specific/older payment the 24h pending
+ * scan won't catch. Strictly scoped: the reference must be a wallet top-up that
+ * belongs to `userId`. Crediting is idempotent (credit_wallet_safely), so this
+ * is safe to call repeatedly and alongside the webhook.
+ */
+export async function verifyUserPaymentByReference(
+  userId: string,
+  reference: string
+): Promise<{ outcome: "credited" | "already_credited" | "failed" | "pending" | "not_found"; newBalance?: number }> {
+  const supabase = getSupabaseAdmin()
+  const ref = String(reference || "").trim()
+  if (!ref) return { outcome: "not_found" }
+
+  const { data: payment } = await supabase
+    .from("wallet_payments")
+    .select("id, reference, amount, fee, status, user_id, order_id, shop_id, order_type")
+    .eq("reference", ref)
+    .maybeSingle()
+
+  // Must be a wallet top-up owned by this user (not someone else's, not a
+  // shop/data/upgrade payment).
+  if (!payment || payment.user_id !== userId) return { outcome: "not_found" }
+  if (payment.order_id || payment.shop_id || payment.order_type === "dealer_upgrade") return { outcome: "not_found" }
+
+  const paystack = await verifyWithPaystack(ref)
+  if (paystack.status === "failed" || paystack.status === "abandoned") {
+    await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("id", payment.id)
+    return { outcome: "failed" }
+  }
+  if (paystack.status !== "success") return { outcome: "pending" }
+
+  // Credit the NET amount (fee-exclusive), matching the webhook. Prefer the
+  // payment_attempts net value; fall back to gross - fee.
+  const { data: attempt } = await supabase
+    .from("payment_attempts")
+    .select("amount")
+    .eq("reference", ref)
+    .maybeSingle()
+  const netAmount = attempt?.amount ?? (payment.amount - (payment.fee || 0))
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("credit_wallet_safely", {
+    p_user_id: userId,
+    p_amount: netAmount,
+    p_reference_id: ref,
+    p_description: "Wallet top-up via Paystack (verified in chat)",
+    p_source: "wallet_topup",
+  })
+  if (rpcError || !rpcData?.[0]) return { outcome: "pending" }
+
+  const { new_balance: newBalance, already_processed: alreadyProcessed } = rpcData[0]
+  await supabase.from("wallet_payments").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", payment.id)
+
+  if (!alreadyProcessed) {
+    try {
+      const { data: u } = await supabase.from("users").select("phone_number, first_name").eq("id", userId).single()
+      if (u?.phone_number) {
+        await sendSMS({
+          phone: u.phone_number,
+          message: SMSTemplates.walletToppedUp(u.first_name || "User", Number(netAmount).toFixed(2), Number(newBalance).toFixed(2)),
+          type: "wallet_topup_success",
+          reference: payment.id,
+        }).catch(() => {})
+      }
+    } catch { /* notification is best-effort */ }
+  }
+
+  return { outcome: alreadyProcessed ? "already_credited" : "credited", newBalance }
 }

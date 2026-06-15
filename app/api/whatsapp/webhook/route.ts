@@ -190,6 +190,29 @@ async function processInbound(body: unknown): Promise<void> {
   // Log inbound message (also returns this conversation's takeover state)
   const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id, null, profileName)
 
+  // Per-sender inbound cap: a spammer flooding the bot would otherwise burn AI
+  // tokens on every message. Inbound is already logged (visible in the inbox);
+  // we just stop the expensive bot/AI processing for over-the-limit senders.
+  const { allowInbound } = await import("@/lib/whatsapp-bot/rate-limit")
+  if (!(await allowInbound(from))) {
+    console.warn("[WA-WEBHOOK] Inbound rate limit hit, dropping:", from)
+    return
+  }
+
+  // "unlink" — customer removes the link between this WhatsApp number and a
+  // Datagod account (the persistent link created via OTP verification).
+  if (text.trim().toLowerCase() === "unlink") {
+    const { unlinkWhatsApp } = await import("@/lib/whatsapp-bot/account-link")
+    const removed = await unlinkWhatsApp(from)
+    const reply = removed
+      ? "Done — this WhatsApp number is no longer linked to a Datagod account."
+      : "This WhatsApp number isn't linked to any Datagod account."
+    const out = formatForWhatsApp(reply)
+    const wamid = await sendWhatsAppText(from, out)
+    await logMessage(from, "outbound", out, wamid)
+    return
+  }
+
   // Admin WhatsApp queues: Results Check ("pending") and complaints ("complaints"),
   // from the keyword or mid-flow. Both are reserved for configured admin numbers.
   if (await isResultsCheckAdmin(from)) {
@@ -381,7 +404,7 @@ ANSWERING QUESTIONS — use your tools, never guess:
 REPORTING A PROBLEM / COMPLAINTS:
 - If the customer reports a real problem or wants to complain, first work out the category, gather the right details (one short message asking for what's missing — don't interrogate), then call file_complaint with phone, a clear summary, the category, and beneficiary_number + order_info.
   • data / airtime not received or wrong → ask the beneficiary number (the number meant to receive it) and what they ordered (network + bundle/amount, roughly when). category "data" or "airtime".
-  • WALLET TOP-UP didn't reflect / paid but balance not credited → FIRST call reverify_payment. It re-checks Paystack and instantly credits any genuinely-successful stuck top-up (safe, idempotent). Then relay the tool's outcome (credited + new balance / still pending / payment failed / nothing found).
+  • WALLET TOP-UP didn't reflect / paid but balance not credited → FIRST call reverify_payment. It re-checks Paystack and instantly credits any genuinely-successful stuck top-up (safe, idempotent). Then relay the tool's outcome (credited + new balance / still pending / payment failed / nothing found). If nothing was found but the customer has a Paystack reference or it was an older payment, ask for that reference and call reverify_payment again with it before considering a complaint.
     – If reverify_payment reports the account isn't linked (no_account): offer to verify their account right here. Ask for the phone number on their Datagod account, call start_account_verification, then ask them for the 6-digit SMS code and call verify_account_code. Once verified, call reverify_payment again — it will now find and credit their top-up. (If they can't get the code, fall back to /dashboard/payment-reverify or logging a complaint.)
     – Only if it still can't be resolved (pending, nothing found and they insist they paid, or not linked and they can't message from their account number) — file a complaint. To gather details, look at what they've ALREADY told you and ask, in ONE short message, only for what's still missing: the amount, the MoMo number they paid from, and roughly when. The Paystack reference and the network are OPTIONAL — do not insist on them or keep asking. As SOON as you have the amount + MoMo number + rough time, call file_complaint immediately (category "wallet_topup"; put the amount, MoMo number, time and any reference into order_info) — do not keep asking more questions. Then ask for the payment screenshot.
   • results-check issue → category "results"; AFA → "afa"; anything else → "other".
