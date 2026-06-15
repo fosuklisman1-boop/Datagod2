@@ -5,7 +5,7 @@ import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { getWaSession, setWaSession } from "@/lib/whatsapp-bot/session"
 import { waRouter } from "@/lib/whatsapp-bot/router"
-import { isResultsCheckAdmin, adminRcRouter } from "@/lib/whatsapp-bot/admin-router"
+import { isResultsCheckAdmin, adminRcRouter, adminComplaintRouter } from "@/lib/whatsapp-bot/admin-router"
 import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia } from "@/lib/whatsapp-bot/send"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { maybeNotifyAdmins, isHumanRequest } from "@/lib/whatsapp-bot/notify-admins"
@@ -155,15 +155,17 @@ async function processInbound(body: unknown): Promise<void> {
   // Log inbound message (also returns this conversation's takeover state)
   const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id, null, profileName)
 
-  // Admin Results Check WhatsApp queue: "pending" (from any state) or mid-flow.
+  // Admin WhatsApp queues: Results Check ("pending") and complaints ("complaints"),
+  // from the keyword or mid-flow. Both are reserved for configured admin numbers.
   if (await isResultsCheckAdmin(from)) {
     const adminSession = await getWaSession(from)
-    if (
-      text.trim().toLowerCase() === "pending" ||
-      adminSession?.step === "ADMIN_RC_LIST" ||
-      adminSession?.step === "ADMIN_RC_AWAIT_CONTENT"
-    ) {
-      const reply = await adminRcRouter(from, text, adminSession)
+    const lc = text.trim().toLowerCase()
+    const isRc = lc === "pending" || adminSession?.step === "ADMIN_RC_LIST" || adminSession?.step === "ADMIN_RC_AWAIT_CONTENT"
+    const isComplaint = lc === "complaints" || adminSession?.step === "ADMIN_COMPLAINT_LIST" || adminSession?.step === "ADMIN_COMPLAINT_AWAIT_REPLY"
+    if (isRc || isComplaint) {
+      const reply = isRc
+        ? await adminRcRouter(from, text, adminSession)
+        : await adminComplaintRouter(from, text, adminSession)
       if (reply) {
         const wamid = await sendWhatsAppText(from, reply)
         await logMessage(from, "outbound", reply, wamid)
@@ -335,8 +337,11 @@ ANSWERING QUESTIONS — use your tools, never guess:
 - Delivery times, payment, refunds, AFA details, "how does X work", or any policy/process question → call get_knowledge_base BEFORE answering; do not invent policies.
 - Payment is via Paystack — mobile money (MoMo) or card; registered users can also pay from their Datagod wallet. Data is usually delivered instantly (occasionally a few minutes at peak).
 
+REPORTING A PROBLEM / COMPLAINTS:
+- If the customer reports a real problem (paid but didn't get data/airtime, wrong bundle, charged twice, results not delivered, poor service) or wants to complain, call file_complaint with a clear summary in their words. Then apologise and confirm: "Sorry about that — I've logged your complaint (ref: XXXX) and our team will follow up right here shortly." Use the reference the tool returns.
+
 TALKING TO A HUMAN:
-- If the user asks for a human/agent/person, or is upset or stuck on something you can't resolve, call request_human_handoff, then reassure them warmly: a team member has been notified and will reply right here on WhatsApp shortly. Never say you "can't help" or offer to transfer them elsewhere — they stay in this same chat. You can keep helping in the meantime.
+- If the user just wants to talk to a human/agent/person (no specific problem), or is upset or stuck on something you can't resolve, call request_human_handoff, then reassure them warmly: a team member has been notified and will reply right here on WhatsApp shortly. Never say you "can't help" or offer to transfer them elsewhere — they stay in this same chat. You can keep helping in the meantime.
 
 STYLE:
 - Keep replies short and friendly for WhatsApp. Use *bold* sparingly for prices/keywords, one idea per line. Never mention tools, functions, or internal details.`

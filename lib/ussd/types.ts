@@ -56,6 +56,9 @@ export type USSDStep =
   // WhatsApp admin: results-check delivery
   | 'ADMIN_RC_LIST'
   | 'ADMIN_RC_AWAIT_CONTENT'
+  // WhatsApp admin: complaints queue
+  | 'ADMIN_COMPLAINT_LIST'
+  | 'ADMIN_COMPLAINT_AWAIT_REPLY'
 
 export interface BundleOption {
   id: string
@@ -125,4 +128,7 @@ export interface USSDSession {
   adminRcDraftText?: string       // accumulated result text typed by the admin
   adminRcDraftMediaUrl?: string   // public admin-uploads URL after a photo/PDF is received
   adminRcDraftMediaType?: 'image' | 'document'
+  // Admin WhatsApp complaints queue
+  adminComplaintIds?: string[]    // ids shown by the "complaints" list, in display order (1-based)
+  adminComplaintSelectedId?: string // claimed complaint id, set at ADMIN_COMPLAINT_AWAIT_REPLY
 }

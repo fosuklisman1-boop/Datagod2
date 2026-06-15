@@ -184,3 +184,172 @@ export async function adminRcRouter(
 
   return ''
 }
+
+// ── Admin complaints queue ────────────────────────────────────────────────────
+
+interface ComplaintRow {
+  id: string
+  phone_number: string
+  customer_name: string | null
+  description: string
+  status: string
+  claimed_by: string | null
+  claimed_at: string | null
+}
+
+async function listOpenComplaintsForAdmin(adminPhone: string): Promise<{ reply: string; ids: string[] }> {
+  const { data: rows } = await supabase
+    .from("whatsapp_complaints")
+    .select("id, phone_number, customer_name, description, status, claimed_by, claimed_at")
+    .in("status", ["open", "claimed"])
+    .order("created_at", { ascending: true })
+    .limit(10)
+
+  const staleCutoff = Date.now() - CLAIM_STALE_MS
+  const available: ComplaintRow[] = (rows ?? []).filter((r: ComplaintRow) =>
+    !r.claimed_by ||
+    r.claimed_by === adminPhone ||
+    (r.claimed_at !== null && new Date(r.claimed_at).getTime() < staleCutoff)
+  )
+
+  if (available.length === 0) {
+    return { reply: "No open complaints right now.", ids: [] }
+  }
+
+  const lines = available.map((r, i) => {
+    const mine = r.claimed_by === adminPhone ? " [yours]" : r.claimed_by ? " [claimed]" : ""
+    const who = r.customer_name || r.phone_number
+    return `${i + 1}. ${who}: ${r.description.slice(0, 60)}${r.description.length > 60 ? "…" : ""}${mine}`
+  })
+
+  return {
+    reply: `Open complaints:\n\n${lines.join("\n")}\n\nReply with a number to pick it up, or 0 to cancel.`,
+    ids: available.map(r => r.id),
+  }
+}
+
+// Returns '' when the message isn't part of an admin complaint flow, so the
+// caller falls through to the normal bot/AI flow.
+export async function adminComplaintRouter(
+  from: string,
+  text: string,
+  session: USSDSession | null
+): Promise<string> {
+  const adminPhone = normalizeGhanaPhone(from)
+  if (!adminPhone) return ''
+
+  const trimmed = text.trim()
+
+  // "complaints" is a reserved keyword for admins, from any state.
+  if (trimmed.toLowerCase() === "complaints") {
+    const { reply, ids } = await listOpenComplaintsForAdmin(adminPhone)
+    if (ids.length === 0) {
+      await deleteWaSession(from)
+      return reply
+    }
+    await setWaSession(from, { step: "ADMIN_COMPLAINT_LIST", adminComplaintIds: ids })
+    return reply
+  }
+
+  if (session?.step === "ADMIN_COMPLAINT_LIST") {
+    if (trimmed === "0") {
+      await deleteWaSession(from)
+      return "Cancelled."
+    }
+
+    const ids = session.adminComplaintIds ?? []
+    const idx = parseInt(trimmed, 10)
+    if (!Number.isInteger(idx) || idx < 1 || idx > ids.length) {
+      return "Reply with a number from the list, or 0 to cancel."
+    }
+
+    const complaintId = ids[idx - 1]
+    const staleCutoff = new Date(Date.now() - CLAIM_STALE_MS).toISOString()
+    // Single atomic claim (mirrors adminRcRouter): covers open + stale/own re-claims.
+    const { data: row } = await supabase
+      .from("whatsapp_complaints")
+      .update({ status: "claimed", claimed_by: adminPhone, claimed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", complaintId)
+      .in("status", ["open", "claimed"])
+      .or(`claimed_by.is.null,claimed_by.eq.${adminPhone},claimed_at.lt.${staleCutoff}`)
+      .select("*")
+      .maybeSingle()
+
+    if (!row) {
+      await deleteWaSession(from)
+      return "Sorry, another admin is handling that one. Reply 'complaints' to see what's left."
+    }
+
+    const who = row.customer_name || row.phone_number
+    const details =
+      `Complaint from ${who}\n` +
+      (row.customer_name ? `Number: ${row.phone_number}\n` : "") +
+      `\n"${row.description}"`
+
+    await setWaSession(from, { step: "ADMIN_COMPLAINT_AWAIT_REPLY", adminComplaintSelectedId: complaintId })
+    return `${details}\n\nType your reply to the customer to resolve it, or 'cancel' to release.`
+  }
+
+  if (session?.step === "ADMIN_COMPLAINT_AWAIT_REPLY") {
+    const complaintId = session.adminComplaintSelectedId
+    if (!complaintId) { await deleteWaSession(from); return '' }
+
+    // "cancel" releases the claim. (An admin whose literal reply is just the word
+    // "cancel" can't send it — accepted tradeoff, same as the RC flow's keywords.)
+    if (trimmed.toLowerCase() === "cancel") {
+      await supabase
+        .from("whatsapp_complaints")
+        .update({ status: "open", claimed_by: null, claimed_at: null, updated_at: new Date().toISOString() })
+        .eq("id", complaintId)
+      await deleteWaSession(from)
+      return "Cancelled — released back to the queue."
+    }
+
+    if (!trimmed) return "Type your reply to the customer, or 'cancel' to release."
+
+    // Fetch the complaint to get the customer's number.
+    const { data: complaint } = await supabase
+      .from("whatsapp_complaints")
+      .select("phone_number")
+      .eq("id", complaintId)
+      .maybeSingle()
+    if (!complaint) { await deleteWaSession(from); return "That complaint no longer exists." }
+
+    const { sendWhatsAppText } = await import("./send")
+    const customerMsg = `👋 Update on your complaint:\n\n${text}`
+    const ok = await sendWhatsAppText(complaint.phone_number, customerMsg)
+
+    if (!ok) {
+      // Delivery failed (likely outside the 24h window). Don't silently close it —
+      // release back to open and keep the inbox flag so it stays actionable.
+      await supabase
+        .from("whatsapp_complaints")
+        .update({ status: "open", claimed_by: null, claimed_at: null, updated_at: new Date().toISOString() })
+        .eq("id", complaintId)
+      await deleteWaSession(from)
+      return "⚠️ Couldn't deliver your reply — the customer may be outside WhatsApp's 24h window. The complaint was kept open for follow-up."
+    }
+
+    await supabase
+      .from("whatsapp_complaints")
+      .update({
+        status: "resolved",
+        resolved_by: adminPhone,
+        resolved_at: new Date().toISOString(),
+        resolution: text,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", complaintId)
+
+    // Clear the inbox "wants human" flag for that customer.
+    await supabase
+      .from("whatsapp_conversations")
+      .update({ wants_human: false, wants_human_at: null })
+      .eq("phone_number", complaint.phone_number)
+
+    await deleteWaSession(from)
+    return "✓ Sent to the customer and marked resolved."
+  }
+
+  return ''
+}
