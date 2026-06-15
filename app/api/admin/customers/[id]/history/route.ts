@@ -51,10 +51,16 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = authHeader.slice(7)
+    // Verify the JWT — never trust the raw Bearer string as a user id.
+    const token = authHeader.slice(7)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+    const userId = user.id
 
-    // Get user's shop
-    const { data: shop } = await supabase.from("shops").select("id").eq("user_id", userId).single()
+    // Get the caller's shop (ownership scope for the customer lookup below)
+    const { data: shop } = await supabase.from("user_shops").select("id").eq("user_id", userId).single()
 
     if (!shop) {
       return NextResponse.json({ success: false, error: "Shop not found" }, { status: 404 })

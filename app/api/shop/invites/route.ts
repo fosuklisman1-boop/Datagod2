@@ -77,8 +77,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Check user role - must not be a sub_agent (sub-agents can't create sub-agents)
-    if (user.user_metadata?.role === "sub_agent") {
+    // Check user role from the DB (source of truth) — NOT user_metadata, which a
+    // user can freely self-set via auth.updateUser({ data: { role: ... } }). A
+    // sub_agent could otherwise overwrite their token role and slip past this gate.
+    // Sub-agents cannot create sub-agents.
+    const { data: dbUser } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .single()
+    if (dbUser?.role === "sub_agent") {
       return NextResponse.json(
         { error: "Sub-agents cannot invite other sub-agents" },
         { status: 403 }
