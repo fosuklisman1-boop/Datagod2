@@ -104,7 +104,7 @@ export async function sendWhatsAppMedia(
   link: string,
   caption?: string,
   filename?: string,
-): Promise<void> {
+): Promise<string | null> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
   if (!phoneNumberId || !token) {
@@ -154,7 +154,12 @@ export async function sendWhatsAppMedia(
       console.error("[WA-SEND] Media send error:", res.status, err)
       throw new Error(`WhatsApp media send failed (${res.status}): ${err}`)
     }
-    console.log("[WA-SEND] Media message sent successfully to", to)
+    // Capture the wamid so the outbound row can carry it — without it the status
+    // webhook can't drive ticks OR surface an async delivery failure (131xxx).
+    const data = await res.json().catch(() => null) as { messages?: Array<{ id?: string }> } | null
+    const wamid = data?.messages?.[0]?.id ?? null
+    console.log("[WA-SEND] Media message sent successfully to", to, "wamid:", wamid)
+    return wamid
   } catch (e) {
     console.error("[WA-SEND] Media send failed:", e)
     throw e  // re-throw so caller's .catch() captures it

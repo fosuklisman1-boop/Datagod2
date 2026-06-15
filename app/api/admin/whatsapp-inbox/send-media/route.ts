@@ -25,18 +25,19 @@ export async function POST(request: NextRequest) {
   if (!phone) return NextResponse.json({ error: "phone is required" }, { status: 400 })
   if (!/^https:\/\//.test(mediaUrl)) return NextResponse.json({ error: "valid mediaUrl is required" }, { status: 400 })
 
+  let wamid: string | null = null
   try {
-    await sendWhatsAppMedia(phone, mediaType, mediaUrl, caption, mediaType === "document" ? filename : undefined)
+    wamid = await sendWhatsAppMedia(phone, mediaType, mediaUrl, caption, mediaType === "document" ? filename : undefined)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error("[WA-INBOX] send-media failed:", msg)
     return NextResponse.json({ error: `Failed to send: ${msg}` }, { status: 502 })
   }
 
-  // Log it as outbound, carrying the media so the bubble can render it. The
-  // visible text is the caption, or a type label when there's no caption.
+  // Log it as outbound, carrying the media AND the wamid so the bubble can render
+  // it and the status webhook can drive ticks / surface a delivery failure.
   const label = caption ?? (mediaType === "document" ? "📄 Document" : "📷 Photo")
-  await logMessage(phone, "outbound", label, null, { url: mediaUrl, type: mediaType })
+  await logMessage(phone, "outbound", label, wamid, { url: mediaUrl, type: mediaType })
 
   return NextResponse.json({ ok: true })
 }

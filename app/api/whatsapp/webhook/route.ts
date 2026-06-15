@@ -329,6 +329,13 @@ async function handleStatusUpdates(statuses: any[]): Promise<void> {
     const id: string | undefined = s?.id
     const status: string | undefined = s?.status // 'sent' | 'delivered' | 'read' | 'failed'
     if (!id || !status) continue
+    // Surface delivery failures (e.g. 131047 re-engagement, 131053 media error) —
+    // previously these callbacks were swallowed, so a message that WhatsApp
+    // accepted (200) then dropped left no trace of why.
+    if (status === "failed") {
+      const err = Array.isArray(s?.errors) ? s.errors[0] : null
+      console.error("[WA-WEBHOOK] Outbound message FAILED:", id, "code=", err?.code, "title=", err?.title, "detail=", err?.error_data?.details ?? err?.message ?? "")
+    }
     try {
       // Only our outbound rows carry ticks; the direction guard also removes any
       // theoretical wamid-namespace collision with an inbound row.
