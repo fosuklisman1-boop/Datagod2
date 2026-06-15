@@ -130,6 +130,8 @@ export default function WhatsAppInboxPage() {
   const selectedRef = useRef<string | null>(null)
   const searchRef = useRef("")
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Throttle for the "admin is typing" indicator pushed to the customer.
+  const lastTypingRef = useRef<{ phone: string; ts: number }>({ phone: "", ts: 0 })
 
   selectedRef.current = selected
   searchRef.current = search
@@ -137,6 +139,25 @@ export default function WhatsAppInboxPage() {
   async function getAuthHeader() {
     const { data: { session } } = await supabase.auth.getSession()
     return { Authorization: `Bearer ${session?.access_token}` }
+  }
+
+  // Push a "typing…" indicator to the customer while the admin composes a reply.
+  // WhatsApp's indicator lasts ~25s and clears when the reply sends, so we re-ping
+  // at most ~every 9s (per conversation) instead of on every keystroke. Best-effort.
+  async function pingTyping() {
+    if (!selected) return
+    const now = Date.now()
+    const last = lastTypingRef.current
+    if (last.phone === selected && now - last.ts < 9000) return
+    lastTypingRef.current = { phone: selected, ts: now }
+    try {
+      const headers = await getAuthHeader()
+      await fetch("/api/admin/whatsapp-inbox/typing", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: selected }),
+      })
+    } catch { /* best-effort */ }
   }
 
   // ── Admin gate ──────────────────────────────────────────────────────────────
@@ -489,7 +510,7 @@ export default function WhatsAppInboxPage() {
               className="min-h-[42px] max-h-32 resize-none"
               placeholder={threadConvo?.takeover_active ? "Type your reply…" : "Type a reply (tip: take over to pause the bot)…"}
               value={composer}
-              onChange={e => setComposer(e.target.value)}
+              onChange={e => { setComposer(e.target.value); if (e.target.value.trim()) void pingTyping() }}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply() } }}
             />
             <Button onClick={sendReply} disabled={sending || uploading || !composer.trim()}>
