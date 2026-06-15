@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { ChatMessage } from "@/components/ui/chat-message"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, MessageSquare, X, ChevronRight } from "lucide-react"
@@ -54,6 +53,11 @@ function timeAgo(iso: string | null): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`
   return `${Math.floor(s / 86400)}d ago`
+}
+
+// WhatsApp-style clock label on each bubble, e.g. "2:55 PM".
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
 }
 
 export default function WhatsAppInboxPage() {
@@ -320,13 +324,24 @@ export default function WhatsAppInboxPage() {
             )}
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 bg-muted/30">
-            {thread.map(m => (
-              <div key={m.id}>
-                <ChatMessage role={m.direction === "inbound" ? "user" : "assistant"} content={m.message || ""} variant="dark" />
-                <div className={`text-[10px] text-muted-foreground mt-0.5 ${m.direction === "inbound" ? "text-right" : "text-left"}`}>{timeAgo(m.created_at)}</div>
-              </div>
-            ))}
+          {/* WhatsApp-style thread, from the BUSINESS side: our bot/admin replies
+              (outbound) sit on the right; the customer (inbound) on the left. */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1.5 bg-[#efeae2] dark:bg-neutral-900">
+            {thread.map(m => {
+              const out = m.direction === "outbound"
+              return (
+                <div key={m.id} className={`flex ${out ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[78%] rounded-lg px-2.5 py-1.5 shadow-sm ${
+                    out
+                      ? "bg-[#d9fdd3] dark:bg-emerald-900/50 rounded-tr-none"
+                      : "bg-white dark:bg-neutral-800 rounded-tl-none"
+                  }`}>
+                    <div className="text-sm whitespace-pre-wrap break-words text-neutral-900 dark:text-neutral-100">{m.message || ""}</div>
+                    <div className="text-[10px] text-neutral-500 dark:text-neutral-400 text-right mt-0.5 leading-none">{fmtTime(m.created_at)}</div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           {threadConvo?.is_stale && (
