@@ -396,6 +396,7 @@ STYLE:
         userId,
         userRole: userId ? "dashboard" : "guest",
         baseUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+        phone, // authoritative sender (233…) so complaint/handoff key matches inbound media
       },
       maxIterations: 5,
       maxTokens: 600,

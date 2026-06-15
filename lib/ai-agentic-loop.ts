@@ -10,6 +10,10 @@ export interface AgenticToolCtx {
   shopId?: string
   shopSlug?: string
   baseUrl: string
+  // WhatsApp only: authoritative sender number (233…) so phone-keyed tools
+  // (file_complaint, request_human_handoff, start_ordering_bot) don't depend on
+  // the model passing the number in the right format.
+  phone?: string
 }
 
 export interface RunAgenticLoopParams {

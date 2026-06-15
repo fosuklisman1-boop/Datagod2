@@ -1027,6 +1027,10 @@ export interface ToolContext {
   shopId?: string
   shopSlug?: string
   baseUrl: string
+  // WhatsApp only: the authoritative sender number (233XXXXXXXXX) from the webhook.
+  // Prefer this over a model-supplied `phone` arg so complaint/handoff records key
+  // on the same number the inbound media/messages arrive under.
+  phone?: string
 }
 
 // Admin-only tool names. These either mutate platform state or read data via the
@@ -1316,7 +1320,7 @@ export async function executeToolCall(
       case "start_ordering_bot": {
         const { setWaSession } = await import("@/lib/whatsapp-bot/session")
         const { mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
-        const phone = String(input.phone ?? "").trim()
+        const phone = String(ctx.phone || input.phone || "").trim()
         if (!phone) return { error: "phone is required" }
         const localPhone = phone.startsWith("+233") ? "0" + phone.slice(4)
           : phone.startsWith("233") ? "0" + phone.slice(3)
@@ -1334,7 +1338,7 @@ export async function executeToolCall(
       }
 
       case "request_human_handoff": {
-        const waPhone = String(input.phone ?? "").replace(/\D/g, "")
+        const waPhone = String(ctx.phone || input.phone || "").replace(/\D/g, "")
         if (!waPhone) return { error: "phone is required" }
         const { flagAndNotifyHumanRequest } = await import("@/lib/whatsapp-bot/notify-admins")
         await flagAndNotifyHumanRequest(waPhone)
@@ -1342,7 +1346,7 @@ export async function executeToolCall(
       }
 
       case "file_complaint": {
-        const waPhone = String(input.phone ?? "").replace(/\D/g, "")
+        const waPhone = String(ctx.phone || input.phone || "").replace(/\D/g, "")
         const summary = String(input.summary ?? "").trim()
         if (!waPhone || !summary) return { error: "phone and summary are required" }
         const { createComplaint, notifyAdminsNewComplaint } = await import("@/lib/whatsapp-bot/complaints")
