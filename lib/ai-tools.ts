@@ -877,13 +877,18 @@ const fileComplaintTool: Anthropic.Tool = {
         type: "string",
         description: "A clear, concise description of the complaint/issue in the customer's words.",
       },
+      category: {
+        type: "string",
+        enum: ["data", "airtime", "afa", "results", "wallet_topup", "other"],
+        description: "The kind of issue. Use 'wallet_topup' when they topped up their Datagod wallet but the balance didn't reflect / payment failed; 'data'/'airtime' for an order not received or wrong; 'results' for results-check issues; 'afa' for AFA registration; else 'other'.",
+      },
       beneficiary_number: {
         type: "string",
-        description: "The phone number that was supposed to receive the data/airtime (the beneficiary/recipient). Omit only if the customer can't provide it.",
+        description: "For data/airtime: the phone number that was supposed to receive it. For wallet_topup: the MoMo number they paid FROM (if any). Omit if not applicable.",
       },
       order_info: {
         type: "string",
-        description: "What the customer ordered — network, bundle/amount and roughly when — or an order reference if they have one.",
+        description: "The transaction details. data/airtime: network + bundle/amount + roughly when (or a reference). wallet_topup: amount, payment method (MoMo/card), and the MoMo number or Paystack reference.",
       },
     },
     required: ["phone", "summary"],
@@ -1357,10 +1362,14 @@ export async function executeToolCall(
           .maybeSingle()
         const beneficiaryNumber = String(input.beneficiary_number ?? "").trim() || null
         const orderInfo = String(input.order_info ?? "").trim() || null
+        const ALLOWED_CATEGORIES = ["data", "airtime", "afa", "results", "wallet_topup", "other"]
+        const rawCat = String(input.category ?? "").trim().toLowerCase()
+        const category = ALLOWED_CATEGORIES.includes(rawCat) ? rawCat : "other"
         const res = await createComplaint(waPhone, summary, {
           customerName: convo?.wa_profile_name ?? null,
           beneficiaryNumber,
           orderInfo,
+          category,
         })
         if (!res) return { error: "Could not file the complaint right now. Tell the customer to contact support directly." }
         if ("rateLimited" in res) {

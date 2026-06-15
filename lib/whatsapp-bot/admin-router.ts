@@ -192,6 +192,7 @@ interface ComplaintRow {
   phone_number: string
   customer_name: string | null
   description: string
+  category: string | null
   beneficiary_number: string | null
   order_info: string | null
   evidence_urls: string[] | null
@@ -203,7 +204,7 @@ interface ComplaintRow {
 async function listOpenComplaintsForAdmin(adminPhone: string): Promise<{ reply: string; ids: string[] }> {
   const { data: rows } = await supabase
     .from("whatsapp_complaints")
-    .select("id, phone_number, customer_name, description, beneficiary_number, order_info, evidence_urls, status, claimed_by, claimed_at")
+    .select("id, phone_number, customer_name, description, category, beneficiary_number, order_info, evidence_urls, status, claimed_by, claimed_at")
     .in("status", ["open", "claimed"])
     .order("created_at", { ascending: true })
     .limit(10)
@@ -222,8 +223,9 @@ async function listOpenComplaintsForAdmin(adminPhone: string): Promise<{ reply: 
   const lines = available.map((r, i) => {
     const mine = r.claimed_by === adminPhone ? " [yours]" : r.claimed_by ? " [claimed]" : ""
     const clip = r.evidence_urls && r.evidence_urls.length ? " 📎" : ""
+    const cat = r.category && r.category !== "other" ? `[${r.category}] ` : ""
     const who = r.customer_name || r.phone_number
-    return `${i + 1}. ${who}: ${r.description.slice(0, 60)}${r.description.length > 60 ? "…" : ""}${clip}${mine}`
+    return `${i + 1}. ${cat}${who}: ${r.description.slice(0, 55)}${r.description.length > 55 ? "…" : ""}${clip}${mine}`
   })
 
   return {
@@ -289,8 +291,9 @@ export async function adminComplaintRouter(
     const details =
       `Complaint from ${who}\n` +
       `Number: ${row.phone_number}\n` +
+      `Type: ${row.category || "other"}\n` +
       `Beneficiary: ${row.beneficiary_number || "—"}\n` +
-      `Order: ${row.order_info || "—"}\n` +
+      `Order/details: ${row.order_info || "—"}\n` +
       `\n"${row.description}"` +
       (evidence.length ? `\n\nScreenshots:\n${evidence.join("\n")}` : `\n\n(No screenshot attached yet)`)
 

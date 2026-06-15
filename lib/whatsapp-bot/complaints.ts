@@ -18,12 +18,13 @@ export interface WaComplaint {
   phone_number: string
   customer_name: string | null
   description: string
+  category: string
   beneficiary_number: string | null
   order_info: string | null
   status: string
 }
 
-const COMPLAINT_COLS = "id, phone_number, customer_name, description, beneficiary_number, order_info, status"
+const COMPLAINT_COLS = "id, phone_number, customer_name, description, category, beneficiary_number, order_info, status"
 // Window during which a customer's incoming screenshot is attached to their
 // most recent open complaint (a bit longer than the dedup window — they may send
 // it a few minutes after filing).
@@ -43,7 +44,7 @@ export type CreateComplaintResult =
 export async function createComplaint(
   phone: string,
   description: string,
-  details: { customerName?: string | null; beneficiaryNumber?: string | null; orderInfo?: string | null } = {}
+  details: { customerName?: string | null; beneficiaryNumber?: string | null; orderInfo?: string | null; category?: string | null } = {}
 ): Promise<CreateComplaintResult | null> {
   const cutoff = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString()
   const { data: existing } = await supabase
@@ -72,6 +73,7 @@ export async function createComplaint(
       phone_number: phone,
       customer_name: details.customerName ?? null,
       description,
+      category: details.category ?? "other",
       beneficiary_number: details.beneficiaryNumber ?? null,
       order_info: details.orderInfo ?? null,
       status: "open",
@@ -120,10 +122,10 @@ export async function appendComplaintEvidence(complaintId: string, url: string):
 export async function notifyAdminsNewComplaint(complaint: WaComplaint): Promise<void> {
   const who = complaint.customer_name || complaint.phone_number
   const message =
-    `🛎️ New complaint\n\n` +
+    `🛎️ New complaint (${complaint.category})\n\n` +
     `From: ${who}` + (complaint.customer_name ? ` (${complaint.phone_number})` : "") + `\n` +
     `Beneficiary: ${complaint.beneficiary_number || "—"}\n` +
-    `Order: ${complaint.order_info || "—"}\n\n` +
+    `Order/details: ${complaint.order_info || "—"}\n\n` +
     `"${complaint.description.slice(0, 400)}"\n\n` +
     `Reply "complaints" to view and resolve.`
 
