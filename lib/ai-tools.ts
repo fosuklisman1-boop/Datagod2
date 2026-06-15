@@ -895,6 +895,12 @@ const fileComplaintTool: Anthropic.Tool = {
   },
 }
 
+const reverifyPaymentTool: Anthropic.Tool = {
+  name: "reverify_payment",
+  description: "Re-check the customer's recent wallet top-up(s) with Paystack and INSTANTLY credit any that genuinely succeeded but weren't credited (a 'stuck' top-up). Call this when a registered customer says they topped up their Datagod wallet but the balance didn't reflect. It ONLY credits top-ups Paystack confirms as successful, only for this customer's own account, and is safe to run repeatedly (idempotent — never double-credits). After calling, tell the customer the outcome (credited + new balance, still pending, payment failed, or nothing found).",
+  input_schema: { type: "object" as const, properties: {}, required: [] },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
@@ -947,6 +953,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     startOrderingBotTool,
     requestHumanHandoffTool,
     fileComplaintTool,
+    reverifyPaymentTool,
   ]
 
   // Admin: platform management — full suite
@@ -1348,6 +1355,34 @@ export async function executeToolCall(
         const { flagAndNotifyHumanRequest } = await import("@/lib/whatsapp-bot/notify-admins")
         await flagAndNotifyHumanRequest(waPhone)
         return { success: true }
+      }
+
+      case "reverify_payment": {
+        // Auto-credit a stuck wallet top-up. Reuses the proven per-user verify+
+        // credit path (Paystack verify → idempotent credit_wallet_safely). Only
+        // ever acts on THIS customer's own account (ctx.userId), and the WhatsApp
+        // sender is Meta-verified, so there's no impersonation/wrong-wallet risk.
+        if (!ctx.userId) {
+          return { error: "no_account", message: "This WhatsApp number isn't linked to a Datagod account, so the top-up can't be auto-checked. Suggest they re-verify at /dashboard/payment-reverify while signed in, or file a wallet_topup complaint with the payment reference." }
+        }
+        const { verifyUserPendingPayments } = await import("@/lib/payment-cleanup-service")
+        const res = await verifyUserPendingPayments(ctx.userId)
+        let newBalance: number | null = null
+        try {
+          const { data } = await supabaseAdmin.from("wallets").select("balance").eq("user_id", ctx.userId).maybeSingle()
+          newBalance = data?.balance ?? null
+        } catch {}
+        let outcome: string
+        if (res.credited > 0) {
+          outcome = `Credited ${res.credited} successful top-up(s). New wallet balance: GHS ${newBalance != null ? newBalance.toFixed(2) : "(check dashboard)"}.`
+        } else if (res.checked > 0 && res.failed > 0 && res.credited === 0) {
+          outcome = "The top-up payment did not succeed on Paystack (the customer was not charged, or it failed) — nothing to credit."
+        } else if (res.checked > 0) {
+          outcome = "The top-up is still pending on Paystack — ask the customer to wait a few minutes and try again."
+        } else {
+          outcome = "No pending top-up found in the last 24 hours for this account. If they insist they paid, gather the payment reference and file a wallet_topup complaint."
+        }
+        return { checked: res.checked, credited: res.credited, failed: res.failed, new_balance: newBalance, outcome }
       }
 
       case "file_complaint": {
