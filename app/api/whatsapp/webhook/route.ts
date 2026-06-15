@@ -322,7 +322,8 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
 
   const { provider, model } = resolveProviderForContext("whatsapp", aiConfig)
 
-  // Load matched user (if phone is a registered Datagod user)
+  // Load matched user: the WhatsApp number IS a registered number, or it was
+  // verified-and-linked to an account (see account-verify.ts).
   let userId: string | undefined
   const localPhone = phone.startsWith("233") ? "0" + phone.slice(3) : phone
   try {
@@ -332,6 +333,10 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
       .eq("phone_number", localPhone)
       .maybeSingle()
     userId = userRow?.id
+    if (!userId) {
+      const { resolveLinkedUserId } = await import("@/lib/whatsapp-bot/account-link")
+      userId = (await resolveLinkedUserId(phone)) ?? undefined
+    }
   } catch {}
 
   // Load last 20 messages for conversation history
@@ -376,7 +381,7 @@ REPORTING A PROBLEM / COMPLAINTS:
 - If the customer reports a real problem or wants to complain, first work out the category, gather the right details (one short message asking for what's missing — don't interrogate), then call file_complaint with phone, a clear summary, the category, and beneficiary_number + order_info.
   • data / airtime not received or wrong → ask the beneficiary number (the number meant to receive it) and what they ordered (network + bundle/amount, roughly when). category "data" or "airtime".
   • WALLET TOP-UP didn't reflect / paid but balance not credited → FIRST call reverify_payment. It re-checks Paystack and instantly credits any genuinely-successful stuck top-up (safe, idempotent). Then relay the tool's outcome (credited + new balance / still pending / payment failed / nothing found).
-    – Heads-up to set expectations: auto-checking works by matching THIS WhatsApp number to their Datagod account. If reverify_payment reports the account isn't linked (no_account), gently make them aware: "I can only auto-check top-ups when you message me from the same number that's on your Datagod account." Then offer the alternatives it lists (message from their account number, sign in and re-verify at /dashboard/payment-reverify, or you log a complaint with the reference).
+    – If reverify_payment reports the account isn't linked (no_account): offer to verify their account right here. Ask for the phone number on their Datagod account, call start_account_verification, then ask them for the 6-digit SMS code and call verify_account_code. Once verified, call reverify_payment again — it will now find and credit their top-up. (If they can't get the code, fall back to /dashboard/payment-reverify or logging a complaint.)
     – Only if it still can't be resolved (pending, nothing found and they insist they paid, or not linked and they can't message from their account number) — gather the amount, payment method (MoMo/card) and the MoMo number/Paystack reference (in order_info, category "wallet_topup"), file the complaint, then ask for the payment screenshot.
   • results-check issue → category "results"; AFA → "afa"; anything else → "other".
 - After filing, apologise and confirm with the returned reference: "Sorry about that — I've logged your complaint (ref: XXXX). Please send a screenshot of your payment (or data balance) here and I'll attach it for the team." The screenshot attaches automatically when they send it — thank them when they do.

@@ -901,6 +901,30 @@ const reverifyPaymentTool: Anthropic.Tool = {
   input_schema: { type: "object" as const, properties: {}, required: [] },
 }
 
+const startAccountVerificationTool: Anthropic.Tool = {
+  name: "start_account_verification",
+  description: "Begin verifying that the customer owns a Datagod account, when their WhatsApp number isn't already linked to one. Use it ONLY after they give you the phone number on their account. It texts a 6-digit code to that account's registered number; the customer then gives you the code to confirm with verify_account_code. After calling, tell them a code was sent (to the masked number the tool returns) and ask them to enter it.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      account_number: { type: "string", description: "The phone number the customer says is on their Datagod account." },
+    },
+    required: ["account_number"],
+  },
+}
+
+const verifyAccountCodeTool: Anthropic.Tool = {
+  name: "verify_account_code",
+  description: "Confirm the 6-digit code the customer received after start_account_verification. On success, their WhatsApp number is linked to the account and you can then help with account actions (e.g. call reverify_payment for a stuck top-up). Call only when the customer provides a code.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      code: { type: "string", description: "The 6-digit code the customer entered." },
+    },
+    required: ["code"],
+  },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
@@ -954,6 +978,8 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     requestHumanHandoffTool,
     fileComplaintTool,
     reverifyPaymentTool,
+    startAccountVerificationTool,
+    verifyAccountCodeTool,
   ]
 
   // Admin: platform management — full suite
@@ -1362,14 +1388,21 @@ export async function executeToolCall(
         // credit path (Paystack verify → idempotent credit_wallet_safely). Only
         // ever acts on THIS customer's own account (ctx.userId), and the WhatsApp
         // sender is Meta-verified, so there's no impersonation/wrong-wallet risk.
-        if (!ctx.userId) {
-          return { error: "no_account", message: "This WhatsApp number isn't linked to a Datagod account. Auto-checking a top-up only works when the customer messages from the SAME phone number that's on their Datagod account. Kindly explain this, then offer: (1) message you again from their account's number so you can auto-check it, (2) sign in and re-verify at /dashboard/payment-reverify, or (3) you log a wallet_topup complaint with their payment reference for the team." }
+        // Resolve the account: the linked WhatsApp number (ctx.userId) or, if a
+        // verification was just completed this conversation, the freshly-linked one.
+        let payUserId = ctx.userId
+        if (!payUserId) {
+          const { resolveLinkedUserId } = await import("@/lib/whatsapp-bot/account-link")
+          payUserId = (await resolveLinkedUserId(String(ctx.phone || ""))) ?? undefined
+        }
+        if (!payUserId) {
+          return { error: "no_account", message: "This WhatsApp number isn't linked to a Datagod account yet, so the top-up can't be auto-checked. Offer to verify their account: ask for the phone number on their Datagod account and call start_account_verification. Alternatively they can sign in and re-verify at /dashboard/payment-reverify, or you can log a wallet_topup complaint with their payment reference." }
         }
         const { verifyUserPendingPayments } = await import("@/lib/payment-cleanup-service")
-        const res = await verifyUserPendingPayments(ctx.userId)
+        const res = await verifyUserPendingPayments(payUserId)
         let newBalance: number | null = null
         try {
-          const { data } = await supabaseAdmin.from("wallets").select("balance").eq("user_id", ctx.userId).maybeSingle()
+          const { data } = await supabaseAdmin.from("wallets").select("balance").eq("user_id", payUserId).maybeSingle()
           newBalance = data?.balance ?? null
         } catch {}
         let outcome: string
@@ -1383,6 +1416,32 @@ export async function executeToolCall(
           outcome = "No pending top-up found in the last 24 hours for this account. If they insist they paid, gather the payment reference and file a wallet_topup complaint."
         }
         return { checked: res.checked, credited: res.credited, failed: res.failed, new_balance: newBalance, outcome }
+      }
+
+      case "start_account_verification": {
+        const waPhone = String(ctx.phone || "").replace(/\D/g, "")
+        const accountNumber = String(input.account_number ?? "").trim()
+        if (!waPhone) return { error: "Can't determine this WhatsApp number." }
+        if (!accountNumber) return { error: "Ask the customer for the phone number on their Datagod account." }
+        const { startAccountVerification } = await import("@/lib/whatsapp-bot/account-verify")
+        const res = await startAccountVerification(waPhone, accountNumber)
+        if (res.ok) return { sent: true, masked: `•••${res.maskedPhone}`, message: `A 6-digit code was sent by SMS to the number on the account ending ${res.maskedPhone}. Ask the customer to enter it here.` }
+        if (res.reason === "not_found") return { error: "no_account_found", message: "I couldn't find a Datagod account with that number. Ask them to double-check it, or log a complaint." }
+        if (res.reason === "rate_limited") return { error: "rate_limited", message: "Too many code requests right now. Ask them to wait a few minutes and try again, or log a complaint." }
+        return { error: "Couldn't send a code right now. Suggest /dashboard/payment-reverify or log a complaint." }
+      }
+
+      case "verify_account_code": {
+        const waPhone = String(ctx.phone || "").replace(/\D/g, "")
+        const code = String(input.code ?? "").trim()
+        if (!waPhone) return { error: "Can't determine this WhatsApp number." }
+        if (!code) return { error: "Ask the customer for the 6-digit code." }
+        const { verifyAccountCode } = await import("@/lib/whatsapp-bot/account-verify")
+        const res = await verifyAccountCode(waPhone, code)
+        if (res.ok) return { verified: true, message: "Verified — this WhatsApp number is now linked to their account. You can proceed (e.g. call reverify_payment for the stuck top-up)." }
+        if (res.reason === "no_challenge") return { error: "no_challenge", message: "There's no active verification. Ask for their account number and call start_account_verification first." }
+        if (res.reason === "too_many") return { error: "too_many", message: "Too many wrong attempts. Ask for the account number again to restart verification, or log a complaint." }
+        return { error: "bad_code", message: "That code didn't match (or expired). Ask them to check the SMS and try again." }
       }
 
       case "file_complaint": {
