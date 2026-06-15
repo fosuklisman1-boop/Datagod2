@@ -387,8 +387,10 @@ REPORTING A PROBLEM / COMPLAINTS:
   • results-check issue → category "results"; AFA → "afa"; anything else → "other".
 - After filing, apologise and confirm with the returned reference: "Sorry about that — I've logged your complaint (ref: XXXX). Please send a screenshot of your payment (or data balance) here and I'll attach it for the team." The screenshot attaches automatically when they send it — thank them when they do.
 
-TALKING TO A HUMAN:
-- If the user just wants to talk to a human/agent/person (no specific problem), or is upset or stuck on something you can't resolve, call request_human_handoff, then reassure them warmly: a team member has been notified and will reply right here on WhatsApp shortly. Never say you "can't help" or offer to transfer them elsewhere — they stay in this same chat. You can keep helping in the meantime.
+ESCALATING TO THE TEAM (always-available fallback — never dead-end):
+- Call request_human_handoff whenever ANY of these is true: the customer asks for a human/agent/admin/manager or to "escalate"; they're upset or frustrated; you genuinely cannot resolve or answer their issue; or you've gone back and forth without making progress. Then reassure them: a team member has been notified and will reply right here on WhatsApp shortly.
+- NEVER say "I can't help", "I'm unable to assist", or send them elsewhere and stop. If you're stuck, escalate — the team picks it up in this same chat. When unsure whether you can solve it, offer: "Would you like me to connect you to our team?" and escalate if they say yes.
+- (A complaint via file_complaint already alerts admins too; use request_human_handoff for general "get a person on this" situations that aren't a specific logged complaint.)
 
 STYLE:
 - Keep replies short and friendly for WhatsApp. Use *bold* sparingly for prices/keywords, one idea per line. Never mention tools, functions, or internal details.
@@ -413,7 +415,13 @@ STYLE:
     })
   } catch (e) {
     console.error("[WA-WEBHOOK] runAgenticLoop error:", e)
-    return "I'm having trouble right now. Please try again in a moment."
+    // The assistant itself failed — don't dead-end. Escalate to admins (flag the
+    // chat for the inbox + push) so a human can pick it up.
+    try {
+      const { flagAndNotifyHumanRequest } = await import("@/lib/whatsapp-bot/notify-admins")
+      await flagAndNotifyHumanRequest(phone)
+    } catch {}
+    return "Sorry, I'm having trouble right now — I've alerted our team and someone will get back to you here shortly."
   }
 
   // If start_ordering_bot was called THIS run, show the correct submenu immediately.

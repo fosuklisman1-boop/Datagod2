@@ -28,9 +28,10 @@ try {
 const THROTTLE_SECONDS = 120
 const INBOX_URL = "/admin/whatsapp"
 
-// "talk to a human", "speak to an agent", "customer service", "real person", etc.
+// "talk to a human / agent / admin", "escalate", "speak to a manager",
+// "customer service", "real person", "your team", etc.
 const HUMAN_REQUEST_RE =
-  /\b(human|agent|representative|rep)\b|(speak|talk|chat)\s+(to|with)\s+(a\s+)?(person|someone|human|agent)|customer\s+(care|service)|real\s+person/i
+  /\b(human|agent|representative|rep|admin|administrator|manager|supervisor|escalate|escalation)\b|(speak|talk|chat)\s+(to|with)\s+(a\s+)?(person|someone|human|agent|admin|manager)|customer\s+(care|service)|real\s+person|your\s+team|someone\s+who\s+can\s+help/i
 
 /** True if the message reads as a request to talk to a person. */
 export function isHumanRequest(text: string): boolean {
