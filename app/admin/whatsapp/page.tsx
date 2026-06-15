@@ -358,7 +358,11 @@ export default function WhatsAppInboxPage() {
             ) : conversations.map(c => (
               <button
                 key={c.id}
-                onClick={() => setSelected(c.phone_number)}
+                onClick={() => {
+                  setSelected(c.phone_number)
+                  // Optimistically clear the dot; the thread GET marks it read server-side.
+                  setConversations(prev => prev.map(x => x.phone_number === c.phone_number ? { ...x, unread: false } : x))
+                }}
                 className={`w-full text-left px-3 py-2.5 border-b hover:bg-accent transition-colors flex items-center gap-2.5 ${c.unread ? "bg-emerald-50/60 dark:bg-emerald-950/20" : ""}`}
               >
                 <Avatar name={c.customer_name} phone={c.phone_number} />

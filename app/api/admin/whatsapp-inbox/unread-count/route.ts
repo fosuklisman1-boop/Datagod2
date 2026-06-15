@@ -21,14 +21,14 @@ export async function GET(request: NextRequest) {
 
   const { data } = await supabase
     .from("whatsapp_conversations")
-    .select("latest_inbound_at, latest_outbound_at")
+    .select("latest_inbound_at, admin_read_at")
     .not("latest_inbound_at", "is", null)
     .order("updated_at", { ascending: false })
     .limit(CAP)
 
   let count = 0
   for (const r of data ?? []) {
-    if (!r.latest_outbound_at || new Date(r.latest_inbound_at).getTime() > new Date(r.latest_outbound_at).getTime()) count++
+    if (!r.admin_read_at || new Date(r.latest_inbound_at).getTime() > new Date(r.admin_read_at).getTime()) count++
   }
 
   return NextResponse.json({ count, capped: (data?.length ?? 0) >= CAP })

@@ -29,9 +29,22 @@ export async function GET(
 
   const { data: convo } = await supabase
     .from("whatsapp_conversations")
-    .select("id, phone_number, user_id, wa_profile_name, human_takeover, taken_over_by, taken_over_at, latest_inbound_at")
+    .select("id, phone_number, user_id, wa_profile_name, human_takeover, taken_over_by, taken_over_at, latest_inbound_at, admin_read_at")
     .eq("phone_number", phone)
     .maybeSingle()
+
+  // Opening (or polling) a thread marks it read — clears the unread dot. Only
+  // write when there's actually something newer than the last read, to avoid a
+  // DB write on every 3s poll.
+  if (
+    convo?.latest_inbound_at &&
+    (!convo.admin_read_at || new Date(convo.latest_inbound_at).getTime() > new Date(convo.admin_read_at).getTime())
+  ) {
+    await supabase
+      .from("whatsapp_conversations")
+      .update({ admin_read_at: new Date().toISOString() })
+      .eq("phone_number", phone)
+  }
 
   // Resolve the names of the customer and the handling admin.
   let customerName: string | null = null

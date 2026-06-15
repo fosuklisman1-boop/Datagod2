@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("whatsapp_conversations")
     .select(
-      "id, phone_number, user_id, wa_profile_name, last_message_preview, latest_inbound_at, latest_outbound_at, updated_at, human_takeover, taken_over_by, taken_over_at",
+      "id, phone_number, user_id, wa_profile_name, last_message_preview, latest_inbound_at, latest_outbound_at, updated_at, human_takeover, taken_over_by, taken_over_at, admin_read_at",
       { count: "exact" }
     )
     .order("updated_at", { ascending: false })
@@ -62,10 +62,11 @@ export async function GET(request: NextRequest) {
       !!r.taken_over_at &&
       now - new Date(r.taken_over_at).getTime() < TAKEOVER_WINDOW_MS
     const isStale = !r.latest_inbound_at || now - new Date(r.latest_inbound_at).getTime() > STALE_WINDOW_MS
-    // Unread = the customer messaged after our last reply (or we've never replied).
+    // Unread = the customer messaged since an admin last opened this chat. Based
+    // on admin_read_at (not outbound) so the bot's auto-replies don't clear it.
     const unread =
       !!r.latest_inbound_at &&
-      (!r.latest_outbound_at || new Date(r.latest_inbound_at).getTime() > new Date(r.latest_outbound_at).getTime())
+      (!r.admin_read_at || new Date(r.latest_inbound_at).getTime() > new Date(r.admin_read_at).getTime())
     return {
       id: r.id,
       phone_number: r.phone_number,
