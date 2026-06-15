@@ -833,6 +833,28 @@ export function Sidebar() {
                   {isOpen && "Check Requests"}
                 </Button>
               </Link>
+              <Link href="/admin/whatsapp" onClick={() => handleNavigation("/admin/whatsapp")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/whatsapp" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/whatsapp" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/whatsapp" && "opacity-70"
+                  )}
+                  title={!isOpen ? "WhatsApp Inbox" : undefined}
+                  disabled={loadingPath === "/admin/whatsapp"}
+                >
+                  {loadingPath === "/admin/whatsapp" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <MessageCircle className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "WhatsApp Inbox"}
+                </Button>
+              </Link>
               <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>
                 <Button
                   variant="ghost"

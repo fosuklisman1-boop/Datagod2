@@ -7,6 +7,7 @@ import { getWaSession, setWaSession } from "@/lib/whatsapp-bot/session"
 import { waRouter } from "@/lib/whatsapp-bot/router"
 import { isResultsCheckAdmin, adminRcRouter } from "@/lib/whatsapp-bot/admin-router"
 import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia } from "@/lib/whatsapp-bot/send"
+import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
 
@@ -136,8 +137,8 @@ async function processInbound(body: unknown): Promise<void> {
     }
   }
 
-  // Log inbound message
-  await logMessage(from, "inbound", text, msg.id)
+  // Log inbound message (also returns this conversation's takeover state)
+  const { humanTakeover, takenOverAt } = await logMessage(from, "inbound", text, msg.id)
 
   // Admin Results Check WhatsApp queue: "pending" (from any state) or mid-flow.
   if (await isResultsCheckAdmin(from)) {
@@ -154,6 +155,22 @@ async function processInbound(body: unknown): Promise<void> {
       }
       return
     }
+  }
+
+  // Human takeover: an admin owns this chat → bot/AI must not reply. Persistent
+  // (DB) flag, auto-expiring after 30 min of admin inactivity (lazy resume). The
+  // inbound is already logged above, so the admin still sees it in the inbox.
+  if (humanTakeover) {
+    const activeMs = takenOverAt ? Date.now() - new Date(takenOverAt).getTime() : Infinity
+    if (activeMs < 30 * 60 * 1000) {
+      console.log("[WA-WEBHOOK] Human takeover active, bot suppressed:", from)
+      return
+    }
+    // Expired → resume the bot and clear the stale takeover.
+    await supabase
+      .from("whatsapp_conversations")
+      .update({ human_takeover: false, taken_over_by: null, taken_over_at: null })
+      .eq("phone_number", from)
   }
 
   // Route: bot session active → bot router; else → AI
@@ -297,47 +314,3 @@ For support, order status, and general questions: answer directly.`
   return result.text || "I'm here to help!\n\nReply with:\n- *data* to buy data bundles\n- *airtime* for airtime top-up\n- *afa* for AFA registration\n- *rc* for results checker vouchers"
 }
 
-// ── DB logging ────────────────────────────────────────────────────────────────
-
-async function logMessage(
-  phone: string,
-  direction: "inbound" | "outbound",
-  message: string,
-  metaMessageId: string | null
-): Promise<void> {
-  try {
-    // Upsert conversation record
-    const { data: conv } = await supabase
-      .from("whatsapp_conversations")
-      .upsert({ phone_number: phone }, { onConflict: "phone_number" })
-      .select("id")
-      .maybeSingle()
-
-    const conversationId = conv?.id ?? null
-
-    await supabase.from("whatsapp_messages").insert({
-      conversation_id: conversationId,
-      direction,
-      phone_number: phone,
-      message,
-      meta_message_id: metaMessageId,
-      status: "sent",
-    })
-
-    // Update conversation preview
-    const updatePayload: Record<string, unknown> = {
-      last_message_preview: message.slice(0, 100),
-      updated_at: new Date().toISOString(),
-    }
-    if (direction === "inbound") updatePayload.latest_inbound_at = new Date().toISOString()
-    else updatePayload.latest_outbound_at = new Date().toISOString()
-
-    if (conversationId) {
-      await supabase.from("whatsapp_conversations")
-        .update(updatePayload)
-        .eq("id", conversationId)
-    }
-  } catch (e) {
-    console.warn("[WA-WEBHOOK] logMessage failed (non-fatal):", e)
-  }
-}
