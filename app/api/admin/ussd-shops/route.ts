@@ -121,9 +121,14 @@ export async function POST(request: NextRequest) {
   // Notify shop owner
   const { data: shop } = await supabase.from('user_shops').select('user_id').eq('id', shop_id).single()
   if (shop?.user_id) {
+    // Use the live dial code (app_settings) so the message never goes stale.
+    // Customers dial that code, then ENTER the shop code at the prompt — it is
+    // not appended to the dial string.
+    const { data: settings } = await supabase.from('app_settings').select('ussd_shop_dial_code').limit(1).maybeSingle()
+    const dialCode = settings?.ussd_shop_dial_code || '*426*203#'
     sendPushToUser(shop.user_id, {
       title: '📱 USSD Code Created',
-      body: `Your new USSD shop code *714*${finalCode}# is ready. Share it with your customers!`,
+      body: `Your USSD shop is ready! Customers dial ${dialCode} and enter your shop code ${finalCode}. Share it with them!`,
       data: { url: '/dashboard/ussd-shop' },
     }).catch(() => {})
   }

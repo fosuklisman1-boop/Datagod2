@@ -34,7 +34,7 @@ async function loadAIConfig(): Promise<AIProviderConfig> {
 
 // ── USSD dial code cache (30s TTL) ────────────────────────────────────────────
 let ussdDialCodeCache: { code: string; ts: number } | null = null
-const DEFAULT_USSD_DIAL_CODE = "*714#"
+const DEFAULT_USSD_DIAL_CODE = "*426*203#"  // fallback only; live value comes from app_settings.ussd_shop_dial_code
 
 async function loadUssdDialCode(): Promise<string> {
   if (ussdDialCodeCache && Date.now() - ussdDialCodeCache.ts < 30_000) return ussdDialCodeCache.code
@@ -231,6 +231,29 @@ export async function POST(req: NextRequest) {
     shopId = ownedShop?.id
   }
 
+  // ── Storefront shop USSD code ─────────────────────────────────────────────
+  // So the storefront AI can tell guests how to order THIS shop's bundles by
+  // phone: dial the shop dial code, then enter this shop's own code at the prompt.
+  // Only surfaced for an 'active' code (an inactive/unpaid code wouldn't work).
+  let shopUssdCode: string | null = null
+  if (context === "storefront" && shopId) {
+    const { data: codeRow } = await supabaseAdmin
+      .from("ussd_shop_codes")
+      .select("code")
+      .eq("shop_id", shopId)
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle()
+    shopUssdCode = (codeRow?.code as string) ?? null
+  }
+  const storefrontUssdSection = shopUssdCode
+    ? `
+
+ORDER BY USSD (no internet needed — works on any phone):
+- This shop has a USSD code. To order by phone: dial ${ussdDialCode}, and when it asks "Enter shop code:", enter ${shopUssdCode}.
+- Important: they ENTER ${shopUssdCode} at the prompt — they do NOT append it to the dial string.`
+    : ""
+
   // ── System prompt ─────────────────────────────────────────────────────────
   const today = new Date().toISOString().split("T")[0]   // e.g. 2026-05-22 — recomputed every request
   let systemPrompt: string
@@ -374,6 +397,7 @@ PAYMENT & REFUNDS:
 - All payments go through Paystack — the shop owner does not handle card details
 - For payment issues, customers can use the payment re-verify option on the site
 - Refund and dispute processes: call get_knowledge_base for policy details
+${storefrontUssdSection}
 
 ${knowledgeBaseRule}
 ${formattingRules}`

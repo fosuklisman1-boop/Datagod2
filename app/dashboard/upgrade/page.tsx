@@ -352,7 +352,7 @@ export default function UpgradePage() {
         "Airtime Top-up Sales",
         "Results Checker Vouchers (WASSCE / BECE)",
         "Online Web Storefront",
-        "USSD Shop (*714# Integration)",
+        "USSD Shop Ordering Channel",
         "Sub-Agent Network & Catalog",
         "Bulk Order Processing",
         "Exclusive Wholesale Pricing",
