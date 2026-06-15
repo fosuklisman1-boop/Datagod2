@@ -120,6 +120,9 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Keep these out of the server bundle: ogg-opus-decoder ships inline WASM and
+  // both are ESM — loading them from node_modules at runtime avoids bundler hiccups.
+  serverExternalPackages: ["ogg-opus-decoder", "@breezystack/lamejs"],
 };
 
 export default withBotId(nextConfig);

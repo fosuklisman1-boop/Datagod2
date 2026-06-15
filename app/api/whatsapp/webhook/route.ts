@@ -167,10 +167,29 @@ async function processInbound(body: unknown): Promise<void> {
         "video/mp4": "mp4", "video/3gpp": "3gp", "video/quicktime": "mov",
         "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
       }
-      const ext = MEDIA_EXT[mimeType] ?? (mimeType.split("/")[1]?.split("+")[0] ?? "bin")
+      let bytes: Uint8Array = new Uint8Array(buffer)
+      let storeMime = mimeType
+      let ext = MEDIA_EXT[mimeType] ?? (mimeType.split("/")[1]?.split("+")[0] ?? "bin")
+
+      // Voice notes are Opus/Ogg, which Safari can't play. Transcode to MP3 on
+      // arrival so they play everywhere (our admins are mostly on Safari). Other
+      // audio (mp3/aac/m4a) plays natively, so it's left alone. Falls back to the
+      // original bytes if the transcode fails.
+      if (mimeType === "audio/ogg" || mimeType === "audio/opus") {
+        try {
+          const { opusOggToMp3 } = await import("@/lib/audio-transcode")
+          bytes = await opusOggToMp3(new Uint8Array(buffer))
+          storeMime = "audio/mpeg"
+          ext = "mp3"
+          console.log("[WA-WEBHOOK] Transcoded voice note to MP3:", bytes.length, "bytes")
+        } catch (e) {
+          console.warn("[WA-WEBHOOK] voice note transcode failed, storing original:", e instanceof Error ? e.message : String(e))
+        }
+      }
+
       // Non-enumerable, PII-free path (public bucket — no phone in the URL).
       const path = `inbox/${crypto.randomUUID()}.${ext}`
-      await supabase.storage.from("admin-uploads").upload(path, Buffer.from(buffer), { contentType: mimeType, upsert: true })
+      await supabase.storage.from("admin-uploads").upload(path, Buffer.from(bytes), { contentType: storeMime, upsert: true })
       const { data: { publicUrl } } = supabase.storage.from("admin-uploads").getPublicUrl(path)
 
       // Surface it in the admin inbox thread. media_type drives the bubble:
