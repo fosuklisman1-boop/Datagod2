@@ -152,10 +152,22 @@ async function processInbound(body: unknown): Promise<void> {
     }
 
     try {
-      const { buffer, mimeType } = await downloadWaMedia(mediaId)
+      const { buffer, mimeType: rawMime } = await downloadWaMedia(mediaId)
+      // WhatsApp reports params like "audio/ogg; codecs=opus" — strip them so the
+      // content-type matches the storage MIME allowlist and the extension is clean.
+      const mimeType = rawMime.split(";")[0].trim().toLowerCase()
       const isImage = mimeType.startsWith("image/")
       const caption: string = String(mediaNode.caption ?? "").trim()
-      const ext = mimeType === "application/pdf" ? "pdf" : (mimeType.split("/")[1] ?? "bin")
+      const MEDIA_EXT: Record<string, string> = {
+        "application/pdf": "pdf", "text/plain": "txt",
+        "application/msword": "doc", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+        "application/vnd.ms-excel": "xls", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+        "application/vnd.ms-powerpoint": "ppt", "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+        "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/opus": "opus", "audio/aac": "aac", "audio/amr": "amr",
+        "video/mp4": "mp4", "video/3gpp": "3gp", "video/quicktime": "mov",
+        "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+      }
+      const ext = MEDIA_EXT[mimeType] ?? (mimeType.split("/")[1]?.split("+")[0] ?? "bin")
       // Non-enumerable, PII-free path (public bucket — no phone in the URL).
       const path = `inbox/${crypto.randomUUID()}.${ext}`
       await supabase.storage.from("admin-uploads").upload(path, Buffer.from(buffer), { contentType: mimeType, upsert: true })
