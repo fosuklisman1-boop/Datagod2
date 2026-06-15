@@ -192,6 +192,9 @@ interface ComplaintRow {
   phone_number: string
   customer_name: string | null
   description: string
+  beneficiary_number: string | null
+  order_info: string | null
+  evidence_urls: string[] | null
   status: string
   claimed_by: string | null
   claimed_at: string | null
@@ -200,7 +203,7 @@ interface ComplaintRow {
 async function listOpenComplaintsForAdmin(adminPhone: string): Promise<{ reply: string; ids: string[] }> {
   const { data: rows } = await supabase
     .from("whatsapp_complaints")
-    .select("id, phone_number, customer_name, description, status, claimed_by, claimed_at")
+    .select("id, phone_number, customer_name, description, beneficiary_number, order_info, evidence_urls, status, claimed_by, claimed_at")
     .in("status", ["open", "claimed"])
     .order("created_at", { ascending: true })
     .limit(10)
@@ -218,8 +221,9 @@ async function listOpenComplaintsForAdmin(adminPhone: string): Promise<{ reply: 
 
   const lines = available.map((r, i) => {
     const mine = r.claimed_by === adminPhone ? " [yours]" : r.claimed_by ? " [claimed]" : ""
+    const clip = r.evidence_urls && r.evidence_urls.length ? " 📎" : ""
     const who = r.customer_name || r.phone_number
-    return `${i + 1}. ${who}: ${r.description.slice(0, 60)}${r.description.length > 60 ? "…" : ""}${mine}`
+    return `${i + 1}. ${who}: ${r.description.slice(0, 60)}${r.description.length > 60 ? "…" : ""}${clip}${mine}`
   })
 
   return {
@@ -281,10 +285,14 @@ export async function adminComplaintRouter(
     }
 
     const who = row.customer_name || row.phone_number
+    const evidence: string[] = Array.isArray(row.evidence_urls) ? row.evidence_urls : []
     const details =
       `Complaint from ${who}\n` +
-      (row.customer_name ? `Number: ${row.phone_number}\n` : "") +
-      `\n"${row.description}"`
+      `Number: ${row.phone_number}\n` +
+      `Beneficiary: ${row.beneficiary_number || "—"}\n` +
+      `Order: ${row.order_info || "—"}\n` +
+      `\n"${row.description}"` +
+      (evidence.length ? `\n\nScreenshots:\n${evidence.join("\n")}` : `\n\n(No screenshot attached yet)`)
 
     await setWaSession(from, { step: "ADMIN_COMPLAINT_AWAIT_REPLY", adminComplaintSelectedId: complaintId })
     return `${details}\n\nType your reply to the customer to resolve it, or 'cancel' to release.`

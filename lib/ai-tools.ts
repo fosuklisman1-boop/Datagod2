@@ -865,7 +865,7 @@ const requestHumanHandoffTool: Anthropic.Tool = {
 
 const fileComplaintTool: Anthropic.Tool = {
   name: "file_complaint",
-  description: "Log a customer complaint and alert the support team. Call this when the customer reports a real problem (e.g. paid but didn't receive data/airtime, wrong bundle, failed/charged twice, results not delivered, poor service) or explicitly wants to complain. Pass a clear one-paragraph summary of the issue in their own words. After calling it, apologise and confirm their complaint is logged and the team will follow up here. Do NOT use it for normal questions you can answer, or for someone who just wants to chat with a person (use request_human_handoff for that).",
+  description: "Log a customer complaint and alert the support team. Call this when the customer reports a real problem (e.g. paid but didn't receive data/airtime, wrong bundle, failed/charged twice, results not delivered, poor service) or explicitly wants to complain. FIRST gather the details by asking the customer: the beneficiary number (the number that was supposed to receive the data/airtime), what they ordered (network + bundle/amount, and roughly when), and what went wrong — then call this with those fields. After calling it, apologise, give them the returned reference, and ask them to send a screenshot of their payment or data balance (it attaches automatically). Do NOT use it for normal questions you can answer, or for someone who just wants to chat with a person (use request_human_handoff for that).",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -876,6 +876,14 @@ const fileComplaintTool: Anthropic.Tool = {
       summary: {
         type: "string",
         description: "A clear, concise description of the complaint/issue in the customer's words.",
+      },
+      beneficiary_number: {
+        type: "string",
+        description: "The phone number that was supposed to receive the data/airtime (the beneficiary/recipient). Omit only if the customer can't provide it.",
+      },
+      order_info: {
+        type: "string",
+        description: "What the customer ordered — network, bundle/amount and roughly when — or an order reference if they have one.",
       },
     },
     required: ["phone", "summary"],
@@ -1343,8 +1351,17 @@ export async function executeToolCall(
           .select("wa_profile_name")
           .eq("phone_number", waPhone)
           .maybeSingle()
-        const res = await createComplaint(waPhone, summary, convo?.wa_profile_name ?? null)
-        if (!res) return { error: "Could not file the complaint" }
+        const beneficiaryNumber = String(input.beneficiary_number ?? "").trim() || null
+        const orderInfo = String(input.order_info ?? "").trim() || null
+        const res = await createComplaint(waPhone, summary, {
+          customerName: convo?.wa_profile_name ?? null,
+          beneficiaryNumber,
+          orderInfo,
+        })
+        if (!res) return { error: "Could not file the complaint right now. Tell the customer to contact support directly." }
+        if ("rateLimited" in res) {
+          return { error: "The customer has reached today's complaint limit (5). Tell them their existing complaints are being reviewed and to contact support directly for anything urgent." }
+        }
         // Only alert admins for a genuinely new complaint (dedup reuses recent ones).
         if (res.isNew) await notifyAdminsNewComplaint(res.complaint)
         return { success: true, reference: res.complaint.id.slice(0, 8).toUpperCase() }

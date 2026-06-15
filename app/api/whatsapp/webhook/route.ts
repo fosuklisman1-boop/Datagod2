@@ -94,34 +94,69 @@ async function processInbound(body: unknown): Promise<void> {
   const msg = messages[0]
   const from: string = msg.from   // e.g. "233559919037"
 
-  // Non-text messages: only meaningful for an admin mid-delivery (photo/PDF of
-  // results). Everyone else's media is ignored, as before.
+  // Non-text messages: meaningful for (a) an admin mid-results-delivery, or
+  // (b) a customer sending a screenshot for their recent complaint. Otherwise ignored.
   if (msg.type !== "text") {
-    if (!(await isResultsCheckAdmin(from))) return
-    const session = await getWaSession(from)
-    if (session?.step !== "ADMIN_RC_AWAIT_CONTENT") return
+    const isAdmin = await isResultsCheckAdmin(from)
 
-    if (msg.type !== "image" && msg.type !== "document") {
-      await sendWhatsAppText(from, "Unsupported file type — please send a photo or PDF.")
+    // (a) Admin attaching the results photo/PDF mid-delivery.
+    if (isAdmin) {
+      const session = await getWaSession(from)
+      if (session?.step === "ADMIN_RC_AWAIT_CONTENT") {
+        if (msg.type !== "image" && msg.type !== "document") {
+          await sendWhatsAppText(from, "Unsupported file type — please send a photo or PDF.")
+          return
+        }
+        const mediaId = (msg.image ?? msg.document).id
+        try {
+          const { buffer, mimeType } = await downloadWaMedia(mediaId)
+          const ext = mimeType === "application/pdf" ? "pdf" : (mimeType.split("/")[1] ?? "bin")
+          const path = `results-check/${session.adminRcSelectedId}-${Date.now()}.${ext}`
+          await supabase.storage.from("admin-uploads").upload(path, Buffer.from(buffer), { contentType: mimeType, upsert: true })
+          const { data: { publicUrl } } = supabase.storage.from("admin-uploads").getPublicUrl(path)
+          await setWaSession(from, {
+            ...session,
+            adminRcDraftMediaUrl: publicUrl,
+            adminRcDraftMediaType: mimeType === "application/pdf" ? "document" : "image",
+          })
+          await sendWhatsAppText(from, "📎 File received. Reply 'send' to deliver now, or add more text first.")
+        } catch (e) {
+          console.error("[WA-WEBHOOK] Admin media handling failed:", e)
+          await sendWhatsAppText(from, "Sorry, that file couldn't be processed. Please try again.")
+        }
+        return
+      }
+      // Admin not mid-delivery → don't treat their media as customer evidence.
       return
     }
 
-    const mediaId = (msg.image ?? msg.document).id
-    try {
-      const { buffer, mimeType } = await downloadWaMedia(mediaId)
-      const ext = mimeType === "application/pdf" ? "pdf" : (mimeType.split("/")[1] ?? "bin")
-      const path = `results-check/${session.adminRcSelectedId}-${Date.now()}.${ext}`
-      await supabase.storage.from("admin-uploads").upload(path, Buffer.from(buffer), { contentType: mimeType, upsert: true })
-      const { data: { publicUrl } } = supabase.storage.from("admin-uploads").getPublicUrl(path)
-      await setWaSession(from, {
-        ...session,
-        adminRcDraftMediaUrl: publicUrl,
-        adminRcDraftMediaType: mimeType === "application/pdf" ? "document" : "image",
-      })
-      await sendWhatsAppText(from, "📎 File received. Reply 'send' to deliver now, or add more text first.")
-    } catch (e) {
-      console.error("[WA-WEBHOOK] Admin media handling failed:", e)
-      await sendWhatsAppText(from, "Sorry, that file couldn't be processed. Please try again.")
+    // (b) Customer screenshot → attach to their most recent open complaint, if any.
+    if (msg.type === "image" || msg.type === "document") {
+      const { findRecentOpenComplaint, appendComplaintEvidence } = await import("@/lib/whatsapp-bot/complaints")
+      const open = await findRecentOpenComplaint(from)
+      if (!open) return // no active complaint → ignore the image, as before
+      try {
+        const mediaId = (msg.image ?? msg.document).id
+        const { buffer, mimeType } = await downloadWaMedia(mediaId)
+        // Service-role uploads bypass the bucket's MIME allowlist, so gate it here.
+        const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"])
+        if (!ALLOWED.has(mimeType)) {
+          await sendWhatsAppText(from, "Please send a photo (JPG/PNG) or a PDF for your complaint.")
+          return
+        }
+        const ext = mimeType === "application/pdf" ? "pdf" : (mimeType.split("/")[1] ?? "bin")
+        // Path uses the complaint id + a random token — no customer PII (phone) and
+        // not enumerable, since this is a public bucket.
+        const path = `complaints/${open.id}-${crypto.randomUUID()}.${ext}`
+        await supabase.storage.from("admin-uploads").upload(path, Buffer.from(buffer), { contentType: mimeType, upsert: true })
+        const { data: { publicUrl } } = supabase.storage.from("admin-uploads").getPublicUrl(path)
+        const added = await appendComplaintEvidence(open.id, publicUrl)
+        await sendWhatsAppText(from, added
+          ? "📎 Screenshot added to your complaint — our team will review it. Thank you."
+          : "Thanks — we already have several screenshots for this complaint, so the team has enough to review it.")
+      } catch (e) {
+        console.error("[WA-WEBHOOK] Complaint evidence handling failed:", e)
+      }
     }
     return
   }
@@ -338,7 +373,10 @@ ANSWERING QUESTIONS — use your tools, never guess:
 - Payment is via Paystack — mobile money (MoMo) or card; registered users can also pay from their Datagod wallet. Data is usually delivered instantly (occasionally a few minutes at peak).
 
 REPORTING A PROBLEM / COMPLAINTS:
-- If the customer reports a real problem (paid but didn't get data/airtime, wrong bundle, charged twice, results not delivered, poor service) or wants to complain, call file_complaint with a clear summary in their words. Then apologise and confirm: "Sorry about that — I've logged your complaint (ref: XXXX) and our team will follow up right here shortly." Use the reference the tool returns.
+- If the customer reports a real problem (paid but didn't get data/airtime, wrong bundle, charged twice, results not delivered, poor service) or wants to complain:
+  1. Gather the details first — ask briefly for: the beneficiary number (the number meant to receive it), what they ordered (network + bundle/amount, and roughly when), and what went wrong. Don't interrogate; one short message asking for what's missing is enough.
+  2. Then call file_complaint with phone, a clear summary, and beneficiary_number + order_info.
+  3. Apologise and confirm using the returned reference: "Sorry about that — I've logged your complaint (ref: XXXX). Please send a screenshot of your payment or data balance here and I'll attach it for the team." The screenshot attaches automatically when they send it — thank them when they do.
 
 TALKING TO A HUMAN:
 - If the user just wants to talk to a human/agent/person (no specific problem), or is upset or stuck on something you can't resolve, call request_human_handoff, then reassure them warmly: a team member has been notified and will reply right here on WhatsApp shortly. Never say you "can't help" or offer to transfer them elsewhere — they stay in this same chat. You can keep helping in the meantime.
