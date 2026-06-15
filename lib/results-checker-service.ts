@@ -1,9 +1,79 @@
 import { createClient } from "@supabase/supabase-js"
+import type { WaTemplateComponent } from "@/lib/whatsapp-bot/send"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// Approved WhatsApp templates for results delivery outside the 24h window.
+// Env-overridable in case Meta approves them under a different name/locale
+// (a locale mismatch otherwise fails with error 132001).
+const RC_TEMPLATE_DOC = process.env.WHATSAPP_RC_TEMPLATE || "results_check_delivery"
+const RC_TEMPLATE_IMAGE = process.env.WHATSAPP_RC_TEMPLATE_IMAGE || "results_check_delivery_image"
+const RC_TEMPLATE_LANG = process.env.WHATSAPP_RC_TEMPLATE_LANG || "en"
+// The 24h customer-service window; we treat a recipient as "warm" only within
+// this shorter span so borderline cases fall through to the (always-deliverable)
+// template rather than a free-form send that would be silently dropped.
+const WA_WINDOW_MS = 23 * 60 * 60 * 1000
+// Public bucket whose read policy explicitly allows WhatsApp to fetch media.
+const RESULTS_BUCKET = "admin-uploads"
+// Template body params can't contain newlines/tabs or >4 consecutive spaces
+// (Meta error 131009); body renders within 1024 chars.
+const RC_PARAM_MAX = 900
+
+/** Collapse whitespace and codepoint-truncate so Meta never rejects a body param. */
+function oneLineParam(text: string): string {
+  const s = text.replace(/[\r\n\t]+/g, " ").replace(/ {5,}/g, "    ").trim()
+  const chars = [...s]
+  return chars.length > RC_PARAM_MAX ? chars.slice(0, RC_PARAM_MAX - 1).join("").trimEnd() + "…" : s
+}
+
+/** True if the number messaged us within the customer-service window (free-form
+ *  will deliver). Unknown/error → false, so we default to the template. */
+async function isWaWarm(waPhone: string): Promise<boolean> {
+  try {
+    const cutoff = new Date(Date.now() - WA_WINDOW_MS).toISOString()
+    const { data } = await supabase
+      .from("whatsapp_conversations")
+      .select("phone_number")
+      .eq("phone_number", waPhone)
+      .gte("latest_inbound_at", cutoff)
+      .maybeSingle()
+    return !!data
+  } catch {
+    return false
+  }
+}
+
+/** Generate a plain-text results summary and upload it to the public bucket so
+ *  it can fill the document-header template for text-only results. Null on
+ *  failure (e.g. the bucket doesn't yet allow text/plain — see the
+ *  20260615_admin_uploads_allow_text migration). */
+async function uploadResultTextFile(req: Record<string, any>): Promise<{ url: string; filename: string } | null> {
+  try {
+    const body =
+      `${req.exam_board} Results\n` +
+      `Index Number: ${req.index_number}\n` +
+      `Exam Year: ${req.exam_year}\n\n` +
+      `${req.result_data ?? ""}` +
+      voucherInfoBlock(req) +
+      `\n\nReference: ${req.payment_reference ?? ""}\n`
+    const path = `results-check/text/${req.id}-${Date.now()}.txt`
+    const { error } = await supabase.storage
+      .from(RESULTS_BUCKET)
+      .upload(path, Buffer.from(body, "utf8"), { contentType: "text/plain", upsert: true })
+    if (error) {
+      console.error("[RC-DELIVER] .txt upload failed:", error.message)
+      return null
+    }
+    const { data } = supabase.storage.from(RESULTS_BUCKET).getPublicUrl(path)
+    return { url: data.publicUrl, filename: `${req.exam_board}_results_${req.exam_year}.txt` }
+  } catch (e) {
+    console.error("[RC-DELIVER] .txt upload threw:", e)
+    return null
+  }
+}
 
 const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"] as const
 export type ExamBoard = typeof EXAM_BOARDS[number]
@@ -94,11 +164,16 @@ export async function notifyAdminsNewResultsCheckRequest(requestId: string): Pro
 }
 
 // Sends the result text and/or media for a results-check request to one
-// WhatsApp number. When a PDF is attached, tries the approved
-// "results_check_delivery" Utility template first — it bundles the document
-// and a summary into one message and (unlike free-form sends) works even
-// outside the 24h customer-service window. Falls back to the free-text +
-// media flow if the template send fails or there's no PDF to attach.
+// WhatsApp number.
+//
+// Warm recipients (messaged us within the 24h window) get the free-form text +
+// media flow — free, full formatting, typed grades inline. Everyone else (the
+// common case for storefront/USSD customers, who give a number but never
+// messaged the bot) goes to an approved template, the only thing that delivers
+// outside the window. A free-form send to a cold number returns 200 "accepted"
+// then silently drops, so we decide warm/cold up front rather than relying on
+// the send result. Template is picked by media type: image → image template,
+// PDF → document template, text-only → a generated .txt as the document.
 async function deliverResultsViaWhatsApp(
   waPhone: string,
   req: Record<string, any>,
@@ -108,57 +183,99 @@ async function deliverResultsViaWhatsApp(
 ): Promise<void> {
   const { sendWhatsAppText, sendWhatsAppMedia, sendWhatsAppTemplate } = await import("@/lib/whatsapp-bot/send")
 
-  let templateDelivered = false
-  if (mediaUrl && mediaType === "document") {
-    templateDelivered = await sendWhatsAppTemplate(waPhone, "results_check_delivery", "en", [
-      {
-        type: "header",
-        parameters: [{ type: "document", document: { link: mediaUrl, filename: `${req.exam_board}_results_${req.exam_year}.pdf` } }],
-      },
-      {
-        type: "body",
-        parameters: [
-          { type: "text", text: String(req.exam_board) },
-          { type: "text", text: String(req.index_number) },
-          { type: "text", text: String(req.exam_year) },
-          { type: "text", text: String(req.payment_reference ?? "") },
-        ],
-      },
-    ])
-    if (templateDelivered) deliveryNotes.push(`WhatsApp template (results_check_delivery) sent to ${waPhone}`)
+  // 1. Warm path — free-form delivers and reads best. If everything sends, done.
+  let textAlreadySent = false
+  if (await isWaWarm(waPhone)) {
+    let ok = true
+    if (req.result_data) {
+      const resultMsg =
+        `Your ${req.exam_board} results for index number ${req.index_number} (${req.exam_year}):\n\n` +
+        req.result_data + voucherInfoBlock(req) + `\n\nRef: ${req.payment_reference}`
+      const sent = await sendWhatsAppText(waPhone, resultMsg)
+      if (sent) { deliveryNotes.push(`WhatsApp text sent to ${waPhone}`); textAlreadySent = true }
+      else ok = false
+    }
+    if (mediaUrl) {
+      const caption = req.result_data
+        ? undefined
+        : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
+      try {
+        await sendWhatsAppMedia(
+          waPhone,
+          mediaType as "image" | "document" | "video",
+          mediaUrl,
+          caption,
+          mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
+        )
+        deliveryNotes.push(`WhatsApp media sent to ${waPhone}`)
+      } catch (e) {
+        ok = false
+        deliveryNotes.push(`WhatsApp media FAILED: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    if (ok) return
+    deliveryNotes.push(`WhatsApp free-form incomplete for ${waPhone} — falling back to template`)
   }
 
-  if (req.result_data) {
-    const resultMsg =
-      `Your ${req.exam_board} results for index number ${req.index_number} (${req.exam_year}):\n\n` +
-      req.result_data +
-      voucherInfoBlock(req) +
-      `\n\nRef: ${req.payment_reference}`
-    await sendWhatsAppText(waPhone, resultMsg)
-      .then(ok => deliveryNotes.push(ok
-        ? `WhatsApp text sent to ${waPhone}`
-        : `WhatsApp text FAILED to ${waPhone} (outside 24h window?)`))
-      .catch(e => deliveryNotes.push(`WhatsApp text FAILED: ${e instanceof Error ? e.message : String(e)}`))
+  // 2. Cold path (or warm fallback) — approved template, picked by media type.
+  let header: WaTemplateComponent | null = null
+  let templateName = RC_TEMPLATE_DOC
+  if (mediaUrl && mediaType === "image") {
+    templateName = RC_TEMPLATE_IMAGE
+    header = { type: "header", parameters: [{ type: "image", image: { link: mediaUrl } }] }
+  } else if (mediaUrl) {
+    // PDF / any non-image document.
+    templateName = RC_TEMPLATE_DOC
+    header = {
+      type: "header",
+      parameters: [{ type: "document", document: { link: mediaUrl, filename: `${req.exam_board}_results_${req.exam_year}.pdf` } }],
+    }
+  } else if (req.result_data) {
+    // Text-only: the document-header template needs a file, so attach a .txt.
+    const txt = await uploadResultTextFile(req)
+    if (txt) {
+      templateName = RC_TEMPLATE_DOC
+      header = { type: "header", parameters: [{ type: "document", document: { link: txt.url, filename: txt.filename } }] }
+    }
   }
 
-  if (mediaUrl && !templateDelivered) {
-    const caption = req.result_data
-      ? undefined
-      : `Your ${req.exam_board} results — ${req.index_number} (${req.exam_year})${voucherInfoBlock(req)}`
-    await sendWhatsAppMedia(
-      waPhone,
-      mediaType as "image" | "document" | "video",
-      mediaUrl,
-      caption,
-      mediaType === "document" ? `${req.exam_board}_results_${req.exam_year}.pdf` : undefined,
-    )
-      .then(() => deliveryNotes.push(`WhatsApp media sent to ${waPhone}`))
-      .catch(e => {
-        const msg = `WhatsApp media FAILED: ${e instanceof Error ? e.message : String(e)}`
-        console.error("[RC-DELIVER]", msg)
-        deliveryNotes.push(msg)
-      })
+  if (!header) {
+    // Reachable when a text-only result can't be turned into an attachment —
+    // e.g. the admin-uploads bucket doesn't yet allow text/plain (apply
+    // migrations/20260615_admin_uploads_allow_text.sql). Log loudly: the caller
+    // still marks the request completed, so this must be visible to ops.
+    const msg = `WhatsApp template skipped for ${waPhone} — could not prepare an attachment (text/plain bucket migration applied?)`
+    console.error("[RC-DELIVER]", msg)
+    deliveryNotes.push(msg)
+    return
   }
+
+  // {{4}} = reference + voucher info, with clean separators (avoids the double
+  // spaces voucherInfoBlock's newlines would leave after whitespace collapsing).
+  // Fold in typed grades only when there's media (the attachment isn't the text)
+  // AND the text wasn't already sent free-form above — so cold users still get
+  // the grades, without a duplicate for warm users whose text already went out.
+  const fourthBits = [
+    req.payment_reference || null,
+    req.voucher_serial ? `Serial: ${req.voucher_serial}` : null,
+    req.voucher_pin ? `PIN: ${req.voucher_pin}` : null,
+  ].filter(Boolean) as string[]
+  let fourth = fourthBits.join(" · ")
+  if (mediaUrl && req.result_data && !textAlreadySent) fourth = `${fourth} — ${req.result_data}`
+  const bodyParams = [
+    { type: "text" as const, text: oneLineParam(String(req.exam_board)) },
+    { type: "text" as const, text: oneLineParam(String(req.index_number)) },
+    { type: "text" as const, text: oneLineParam(String(req.exam_year)) },
+    { type: "text" as const, text: oneLineParam(fourth) || String(req.payment_reference ?? "") || "—" },
+  ]
+
+  const ok = await sendWhatsAppTemplate(waPhone, templateName, RC_TEMPLATE_LANG, [
+    header,
+    { type: "body", parameters: bodyParams },
+  ])
+  deliveryNotes.push(ok
+    ? `WhatsApp template (${templateName}) sent to ${waPhone}`
+    : `WhatsApp template (${templateName}) FAILED to ${waPhone}`)
 }
 
 // Sends the result text and/or media stored on a results_check_requests row to
