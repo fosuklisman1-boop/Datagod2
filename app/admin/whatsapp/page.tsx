@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { ChatMessage } from "@/components/ui/chat-message"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, MessageSquare } from "lucide-react"
+import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, MessageSquare, X, ChevronRight } from "lucide-react"
 
 interface Conversation {
   id: string
@@ -175,6 +175,19 @@ export default function WhatsAppInboxPage() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [thread])
 
+  // Full-screen thread modal: close on Escape, lock body scroll while open.
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSelected(null) }
+    window.addEventListener("keydown", onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [selected])
+
   // ── Actions ───────────────────────────────────────────────────────────────────
   async function sendReply() {
     const text = composer.trim()
@@ -237,101 +250,105 @@ export default function WhatsAppInboxPage() {
   const selectedConvo = conversations.find(c => c.phone_number === selected)
 
   return (
-    <DashboardLayout>
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><MessageSquare className="w-6 h-6" /> WhatsApp Inbox</h1>
-        <p className="text-sm text-muted-foreground">View bot conversations and take over to reply manually.</p>
-      </div>
+    <>
+      <DashboardLayout>
+        <div className="mb-4">
+          <h1 className="text-2xl font-bold flex items-center gap-2"><MessageSquare className="w-6 h-6" /> WhatsApp Inbox</h1>
+          <p className="text-sm text-muted-foreground">View bot conversations and take over to reply manually.</p>
+        </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-4 h-[calc(100vh-220px)] min-h-[480px]">
-        {/* Conversation list */}
-        <Card className="flex flex-col overflow-hidden">
+        {/* Conversation list (full width) */}
+        <Card className="flex flex-col overflow-hidden max-w-3xl">
           <div className="p-3 border-b">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
               <Input className="pl-8" placeholder="Search by phone…" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="max-h-[calc(100vh-260px)] min-h-[320px] overflow-y-auto">
             {conversations.length === 0 ? (
               <div className="p-4 text-sm text-muted-foreground text-center">No conversations yet.</div>
             ) : conversations.map(c => (
               <button
                 key={c.id}
                 onClick={() => setSelected(c.phone_number)}
-                className={`w-full text-left px-3 py-2.5 border-b hover:bg-accent transition-colors ${selected === c.phone_number ? "bg-accent" : ""}`}
+                className="w-full text-left px-3 py-2.5 border-b hover:bg-accent transition-colors flex items-center gap-2"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-sm truncate">{c.customer_name || c.phone_number}</span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(c.updated_at)}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-sm truncate">{c.customer_name || c.phone_number}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(c.updated_at)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <span className="text-xs text-muted-foreground truncate">{c.last_message_preview || "—"}</span>
+                    {c.takeover_active && <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0"><UserCheck className="w-3 h-3 mr-0.5" />human</Badge>}
+                  </div>
+                  {c.customer_name && <div className="text-[10px] text-muted-foreground mt-0.5">{c.phone_number}</div>}
                 </div>
-                <div className="flex items-center justify-between gap-2 mt-0.5">
-                  <span className="text-xs text-muted-foreground truncate">{c.last_message_preview || "—"}</span>
-                  {c.takeover_active && <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0"><UserCheck className="w-3 h-3 mr-0.5" />human</Badge>}
-                </div>
-                {c.customer_name && <div className="text-[10px] text-muted-foreground mt-0.5">{c.phone_number}</div>}
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
               </button>
             ))}
           </div>
         </Card>
+      </DashboardLayout>
 
-        {/* Thread */}
-        <Card className="flex flex-col overflow-hidden">
-          {!selected ? (
-            <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Select a conversation</div>
-          ) : (
-            <>
-              <div className="p-3 border-b flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <div className="font-medium text-sm">{threadConvo?.customer_name || selectedConvo?.customer_name || selected}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {threadConvo?.takeover_active
-                      ? <span className="flex items-center gap-1"><UserCheck className="w-3 h-3" /> Handled by {threadConvo.taken_over_by_name || "an admin"} · active {timeAgo(threadConvo.taken_over_at)}</span>
-                      : <span className="flex items-center gap-1"><Bot className="w-3 h-3" /> Bot is answering</span>}
-                  </div>
+      {/* Full-screen thread modal */}
+      {selected && (
+        <div className="fixed inset-0 z-50 bg-background flex flex-col" role="dialog" aria-modal="true">
+          <div className="p-3 border-b flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              <Button size="icon" variant="ghost" onClick={() => setSelected(null)} aria-label="Close">
+                <X className="w-5 h-5" />
+              </Button>
+              <div className="min-w-0">
+                <div className="font-medium text-sm truncate">{threadConvo?.customer_name || selectedConvo?.customer_name || selected}</div>
+                <div className="text-xs text-muted-foreground">
+                  {threadConvo?.takeover_active
+                    ? <span className="flex items-center gap-1"><UserCheck className="w-3 h-3" /> Handled by {threadConvo.taken_over_by_name || "an admin"} · active {timeAgo(threadConvo.taken_over_at)}</span>
+                    : <span className="flex items-center gap-1"><Bot className="w-3 h-3" /> Bot is answering</span>}
                 </div>
-                {threadConvo?.takeover_active ? (
-                  <Button size="sm" variant="outline" disabled={toggling} onClick={() => toggleTakeover("release")}>
-                    {toggling ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Bot className="w-4 h-4 mr-1" />Resume bot</>}
-                  </Button>
-                ) : (
-                  <Button size="sm" disabled={toggling} onClick={() => toggleTakeover("take")}>
-                    {toggling ? <Loader2 className="w-4 h-4 animate-spin" /> : <><UserCheck className="w-4 h-4 mr-1" />Take over</>}
-                  </Button>
-                )}
               </div>
+            </div>
+            {threadConvo?.takeover_active ? (
+              <Button size="sm" variant="outline" disabled={toggling} onClick={() => toggleTakeover("release")}>
+                {toggling ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Bot className="w-4 h-4 mr-1" />Resume bot</>}
+              </Button>
+            ) : (
+              <Button size="sm" disabled={toggling} onClick={() => toggleTakeover("take")}>
+                {toggling ? <Loader2 className="w-4 h-4 animate-spin" /> : <><UserCheck className="w-4 h-4 mr-1" />Take over</>}
+              </Button>
+            )}
+          </div>
 
-              <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 bg-muted/30">
-                {thread.map(m => (
-                  <div key={m.id}>
-                    <ChatMessage role={m.direction === "inbound" ? "user" : "assistant"} content={m.message || ""} variant="dark" />
-                    <div className={`text-[10px] text-muted-foreground mt-0.5 ${m.direction === "inbound" ? "text-right" : "text-left"}`}>{timeAgo(m.created_at)}</div>
-                  </div>
-                ))}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 bg-muted/30">
+            {thread.map(m => (
+              <div key={m.id}>
+                <ChatMessage role={m.direction === "inbound" ? "user" : "assistant"} content={m.message || ""} variant="dark" />
+                <div className={`text-[10px] text-muted-foreground mt-0.5 ${m.direction === "inbound" ? "text-right" : "text-left"}`}>{timeAgo(m.created_at)}</div>
               </div>
+            ))}
+          </div>
 
-              {threadConvo?.is_stale && (
-                <div className="px-3 py-1.5 text-[11px] text-amber-700 bg-amber-50 border-t border-amber-200 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 shrink-0" /> Outside the 24h window — WhatsApp may not deliver a free-form reply.
-                </div>
-              )}
-
-              <div className="p-3 border-t flex items-end gap-2">
-                <Textarea
-                  className="min-h-[42px] max-h-32 resize-none"
-                  placeholder={threadConvo?.takeover_active ? "Type your reply…" : "Type a reply (tip: take over to pause the bot)…"}
-                  value={composer}
-                  onChange={e => setComposer(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply() } }}
-                />
-                <Button onClick={sendReply} disabled={sending || !composer.trim()}>
-                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                </Button>
-              </div>
-            </>
+          {threadConvo?.is_stale && (
+            <div className="px-3 py-1.5 text-[11px] text-amber-700 bg-amber-50 border-t border-amber-200 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3 shrink-0" /> Outside the 24h window — WhatsApp may not deliver a free-form reply.
+            </div>
           )}
-        </Card>
-      </div>
-    </DashboardLayout>
+
+          <div className="p-3 border-t flex items-end gap-2">
+            <Textarea
+              className="min-h-[42px] max-h-32 resize-none"
+              placeholder={threadConvo?.takeover_active ? "Type your reply…" : "Type a reply (tip: take over to pause the bot)…"}
+              value={composer}
+              onChange={e => setComposer(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply() } }}
+            />
+            <Button onClick={sendReply} disabled={sending || !composer.trim()}>
+              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
