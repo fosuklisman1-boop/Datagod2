@@ -27,7 +27,11 @@ export async function logMessage(
   direction: "inbound" | "outbound",
   message: string,
   metaMessageId: string | null,
-  media?: { url: string; type: string } | null
+  media?: { url: string; type: string } | null,
+  // The sender's WhatsApp display name (inbound only). Stored so guest
+  // conversations show a real name; only written when non-empty so it never
+  // clobbers an existing name with a blank.
+  profileName?: string | null
 ): Promise<LogMessageResult> {
   try {
     // Upsert the conversation AND its preview/timestamps in one statement, then
@@ -42,6 +46,7 @@ export async function logMessage(
     }
     if (direction === "inbound") convFields.latest_inbound_at = nowIso
     else convFields.latest_outbound_at = nowIso
+    if (profileName && profileName.trim()) convFields.wa_profile_name = profileName.trim()
 
     const { data: conv } = await supabase
       .from("whatsapp_conversations")

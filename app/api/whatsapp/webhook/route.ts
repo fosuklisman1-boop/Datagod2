@@ -147,8 +147,13 @@ async function processInbound(body: unknown): Promise<void> {
     }
   }
 
+  // The sender's WhatsApp display name (Cloud API gives the name, not a photo).
+  const contacts: any[] = change?.contacts ?? []
+  const profileName: string | null =
+    contacts.find((c) => c?.wa_id === from)?.profile?.name ?? contacts[0]?.profile?.name ?? null
+
   // Log inbound message (also returns this conversation's takeover state)
-  const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id)
+  const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id, null, profileName)
 
   // Admin Results Check WhatsApp queue: "pending" (from any state) or mid-flow.
   if (await isResultsCheckAdmin(from)) {

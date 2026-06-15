@@ -29,7 +29,7 @@ export async function GET(
 
   const { data: convo } = await supabase
     .from("whatsapp_conversations")
-    .select("id, phone_number, user_id, human_takeover, taken_over_by, taken_over_at, latest_inbound_at")
+    .select("id, phone_number, user_id, wa_profile_name, human_takeover, taken_over_by, taken_over_at, latest_inbound_at")
     .eq("phone_number", phone)
     .maybeSingle()
 
@@ -50,6 +50,8 @@ export async function GET(
     if (convo?.user_id) customerName = nameOf(convo.user_id)
     if (convo?.taken_over_by) takenOverByName = nameOf(convo.taken_over_by)
   }
+  // Fall back to the captured WhatsApp display name for guests.
+  if (!customerName) customerName = convo?.wa_profile_name ?? null
 
   let msgQuery = supabase
     .from("whatsapp_messages")

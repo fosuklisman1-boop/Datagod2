@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("whatsapp_conversations")
     .select(
-      "id, phone_number, user_id, last_message_preview, latest_inbound_at, latest_outbound_at, updated_at, human_takeover, taken_over_by, taken_over_at",
+      "id, phone_number, user_id, wa_profile_name, last_message_preview, latest_inbound_at, latest_outbound_at, updated_at, human_takeover, taken_over_by, taken_over_at",
       { count: "exact" }
     )
     .order("updated_at", { ascending: false })
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
       id: r.id,
       phone_number: r.phone_number,
       user_id: r.user_id,
-      customer_name: r.user_id ? nameById.get(r.user_id) ?? null : null,
+      customer_name: (r.user_id ? nameById.get(r.user_id) : null) ?? r.wa_profile_name ?? null,
       last_message_preview: r.last_message_preview,
       latest_inbound_at: r.latest_inbound_at,
       latest_outbound_at: r.latest_outbound_at,
