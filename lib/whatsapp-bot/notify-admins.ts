@@ -100,3 +100,28 @@ export async function maybeNotifyAdmins(opts: {
     console.warn("[WA-NOTIFY] maybeNotifyAdmins failed (non-fatal):", e)
   }
 }
+
+// Flag a conversation as needing a human and push admins (throttled per phone,
+// sharing the same slot as maybeNotifyAdmins so we don't double-notify). Used by
+// the AI tool when it detects a human request the keyword regex didn't catch.
+export async function flagAndNotifyHumanRequest(phone: string): Promise<void> {
+  try {
+    await supabase
+      .from("whatsapp_conversations")
+      .update({ wants_human: true, wants_human_at: new Date().toISOString() })
+      .eq("phone_number", phone)
+
+    if (redis) {
+      const claimed = await redis.set(`wa:notified:${phone}`, "1", { nx: true, ex: THROTTLE_SECONDS })
+      if (claimed === null) return // recently notified — flag is set, skip the push
+    }
+    const who = await resolveName(phone)
+    await notifyAdminsPush({
+      title: `Wants a human: ${who}`,
+      body: "Customer asked to talk to a person.",
+      data: { url: INBOX_URL },
+    })
+  } catch (e) {
+    console.warn("[WA-NOTIFY] flagAndNotifyHumanRequest failed (non-fatal):", e)
+  }
+}

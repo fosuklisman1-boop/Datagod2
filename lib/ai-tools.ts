@@ -848,6 +848,21 @@ const startOrderingBotTool: Anthropic.Tool = {
   },
 }
 
+const requestHumanHandoffTool: Anthropic.Tool = {
+  name: "request_human_handoff",
+  description: "Flag this WhatsApp chat for a human agent and alert the team. Call this when the customer asks to talk to a human/agent/person, is frustrated or upset, or has an issue you can't resolve. After calling it, reassure the customer that a team member has been notified and will reply right here on WhatsApp shortly. Do NOT call it for normal questions you can answer yourself.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      phone: {
+        type: "string",
+        description: "The user's WhatsApp number as received from the webhook (e.g. '233559919037').",
+      },
+    },
+    required: ["phone"],
+  },
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
 export function aiTools(context: AIChatContext): Anthropic.Tool[] {
@@ -898,6 +913,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getOrderHistoryTool,
     getKnowledgeBaseTool,
     startOrderingBotTool,
+    requestHumanHandoffTool,
   ]
 
   // Admin: platform management — full suite
@@ -1287,6 +1303,14 @@ export async function executeToolCall(
         const mapped = serviceSteps[svc]
         await setWaSession(phone, { step: (mapped?.step ?? "MAIN") as any, dialingPhone: localPhone })
         return { message: mapped ? mapped.menu() : mainMenu() }
+      }
+
+      case "request_human_handoff": {
+        const waPhone = String(input.phone ?? "").replace(/\D/g, "")
+        if (!waPhone) return { error: "phone is required" }
+        const { flagAndNotifyHumanRequest } = await import("@/lib/whatsapp-bot/notify-admins")
+        await flagAndNotifyHumanRequest(waPhone)
+        return { success: true }
       }
 
       case "get_all_orders": {
