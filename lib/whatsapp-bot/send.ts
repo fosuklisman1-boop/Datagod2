@@ -73,15 +73,34 @@ async function uploadMediaToWhatsApp(
     throw new Error(`Failed to fetch media from storage URL (network error): ${e instanceof Error ? e.message : String(e)}`)
   }
   if (!fileRes.ok) throw new Error(`Failed to fetch media from storage (${fileRes.status} ${fileRes.statusText}) for ${fileUrl}`)
-  const fileBuffer = await fileRes.arrayBuffer()
-  console.log("[WA-SEND] Fetched media:", fileBuffer.byteLength, "bytes, mimeType:", mimeType)
+  let fileBytes: Uint8Array = new Uint8Array(await fileRes.arrayBuffer())
+  let uploadMime = mimeType
+  let uploadExt = fileUrl.split(".").pop()?.split("?")[0] ?? "bin"
+  console.log("[WA-SEND] Fetched media:", fileBytes.byteLength, "bytes, mimeType:", mimeType)
+
+  // WhatsApp's media processor rejects images that aren't 8-bit sRGB (e.g. 16-bit,
+  // grayscale, palette/indexed or CMYK PNGs — common with phone screenshots) with
+  // error 131053. The send still returns 200, so the message is silently dropped.
+  // Re-encode any image to 8-bit sRGB JPEG (transparency flattened onto white) so it
+  // always passes. Best-effort: on failure, fall back to the original bytes.
+  if (mimeType.startsWith("image/")) {
+    try {
+      const sharp = (await import("sharp")).default
+      const jpeg = await sharp(Buffer.from(fileBytes)).flatten({ background: "#ffffff" }).jpeg({ quality: 85 }).toBuffer()
+      fileBytes = jpeg
+      uploadMime = "image/jpeg"
+      uploadExt = "jpg"
+      console.log("[WA-SEND] Re-encoded image to 8-bit sRGB JPEG:", jpeg.length, "bytes")
+    } catch (e) {
+      console.warn("[WA-SEND] Image re-encode failed, sending original:", e instanceof Error ? e.message : String(e))
+    }
+  }
 
   // Upload to WhatsApp media API as multipart/form-data
   const formData = new FormData()
   formData.append("messaging_product", "whatsapp")
-  formData.append("type", mimeType)
-  const ext = fileUrl.split(".").pop()?.split("?")[0] ?? "bin"
-  formData.append("file", new Blob([fileBuffer], { type: mimeType }), `upload.${ext}`)
+  formData.append("type", uploadMime)
+  formData.append("file", new Blob([fileBytes as BlobPart], { type: uploadMime }), `upload.${uploadExt}`)
 
   console.log("[WA-SEND] Uploading media to WhatsApp, phoneNumberId:", phoneNumberId)
   const uploadRes = await fetch(
