@@ -469,13 +469,17 @@ export default function WhatsAppInboxPage() {
                           <a href={m.tool_context.media_url} target="_blank" rel="noreferrer">
                             <img src={m.tool_context.media_url} alt="attachment" className="rounded-md mb-1 max-h-64 w-auto object-cover" />
                           </a>
+                        ) : m.tool_context.media_type === "video" ? (
+                          <video src={m.tool_context.media_url} controls className="rounded-md mb-1 max-h-64 w-auto" />
+                        ) : m.tool_context.media_type === "audio" ? (
+                          <audio src={m.tool_context.media_url} controls className="mb-1 w-full" />
                         ) : (
                           <a href={m.tool_context.media_url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm underline mb-1 text-neutral-800 dark:text-neutral-100">
                             <FileText className="w-4 h-4 shrink-0" /> View document
                           </a>
                         )
                       )}
-                      {m.message && !(m.tool_context?.media_url && (m.message === "📷 Photo" || m.message === "📄 Document")) && (
+                      {m.message && !(m.tool_context?.media_url && ["📷 Photo", "📄 Document", "🎥 Video", "🎤 Voice note", "🌟 Sticker"].includes(m.message)) && (
                         <div className="text-sm whitespace-pre-wrap break-words text-neutral-900 dark:text-neutral-100">{m.message}</div>
                       )}
                       <div className="text-[10px] text-neutral-500 dark:text-neutral-400 text-right mt-0.5 leading-none flex items-center justify-end gap-0.5">

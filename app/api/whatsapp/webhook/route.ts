@@ -94,6 +94,11 @@ async function processInbound(body: unknown): Promise<void> {
   const msg = messages[0]
   const from: string = msg.from   // e.g. "233559919037"
 
+  // The sender's WhatsApp display name (Cloud API gives the name, not a photo).
+  const contacts: any[] = change?.contacts ?? []
+  const profileName: string | null =
+    contacts.find((c) => c?.wa_id === from)?.profile?.name ?? contacts[0]?.profile?.name ?? null
+
   // Non-text messages: meaningful for (a) an admin mid-results-delivery, or
   // (b) a customer sending a screenshot for their recent complaint. Otherwise ignored.
   if (msg.type !== "text") {
@@ -130,33 +135,62 @@ async function processInbound(body: unknown): Promise<void> {
       return
     }
 
-    // (b) Customer screenshot → attach to their most recent open complaint, if any.
-    if (msg.type === "image" || msg.type === "document") {
-      const { findRecentOpenComplaint, appendComplaintEvidence } = await import("@/lib/whatsapp-bot/complaints")
-      const open = await findRecentOpenComplaint(from)
-      if (!open) return // no active complaint → ignore the image, as before
-      try {
-        const mediaId = (msg.image ?? msg.document).id
-        const { buffer, mimeType } = await downloadWaMedia(mediaId)
-        // Service-role uploads bypass the bucket's MIME allowlist, so gate it here.
-        const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"])
-        if (!ALLOWED.has(mimeType)) {
-          await sendWhatsAppText(from, "Please send a photo (JPG/PNG) or a PDF for your complaint.")
-          return
+    // (b) Customer media → log it to the inbox thread so admins can see it (this
+    // was previously dropped unless it was an image/PDF for an open complaint), and
+    // still attach images/PDFs to a recent open complaint as evidence.
+    const mediaNode = msg.image ?? msg.video ?? msg.document ?? msg.audio ?? msg.sticker
+    const mediaId: string | undefined = mediaNode?.id
+    if (!mediaId) return // a non-media, non-text type we don't handle (location, reaction, …)
+
+    // Media skips the text-path dedup below, so guard duplicates here too.
+    if (msg.id) {
+      const { count } = await supabase
+        .from("whatsapp_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("meta_message_id", msg.id)
+      if ((count ?? 0) > 0) return
+    }
+
+    try {
+      const { buffer, mimeType } = await downloadWaMedia(mediaId)
+      const isImage = mimeType.startsWith("image/")
+      const caption: string = String(mediaNode.caption ?? "").trim()
+      const ext = mimeType === "application/pdf" ? "pdf" : (mimeType.split("/")[1] ?? "bin")
+      // Non-enumerable, PII-free path (public bucket — no phone in the URL).
+      const path = `inbox/${crypto.randomUUID()}.${ext}`
+      await supabase.storage.from("admin-uploads").upload(path, Buffer.from(buffer), { contentType: mimeType, upsert: true })
+      const { data: { publicUrl } } = supabase.storage.from("admin-uploads").getPublicUrl(path)
+
+      // Surface it in the admin inbox thread. media_type drives the bubble:
+      // image renders inline, video/audio play inline, anything else is a link.
+      const displayType =
+        isImage ? "image" :
+        mimeType.startsWith("video/") ? "video" :
+        mimeType.startsWith("audio/") ? "audio" :
+        "document"
+      const typeLabel =
+        isImage ? "📷 Photo" :
+        msg.type === "video" ? "🎥 Video" :
+        msg.type === "audio" ? "🎤 Voice note" :
+        msg.type === "sticker" ? "🌟 Sticker" :
+        "📄 Document"
+      await logMessage(from, "inbound", caption || typeLabel, msg.id, { url: publicUrl, type: displayType }, profileName)
+
+      // Also attach images/PDFs to a recent open complaint, as before.
+      if (isImage || mimeType === "application/pdf") {
+        const { findRecentOpenComplaint, appendComplaintEvidence } = await import("@/lib/whatsapp-bot/complaints")
+        const open = await findRecentOpenComplaint(from)
+        if (open) {
+          const added = await appendComplaintEvidence(open.id, publicUrl)
+          await sendWhatsAppText(from, added
+            ? "📎 Screenshot added to your complaint — our team will review it. Thank you."
+            : "Thanks — we already have several screenshots for this complaint, so the team has enough to review it.")
         }
-        const ext = mimeType === "application/pdf" ? "pdf" : (mimeType.split("/")[1] ?? "bin")
-        // Path uses the complaint id + a random token — no customer PII (phone) and
-        // not enumerable, since this is a public bucket.
-        const path = `complaints/${open.id}-${crypto.randomUUID()}.${ext}`
-        await supabase.storage.from("admin-uploads").upload(path, Buffer.from(buffer), { contentType: mimeType, upsert: true })
-        const { data: { publicUrl } } = supabase.storage.from("admin-uploads").getPublicUrl(path)
-        const added = await appendComplaintEvidence(open.id, publicUrl)
-        await sendWhatsAppText(from, added
-          ? "📎 Screenshot added to your complaint — our team will review it. Thank you."
-          : "Thanks — we already have several screenshots for this complaint, so the team has enough to review it.")
-      } catch (e) {
-        console.error("[WA-WEBHOOK] Complaint evidence handling failed:", e)
       }
+    } catch (e) {
+      console.error("[WA-WEBHOOK] Customer media handling failed:", e)
+      // Don't leave the admin blind — record that something came in.
+      try { await logMessage(from, "inbound", `📎 ${msg.type ?? "media"} (couldn't be loaded)`, msg.id, null, profileName) } catch {}
     }
     return
   }
@@ -180,11 +214,6 @@ async function processInbound(body: unknown): Promise<void> {
       return
     }
   }
-
-  // The sender's WhatsApp display name (Cloud API gives the name, not a photo).
-  const contacts: any[] = change?.contacts ?? []
-  const profileName: string | null =
-    contacts.find((c) => c?.wa_id === from)?.profile?.name ?? contacts[0]?.profile?.name ?? null
 
   // Log inbound message (also returns this conversation's takeover state)
   const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id, null, profileName)
