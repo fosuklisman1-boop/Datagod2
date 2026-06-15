@@ -168,7 +168,6 @@ async function processInbound(body: unknown): Promise<void> {
 
   // Immediate feedback: fire-and-forget (never block reply processing)
   if (msg.id) void markWaMessageRead(msg.id)
-  void sendWaTyping(from)
 
   // Dedup: skip if we already processed this Meta message ID
   if (msg.id) {
@@ -268,6 +267,11 @@ async function processInbound(body: unknown): Promise<void> {
       .update({ human_takeover: false, taken_over_by: null, taken_over_at: null })
       .eq("phone_number", from)
   }
+
+  // The bot is going to reply (we're past the takeover/admin/rate-limit gates) →
+  // show the "typing…" indicator so the wait for the AI feels responsive. It
+  // auto-dismisses when we send the reply below (or after ~25s). Fire-and-forget.
+  if (msg.id) void sendWaTyping(msg.id)
 
   // Route: bot session active → bot router; else → AI
   // waRouter returns '' when the user sent off-script freetext and the session was cleared,
