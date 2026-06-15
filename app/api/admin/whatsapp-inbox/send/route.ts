@@ -48,19 +48,17 @@ export async function POST(request: NextRequest) {
   // Store the wamid so delivery/read status callbacks can drive the bubble ticks.
   await logMessage(phone, "outbound", message, wamid)
 
-  // Keep an ACTIVE takeover alive: each admin reply resets the 30-min idle clock.
-  // Only bump if the takeover hasn't already lapsed — otherwise a late reply
-  // would silently resurrect a takeover the bot has effectively resumed from.
+  // An admin reply clears any "wants human" flag (they've engaged) and, if a
+  // takeover is still active, resets its 30-min idle clock. Only bump the
+  // heartbeat when the takeover hasn't lapsed, so a late reply doesn't resurrect
+  // a takeover the bot has effectively resumed from.
   const takeoverStillActive =
     convo?.human_takeover === true &&
     !!convo.taken_over_at &&
     Date.now() - new Date(convo.taken_over_at).getTime() < 30 * 60 * 1000
-  if (takeoverStillActive) {
-    await supabase
-      .from("whatsapp_conversations")
-      .update({ taken_over_at: new Date().toISOString() })
-      .eq("phone_number", phone)
-  }
+  const convoUpdate: Record<string, unknown> = { wants_human: false, wants_human_at: null }
+  if (takeoverStillActive) convoUpdate.taken_over_at = new Date().toISOString()
+  await supabase.from("whatsapp_conversations").update(convoUpdate).eq("phone_number", phone)
 
   return NextResponse.json({
     ok: true,

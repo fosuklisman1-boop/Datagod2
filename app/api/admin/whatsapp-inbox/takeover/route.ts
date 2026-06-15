@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase
       .from("whatsapp_conversations")
       .upsert(
-        { phone_number: phone, human_takeover: true, taken_over_by: userId, taken_over_at: new Date().toISOString() },
+        { phone_number: phone, human_takeover: true, taken_over_by: userId, taken_over_at: new Date().toISOString(), wants_human: false, wants_human_at: null },
         { onConflict: "phone_number" }
       )
     if (error) return NextResponse.json({ error: error.message }, { status: 400 })

@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, MessageSquare, X, ChevronRight, Check, CheckCheck, Paperclip, FileText } from "lucide-react"
+import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, MessageSquare, X, ChevronRight, Check, CheckCheck, Paperclip, FileText, Hand } from "lucide-react"
 
 interface Conversation {
   id: string
@@ -26,6 +26,7 @@ interface Conversation {
   takeover_active: boolean
   is_stale: boolean
   unread: boolean
+  wants_human: boolean
 }
 
 interface ThreadMessage {
@@ -46,6 +47,7 @@ interface ThreadConvo {
   taken_over_at: string | null
   takeover_active: boolean
   is_stale: boolean
+  wants_human: boolean
 }
 
 function timeAgo(iso: string | null): string {
@@ -374,6 +376,7 @@ export default function WhatsAppInboxPage() {
                   <div className="flex items-center justify-between gap-2 mt-0.5">
                     <span className={`text-xs truncate ${c.unread ? "text-foreground" : "text-muted-foreground"}`}>{c.last_message_preview || "—"}</span>
                     <span className="flex items-center gap-1 shrink-0">
+                      {c.wants_human && <Badge className="text-[10px] px-1.5 py-0 bg-amber-500 hover:bg-amber-600 text-white"><Hand className="w-3 h-3 mr-0.5" />wants human</Badge>}
                       {c.takeover_active && <Badge variant="secondary" className="text-[10px] px-1.5 py-0"><UserCheck className="w-3 h-3 mr-0.5" />human</Badge>}
                       {c.unread && <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" aria-label="unread" />}
                     </span>
@@ -397,7 +400,12 @@ export default function WhatsAppInboxPage() {
               </Button>
               <Avatar name={threadConvo?.customer_name || selectedConvo?.customer_name || null} phone={selected} />
               <div className="min-w-0">
-                <div className="font-medium text-sm truncate">{threadConvo?.customer_name || selectedConvo?.customer_name || selected}</div>
+                <div className="font-medium text-sm truncate flex items-center gap-1.5">
+                  {threadConvo?.customer_name || selectedConvo?.customer_name || selected}
+                  {threadConvo?.wants_human && !threadConvo?.takeover_active && (
+                    <Badge className="text-[10px] px-1.5 py-0 bg-amber-500 hover:bg-amber-600 text-white"><Hand className="w-3 h-3 mr-0.5" />wants human</Badge>
+                  )}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   {threadConvo?.takeover_active
                     ? <span className="flex items-center gap-1"><UserCheck className="w-3 h-3" /> Handled by {threadConvo.taken_over_by_name || "an admin"} · active {timeAgo(threadConvo.taken_over_at)}</span>

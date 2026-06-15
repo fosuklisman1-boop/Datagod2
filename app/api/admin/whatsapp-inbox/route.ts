@@ -27,9 +27,10 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("whatsapp_conversations")
     .select(
-      "id, phone_number, user_id, wa_profile_name, last_message_preview, latest_inbound_at, latest_outbound_at, updated_at, human_takeover, taken_over_by, taken_over_at, admin_read_at",
+      "id, phone_number, user_id, wa_profile_name, last_message_preview, latest_inbound_at, latest_outbound_at, updated_at, human_takeover, taken_over_by, taken_over_at, admin_read_at, wants_human",
       { count: "exact" }
     )
+    .order("wants_human", { ascending: false })   // customers waiting for a human first
     .order("updated_at", { ascending: false })
     .range(offset, offset + PAGE_SIZE - 1)
 
@@ -81,6 +82,7 @@ export async function GET(request: NextRequest) {
       takeover_active: takeoverActive,
       is_stale: isStale,
       unread,
+      wants_human: r.wants_human === true,
     }
   })
 

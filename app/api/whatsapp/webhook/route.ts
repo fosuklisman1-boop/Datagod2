@@ -8,7 +8,7 @@ import { waRouter } from "@/lib/whatsapp-bot/router"
 import { isResultsCheckAdmin, adminRcRouter } from "@/lib/whatsapp-bot/admin-router"
 import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia } from "@/lib/whatsapp-bot/send"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
-import { maybeNotifyAdmins } from "@/lib/whatsapp-bot/notify-admins"
+import { maybeNotifyAdmins, isHumanRequest } from "@/lib/whatsapp-bot/notify-admins"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
 
@@ -179,7 +179,19 @@ async function processInbound(body: unknown): Promise<void> {
   // a recent created_at reliably means a first-ever message. Window is generous
   // to tolerate DB latency/clock skew without ever false-positiving.
   const isNewConversation = !!conversationCreatedAt && Date.now() - new Date(conversationCreatedAt).getTime() < 60_000
-  await maybeNotifyAdmins({ phone: from, text, takeoverActive, takenOverBy, isNewConversation })
+
+  // Customer asking for a human → flag the conversation (the bot keeps replying;
+  // the flag is a queue marker for admins, cleared when an admin engages). Skip
+  // if an admin is already on it.
+  const humanRequest = isHumanRequest(text)
+  if (humanRequest && !takeoverActive) {
+    await supabase
+      .from("whatsapp_conversations")
+      .update({ wants_human: true, wants_human_at: new Date().toISOString() })
+      .eq("phone_number", from)
+  }
+
+  await maybeNotifyAdmins({ phone: from, text, takeoverActive, takenOverBy, isNewConversation, humanRequest })
 
   // Human takeover: an admin owns this chat → bot/AI must not reply. Persistent
   // (DB) flag, auto-expiring after 30 min of admin inactivity (lazy resume). The

@@ -29,7 +29,7 @@ export async function GET(
 
   const { data: convo } = await supabase
     .from("whatsapp_conversations")
-    .select("id, phone_number, user_id, wa_profile_name, human_takeover, taken_over_by, taken_over_at, latest_inbound_at, admin_read_at")
+    .select("id, phone_number, user_id, wa_profile_name, human_takeover, taken_over_by, taken_over_at, latest_inbound_at, admin_read_at, wants_human")
     .eq("phone_number", phone)
     .maybeSingle()
 
@@ -98,6 +98,7 @@ export async function GET(
           taken_over_at: convo.taken_over_at,
           takeover_active: takeoverActive,
           is_stale: isStale,
+          wants_human: convo.wants_human === true,
         }
       : null,
     messages: messages ?? [],

@@ -32,6 +32,11 @@ const INBOX_URL = "/admin/whatsapp"
 const HUMAN_REQUEST_RE =
   /\b(human|agent|representative|rep)\b|(speak|talk|chat)\s+(to|with)\s+(a\s+)?(person|someone|human|agent)|customer\s+(care|service)|real\s+person/i
 
+/** True if the message reads as a request to talk to a person. */
+export function isHumanRequest(text: string): boolean {
+  return HUMAN_REQUEST_RE.test(text)
+}
+
 // Best-effort display name for the push title; falls back to the phone number.
 // Only called after the throttle slot is claimed (i.e. rarely), so the extra
 // lookups don't touch the hot path.
@@ -57,15 +62,16 @@ export async function maybeNotifyAdmins(opts: {
   takeoverActive: boolean
   takenOverBy: string | null
   isNewConversation: boolean
+  humanRequest: boolean
 }): Promise<void> {
-  const { phone, text, takeoverActive, takenOverBy, isNewConversation } = opts
+  const { phone, text, takeoverActive, takenOverBy, isNewConversation, humanRequest } = opts
   try {
     // Decide the trigger (priority order). No trigger → nothing to do.
     let scope: "owner" | "all" | null = null
     let titlePrefix = ""
     if (takeoverActive && takenOverBy) {
       scope = "owner"; titlePrefix = "New reply from"
-    } else if (HUMAN_REQUEST_RE.test(text)) {
+    } else if (humanRequest) {
       scope = "all"; titlePrefix = "Wants a human:"
     } else if (isNewConversation) {
       scope = "all"; titlePrefix = "New WhatsApp chat from"
