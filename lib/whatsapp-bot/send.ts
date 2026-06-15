@@ -210,15 +210,19 @@ export async function sendWhatsAppTemplate(
   }
 }
 
-// Returns true if WhatsApp accepted the message, false otherwise. Never throws
-// (logs and returns false) — callers that ignore the return value are unaffected.
-export async function sendWhatsAppText(to: string, body: string): Promise<boolean> {
+// Returns the sent message's WhatsApp id (wamid) on success, or null on failure.
+// The wamid is what status webhooks (delivered/read) reference, so callers that
+// log the message can store it to drive delivery ticks. Never throws. The
+// non-null return is still truthy, so callers doing `if (ok)` / `if (!ok)` keep
+// working unchanged. On a 200 with no id (not expected from Meta) it returns a
+// truthy "sent" sentinel so success isn't misread as failure.
+export async function sendWhatsAppText(to: string, body: string): Promise<string | null> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
 
   if (!phoneNumberId || !token) {
     console.error("[WA-SEND] WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not set")
-    return false
+    return null
   }
 
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`
@@ -240,11 +244,12 @@ export async function sendWhatsAppText(to: string, body: string): Promise<boolea
     if (!res.ok) {
       const err = await res.text()
       console.error("[WA-SEND] API error:", res.status, err)
-      return false
+      return null
     }
-    return true
+    const json = await res.json().catch(() => null) as { messages?: Array<{ id?: string }> } | null
+    return json?.messages?.[0]?.id ?? "sent"
   } catch (e) {
     console.error("[WA-SEND] fetch error:", e)
-    return false
+    return null
   }
 }

@@ -16,13 +16,18 @@ export interface LogMessageResult {
   conversationId: string | null
   humanTakeover: boolean
   takenOverAt: string | null
+  takenOverBy: string | null
+  // created_at of the conversation row — lets callers detect a brand-new
+  // conversation (created_at ≈ now) without a separate count query.
+  conversationCreatedAt: string | null
 }
 
 export async function logMessage(
   phone: string,
   direction: "inbound" | "outbound",
   message: string,
-  metaMessageId: string | null
+  metaMessageId: string | null,
+  media?: { url: string; type: string } | null
 ): Promise<LogMessageResult> {
   try {
     // Upsert the conversation AND its preview/timestamps in one statement, then
@@ -41,7 +46,7 @@ export async function logMessage(
     const { data: conv } = await supabase
       .from("whatsapp_conversations")
       .upsert(convFields, { onConflict: "phone_number" })
-      .select("id, human_takeover, taken_over_at")
+      .select("id, human_takeover, taken_over_at, taken_over_by, created_at")
       .maybeSingle()
 
     const conversationId = conv?.id ?? null
@@ -53,15 +58,18 @@ export async function logMessage(
       message,
       meta_message_id: metaMessageId,
       status: "sent",
+      tool_context: media ? { media_url: media.url, media_type: media.type } : null,
     })
 
     return {
       conversationId,
       humanTakeover: conv?.human_takeover === true,
       takenOverAt: conv?.taken_over_at ?? null,
+      takenOverBy: conv?.taken_over_by ?? null,
+      conversationCreatedAt: conv?.created_at ?? null,
     }
   } catch (e) {
     console.warn("[WA-LOG] logMessage failed (non-fatal):", e)
-    return { conversationId: null, humanTakeover: false, takenOverAt: null }
+    return { conversationId: null, humanTakeover: false, takenOverAt: null, takenOverBy: null, conversationCreatedAt: null }
   }
 }

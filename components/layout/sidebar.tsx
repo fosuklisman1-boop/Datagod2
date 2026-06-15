@@ -91,6 +91,8 @@ export function Sidebar() {
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
   const [userPendingOrderCount, setUserPendingOrderCount] = useState(0)
   const [adminPendingOrderCount, setAdminPendingOrderCount] = useState(0)
+  const [waUnreadCount, setWaUnreadCount] = useState(0)
+  const [waUnreadCapped, setWaUnreadCapped] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('userRole')
@@ -187,6 +189,30 @@ export function Sidebar() {
       clearInterval(interval)
     }
   }, [user])
+
+  // Poll the WhatsApp inbox unread count for admins (badge on the inbox link).
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        const res = await fetch("/api/admin/whatsapp-inbox/unread-count", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (!res.ok) return
+        const json = await res.json()
+        if (!cancelled) {
+          setWaUnreadCount(typeof json.count === "number" ? json.count : 0)
+          setWaUnreadCapped(json.capped === true)
+        }
+      } catch { /* transient */ }
+    }
+    load()
+    const interval = setInterval(load, 30000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [isAdmin])
 
   // Handle mobile responsiveness
   useEffect(() => {
@@ -852,7 +878,16 @@ export function Sidebar() {
                   ) : (
                     <MessageCircle className="w-5 h-5 flex-shrink-0" />
                   )}
-                  {isOpen && "WhatsApp Inbox"}
+                  {isOpen && (
+                    <div className="flex items-center justify-between flex-1">
+                      <span>WhatsApp Inbox</span>
+                      {waUnreadCount > 0 && (
+                        <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs ml-2">
+                          {formatCount(waUnreadCount)}{waUnreadCapped ? "+" : ""}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
                 </Button>
               </Link>
               <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>

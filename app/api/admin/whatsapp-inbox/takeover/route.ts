@@ -51,8 +51,8 @@ export async function POST(request: NextRequest) {
     await deleteWaSession(phone)
 
     // Courtesy heads-up (the customer just messaged, so the window is warm).
-    await sendWhatsAppText(phone, HANDOFF_NOTE)
-    await logMessage(phone, "outbound", HANDOFF_NOTE, null)
+    const wamid = await sendWhatsAppText(phone, HANDOFF_NOTE)
+    await logMessage(phone, "outbound", HANDOFF_NOTE, wamid)
 
     return NextResponse.json({ ok: true, human_takeover: true, taken_over_by: userId })
   }

@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, MessageSquare, X, ChevronRight } from "lucide-react"
+import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, MessageSquare, X, ChevronRight, Check, CheckCheck, Paperclip, FileText } from "lucide-react"
 
 interface Conversation {
   id: string
@@ -25,6 +25,7 @@ interface Conversation {
   taken_over_by: string | null
   takeover_active: boolean
   is_stale: boolean
+  unread: boolean
 }
 
 interface ThreadMessage {
@@ -33,6 +34,7 @@ interface ThreadMessage {
   message: string | null
   status: string | null
   created_at: string
+  tool_context?: { media_url?: string; media_type?: string } | null
 }
 
 interface ThreadConvo {
@@ -60,6 +62,47 @@ function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
 }
 
+// Day label for the in-thread date separators.
+function dayLabel(iso: string): string {
+  const d = new Date(iso); d.setHours(0, 0, 0, 0)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const diff = Math.round((today.getTime() - d.getTime()) / 86400000)
+  if (diff === 0) return "Today"
+  if (diff === 1) return "Yesterday"
+  return new Date(iso).toLocaleDateString([], { day: "numeric", month: "short", year: diff > 300 ? "numeric" : undefined })
+}
+
+function initials(name: string | null, phone: string): string {
+  if (name?.trim()) {
+    const p = name.trim().split(/\s+/)
+    return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || name[0]!.toUpperCase()
+  }
+  return phone.slice(-2)
+}
+
+const AVATAR_COLORS = ["bg-emerald-500", "bg-sky-500", "bg-violet-500", "bg-amber-500", "bg-rose-500", "bg-teal-500", "bg-indigo-500", "bg-fuchsia-500"]
+function avatarColor(key: string): string {
+  let h = 0
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]
+}
+
+function Avatar({ name, phone }: { name: string | null; phone: string }) {
+  return (
+    <span className={`shrink-0 w-9 h-9 rounded-full ${avatarColor(name || phone)} text-white grid place-items-center text-xs font-semibold`}>
+      {initials(name, phone)}
+    </span>
+  )
+}
+
+// WhatsApp delivery ticks for our outbound messages.
+function Ticks({ status }: { status: string | null }) {
+  if (status === "failed") return <span className="text-rose-500 text-[11px] font-bold" title="Failed to deliver">!</span>
+  if (status === "read") return <CheckCheck className="w-3.5 h-3.5 text-sky-500" />
+  if (status === "delivered") return <CheckCheck className="w-3.5 h-3.5 text-neutral-400" />
+  return <Check className="w-3.5 h-3.5 text-neutral-400" />
+}
+
 export default function WhatsAppInboxPage() {
   const router = useRouter()
   const [isAdmin, setIsAdmin] = useState(false)
@@ -74,6 +117,8 @@ export default function WhatsAppInboxPage() {
   const [composer, setComposer] = useState("")
   const [sending, setSending] = useState(false)
   const [toggling, setToggling] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement | null>(null)
 
   const listPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const threadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -217,6 +262,44 @@ export default function WhatsAppInboxPage() {
     }
   }
 
+  async function handleUpload(file: File) {
+    if (!selected) return
+    if (file.size > 10 * 1024 * 1024) { toast.error("File must be under 10 MB"); return }
+    setUploading(true)
+    try {
+      const isImage = file.type.startsWith("image/")
+      const ext = (file.name.split(".").pop() || (isImage ? "jpg" : "pdf")).toLowerCase()
+      const path = `inbox/${selected}-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage
+        .from("admin-uploads")
+        .upload(path, file, { contentType: file.type, upsert: true })
+      if (upErr) { toast.error("Upload failed: " + upErr.message); return }
+      const { data: { publicUrl } } = supabase.storage.from("admin-uploads").getPublicUrl(path)
+
+      const headers = await getAuthHeader()
+      const res = await fetch("/api/admin/whatsapp-inbox/send-media", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: selected,
+          mediaUrl: publicUrl,
+          mediaType: isImage ? "image" : "document",
+          filename: file.name,
+          caption: composer.trim() || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || "Failed to send file"); return }
+      setComposer("")
+      await fetchThread(selected, true)
+      loadConversations()
+    } catch {
+      toast.error("Failed to send file")
+    } finally {
+      setUploading(false)
+    }
+  }
+
   async function toggleTakeover(action: "take" | "release") {
     if (!selected) return
     if (action === "take" && threadConvo?.takeover_active && threadConvo.taken_over_by) {
@@ -276,16 +359,20 @@ export default function WhatsAppInboxPage() {
               <button
                 key={c.id}
                 onClick={() => setSelected(c.phone_number)}
-                className="w-full text-left px-3 py-2.5 border-b hover:bg-accent transition-colors flex items-center gap-2"
+                className={`w-full text-left px-3 py-2.5 border-b hover:bg-accent transition-colors flex items-center gap-2.5 ${c.unread ? "bg-emerald-50/60 dark:bg-emerald-950/20" : ""}`}
               >
+                <Avatar name={c.customer_name} phone={c.phone_number} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-sm truncate">{c.customer_name || c.phone_number}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(c.updated_at)}</span>
+                    <span className={`text-sm truncate ${c.unread ? "font-semibold" : "font-medium"}`}>{c.customer_name || c.phone_number}</span>
+                    <span className={`text-[10px] shrink-0 ${c.unread ? "text-emerald-600 font-medium" : "text-muted-foreground"}`}>{timeAgo(c.updated_at)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
-                    <span className="text-xs text-muted-foreground truncate">{c.last_message_preview || "—"}</span>
-                    {c.takeover_active && <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0"><UserCheck className="w-3 h-3 mr-0.5" />human</Badge>}
+                    <span className={`text-xs truncate ${c.unread ? "text-foreground" : "text-muted-foreground"}`}>{c.last_message_preview || "—"}</span>
+                    <span className="flex items-center gap-1 shrink-0">
+                      {c.takeover_active && <Badge variant="secondary" className="text-[10px] px-1.5 py-0"><UserCheck className="w-3 h-3 mr-0.5" />human</Badge>}
+                      {c.unread && <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" aria-label="unread" />}
+                    </span>
                   </div>
                   {c.customer_name && <div className="text-[10px] text-muted-foreground mt-0.5">{c.phone_number}</div>}
                 </div>
@@ -304,6 +391,7 @@ export default function WhatsAppInboxPage() {
               <Button size="icon" variant="ghost" onClick={() => setSelected(null)} aria-label="Close">
                 <X className="w-5 h-5" />
               </Button>
+              <Avatar name={threadConvo?.customer_name || selectedConvo?.customer_name || null} phone={selected} />
               <div className="min-w-0">
                 <div className="font-medium text-sm truncate">{threadConvo?.customer_name || selectedConvo?.customer_name || selected}</div>
                 <div className="text-xs text-muted-foreground">
@@ -327,17 +415,41 @@ export default function WhatsAppInboxPage() {
           {/* WhatsApp-style thread, from the BUSINESS side: our bot/admin replies
               (outbound) sit on the right; the customer (inbound) on the left. */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1.5 bg-[#efeae2] dark:bg-neutral-900">
-            {thread.map(m => {
+            {thread.map((m, i) => {
               const out = m.direction === "outbound"
+              const showDay = i === 0 || dayLabel(thread[i - 1].created_at) !== dayLabel(m.created_at)
               return (
-                <div key={m.id} className={`flex ${out ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[78%] rounded-lg px-2.5 py-1.5 shadow-sm ${
-                    out
-                      ? "bg-[#d9fdd3] dark:bg-emerald-900/50 rounded-tr-none"
-                      : "bg-white dark:bg-neutral-800 rounded-tl-none"
-                  }`}>
-                    <div className="text-sm whitespace-pre-wrap break-words text-neutral-900 dark:text-neutral-100">{m.message || ""}</div>
-                    <div className="text-[10px] text-neutral-500 dark:text-neutral-400 text-right mt-0.5 leading-none">{fmtTime(m.created_at)}</div>
+                <div key={m.id}>
+                  {showDay && (
+                    <div className="flex justify-center my-2">
+                      <span className="text-[10px] bg-white/90 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 px-2 py-0.5 rounded-md shadow-sm">{dayLabel(m.created_at)}</span>
+                    </div>
+                  )}
+                  <div className={`flex ${out ? "justify-end" : "justify-start"}`}>
+                    <div className={`max-w-[78%] rounded-lg px-2.5 py-1.5 shadow-sm ${
+                      out
+                        ? "bg-[#d9fdd3] dark:bg-emerald-900/50 rounded-tr-none"
+                        : "bg-white dark:bg-neutral-800 rounded-tl-none"
+                    }`}>
+                      {m.tool_context?.media_url && (
+                        m.tool_context.media_type === "image" ? (
+                          <a href={m.tool_context.media_url} target="_blank" rel="noreferrer">
+                            <img src={m.tool_context.media_url} alt="attachment" className="rounded-md mb-1 max-h-64 w-auto object-cover" />
+                          </a>
+                        ) : (
+                          <a href={m.tool_context.media_url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm underline mb-1 text-neutral-800 dark:text-neutral-100">
+                            <FileText className="w-4 h-4 shrink-0" /> View document
+                          </a>
+                        )
+                      )}
+                      {m.message && !(m.tool_context?.media_url && (m.message === "📷 Photo" || m.message === "📄 Document")) && (
+                        <div className="text-sm whitespace-pre-wrap break-words text-neutral-900 dark:text-neutral-100">{m.message}</div>
+                      )}
+                      <div className="text-[10px] text-neutral-500 dark:text-neutral-400 text-right mt-0.5 leading-none flex items-center justify-end gap-0.5">
+                        {fmtTime(m.created_at)}
+                        {out && <Ticks status={m.status} />}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )
@@ -351,6 +463,16 @@ export default function WhatsAppInboxPage() {
           )}
 
           <div className="p-3 border-t flex items-end gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = "" }}
+            />
+            <Button size="icon" variant="ghost" disabled={uploading || sending} onClick={() => fileRef.current?.click()} title="Send photo or PDF (uses the box as caption)">
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+            </Button>
             <Textarea
               className="min-h-[42px] max-h-32 resize-none"
               placeholder={threadConvo?.takeover_active ? "Type your reply…" : "Type a reply (tip: take over to pause the bot)…"}
@@ -358,7 +480,7 @@ export default function WhatsAppInboxPage() {
               onChange={e => setComposer(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply() } }}
             />
-            <Button onClick={sendReply} disabled={sending || !composer.trim()}>
+            <Button onClick={sendReply} disabled={sending || uploading || !composer.trim()}>
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </div>

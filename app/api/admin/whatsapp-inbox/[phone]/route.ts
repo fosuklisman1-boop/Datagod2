@@ -53,7 +53,7 @@ export async function GET(
 
   let msgQuery = supabase
     .from("whatsapp_messages")
-    .select("id, direction, message, status, created_at, meta_message_id")
+    .select("id, direction, message, status, created_at, meta_message_id, tool_context")
     .eq("phone_number", phone)
     .in("direction", ["inbound", "outbound"])
     .order("created_at", { ascending: true })

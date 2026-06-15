@@ -62,6 +62,10 @@ export async function GET(request: NextRequest) {
       !!r.taken_over_at &&
       now - new Date(r.taken_over_at).getTime() < TAKEOVER_WINDOW_MS
     const isStale = !r.latest_inbound_at || now - new Date(r.latest_inbound_at).getTime() > STALE_WINDOW_MS
+    // Unread = the customer messaged after our last reply (or we've never replied).
+    const unread =
+      !!r.latest_inbound_at &&
+      (!r.latest_outbound_at || new Date(r.latest_inbound_at).getTime() > new Date(r.latest_outbound_at).getTime())
     return {
       id: r.id,
       phone_number: r.phone_number,
@@ -75,6 +79,7 @@ export async function GET(request: NextRequest) {
       taken_over_by: r.taken_over_by,
       takeover_active: takeoverActive,
       is_stale: isStale,
+      unread,
     }
   })
 

@@ -8,6 +8,7 @@ import { waRouter } from "@/lib/whatsapp-bot/router"
 import { isResultsCheckAdmin, adminRcRouter } from "@/lib/whatsapp-bot/admin-router"
 import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia } from "@/lib/whatsapp-bot/send"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
+import { maybeNotifyAdmins } from "@/lib/whatsapp-bot/notify-admins"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
 
@@ -78,8 +79,17 @@ export async function POST(request: NextRequest) {
 async function processInbound(body: unknown): Promise<void> {
   const entry = (body as any)?.entry?.[0]
   const change = entry?.changes?.[0]?.value
+
+  // Delivery/read status callbacks (sent → delivered → read, or failed) for the
+  // messages WE sent. Update the matching row so the inbox shows the right ticks.
+  const statuses: any[] = change?.statuses ?? []
+  if (statuses.length > 0) {
+    await handleStatusUpdates(statuses)
+    return
+  }
+
   const messages: any[] = change?.messages ?? []
-  if (messages.length === 0) return // status update or other event — ignore
+  if (messages.length === 0) return // other event — ignore
 
   const msg = messages[0]
   const from: string = msg.from   // e.g. "233559919037"
@@ -138,7 +148,7 @@ async function processInbound(body: unknown): Promise<void> {
   }
 
   // Log inbound message (also returns this conversation's takeover state)
-  const { humanTakeover, takenOverAt } = await logMessage(from, "inbound", text, msg.id)
+  const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id)
 
   // Admin Results Check WhatsApp queue: "pending" (from any state) or mid-flow.
   if (await isResultsCheckAdmin(from)) {
@@ -150,12 +160,21 @@ async function processInbound(body: unknown): Promise<void> {
     ) {
       const reply = await adminRcRouter(from, text, adminSession)
       if (reply) {
-        await sendWhatsAppText(from, reply)
-        await logMessage(from, "outbound", reply, null)
+        const wamid = await sendWhatsAppText(from, reply)
+        await logMessage(from, "outbound", reply, wamid)
       }
       return
     }
   }
+
+  // Push-notify admins when a message needs attention (takeover reply / human
+  // request / new chat). Throttled + best-effort inside the helper.
+  const takeoverActive = humanTakeover && !!takenOverAt && Date.now() - new Date(takenOverAt).getTime() < 30 * 60 * 1000
+  // A returning customer's conversation row has an old (immutable) created_at, so
+  // a recent created_at reliably means a first-ever message. Window is generous
+  // to tolerate DB latency/clock skew without ever false-positiving.
+  const isNewConversation = !!conversationCreatedAt && Date.now() - new Date(conversationCreatedAt).getTime() < 60_000
+  await maybeNotifyAdmins({ phone: from, text, takeoverActive, takenOverBy, isNewConversation })
 
   // Human takeover: an admin owns this chat → bot/AI must not reply. Persistent
   // (DB) flag, auto-expiring after 30 min of admin inactivity (lazy resume). The
@@ -187,8 +206,27 @@ async function processInbound(body: unknown): Promise<void> {
   }
 
   if (reply) {
-    await sendWhatsAppText(from, reply)
-    await logMessage(from, "outbound", reply, null)
+    const wamid = await sendWhatsAppText(from, reply)
+    await logMessage(from, "outbound", reply, wamid)
+  }
+}
+
+// Apply Meta delivery/read status callbacks to our outbound rows (matched by
+// wamid). Never downgrade from 'read' (a late 'delivered' must not clobber it).
+async function handleStatusUpdates(statuses: any[]): Promise<void> {
+  for (const s of statuses) {
+    const id: string | undefined = s?.id
+    const status: string | undefined = s?.status // 'sent' | 'delivered' | 'read' | 'failed'
+    if (!id || !status) continue
+    try {
+      // Only our outbound rows carry ticks; the direction guard also removes any
+      // theoretical wamid-namespace collision with an inbound row.
+      let q = supabase.from("whatsapp_messages").update({ status }).eq("meta_message_id", id).eq("direction", "outbound")
+      if (status !== "read") q = q.neq("status", "read")
+      await q
+    } catch (e) {
+      console.warn("[WA-WEBHOOK] status update failed (non-fatal):", e)
+    }
   }
 }
 

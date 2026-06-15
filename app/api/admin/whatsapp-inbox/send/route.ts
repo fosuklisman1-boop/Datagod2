@@ -42,9 +42,11 @@ export async function POST(request: NextRequest) {
   // `stale` timestamp for the warning, not the send result.
   // TODO: when stale, switch to sendWhatsAppTemplate once a suitable support
   // template is approved in Meta Business Manager.
-  const delivered = await sendWhatsAppText(phone, message)
+  const wamid = await sendWhatsAppText(phone, message)
+  const delivered = !!wamid
 
-  await logMessage(phone, "outbound", message, null)
+  // Store the wamid so delivery/read status callbacks can drive the bubble ticks.
+  await logMessage(phone, "outbound", message, wamid)
 
   // Keep an ACTIVE takeover alive: each admin reply resets the 30-min idle clock.
   // Only bump if the takeover hasn't already lapsed — otherwise a late reply

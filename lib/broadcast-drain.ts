@@ -250,8 +250,9 @@ async function processRecipient(
         let ok: boolean
         if (warmWaPhones.has(waPhone)) {
           // Warm: free-form delivers. If it genuinely errors (non-200), fall
-          // back to the template so the message still lands.
-          ok = await sendWhatsAppText(waPhone, broadcast.message)
+          // back to the template so the message still lands. (sendWhatsAppText
+          // returns a wamid string | null — coerce to a boolean here.)
+          ok = !!(await sendWhatsAppText(waPhone, broadcast.message))
           if (!ok) ok = await sendWhatsAppTemplate(waPhone, BROADCAST_TEMPLATE, BROADCAST_TEMPLATE_LANG, templateComponents)
         } else {
           // Cold (or never messaged us): the template is the only reliable path.
