@@ -2,7 +2,7 @@ import { SupabaseClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
 import { sendPushToUser } from "@/lib/push-service"
-import { sendWhatsAppText, sendWhatsAppTemplate } from "@/lib/whatsapp-bot/send"
+import { sendWhatsAppText, sendWhatsAppTemplate, WaTemplateComponent } from "@/lib/whatsapp-bot/send"
 
 // How many times a single recipient may be (re)attempted before it is treated
 // as terminally failed. Must match the default in claim_broadcast_recipients /
@@ -21,7 +21,42 @@ const SUB_BATCH_DELAY_MS = 1000
 // we hand it back to the queue so it isn't stranded.
 const STALE_CLAIM_MS = 5 * 60 * 1000
 
+// The approved WhatsApp template used to reach recipients outside the 24h
+// customer-service window. Env-overridable in case Meta approves it under a
+// different name or locale (e.g. "en_US" instead of "en", which otherwise fails
+// with error 132001 "Template name does not exist in the translation").
+const BROADCAST_TEMPLATE = process.env.WHATSAPP_BROADCAST_TEMPLATE || "datagod_broadcast"
+const BROADCAST_TEMPLATE_LANG = process.env.WHATSAPP_BROADCAST_TEMPLATE_LANG || "en"
+
+// WhatsApp's customer-service window is 24h; we treat a recipient as "warm" only
+// if they messaged us within this shorter span. Biasing below 24h means
+// borderline/clock-skew cases fall through to the template (which always
+// delivers) rather than to a free-form text that would be silently dropped.
+const WA_WINDOW_MS = 23 * 60 * 60 * 1000
+
+// Template body parameters can't contain newlines, tabs, or >4 consecutive
+// spaces (Meta error 131009), and the rendered body is capped at 1024 chars.
+// Collapse whitespace and truncate so the template send is never rejected.
+const TEMPLATE_PARAM_MAX = 900
+
 type ChannelOutcome = "sent" | "failed" | "skipped"
+
+/** Normalize a stored phone (0XXXXXXXXX or +233…) to WhatsApp's 233XXXXXXXXX. */
+function toWaPhone(phone: string): string {
+  const raw = String(phone).replace(/\s/g, "")
+  return raw.startsWith("0") ? `233${raw.slice(1)}` : raw.replace(/^\+/, "")
+}
+
+/** Make an arbitrary broadcast message safe to pass as a template body param. */
+function sanitizeTemplateParam(text: string): string {
+  const oneLine = text.replace(/[\r\n\t]+/g, " ").replace(/ {5,}/g, "    ").trim()
+  // Slice by codepoints, not UTF-16 units, so a truncation boundary never
+  // splits an emoji's surrogate pair into a malformed string Meta would reject.
+  const chars = [...oneLine]
+  return chars.length > TEMPLATE_PARAM_MAX
+    ? chars.slice(0, TEMPLATE_PARAM_MAX - 1).join("").trimEnd() + "…"
+    : oneLine
+}
 
 interface RecipientRow {
   id: string
@@ -116,7 +151,11 @@ export async function enqueueRecipients(
  * the updated per-channel status. Channels that already succeeded on a prior
  * attempt are left untouched so a retry never double-sends.
  */
-async function processRecipient(broadcast: BroadcastRow, r: RecipientRow): Promise<Record<string, ChannelOutcome>> {
+async function processRecipient(
+  broadcast: BroadcastRow,
+  r: RecipientRow,
+  warmWaPhones: Set<string>,
+): Promise<Record<string, ChannelOutcome>> {
   const status: Record<string, ChannelOutcome> = { ...(r.channel_status || {}) }
   const channels = broadcast.channels || []
 
@@ -189,23 +228,34 @@ async function processRecipient(broadcast: BroadcastRow, r: RecipientRow): Promi
     }
   }
 
-  // WhatsApp: free-form text only lands inside the 24h customer-service window
-  // (sendWhatsAppText returns false rather than throwing on failure). Outside
-  // it, fall back to the approved "datagod_broadcast" marketing template —
-  // body placeholder {{1}} carries the broadcast message. Template params
-  // can't contain newlines, so collapse them for that path only.
+  // WhatsApp. A free-form text only DELIVERS inside the 24h customer-service
+  // window — but a send to a number outside it still returns 200 "accepted"
+  // (the real failure, error 131047, arrives later via an async status webhook),
+  // so the send result can't tell us a cold number failed. We therefore decide
+  // up front using the recipient's last-inbound time (resolved once per batch in
+  // resolveWarmWaPhones): warm recipients get the free-form text (free, keeps
+  // formatting); everyone else goes straight to the approved "datagod_broadcast"
+  // template — body placeholder {{1}} carries the message — which delivers
+  // regardless of the window.
   if (channels.includes("whatsapp") && !alreadyDone("whatsapp")) {
-    if (!r.phone) {
+    const safeMessage = sanitizeTemplateParam(broadcast.message)
+    if (!r.phone || !safeMessage) {
       status.whatsapp = "skipped"
     } else {
       try {
-        const raw = String(r.phone).replace(/\s/g, "")
-        const waPhone = raw.startsWith("0") ? `233${raw.slice(1)}` : raw.replace(/^\+/, "")
-        let ok = await sendWhatsAppText(waPhone, broadcast.message)
-        if (!ok) {
-          ok = await sendWhatsAppTemplate(waPhone, "datagod_broadcast", "en", [
-            { type: "body", parameters: [{ type: "text", text: broadcast.message.replace(/\s*\n+\s*/g, " ") }] },
-          ])
+        const waPhone = toWaPhone(r.phone)
+        const templateComponents: WaTemplateComponent[] = [
+          { type: "body", parameters: [{ type: "text", text: safeMessage }] },
+        ]
+        let ok: boolean
+        if (warmWaPhones.has(waPhone)) {
+          // Warm: free-form delivers. If it genuinely errors (non-200), fall
+          // back to the template so the message still lands.
+          ok = await sendWhatsAppText(waPhone, broadcast.message)
+          if (!ok) ok = await sendWhatsAppTemplate(waPhone, BROADCAST_TEMPLATE, BROADCAST_TEMPLATE_LANG, templateComponents)
+        } else {
+          // Cold (or never messaged us): the template is the only reliable path.
+          ok = await sendWhatsAppTemplate(waPhone, BROADCAST_TEMPLATE, BROADCAST_TEMPLATE_LANG, templateComponents)
         }
         status.whatsapp = ok ? "sent" : "failed"
       } catch {
@@ -223,6 +273,37 @@ function deriveRowStatus(channelStatus: Record<string, ChannelOutcome>): "sent" 
 }
 
 /**
+ * Returns the set of normalized (233XXXXXXXXX) WhatsApp numbers in `rows` that
+ * messaged us within the customer-service window — the only recipients a
+ * free-form broadcast text will actually reach. Resolved in a single query so
+ * processRecipient can pick free-form vs template with an O(1) lookup. Empty
+ * set when the broadcast doesn't target WhatsApp (no query made).
+ */
+async function resolveWarmWaPhones(
+  supabase: SupabaseClient,
+  broadcast: BroadcastRow,
+  rows: RecipientRow[],
+): Promise<Set<string>> {
+  if (!(broadcast.channels || []).includes("whatsapp")) return new Set()
+  const waPhones = rows.filter((r) => r.phone).map((r) => toWaPhone(r.phone as string))
+  if (waPhones.length === 0) return new Set()
+
+  const cutoff = new Date(Date.now() - WA_WINDOW_MS).toISOString()
+  const { data, error } = await supabase
+    .from("whatsapp_conversations")
+    .select("phone_number")
+    .in("phone_number", waPhones)
+    .gte("latest_inbound_at", cutoff)
+  // On a query error, return empty → everyone treated as cold → template path,
+  // which still delivers. Never let this lookup block the send.
+  if (error) {
+    console.warn("[BROADCAST-DRAIN] warm-window lookup failed, defaulting to template:", error.message)
+    return new Set()
+  }
+  return new Set((data || []).map((c: { phone_number: string }) => c.phone_number))
+}
+
+/**
  * Claim and process up to `budget` recipients for one broadcast. Returns how
  * many it processed so the caller can spread a global budget across broadcasts.
  */
@@ -236,6 +317,9 @@ async function drainOne(supabase: SupabaseClient, broadcast: BroadcastRow, budge
   const rows = (claimed || []) as RecipientRow[]
   if (rows.length === 0) return 0
 
+  // One query for the whole claimed batch: who's inside the 24h window right now.
+  const warmWaPhones = await resolveWarmWaPhones(supabase, broadcast, rows)
+
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
     if (i > 0) await new Promise((res) => setTimeout(res, SUB_BATCH_DELAY_MS))
     const batch = rows.slice(i, i + CONCURRENCY)
@@ -244,7 +328,7 @@ async function drainOne(supabase: SupabaseClient, broadcast: BroadcastRow, budge
         let channelStatus: Record<string, ChannelOutcome>
         let rowStatus: "sent" | "failed"
         try {
-          channelStatus = await processRecipient(broadcast, r)
+          channelStatus = await processRecipient(broadcast, r, warmWaPhones)
           rowStatus = deriveRowStatus(channelStatus)
         } catch (e: any) {
           // Unexpected error: leave channel_status as-is, mark failed so it can
