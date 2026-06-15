@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js"
 import { getWaSession, setWaSession } from "@/lib/whatsapp-bot/session"
 import { waRouter } from "@/lib/whatsapp-bot/router"
 import { isResultsCheckAdmin, adminRcRouter, adminComplaintRouter } from "@/lib/whatsapp-bot/admin-router"
-import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia } from "@/lib/whatsapp-bot/send"
+import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia, formatForWhatsApp } from "@/lib/whatsapp-bot/send"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { maybeNotifyAdmins, isHumanRequest } from "@/lib/whatsapp-bot/notify-admins"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
@@ -260,8 +260,9 @@ async function processInbound(body: unknown): Promise<void> {
   }
 
   if (reply) {
-    const wamid = await sendWhatsAppText(from, reply)
-    await logMessage(from, "outbound", reply, wamid)
+    const out = formatForWhatsApp(reply) // Markdown (**bold**) → WhatsApp (*bold*)
+    const wamid = await sendWhatsAppText(from, out)
+    await logMessage(from, "outbound", out, wamid)
   }
 }
 

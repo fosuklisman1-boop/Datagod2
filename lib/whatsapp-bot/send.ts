@@ -5,6 +5,21 @@ function baseHeaders(token: string) {
   return { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
 }
 
+// The AI emits Markdown, but WhatsApp uses *single* asterisks for bold (and has
+// no headings or [text](url) links), so Markdown leaks as literal `**`, `###`,
+// etc. Convert AI output to WhatsApp formatting before sending.
+export function formatForWhatsApp(text: string): string {
+  if (!text) return text
+  return text
+    // **bold** / __bold__  →  *bold*  (WhatsApp bold). Non-greedy, single line.
+    .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
+    .replace(/__([^_\n]+)__/g, "*$1*")
+    // "### Heading"  →  *Heading*
+    .replace(/^\s{0,3}#{1,6}\s+(.+?)\s*$/gm, "*$1*")
+    // [label](url)  →  label (url)   (WhatsApp doesn't render markdown links)
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "$1 ($2)")
+}
+
 export async function markWaMessageRead(messageId: string): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
