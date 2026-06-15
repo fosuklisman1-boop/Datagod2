@@ -44,6 +44,41 @@ function detectNetwork(phone: string): string {
   return "UNKNOWN"
 }
 
+// Returns the subset of `candidates` already present in phone_verification_results
+// (from ANY earlier session), mapped to the best account name previously seen for
+// that number (null if it was only ever invalid/pending). Stored and candidate
+// numbers are both normalized, so equality matching is safe. Chunked + paginated
+// so it scales regardless of how many candidates or historical rows exist.
+async function findExistingNumbers(candidates: string[]): Promise<Map<string, string | null>> {
+  const existing = new Map<string, string | null>()
+  const CHUNK = 500
+  for (let i = 0; i < candidates.length; i += CHUNK) {
+    const chunk = candidates.slice(i, i + CHUNK)
+    let from = 0
+    while (true) {
+      // order by the unique primary key so offset pagination is stable even when a
+      // number recurs across many sessions (name preference is handled in the Map)
+      const { data, error } = await supabase
+        .from("phone_verification_results")
+        .select("phone_number, account_name")
+        .in("phone_number", chunk)
+        .order("id", { ascending: true })
+        .range(from, from + 999)
+      if (error) throw new Error(`Duplicate lookup failed: ${error.message}`)
+      if (!data || data.length === 0) break
+      for (const row of data) {
+        // record once; upgrade to a non-null name if a later row has one
+        if (!existing.has(row.phone_number) || (row.account_name && existing.get(row.phone_number) == null)) {
+          existing.set(row.phone_number, row.account_name ?? null)
+        }
+      }
+      if (data.length < 1000) break
+      from += 1000
+    }
+  }
+  return existing
+}
+
 export async function POST(request: NextRequest) {
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
@@ -63,6 +98,12 @@ export async function POST(request: NextRequest) {
 
     const phones = [...new Set(phoneLines.map(normalizeGhanaPhoneNumber).filter(p => p.length >= 9))]
 
+    // Numbers already uploaded in a previous session are flagged as duplicates and
+    // skipped from verification (the processor only picks up `pending` rows).
+    const existing = await findExistingNumbers(phones)
+    const duplicates = phones.filter(p => existing.has(p)).length
+    const newCount = phones.length - duplicates
+
     const { data: session, error: sessionError } = await supabase
       .from("phone_verification_sessions")
       .insert({ file_name: file.name, total_count: phones.length, status: "processing", created_by: userId })
@@ -71,19 +112,23 @@ export async function POST(request: NextRequest) {
 
     if (sessionError || !session) throw new Error(`Session creation failed: ${sessionError?.message}`)
 
-    const rows = phones.map(phone => ({
-      session_id: session.id,
-      phone_number: phone,
-      network: detectNetwork(phone),
-      status: "pending",
-    }))
+    const rows = phones.map(phone => {
+      const isDuplicate = existing.has(phone)
+      return {
+        session_id: session.id,
+        phone_number: phone,
+        network: detectNetwork(phone),
+        account_name: isDuplicate ? (existing.get(phone) ?? null) : null,
+        status: isDuplicate ? "duplicate" : "pending",
+      }
+    })
 
     for (let i = 0; i < rows.length; i += 1000) {
       const { error } = await supabase.from("phone_verification_results").insert(rows.slice(i, i + 1000))
       if (error) throw new Error(`Bulk insert failed at offset ${i}: ${error.message}`)
     }
 
-    return NextResponse.json({ sessionId: session.id, total: phones.length })
+    return NextResponse.json({ sessionId: session.id, total: phones.length, newCount, duplicates })
   } catch (error) {
     console.error("[PHONE-VERIFY-UPLOAD]", error)
     return NextResponse.json({ error: "Upload failed" }, { status: 500 })

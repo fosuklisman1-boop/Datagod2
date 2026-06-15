@@ -8,11 +8,12 @@ import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Loader2, Upload, Download, CheckCircle, XCircle, Eye, Phone, ClipboardList } from "lucide-react"
+import { Loader2, Upload, Download, CheckCircle, XCircle, Eye, Phone, ClipboardList, Copy } from "lucide-react"
 
 type Tab = "upload" | "history"
 type VerifyState = "idle" | "uploading" | "processing" | "completed" | "error"
 type InputMode = "file" | "text"
+type ResultFilter = "all" | "verified" | "invalid" | "duplicate"
 
 const NORMAL_DELAY_MS = 200
 const MAX_BACKOFF_MS = 120_000
@@ -23,6 +24,7 @@ interface Progress {
   total: number
   verified: number
   invalid: number
+  duplicates: number
   processed: number
 }
 
@@ -31,7 +33,7 @@ interface VerificationResult {
   phone_number: string
   account_name: string | null
   network: string
-  status: "pending" | "verified" | "invalid"
+  status: "pending" | "verified" | "invalid" | "duplicate"
 }
 
 interface SessionSummary {
@@ -64,7 +66,7 @@ export default function PhoneVerificationPage() {
   const [verifyState, setVerifyState] = useState<VerifyState>("idle")
   const [progress, setProgress] = useState<Progress | null>(null)
   const [resultsPage, setResultsPage] = useState<ResultsPage | null>(null)
-  const [resultFilter, setResultFilter] = useState<"all" | "verified" | "invalid">("all")
+  const [resultFilter, setResultFilter] = useState<ResultFilter>("all")
   const [currentPage, setCurrentPage] = useState(1)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -95,7 +97,7 @@ export default function PhoneVerificationPage() {
 
   const loadResults = useCallback(async (
     sessionId: string,
-    filter: "all" | "verified" | "invalid" = "all",
+    filter: ResultFilter = "all",
     page = 1
   ) => {
     try {
@@ -129,10 +131,18 @@ export default function PhoneVerificationPage() {
       const uploadData = await uploadRes.json()
       if (!uploadRes.ok) throw new Error(uploadData.error ?? "Upload failed")
 
-      const { sessionId, total } = uploadData
-      setProgress({ sessionId, fileName: file.name, total, verified: 0, invalid: 0, processed: 0 })
+      const { sessionId, total, newCount = total, duplicates = 0 } = uploadData
+      setProgress({ sessionId, fileName: file.name, total, verified: 0, invalid: 0, duplicates, processed: duplicates })
       setRateLimitWarning(false)
       setVerifyState("processing")
+
+      if (duplicates > 0) {
+        toast.info(
+          newCount === 0
+            ? `All ${duplicates.toLocaleString()} number(s) were already uploaded before — nothing new to verify.`
+            : `${duplicates.toLocaleString()} number(s) were already uploaded before — marked as duplicate and skipped.`
+        )
+      }
 
       let remaining = total
       let backoffMs = 10_000  // start at 10s, doubles on consecutive rate-limit hits
@@ -203,7 +213,7 @@ export default function PhoneVerificationPage() {
     await handleFileSelect(file)
   }, [pastedNumbers, handleFileSelect])
 
-  const handleFilterChange = (filter: "all" | "verified" | "invalid") => {
+  const handleFilterChange = (filter: ResultFilter) => {
     setResultFilter(filter)
     setCurrentPage(1)
     if (progress?.sessionId) loadResults(progress.sessionId, filter, 1)
@@ -217,13 +227,15 @@ export default function PhoneVerificationPage() {
   const handleViewSession = async (session: SessionSummary) => {
     setActiveTab("upload")
     setVerifyState("completed")
+    const dupCount = Math.max(0, session.total_count - session.verified_count - session.invalid_count)
     setProgress({
       sessionId: session.id,
       fileName: session.file_name,
       total: session.total_count,
       verified: session.verified_count,
       invalid: session.invalid_count,
-      processed: session.verified_count + session.invalid_count,
+      duplicates: dupCount,
+      processed: session.verified_count + session.invalid_count + dupCount,
     })
     setResultFilter("all")
     setCurrentPage(1)
@@ -346,7 +358,7 @@ export default function PhoneVerificationPage() {
                           Drag & drop your file here, or <span className="text-primary underline">browse</span>
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Accepts .csv or .xlsx · Max 50 MB · Multi-column format supported (Phone Number column auto-detected)
+                          Accepts .csv or .xlsx · Max 50 MB · Multi-column format supported (Phone Number column auto-detected) · Numbers uploaded in earlier sessions are flagged as duplicates
                         </p>
                         <Button
                           variant="outline" size="sm" className="mt-4"
@@ -373,7 +385,7 @@ export default function PhoneVerificationPage() {
                         <span className="text-xs text-muted-foreground">
                           {pastedNumbers.trim()
                             ? `${pastedNumbers.trim().split(/[\r\n]+/).filter(l => l.trim()).length.toLocaleString()} numbers detected`
-                            : "One number per line · duplicates removed automatically"}
+                            : "One number per line · numbers already uploaded before are flagged as duplicates"}
                         </span>
                         <Button onClick={handleTextSubmit} disabled={!pastedNumbers.trim()} className="gap-2">
                           <Phone className="w-4 h-4" /> Verify Numbers
@@ -422,7 +434,7 @@ export default function PhoneVerificationPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-center">
                       <div className="text-2xl font-bold text-green-600 dark:text-green-400">{progress.verified.toLocaleString()}</div>
                       <div className="text-xs text-muted-foreground">Verified</div>
@@ -430,6 +442,10 @@ export default function PhoneVerificationPage() {
                     <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-center">
                       <div className="text-2xl font-bold text-red-600 dark:text-red-400">{progress.invalid.toLocaleString()}</div>
                       <div className="text-xs text-muted-foreground">Invalid</div>
+                    </div>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{progress.duplicates.toLocaleString()}</div>
+                      <div className="text-xs text-muted-foreground">Duplicate</div>
                     </div>
                     <div className="bg-muted rounded-lg p-3 text-center">
                       <div className="text-2xl font-bold">{progress.total.toLocaleString()}</div>
@@ -467,7 +483,7 @@ export default function PhoneVerificationPage() {
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <CardTitle className="text-sm">Results</CardTitle>
                     <div className="flex gap-2 flex-wrap">
-                      {(["all", "verified", "invalid"] as const).map(f => (
+                      {(["all", "verified", "invalid", "duplicate"] as const).map(f => (
                         <Button
                           key={f} size="sm"
                           variant={resultFilter === f ? "default" : "outline"}
@@ -476,6 +492,7 @@ export default function PhoneVerificationPage() {
                           {f === "all" && `All (${resultsPage.session.total_count.toLocaleString()})`}
                           {f === "verified" && `✓ Verified (${resultsPage.session.verified_count.toLocaleString()})`}
                           {f === "invalid" && `✗ Invalid (${resultsPage.session.invalid_count.toLocaleString()})`}
+                          {f === "duplicate" && `⧉ Duplicate (${Math.max(0, resultsPage.session.total_count - resultsPage.session.verified_count - resultsPage.session.invalid_count).toLocaleString()})`}
                         </Button>
                       ))}
                     </div>
@@ -504,6 +521,10 @@ export default function PhoneVerificationPage() {
                               {row.status === "verified" ? (
                                 <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20">
                                   <CheckCircle className="w-3 h-3 mr-1" /> Verified
+                                </Badge>
+                              ) : row.status === "duplicate" ? (
+                                <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+                                  <Copy className="w-3 h-3 mr-1" /> Duplicate
                                 </Badge>
                               ) : (
                                 <Badge className="bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20">
@@ -558,6 +579,7 @@ export default function PhoneVerificationPage() {
                         <th className="pb-2 pr-4 text-center">Total</th>
                         <th className="pb-2 pr-4 text-center">Verified</th>
                         <th className="pb-2 pr-4 text-center">Invalid</th>
+                        <th className="pb-2 pr-4 text-center">Dup</th>
                         <th className="pb-2 pr-4 text-center">Status</th>
                         <th className="pb-2"></th>
                       </tr>
@@ -570,6 +592,7 @@ export default function PhoneVerificationPage() {
                           <td className="py-2 pr-4 text-center">{session.total_count.toLocaleString()}</td>
                           <td className="py-2 pr-4 text-center text-green-600 dark:text-green-400 font-medium">{session.verified_count.toLocaleString()}</td>
                           <td className="py-2 pr-4 text-center text-red-600 dark:text-red-400">{session.invalid_count.toLocaleString()}</td>
+                          <td className="py-2 pr-4 text-center text-amber-600 dark:text-amber-400">{Math.max(0, session.total_count - session.verified_count - session.invalid_count).toLocaleString()}</td>
                           <td className="py-2 pr-4 text-center">
                             <Badge variant={session.status === "completed" ? "default" : "secondary"}>{session.status}</Badge>
                           </td>

@@ -57,16 +57,12 @@ export async function GET(
       "Status": r.status === "verified" ? "Verified" : r.status === "invalid" ? "Invalid" : "Pending",
     })
 
+    // Export contains verified numbers only — never invalids or duplicates.
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(
       wb,
       XLSX.utils.json_to_sheet(allResults.filter(r => r.status === "verified").map(toRow)),
       "Verified"
-    )
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(allResults.map(toRow)),
-      "All Results"
     )
 
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" })

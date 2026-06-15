@@ -106,6 +106,7 @@ export async function enqueueRecipients(
         .from("users")
         .select("id, email, phone_number, first_name, role")
         .in("role", roles)
+        .order("id", { ascending: true }) // stable order so .range() paging can't skip/repeat users
         .range(page * pageSize, (page + 1) * pageSize - 1)
       if (error) throw error
       if (data && data.length > 0) {
@@ -135,6 +136,23 @@ export async function enqueueRecipients(
   }
 
   if (rows.length === 0) return 0
+
+  // De-duplicate within this broadcast so the same person isn't enqueued — and
+  // therefore messaged — more than once. A specific-users list may repeat an
+  // entry, and a role-based audience could surface the same contact twice. Key
+  // on the strongest identifier available (user_id, else phone, else email).
+  const seen = new Set<string>()
+  const deduped: typeof rows = []
+  for (const r of rows) {
+    const key = r.user_id || r.phone || r.email
+    if (key && seen.has(key)) continue
+    if (key) seen.add(key)
+    deduped.push(r)
+  }
+  if (deduped.length < rows.length) {
+    console.log(`[BROADCAST-ENQUEUE] removed ${rows.length - deduped.length} duplicate recipient(s) for broadcast ${broadcastId}`)
+  }
+  rows = deduped
 
   // Insert in chunks to stay under payload limits on big audiences.
   const chunkSize = 500
