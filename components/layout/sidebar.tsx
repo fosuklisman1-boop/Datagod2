@@ -41,6 +41,7 @@ import {
   Phone,
   PhoneOff,
   ClipboardCheck,
+  BookOpen,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -888,6 +889,28 @@ export function Sidebar() {
                       )}
                     </div>
                   )}
+                </Button>
+              </Link>
+              <Link href="/admin/ai-knowledge" onClick={() => handleNavigation("/admin/ai-knowledge")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/ai-knowledge" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/ai-knowledge" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/ai-knowledge" && "opacity-70"
+                  )}
+                  title={!isOpen ? "AI Knowledge" : undefined}
+                  disabled={loadingPath === "/admin/ai-knowledge"}
+                >
+                  {loadingPath === "/admin/ai-knowledge" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <BookOpen className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "AI Knowledge"}
                 </Button>
               </Link>
               <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>

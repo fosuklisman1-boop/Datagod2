@@ -11,7 +11,11 @@ import { Trash2, Edit, Plus, X, Check } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
-const CATEGORIES = ["faq", "policy", "product", "support", "delivery", "refund"]
+const CATEGORIES = [
+  "services", "ordering", "pricing", "networks", "delivery", "payment",
+  "wallet", "orders", "ussd", "afa", "results", "support",
+  "policy", "refund", "terms", "faq", "product",
+]
 const ALL_CONTEXTS = ["storefront", "dashboard", "admin"]
 
 interface Entry {
