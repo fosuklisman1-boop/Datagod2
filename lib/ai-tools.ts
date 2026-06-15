@@ -1363,7 +1363,7 @@ export async function executeToolCall(
         // ever acts on THIS customer's own account (ctx.userId), and the WhatsApp
         // sender is Meta-verified, so there's no impersonation/wrong-wallet risk.
         if (!ctx.userId) {
-          return { error: "no_account", message: "This WhatsApp number isn't linked to a Datagod account, so the top-up can't be auto-checked. Suggest they re-verify at /dashboard/payment-reverify while signed in, or file a wallet_topup complaint with the payment reference." }
+          return { error: "no_account", message: "This WhatsApp number isn't linked to a Datagod account. Auto-checking a top-up only works when the customer messages from the SAME phone number that's on their Datagod account. Kindly explain this, then offer: (1) message you again from their account's number so you can auto-check it, (2) sign in and re-verify at /dashboard/payment-reverify, or (3) you log a wallet_topup complaint with their payment reference for the team." }
         }
         const { verifyUserPendingPayments } = await import("@/lib/payment-cleanup-service")
         const res = await verifyUserPendingPayments(ctx.userId)
