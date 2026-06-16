@@ -409,28 +409,11 @@ async function handleStatusUpdates(statuses: any[]): Promise<void> {
 
 // ── AI handler (non-bot messages) ────────────────────────────────────────────
 
-// Map bare main-menu digits to services — same shortcuts USSD users know
-const MAIN_MENU_SHORTCUTS: Record<string, string> = {
-  "1": "data", "2": "afa", "3": "airtime", "4": "rc",
-}
-
 async function handleWithAI(phone: string, text: string): Promise<string> {
-  // Fast-path: bare digit 1-4 → start ordering bot directly (no AI needed)
-  const shortcut = MAIN_MENU_SHORTCUTS[text.trim()]
-  if (shortcut) {
-    const { setWaSession } = await import("@/lib/whatsapp-bot/session")
-    const { mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
-    const localPhone = phone.startsWith("233") ? "0" + phone.slice(3) : phone
-    const stepMap: Record<string, { step: string; menu: () => string }> = {
-      data:    { step: "SELECT_NETWORK",          menu: networkMenu },
-      airtime: { step: "AIRTIME_ENTER_RECIPIENT", menu: airtimeRecipientPrompt },
-      afa:     { step: "AFA_ENTER_NAME",           menu: afaEnterNamePrompt },
-      rc:      { step: "RC_MENU",                  menu: rcMenu },
-    }
-    const mapped = stepMap[shortcut]
-    await setWaSession(phone, { step: mapped.step as any, dialingPhone: localPhone })
-    return mapped.menu()
-  }
+  // NOTE: there is deliberately NO bare-digit fast-path here. A lone "1" used to
+  // immediately start data ordering regardless of context, so a customer answering
+  // a question (or mid-complaint) with "1" got hijacked into an order. The AI now
+  // decides — it has the full conversation and starts an order only on real intent.
 
   // Load AI config
   let aiConfig: AIProviderConfig = DEFAULT_CONFIG
@@ -491,7 +474,9 @@ SERVICES:
 The user's WhatsApp number is ${phone}${userId ? " and they have a registered Datagod account" : ""}.
 
 ORDERING:
-- When the user wants to BUY/order anything (data, airtime, AFA, voucher, or the Results Check Service), call start_ordering_bot. Use service="rc" for both voucher purchases and the Results Check Service — the menu lets them pick. Never type menu options yourself.
+- When the customer clearly wants to BUY/order something (data, airtime, AFA, voucher, or the Results Check Service), call start_ordering_bot. Use service="rc" for both voucher purchases and the Results Check Service — the menu lets them pick. Never type menu options yourself.
+- A customer who sends ONLY a menu digit as a fresh choice (their first message, or right after you offered the menu) means: 1 = data, 2 = AFA, 3 = airtime, 4 = results checker — call start_ordering_bot for that service.
+- BUT do NOT start an order just because the customer sent a phone number, an amount, or a bare digit in the MIDDLE of another topic (answering a question you asked, giving complaint details, providing a beneficiary number, etc.). Read the conversation and treat the number as the answer to what you were discussing. If a lone number's meaning is genuinely unclear, ask what they'd like to do — do not assume they want to buy data.
 
 ANSWERING QUESTIONS — use your tools, never guess:
 - Prices/packages → call get_available_packages and quote the real price. Never invent a price or bundle.
