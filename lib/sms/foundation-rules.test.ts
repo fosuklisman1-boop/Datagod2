@@ -15,7 +15,7 @@ describe("deriveOwnerType", () => {
       .toEqual({ ownerType: "sub_agent", ownerId: "a1" })
   })
   it("admin who also owns a shop still resolves to platform", () => {
-    expect(deriveOwnerType({ role: "admin", ownsShop: true, isSubAgent: false, shopId: "s1" }).ownerType)
+    expect(deriveOwnerType({ role: "admin", ownsShop: true, isSubAgent: false, shopId: "s1" })?.ownerType)
       .toBe("platform")
   })
   it("plain user with no shop/sub-agent → null (no SMS account)", () => {
