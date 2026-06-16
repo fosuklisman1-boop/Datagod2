@@ -84,12 +84,28 @@ async function refLanded(ref: string): Promise<"credited" | "pending" | null> {
   return null
 }
 
+/** Returns true if the account may purchase bundles or initiate sends. */
+export async function isAccountActive(accountId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("sms_accounts").select("status, owner_type").eq("id", accountId).maybeSingle()
+  if (!data) return false
+  if (data.owner_type === "platform") return true
+  return data.status === "active"
+}
+
 /** Cash-wallet bundle purchase: race-safe wallet debit, then solvency-gated issuance.
  *  Refunds the cash only if issuance ERRORS (a 'pending' outcome is success, not a failure). */
 export async function purchaseBundleViaWallet(userId: string, accountId: string, bundleId: string): Promise<PurchaseResult> {
   const { data: bundle } = await supabaseAdmin.from("sms_bundles").select("*").eq("id", bundleId).maybeSingle()
   if (!bundle) return { ok: false, error: "Bundle not found" }
   const b = bundle as Bundle
+
+  // Activation gate: metered accounts must be active. Platform is exempt.
+  const { data: acct } = await supabaseAdmin
+    .from("sms_accounts").select("status, owner_type").eq("id", accountId).maybeSingle()
+  if (acct && acct.owner_type !== "platform" && acct.status !== "active") {
+    return { ok: false, error: "NOT_ACTIVATED" }
+  }
 
   const { data: debit, error: debitErr } = await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: b.price_ghs })
   if (debitErr) return { ok: false, error: "Wallet debit failed" }

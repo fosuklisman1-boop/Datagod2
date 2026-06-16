@@ -45,6 +45,15 @@ const h = vi.hoisted(() => {
             if (table === "sms_bundles") return Promise.resolve({ data: bundleRow, error: null })
             if (table === "sms_unit_transactions") return Promise.resolve({ data: state.refInTx ? { id: "x" } : null, error: null })
             if (table === "sms_pending_credits") return Promise.resolve({ data: state.refInPending ? { id: "y" } : null, error: null })
+            if (table === "sms_accounts") {
+              return Promise.resolve({
+                data: {
+                  status: (fake as any)._accountStatus ?? "active",
+                  owner_type: (fake as any)._ownerType ?? "shop",
+                },
+                error: null,
+              })
+            }
             return Promise.resolve({ data: null, error: null })
           },
         }),
@@ -66,6 +75,9 @@ beforeEach(() => {
   h.state.refInTx = false
   h.state.refInPending = false
   h.notifySpy.mockClear()
+  // Reset activation gate overrides so existing tests are unaffected
+  delete (h.fake as any)._accountStatus
+  delete (h.fake as any)._ownerType
 })
 
 const fns = () => h.state.calls.map((c) => c.fn)
@@ -117,5 +129,36 @@ describe("purchaseBundleViaWallet (solvency-gated)", () => {
     expect(res.outcome).toBe("credited")
     // only the original debit — NO refund, because the units actually landed
     expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(1)
+  })
+})
+
+describe("purchaseBundleViaWallet — activation gate", () => {
+  it("inactive account → NOT_ACTIVATED error, no wallet debit", async () => {
+    h.state.walletBalance = 200
+    h.state.wholesale = 1_000_000
+    // Override the fake's from() to return an inactive account
+    ;(h.fake as any)._accountStatus = "inactive"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe("NOT_ACTIVATED")
+    expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(0)
+  })
+
+  it("platform account → bypasses gate, proceeds normally", async () => {
+    h.state.walletBalance = 200
+    h.state.wholesale = 1_000_000
+    ;(h.fake as any)._accountStatus = "active"
+    ;(h.fake as any)._ownerType = "platform"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(true)
+  })
+
+  it("suspended account → NOT_ACTIVATED error", async () => {
+    h.state.walletBalance = 200
+    h.state.wholesale = 1_000_000
+    ;(h.fake as any)._accountStatus = "suspended"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe("NOT_ACTIVATED")
   })
 })

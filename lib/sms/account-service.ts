@@ -13,6 +13,11 @@ export interface SmsAccount {
   owner_id: string | null
   unit_balance: number
   status: string
+  activated_at?: string | null
+  amount_paid?: number | null
+  paid_from?: string | null
+  bonus_claimed?: boolean | null
+  bonus_claimed_at?: string | null
 }
 
 /** Resolve the owner context from role + user_shops membership.

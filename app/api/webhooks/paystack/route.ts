@@ -91,6 +91,24 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ received: true, type: "sms_bundle" })
       }
 
+      // SMS account activation payment — finalize activation on confirmed payment.
+      // metadata.type === "sms_activation" is set by initActivationPaystack().
+      if (metadata?.type === "sms_activation" && metadata?.sms_account_id) {
+        const paidGhs = amount / 100
+        const { finalizeActivationPaystack } = await import("@/lib/sms/activation-service")
+        const result = await finalizeActivationPaystack(
+          metadata.sms_account_id as string,
+          reference,
+          paidGhs
+        )
+        if (!result.ok && !result.alreadyDone) {
+          console.error("[WEBHOOK] SMS activation finalize failed:", result.error)
+        } else {
+          console.log("[WEBHOOK] ✓ SMS account activated:", metadata.sms_account_id, result.alreadyDone ? "(already done)" : "")
+        }
+        return NextResponse.json({ received: true, type: "sms_activation" })
+      }
+
       // Handle USSD shop token purchases (MoMo) — reference is USSD-SHOP-... prefixed
       const { data: shopTokenPurchase, error: stpErr } = await supabase
         .from("ussd_shop_token_purchases")
