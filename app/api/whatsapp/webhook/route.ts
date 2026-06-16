@@ -131,8 +131,9 @@ async function processInbound(body: unknown): Promise<void> {
         }
         return
       }
-      // Admin not mid-delivery → don't treat their media as customer evidence.
-      return
+      // Admin not mid-delivery → fall through to the normal customer media handling
+      // below. An admin number can also act as a customer (testing, or buying for
+      // themselves) — their screenshot / complaint proof must NOT be silently dropped.
     }
 
     // (b) Customer media → log it to the inbox thread so admins can see it (this
