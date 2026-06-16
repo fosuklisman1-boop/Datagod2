@@ -25,8 +25,9 @@ What is genuinely new: contacts/audiences, per-tenant sender-ID management, a pr
 | Product shape | New product; purpose-built `sms_campaigns`/`sms_messages` queue reusing the broadcast drain pattern + existing Moolre send/delivery-sync |
 | Tenancy | One `sms_account` per user — admin, each shop owner, each sub-agent. Everything scoped by `sms_account_id` + RLS |
 | Audience | Uploaded contact lists/groups **and** auto-built customer segments |
-| Billing | Internal prepaid **units** ledger; top-up via cash wallet, Paystack, **and** admin manual; admin-defined bundle tiers; **segment-aware** debit; reserve-on-start / settle-on-send |
-| Supply guard | Monitor Moolre master credit balance; auto-pause campaign `awaiting_credit` + alert admin; auto-resume when funded |
+| Billing | Internal prepaid **units** ledger, **fully backed by the Moolre wholesale balance**; top-up via cash wallet, Paystack, **and** admin manual; admin-defined bundle tiers; **segment-aware** debit; reserve-on-start / settle-on-send |
+| Solvency (issuance-time guard) | A credit is issued only if `SUM(all credited units) + units ≤ Moolre wholesale balance` (exact, no reserve), serialized by a platform-wide advisory lock. Otherwise the buyer still pays but units land as **pending credits** (shown as "Pending"), admin is notified to top up the Moolre wholesale SMS account, and a **cron** settles pending credits (oldest-first) once wholesale covers them. Applies to **all** credit paths — wallet, Paystack, admin manual. |
+| Supply guard (send-time) | Largely redundant with issuance-time solvency (every credited unit is already backed). Kept only as lightweight defense-in-depth at send time; no longer the primary guard. |
 | Sender IDs | Per account; create at Moolre (type 3, no `approve`) → poll status (type 1) → `active`; only active IDs usable for sends |
 | Send engine | Cron drain mirrors `lib/broadcast-drain.ts`; **batches** recipients into Moolre `messages[]` POST; per-recipient `ref` tracking |
 | Composer | Merge fields, audience picker (groups ∪ segments, deduped), sender picker, scheduling, and a **full live preview** |
@@ -95,6 +96,7 @@ Everything hangs off a single `sms_account` owned by a `user_id`:
 | `sms_accounts` | tenant + unit balance | `id`, `user_id`, `owner_type`, `owner_id`, `unit_balance int`, `status`, timestamps |
 | `sms_unit_transactions` | units audit log (credit/debit) | `sms_account_id`, `delta int`, `reason`, `balance_after int`, `ref`, `campaign_id?`, timestamps |
 | `sms_bundles` | admin-defined buyable tiers | `id`, `name`, `units int`, `price_ghs numeric`, `owner_type_scope`, `active bool` |
+| `sms_pending_credits` | paid-but-unbacked units awaiting wholesale | `sms_account_id`, `units int`, `reason`, `ref`, `status (pending\|credited)`, `created_at`, `credited_at` |
 | `sms_sender_ids` | per-account sender IDs | `sms_account_id`, `sender_id (≤11)`, `moolre_status`, `local_status`, `last_polled_at`, timestamps |
 | `sms_contacts` | tenant contacts | `sms_account_id`, `phone` (normalized), `first_name`, `attributes jsonb`, timestamps |
 | `sms_groups` | contact lists | `sms_account_id`, `name`, timestamps |
@@ -133,15 +135,20 @@ Unique constraints: `sms_contacts (sms_account_id, phone)` for per-account dedup
 - Campaigns may only select an `active` sender ID.
 - Optional platform-shared fallback sender for accounts with none yet (configurable; off by default to keep attribution clean).
 
-### 4. SMS Units & Bundles (billing)
+### 4. SMS Units & Bundles (billing) — fully backed by the Moolre wholesale
 
-- Internal `unit_balance` per account, the quota/billing layer. **Decoupled** from the single shared Moolre master credit pool (the supply layer — see Supply Guard).
+- Internal `unit_balance` per account is the quota/billing layer, kept **fully backed** by the single shared Moolre wholesale credit pool (the supply layer). Invariant: `SUM(all accounts.unit_balance) ≤ Moolre wholesale balance` at all times.
 - **Unit = one SMS segment.** Segment count uses GSM-7 (160 chars/segment, 153 in concatenated parts) vs UCS-2 (70 chars/segment, 67 concatenated) detection. A single non-GSM character (emoji, smart quote) forces UCS-2 and must be counted correctly.
-- **Three top-up paths**, each writing an `sms_unit_transactions` credit:
-  1. **Cash wallet** — atomic debit `wallets` + credit units (one money system, instant), logged in `wallet_transactions`.
-  2. **Paystack** — reuse init/verify/webhook; on confirmed success, credit units.
-  3. **Admin manual** — admin allocates units to any account (e.g. offline payment).
-- **Reserve / settle:** units are reserved when a campaign starts (`units_reserved`), settled as messages are sent, and reserved-but-unsent units are refunded on cancel/failure. No double-debit, no negative balance.
+- **Issuance-time solvency gate (all credit paths).** Every credit — wallet, Paystack, or admin manual — is routed through `credit_sms_units_if_solvent(account, units, reason, wholesale, ref)`. The caller first fetches the live Moolre wholesale balance via `queryMoolreSmsBalance()` (Moolre `type:2`). The SQL function takes a platform-wide **advisory lock**, recomputes `SUM(unit_balance)`, and:
+  - if `SUM + units ≤ wholesale` → credits immediately (via `adjust_sms_units`), or
+  - else → inserts a row into `sms_pending_credits` and returns `pending`. The buyer's payment is **already taken**; they simply see the units as **"Pending"**. Admin is notified to top up the Moolre wholesale.
+- **Pending settlement cron** (`/api/cron/sms-pending-credits`): fetches the wholesale balance, calls `settle_pending_sms_credits(wholesale)` which credits pending rows **oldest-first** while they still fit under wholesale. Admin top-up → next cron run drains what now fits. Pending credits are held indefinitely until backed (never auto-refunded).
+- **Idempotency:** `ref` (payment reference / campaign id) is unique across both `sms_unit_transactions` and `sms_pending_credits`, so a replayed webhook or retried purchase can't double-credit.
+- **Three top-up paths** feed the same gate:
+  1. **Cash wallet** — race-safe `deduct_wallet` debit, then solvency-gated credit; refund the cash if the gate errors.
+  2. **Paystack** — reuse init/verify/webhook; on confirmed success, solvency-gated credit (idempotent on the Paystack ref).
+  3. **Admin manual** — admin allocates units to any account; also solvency-gated (can land pending).
+- **Reserve / settle (later, Plan 4):** units are reserved when a campaign starts (`units_reserved`), settled as messages are sent, refunded on cancel/failure. No double-debit, no negative balance.
 - Bundle tiers (`sms_bundles`) are admin-defined; `owner_type_scope` allows different pricing for shops vs sub-agents.
 
 ### 5. Campaign Composer + Engine
@@ -178,7 +185,7 @@ Unique constraints: `sms_contacts (sms_account_id, phone)` for per-account dedup
 
 ### 6. Supply Guard + Reports
 
-- **Supply guard:** before each batch, check the Moolre master balance (`POST /open/sms/query` type 2 → `data.balance`). If it cannot cover the batch, set the campaign `awaiting_credit`, alert admin (in-app + existing notification channels), and stop draining that campaign. A resume check auto-continues when the master balance recovers. An admin dashboard widget shows the live master balance; an optional admin-set safety floor blocks sends below a threshold.
+- **Supply guard (defense-in-depth, secondary):** Because units are **fully backed at issuance** (Component 4), a credited unit always has wholesale behind it, so campaigns should not normally stall for credit. A lightweight pre-batch check of the Moolre balance (`type 2`) remains as a safety net: if a batch somehow can't be covered, pause the campaign `awaiting_credit` and alert admin; auto-resume when the balance recovers. An admin dashboard widget shows the live wholesale balance + the platform's total credited + pending units (the solvency picture).
 - **Reports:** aggregate `sms_messages` / `sms_logs` per campaign and per account (queued / sent / delivered / failed), powered by the existing `queryMoolreDeliveryStatus` + `sms-delivery-sync` cron — no new delivery infrastructure.
 
 ---
@@ -205,7 +212,7 @@ Unique constraints: `sms_contacts (sms_account_id, phone)` for per-account dedup
 
 Shipped together in v1, built in dependency order so each layer is testable before the next:
 
-1. **Foundation** — `sms_accounts`, units ledger, RLS, bundle tiers, all three top-up paths.
+1. **Foundation** — `sms_accounts`, units ledger, RLS, bundle tiers, all three top-up paths, **issuance-time solvency gate (fully-backed units) + pending-credits table + settlement cron + admin shortfall notify**.
 2. **Sender IDs** — submit → create at Moolre → poll cron → admin visibility.
 3. **Contacts & groups** — import, dedupe, M:N groups.
 4. **Composer + engine** — segments, live preview/cost meter, `sms_messages`, drain, batched send.
