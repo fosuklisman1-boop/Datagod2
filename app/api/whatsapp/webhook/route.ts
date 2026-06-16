@@ -207,15 +207,42 @@ async function processInbound(body: unknown): Promise<void> {
         "📄 Document"
       await logMessage(from, "inbound", caption || typeLabel, msg.id, { url: publicUrl, type: displayType }, profileName)
 
-      // Also attach images/PDFs to a recent open complaint, as before.
+      // Complaint proof (screenshots/PDF only — not voice notes/videos).
       if (isImage || mimeType === "application/pdf") {
-        const { findRecentOpenComplaint, appendComplaintEvidence } = await import("@/lib/whatsapp-bot/complaints")
-        const open = await findRecentOpenComplaint(from)
-        if (open) {
-          const added = await appendComplaintEvidence(open.id, publicUrl)
-          await sendWhatsAppText(from, added
-            ? "📎 Screenshot added to your complaint — our team will review it. Thank you."
-            : "Thanks — we already have several screenshots for this complaint, so the team has enough to review it.")
+        const { getPendingComplaint, clearPendingComplaint } = await import("@/lib/whatsapp-bot/pending-complaint")
+        const pending = await getPendingComplaint(from)
+        const { createComplaint, findRecentOpenComplaint, appendComplaintEvidence, notifyAdminsNewComplaint } =
+          await import("@/lib/whatsapp-bot/complaints")
+        if (pending) {
+          // A complaint was staged awaiting proof → submit it NOW with this
+          // screenshot, then alert admins (so they receive a complete complaint,
+          // never a bare one before the proof).
+          const res = await createComplaint(from, pending.summary, {
+            customerName: profileName,
+            beneficiaryNumber: pending.beneficiaryNumber,
+            orderInfo: pending.orderInfo,
+            category: pending.category,
+          })
+          if (res && "complaint" in res) {
+            await appendComplaintEvidence(res.complaint.id, publicUrl)
+            if (res.isNew) await notifyAdminsNewComplaint(res.complaint)
+            await clearPendingComplaint(from)
+            await sendWhatsAppText(from, `✅ Complaint submitted with your screenshot (ref: ${res.complaint.id.slice(0, 8).toUpperCase()}). Our team will get back to you here shortly.`)
+          } else if (res && "rateLimited" in res) {
+            await clearPendingComplaint(from)
+            await sendWhatsAppText(from, "Thanks — we've received your screenshot, but you've reached today's complaint limit. Our team can still see this conversation.")
+          }
+          // else (transient error): leave it staged so the next screenshot retries.
+        } else {
+          // No staged complaint → attach to a recent open/claimed complaint (e.g. an
+          // extra screenshot for one already submitted).
+          const open = await findRecentOpenComplaint(from)
+          if (open) {
+            const added = await appendComplaintEvidence(open.id, publicUrl)
+            await sendWhatsAppText(from, added
+              ? "📎 Screenshot added to your complaint — our team will review it. Thank you."
+              : "Thanks — we already have several screenshots for this complaint, so the team has enough to review it.")
+          }
         }
       }
     } catch (e) {
@@ -451,7 +478,7 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
   // Append current message
   messages.push({ role: "user", content: text })
 
-  const system = `You are the Datagod assistant on WhatsApp. Datagod is a Ghanaian platform for mobile data bundles, airtime, AFA registration, and exam results services.
+  const baseSystem = `You are the Datagod assistant on WhatsApp. Datagod is a Ghanaian platform for mobile data bundles, airtime, AFA registration, and exam results services.
 
 SERVICES:
 - Data bundles: MTN, Telecel, AirtelTigo — instant delivery after payment
@@ -473,22 +500,30 @@ ANSWERING QUESTIONS — use your tools, never guess:
 - Payment is via Paystack — mobile money (MoMo) or card; registered users can also pay from their Datagod wallet. Data is usually delivered instantly (occasionally a few minutes at peak).
 
 REPORTING A PROBLEM / COMPLAINTS:
-- If the customer reports a real problem or wants to complain, first work out the category, gather the right details (one short message asking for what's missing — don't interrogate), then call file_complaint with phone, a clear summary, the category, and beneficiary_number + order_info.
+- If the customer reports a real problem or wants to complain, first work out the category, gather the right details (one short message asking for what's missing — don't interrogate), then call file_complaint with phone, a clear summary, the category, and beneficiary_number + order_info. NOTE: file_complaint only CAPTURES the details — the complaint is submitted to the team and logged ONLY once the customer sends a screenshot/photo (mandatory). Never tell them it's already logged before they send it.
   • data / airtime not received or wrong → ask the beneficiary number (the number meant to receive it) and what they ordered (network + bundle/amount, roughly when). category "data" or "airtime".
   • WALLET TOP-UP didn't reflect / paid but balance not credited → FIRST call reverify_payment. It re-checks Paystack and instantly credits any genuinely-successful stuck top-up (safe, idempotent). Then relay the tool's outcome (credited + new balance / still pending / payment failed / nothing found). If nothing was found but the customer has a Paystack reference or it was an older payment, ask for that reference and call reverify_payment again with it before considering a complaint.
     – If reverify_payment reports the account isn't linked (no_account): offer to verify their account right here. Ask for the phone number on their Datagod account, call start_account_verification, then ask them for the 6-digit SMS code and call verify_account_code. Once verified, call reverify_payment again — it will now find and credit their top-up. (If they can't get the code, fall back to /dashboard/payment-reverify or logging a complaint.)
     – Only if it still can't be resolved (pending, nothing found and they insist they paid, or not linked and they can't message from their account number) — file a complaint. To gather details, look at what they've ALREADY told you and ask, in ONE short message, only for what's still missing: the amount, the MoMo number they paid from, and roughly when. The Paystack reference and the network are OPTIONAL — do not insist on them or keep asking. As SOON as you have the amount + MoMo number + rough time, call file_complaint immediately (category "wallet_topup"; put the amount, MoMo number, time and any reference into order_info) — do not keep asking more questions. Then ask for the payment screenshot.
   • results-check issue → category "results"; AFA → "afa"; anything else → "other".
-- After filing, apologise and confirm with the returned reference: "Sorry about that — I've logged your complaint (ref: XXXX). Please send a screenshot of your payment (or data balance) here and I'll attach it for the team." The screenshot attaches automatically when they send it — thank them when they do.
+- After calling file_complaint, the complaint is NOT logged yet — a screenshot is mandatory. Apologise and ask for it, e.g.: "Sorry about that — almost done. Please send a screenshot of your payment (or a photo of the issue) here to submit your complaint." It is logged and the team alerted the moment they send it (they'll get a reference then — the system handles that, you don't need to). If they say they have no screenshot or can't send one, call request_human_handoff instead — we don't log a complaint without proof, but never dead-end them.
 
 ESCALATING TO THE TEAM (always-available fallback — never dead-end):
 - Call request_human_handoff whenever ANY of these is true: the customer asks for a human/agent/admin/manager or to "escalate"; they're upset or frustrated; you genuinely cannot resolve or answer their issue; or you've gone back and forth without making progress. Then reassure them: a team member has been notified and will reply right here on WhatsApp shortly.
 - NEVER say "I can't help", "I'm unable to assist", or send them elsewhere and stop. If you're stuck, escalate — the team picks it up in this same chat. When unsure whether you can solve it, offer: "Would you like me to connect you to our team?" and escalate if they say yes.
-- (A complaint via file_complaint already alerts admins too; use request_human_handoff for general "get a person on this" situations that aren't a specific logged complaint.)
+- (file_complaint only stages a complaint; the team is alerted once the customer's screenshot submits it. Use request_human_handoff for general "get a person on this" situations, or when a customer genuinely can't provide a screenshot for their complaint.)
 
 STYLE:
 - Keep replies short and friendly for WhatsApp. Use *bold* sparingly for prices/keywords, one idea per line. Never mention tools, functions, or internal details.
 - Don't loop or interrogate: NEVER ask for a detail the customer already gave (re-read the conversation first), and ask for any missing details together in one short message rather than one at a time. Once you have enough to act (e.g. enough to file a complaint), act — don't keep asking more questions. When you say you'll do something ("let me log this"), actually call the tool in that same turn.`
+
+  // If a complaint is already staged and waiting on the customer's screenshot,
+  // steer the AI to require it (and not re-file the same complaint).
+  const { getPendingComplaint } = await import("@/lib/whatsapp-bot/pending-complaint")
+  const hasPendingComplaint = await getPendingComplaint(phone)
+  const system = hasPendingComplaint
+    ? `${baseSystem}\n\nPENDING COMPLAINT — IMPORTANT: A complaint is already captured for this customer and is waiting ONLY for their photo/screenshot to be submitted. Do NOT call file_complaint again. In one short line, remind them to send the screenshot here so it can be submitted. If they say they cannot send one, call request_human_handoff (we never log a complaint without proof).`
+    : baseSystem
 
   let result: { text: string; toolsUsed: string[] }
   try {

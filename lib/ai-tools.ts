@@ -865,7 +865,7 @@ const requestHumanHandoffTool: Anthropic.Tool = {
 
 const fileComplaintTool: Anthropic.Tool = {
   name: "file_complaint",
-  description: "Log a customer complaint and alert the support team. Call this when the customer reports a real problem (e.g. paid but didn't receive data/airtime, wrong bundle, failed/charged twice, results not delivered, poor service) or explicitly wants to complain. FIRST gather the details by asking the customer: the beneficiary number (the number that was supposed to receive the data/airtime), what they ordered (network + bundle/amount, and roughly when), and what went wrong — then call this with those fields. After calling it, apologise, give them the returned reference, and ask them to send a screenshot of their payment or data balance (it attaches automatically). Do NOT use it for normal questions you can answer, or for someone who just wants to chat with a person (use request_human_handoff for that).",
+  description: "Capture a customer complaint so it can be submitted. Call this when the customer reports a real problem (e.g. paid but didn't receive data/airtime, wrong bundle, failed/charged twice, results not delivered, poor service) or explicitly wants to complain. FIRST gather the details by asking the customer: the beneficiary number (the number that was supposed to receive the data/airtime), what they ordered (network + bundle/amount, and roughly when), and what went wrong — then call this with those fields. IMPORTANT: this does NOT log the complaint or alert the team on its own — it only captures the details. The complaint is submitted (and the team alerted) ONLY when the customer then sends a screenshot/photo, which is MANDATORY. After calling it, apologise and ask them to send the screenshot now; do not claim it's already logged. If the customer cannot provide a screenshot, use request_human_handoff instead. Do NOT use this for normal questions you can answer, or for someone who just wants to chat with a person (use request_human_handoff for that).",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -1470,30 +1470,28 @@ export async function executeToolCall(
         const waPhone = String(ctx.phone || input.phone || "").replace(/\D/g, "")
         const summary = String(input.summary ?? "").trim()
         if (!waPhone || !summary) return { error: "phone and summary are required" }
-        const { createComplaint, notifyAdminsNewComplaint } = await import("@/lib/whatsapp-bot/complaints")
-        const { data: convo } = await supabaseAdmin
-          .from("whatsapp_conversations")
-          .select("wa_profile_name")
-          .eq("phone_number", waPhone)
-          .maybeSingle()
         const beneficiaryNumber = String(input.beneficiary_number ?? "").trim() || null
         const orderInfo = String(input.order_info ?? "").trim() || null
         const ALLOWED_CATEGORIES = ["data", "airtime", "afa", "results", "wallet_topup", "other"]
         const rawCat = String(input.category ?? "").trim().toLowerCase()
         const category = ALLOWED_CATEGORIES.includes(rawCat) ? rawCat : "other"
-        const res = await createComplaint(waPhone, summary, {
-          customerName: convo?.wa_profile_name ?? null,
-          beneficiaryNumber,
-          orderInfo,
-          category,
-        })
-        if (!res) return { error: "Could not file the complaint right now. Tell the customer to contact support directly." }
-        if ("rateLimited" in res) {
-          return { error: "The customer has reached today's complaint limit (5). Tell them their existing complaints are being reviewed and to contact support directly for anything urgent." }
+        // STAGE the complaint — it is NOT logged and admins are NOT alerted yet. A
+        // screenshot is mandatory: the webhook creates the complaint (with the
+        // screenshot attached) + alerts admins only once the customer sends it. This
+        // guarantees proof is captured and admins get a complete complaint.
+        const { setPendingComplaint, pendingComplaintAvailable } = await import("@/lib/whatsapp-bot/pending-complaint")
+        if (!pendingComplaintAvailable()) {
+          // No Redis to stage in → can't enforce the screenshot-first flow. Escalate
+          // to a human rather than silently dropping the complaint.
+          const { flagAndNotifyHumanRequest } = await import("@/lib/whatsapp-bot/notify-admins")
+          await flagAndNotifyHumanRequest(waPhone)
+          return { escalated: true, message: "Tell the customer our team has been notified and will reply here shortly." }
         }
-        // Only alert admins for a genuinely new complaint (dedup reuses recent ones).
-        if (res.isNew) await notifyAdminsNewComplaint(res.complaint)
-        return { success: true, reference: res.complaint.id.slice(0, 8).toUpperCase() }
+        await setPendingComplaint(waPhone, { summary, category, beneficiaryNumber, orderInfo })
+        return {
+          staged: true,
+          message: "Complaint details captured but NOT yet submitted. Tell the customer they MUST send a photo/screenshot here now (payment proof, or a picture of the issue) to submit the complaint — it is only logged once they do. Do not say it's already logged. If they say they cannot provide a screenshot, call request_human_handoff instead.",
+        }
       }
 
       case "get_all_orders": {
