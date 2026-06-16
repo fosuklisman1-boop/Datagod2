@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
         )
       case "EMPTY_MESSAGE":
       case "TOO_MANY_RECIPIENTS":
+      case "NO_VALID_RECIPIENTS":
         return NextResponse.json(
           { success: false, error: result.error },
           { status: 400 }

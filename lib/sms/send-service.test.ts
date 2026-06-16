@@ -184,4 +184,35 @@ describe("enqueueSend", () => {
     if (!result.ok) expect(result.error).toBe("EMPTY_MESSAGE")
     expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
   })
+
+  it("invalid phones are NOT billed — debit only the valid recipients (C3)", async () => {
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567", "not-a-phone", "0551234567"])
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.total).toBe(2) // only the 2 valid numbers
+      expect(result.invalidSkipped).toBe(1)
+      expect(result.creditsReserved).toBe(result.segments * 2) // billed for 2, not 3
+    }
+    const debitCall = rpcs().find((c) => c.fn === "debit_sms_for_send")
+    expect(debitCall!.args.p_credits).toBe((result as any).creditsReserved)
+  })
+
+  it("all recipients invalid → NO_VALID_RECIPIENTS, no debit", async () => {
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["abc", "12", "xyz"])
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe("NO_VALID_RECIPIENTS")
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+  })
+
+  it("queue insert fails AFTER debit → refunds the reservation + ENQUEUE_FAILED (C3)", async () => {
+    h.state.insertLogError = "log insert boom"
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567", "0551234567"])
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe("ENQUEUE_FAILED")
+    // debit happened, then a compensating refund (adjust_sms_units, positive delta, campaign_refund)
+    const refund = rpcs().find((c) => c.fn === "adjust_sms_units")
+    expect(refund).toBeTruthy()
+    expect(refund!.args.p_reason).toBe("campaign_refund")
+    expect(refund!.args.p_delta).toBeGreaterThan(0)
+  })
 })

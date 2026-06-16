@@ -197,6 +197,22 @@ describe("drainSmsMessages", () => {
     expect(recomputeLogIds).toContain("log-B")
   })
 
+  it("calls the RPCs with the EXACT arg names the SQL functions declare (C1 contract)", async () => {
+    h.state.claimedRows = [
+      { id: "msg-x", send_log_id: "log-x", sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0 },
+    ]
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r", provider: "moolre" })
+    await drainSmsMessages({ limit: 7 })
+
+    // claim_sms_messages(lim, max_attempts) — NOT p_limit/p_max_attempts
+    const claim = h.state.rpcs.find((r) => r.fn === "claim_sms_messages")
+    expect(claim!.args).toEqual({ lim: 7, max_attempts: MAX_ATTEMPTS })
+
+    // recompute_sms_send_result(p_send_log_id, max_attempts) — NOT p_max_attempts
+    const recompute = h.state.rpcs.find((r) => r.fn === "recompute_sms_send_result")
+    expect(Object.keys(recompute!.args).sort()).toEqual(["max_attempts", "p_send_log_id"])
+  })
+
   it("single row erroring does not abort the batch", async () => {
     h.state.claimedRows = [
       { id: "msg-8", send_log_id: "log-8", sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hello", segments: 1, attempts: 0 },
