@@ -14,6 +14,9 @@ export async function POST(request: NextRequest) {
   if (!bundleId) return NextResponse.json({ error: "bundleId required" }, { status: 400 })
   const account = await getOrCreateAccountForUser(user.id)
   if (!account) return NextResponse.json({ error: "No SMS account" }, { status: 403 })
+  if (account.owner_type !== "platform" && account.status !== "active") {
+    return NextResponse.json({ error: "NOT_ACTIVATED" }, { status: 403 })
+  }
   const result = await purchaseBundleViaWallet(user.id, account.id, bundleId)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
   return NextResponse.json({ success: true, pending: result.pending ?? false, unitsCredited: result.unitsCredited ?? 0 })

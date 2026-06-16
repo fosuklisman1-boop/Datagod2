@@ -14,6 +14,9 @@ export async function POST(request: NextRequest) {
   const { bundleId } = await request.json()
   const account = await getOrCreateAccountForUser(user.id)
   if (!account) return NextResponse.json({ error: "No SMS account" }, { status: 403 })
+  if (account.owner_type !== "platform" && account.status !== "active") {
+    return NextResponse.json({ error: "NOT_ACTIVATED" }, { status: 403 })
+  }
   const { data: bundle } = await supabaseAdmin.from("sms_bundles").select("*").eq("id", bundleId).maybeSingle()
   if (!bundle || !bundle.active) return NextResponse.json({ error: "Bundle not available" }, { status: 400 })
   const reference = `smsbundle-${account.id}-${bundleId}-${Date.now()}`
