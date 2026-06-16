@@ -11,7 +11,15 @@ const h = vi.hoisted(() => {
     insertLogError: null as null | string,
     insertMsgError: null as null | string,
     senderActive: true,                 // sms_sender_ids validation finds an active row for the account
+    bulkOk: true,                        // sendSMSBulkViaMoolre result
+    msgUpdates: [] as { patch: any; ids: string[] }[], // captured .update().in() (mark-sent)
+    msgIdSeq: 0,                         // id generator for inserted sms_messages
   }
+
+  const bulkMock = vi.fn((items: any[], senderId?: string) => {
+    state.calls.push({ fn: "bulk", args: { count: items.length, senderId } })
+    return Promise.resolve({ ok: state.bulkOk })
+  })
 
   const fake = {
     rpc: (fn: string, args?: any) => {
@@ -26,7 +34,6 @@ const h = vi.hoisted(() => {
     },
     from: (table: string) => {
       state.calls.push({ fn: "from", table })
-      // Return a chainable builder
       const insertChain = {
         select: () => ({
           single: () => {
@@ -40,24 +47,23 @@ const h = vi.hoisted(() => {
           },
         }),
       }
-      const msgInsertResult = {
-        then: (resolve: any) => {
-          const result = table === "sms_messages" && state.insertMsgError
-            ? { data: null, error: { message: state.insertMsgError } }
-            : { data: null, error: null }
-          resolve(result)
-          return Promise.resolve(result)
-        },
-      }
 
       return {
         insert: (rows: any) => {
           state.calls.push({ fn: "insert", table, args: rows })
           if (table === "sms_send_logs") return insertChain
-          // sms_messages — just return { error: null }
-          if (state.insertMsgError) {
-            return Promise.resolve({ data: null, error: { message: state.insertMsgError } })
+          // sms_messages: .insert(rows).select("id, phone") → return generated ids.
+          if (table === "sms_messages") {
+            return {
+              select: (_cols?: string) => {
+                if (state.insertMsgError) return Promise.resolve({ data: null, error: { message: state.insertMsgError } })
+                const arr = Array.isArray(rows) ? rows : [rows]
+                const data = arr.map((r: any) => ({ id: `m${state.msgIdSeq++}`, phone: r.phone }))
+                return Promise.resolve({ data, error: null })
+              },
+            }
           }
+          if (state.insertMsgError) return Promise.resolve({ data: null, error: { message: state.insertMsgError } })
           return Promise.resolve({ data: null, error: null })
         },
         // sms_sender_ids validation: .select("sender_id").eq().eq().eq().maybeSingle()
@@ -69,10 +75,13 @@ const h = vi.hoisted(() => {
           }
           return chain
         },
-        update: () => ({
-          eq: () => ({
-            lt: () => Promise.resolve({ data: null, error: null }),
-          }),
+        update: (patch: any) => ({
+          eq: () => ({ lt: () => Promise.resolve({ data: null, error: null }) }),
+          // mark-sent: .update({status:'sent',...}).in("id", ids)
+          in: (_col: string, ids: string[]) => {
+            state.msgUpdates.push({ patch, ids })
+            return Promise.resolve({ data: null, error: null })
+          },
         }),
       }
     },
@@ -81,16 +90,14 @@ const h = vi.hoisted(() => {
     },
   }
 
-  return { state, fake }
+  return { state, fake, bulkMock }
 })
 
 // Mock supabase — must happen before the module under test is imported
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 
-// Mock the drain so the fire-and-forget doesn't cause noise in tests
-vi.mock("./send-drain", () => ({
-  drainSmsMessages: () => Promise.resolve({ claimed: 0, sent: 0, failed: 0, refunded: 0 }),
-}))
+// Mock the Moolre bulk sender (the instant dispatch path).
+vi.mock("@/lib/sms-service", () => ({ sendSMSBulkViaMoolre: (...args: any[]) => (h.bulkMock as (...a: any[]) => any)(...args) }))
 
 import { enqueueSend } from "./send-service"
 
@@ -101,6 +108,10 @@ beforeEach(() => {
   h.state.insertLogError = null
   h.state.insertMsgError = null
   h.state.senderActive = true
+  h.state.bulkOk = true
+  h.state.msgUpdates.length = 0
+  h.state.msgIdSeq = 0
+  h.bulkMock.mockClear()
 })
 
 // Helper: all rpc calls
@@ -184,6 +195,29 @@ describe("enqueueSend", () => {
     const msgInserts = inserts("sms_messages")
     // All 3 recipients are valid Ghanaian numbers
     expect(msgInserts.length).toBeGreaterThan(0)
+  })
+
+  it("INSTANT bulk send: dispatches via Moolre and flips accepted rows to 'sent'", async () => {
+    const recipients = ["0241234567", "0551234567", "0201234567"]
+    const result = await enqueueSend("u1", "acc1", "Hello world", recipients)
+    expect(result.ok).toBe(true)
+    // The bulk API was called (one chunk for 3 recipients)…
+    expect(h.bulkMock).toHaveBeenCalledTimes(1)
+    // …and the accepted rows were marked sent in one update.
+    expect(h.state.msgUpdates).toHaveLength(1)
+    expect(h.state.msgUpdates[0].patch.status).toBe("sent")
+    expect(h.state.msgUpdates[0].ids).toHaveLength(3)
+    // Parent status recomputed after the dispatch.
+    expect(rpcs().some((c) => c.fn === "recompute_sms_send_result")).toBe(true)
+  })
+
+  it("bulk failure leaves rows 'pending' for the cron (no mark-sent), still ok:true", async () => {
+    h.state.bulkOk = false
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567", "0551234567"])
+    expect(result.ok).toBe(true) // credits reserved; cron is the safety net
+    expect(h.bulkMock).toHaveBeenCalled()
+    // Nothing was flipped to sent — the rows stay pending for the drain.
+    expect(h.state.msgUpdates).toHaveLength(0)
   })
 
   it("EMPTY_MESSAGE after prepare → ok:false, no debit", async () => {
