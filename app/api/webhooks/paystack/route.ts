@@ -68,6 +68,29 @@ export async function POST(request: NextRequest) {
         hasMetadata: !!metadata
       })
 
+      // SMS bundle purchase — credit prepaid units (solvency-gated), not the cash wallet.
+      // Defense-in-depth (matches the underpayment guards elsewhere in this handler):
+      // re-fetch the bundle and credit its authoritative unit count only if the amount
+      // actually paid covers the price — this branch credits non-cash units, so don't
+      // trust the unit count echoed back in metadata.
+      if (metadata?.type === "sms_bundle" && metadata?.sms_account_id) {
+        const { data: smsBundle } = await supabase
+          .from("sms_bundles").select("units, price_ghs").eq("id", metadata.bundle_id).maybeSingle()
+        if (!smsBundle) {
+          console.error("[WEBHOOK] SMS bundle not found:", metadata.bundle_id)
+          return NextResponse.json({ received: true, type: "sms_bundle", error: "bundle_not_found" })
+        }
+        const paidGhs = amount / 100
+        if (paidGhs < Number(smsBundle.price_ghs) - 0.01) {
+          console.error(`[WEBHOOK] SMS bundle underpayment: paid ${paidGhs} < ${smsBundle.price_ghs}`)
+          return NextResponse.json({ received: true, type: "sms_bundle", error: "underpayment" })
+        }
+        const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
+        const result = await creditUnitsForPaystack(metadata.sms_account_id, Number(smsBundle.units), reference)
+        if (!result.ok) console.error("[WEBHOOK] SMS bundle credit failed:", result.error)
+        return NextResponse.json({ received: true, type: "sms_bundle" })
+      }
+
       // Handle USSD shop token purchases (MoMo) — reference is USSD-SHOP-... prefixed
       const { data: shopTokenPurchase, error: stpErr } = await supabase
         .from("ussd_shop_token_purchases")

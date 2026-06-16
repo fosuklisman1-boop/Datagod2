@@ -1,0 +1,121 @@
+import { describe, it, expect, vi, beforeEach } from "vitest"
+
+// vi.mock factories are hoisted above the module under test, which initializes its
+// supabase client at import time. So the fake client + mutable state must also be hoisted
+// (via vi.hoisted) to exist before that import runs. This keeps the production module on
+// the repo's standard module-level client pattern — the workaround lives only in the test.
+const h = vi.hoisted(() => {
+  const state = {
+    walletBalance: 0,
+    wholesale: 0,
+    creditError: false, // force credit_sms_units_if_solvent to return an error
+    refInTx: false, // ref already landed in sms_unit_transactions
+    refInPending: false, // ref already landed in sms_pending_credits
+    calls: [] as { fn: string; args: any }[],
+  }
+  const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true }
+  const notifySpy = vi.fn()
+  const fake = {
+    rpc: (fn: string, args: any) => {
+      state.calls.push({ fn, args })
+      if (fn === "deduct_wallet") {
+        if (args.p_amount < 0) {
+          state.walletBalance += -args.p_amount
+          return Promise.resolve({ data: [{ new_balance: state.walletBalance }], error: null })
+        }
+        if (state.walletBalance >= args.p_amount) {
+          state.walletBalance -= args.p_amount
+          return Promise.resolve({ data: [{ new_balance: state.walletBalance }], error: null })
+        }
+        return Promise.resolve({ data: [], error: null })
+      }
+      if (fn === "credit_sms_units_if_solvent") {
+        if (state.creditError) return Promise.resolve({ data: null, error: { message: "boom" } })
+        if (args.p_units <= state.wholesale) {
+          return Promise.resolve({ data: [{ outcome: "credited", balance_after: args.p_units }], error: null })
+        }
+        return Promise.resolve({ data: [{ outcome: "pending", balance_after: null }], error: null })
+      }
+      return Promise.resolve({ data: null, error: null })
+    },
+    from: (table: string) => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => {
+            if (table === "sms_bundles") return Promise.resolve({ data: bundleRow, error: null })
+            if (table === "sms_unit_transactions") return Promise.resolve({ data: state.refInTx ? { id: "x" } : null, error: null })
+            if (table === "sms_pending_credits") return Promise.resolve({ data: state.refInPending ? { id: "y" } : null, error: null })
+            return Promise.resolve({ data: null, error: null })
+          },
+        }),
+      }),
+    }),
+  }
+  return { state, fake, notifySpy }
+})
+
+vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
+vi.mock("@/lib/sms-service", () => ({ queryMoolreSmsBalance: () => Promise.resolve(h.state.wholesale) }))
+vi.mock("./notify", () => ({ notifyAdminSmsShortfall: (...a: any[]) => { h.notifySpy(...a); return Promise.resolve() } }))
+
+import { purchaseBundleViaWallet } from "./bundle-service"
+
+beforeEach(() => {
+  h.state.calls.length = 0
+  h.state.creditError = false
+  h.state.refInTx = false
+  h.state.refInPending = false
+  h.notifySpy.mockClear()
+})
+
+const fns = () => h.state.calls.map((c) => c.fn)
+
+describe("purchaseBundleViaWallet (solvency-gated)", () => {
+  it("funded wallet + solvent → credited, no admin notify", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(true)
+    expect(res.outcome).toBe("credited")
+    expect(res.pending).toBe(false)
+    expect(fns()).toEqual(["deduct_wallet", "credit_sms_units_if_solvent"])
+    expect(h.notifySpy).not.toHaveBeenCalled()
+  })
+
+  it("funded wallet + insolvent → pending + admin notified (cash retained, no refund)", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 0
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(true)
+    expect(res.outcome).toBe("pending")
+    expect(res.pending).toBe(true)
+    expect(h.notifySpy).toHaveBeenCalledWith(5000)
+    // exactly one deduct_wallet (the debit) — no refund on a legitimate pending purchase
+    expect(fns().filter((f) => f === "deduct_wallet")).toHaveLength(1)
+  })
+
+  it("insufficient wallet → no credit attempted", async () => {
+    h.state.walletBalance = 10; h.state.wholesale = 1_000_000
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(false)
+    expect(fns()).toEqual(["deduct_wallet"])
+  })
+
+  it("issuance errors AND credit did not land → refund the cash", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000; h.state.creditError = true
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(false)
+    expect(res.error).toMatch(/refunded/)
+    // debit + failed credit + refund (a second deduct_wallet, negative amount)
+    const debits = h.state.calls.filter((c) => c.fn === "deduct_wallet")
+    expect(debits).toHaveLength(2)
+    expect(debits[1].args.p_amount).toBeLessThan(0)
+  })
+
+  it("issuance errors BUT credit actually landed → NO refund (avoids double money)", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000; h.state.creditError = true; h.state.refInTx = true
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(true)
+    expect(res.outcome).toBe("credited")
+    // only the original debit — NO refund, because the units actually landed
+    expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(1)
+  })
+})

@@ -483,6 +483,27 @@ export async function queryMoolreDeliveryStatus(refs: string[]): Promise<Record<
 }
 
 /**
+ * Read the Moolre wholesale SMS credit balance (the single shared pool backing ALL
+ * tenants' internal units). POST /open/sms/query (type 2) -> data.balance.
+ * Fails CLOSED: returns 0 on any error, so callers treat the platform as un-fundable
+ * and route credits to "pending" rather than over-crediting beyond real supply.
+ */
+export async function queryMoolreSmsBalance(): Promise<number> {
+  if (!MOOLRE_API_KEY) return 0
+  try {
+    const response = await axios.post(
+      'https://api.moolre.com/open/sms/query',
+      { type: 2 },
+      { headers: { 'X-API-VASKEY': MOOLRE_API_KEY, 'Content-Type': 'application/json' } }
+    )
+    return Number(response.data?.data?.balance ?? 0)
+  } catch (error) {
+    console.error('[SMS] Moolre balance query failed:', axios.isAxiosError(error) ? error.message : error)
+    return 0
+  }
+}
+
+/**
  * Normalize phone number to local Ghana format for mNotify
  * Accepts: +233XXXXXXXXX, 233XXXXXXXXX, 0XXXXXXXXX
  * Returns: 0XXXXXXXXX
