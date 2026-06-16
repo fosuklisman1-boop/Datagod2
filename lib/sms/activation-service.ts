@@ -52,6 +52,8 @@ export async function activateViaWallet(userId: string, accountId: string): Prom
   if (account.owner_type === "platform") return { ok: true }
 
   if (account.status === "active") return { ok: false, error: "ALREADY_ACTIVATED" }
+  // A suspended (admin-disabled) account cannot re-activate by paying — reject BEFORE any debit.
+  if (account.status === "suspended") return { ok: false, error: "SUSPENDED" }
 
   const fee = await fetchActivationFee()
   if (fee <= 0) return { ok: false, error: "Activation fee not configured" }
@@ -91,6 +93,7 @@ export async function initActivationPaystack(
   if (!account) return { ok: false, error: "Account not found" }
   if (account.owner_type === "platform") return { ok: false, error: "Platform accounts do not require activation" }
   if (account.status === "active") return { ok: false, error: "ALREADY_ACTIVATED" }
+  if (account.status === "suspended") return { ok: false, error: "SUSPENDED" }
 
   const fee = await fetchActivationFee()
   if (fee <= 0) return { ok: false, error: "Activation fee not configured" }

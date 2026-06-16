@@ -111,6 +111,12 @@ BEGIN
     RAISE EXCEPTION 'ALREADY_ACTIVATED' USING ERRCODE = 'P0001';
   END IF;
 
+  -- A suspended (admin-disabled) account must NOT be able to re-activate itself by paying.
+  -- Only an 'inactive' account may activate.
+  IF v_status = 'suspended' THEN
+    RAISE EXCEPTION 'SUSPENDED' USING ERRCODE = 'P0001';
+  END IF;
+
   UPDATE sms_accounts
   SET
     status       = 'active',

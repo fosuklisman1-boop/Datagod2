@@ -141,6 +141,16 @@ describe("activateViaWallet", () => {
     expect(res.error).toBe("ALREADY_ACTIVATED")
   })
 
+  it("suspended account → SUSPENDED error, NO wallet debit and NO activate RPC", async () => {
+    h.state.walletBalance = 50
+    h.state.accountStatus = "suspended"
+    const res = await activateViaWallet("u1", "acc1")
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe("SUSPENDED")
+    expect(rpcs()).not.toContain("deduct_wallet")
+    expect(rpcs()).not.toContain("activate_sms_account")
+  })
+
   it("platform account → skips wallet debit, returns ok without gate", async () => {
     h.state.ownerType = "platform"
     h.state.walletBalance = 0
