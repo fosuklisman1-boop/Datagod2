@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
-import { Loader2, Plus, RefreshCw } from "lucide-react"
+import { Loader2, Plus, RefreshCw, Wallet, AlertTriangle } from "lucide-react"
 
 const PROVIDERS = ["moolre", "mnotify", "brevo"] as const
 type Provider = (typeof PROVIDERS)[number]
@@ -18,6 +18,13 @@ type Provider = (typeof PROVIDERS)[number]
 interface Routing {
   primary: string
   fallbacks: string[]
+}
+
+interface Supply {
+  wholesaleBalance: number
+  totalUsable: number
+  totalPending: number
+  headroom: number
 }
 
 interface SenderId {
@@ -38,16 +45,19 @@ const STATUS_VARIANT: Record<string, string> = {
 export default function ProvidersTab() {
   const [routing, setRouting] = useState<Routing>({ primary: "moolre", fallbacks: [] })
   const [senders, setSenders] = useState<SenderId[]>([])
+  const [supply, setSupply] = useState<Supply | null>(null)
   const [newSender, setNewSender] = useState("")
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
-    const [r, s] = await Promise.all([
+    const [r, s, sup] = await Promise.all([
       api<Routing>("/api/admin/sms-settings"),
       api<SenderId[]>("/api/admin/sms-sender-ids"),
+      api<Supply>("/api/admin/sms-supply"),
     ])
     if (r.success && r.data) setRouting({ primary: r.data.primary, fallbacks: r.data.fallbacks ?? [] })
     if (s.success && s.data) setSenders(s.data)
+    if (sup.success && sup.data) setSupply(sup.data)
   }, [])
 
   useEffect(() => {
@@ -109,8 +119,49 @@ export default function ProvidersTab() {
     }
   }
 
+  const shortfall = supply ? Math.max(0, supply.totalUsable + supply.totalPending - supply.wholesaleBalance) : 0
+
   return (
     <div className="space-y-4">
+      {/* SMS supply (Moolre wholesale) + solvency */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-4 w-4" /> SMS supply</CardTitle>
+              <CardDescription>Internal credits stay fully backed by the shared Moolre wholesale balance.</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={load} disabled={busy}>
+              <RefreshCw className="h-4 w-4" /> Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Moolre wholesale" value={supply ? supply.wholesaleBalance.toLocaleString() : "…"} />
+            <Stat label="Usable credits" value={supply ? supply.totalUsable.toLocaleString() : "…"} />
+            <Stat label="Pending credits" value={supply ? supply.totalPending.toLocaleString() : "…"} />
+            <Stat label="Headroom" value={supply ? supply.headroom.toLocaleString() : "…"} />
+          </div>
+          {supply && supply.totalPending > 0 && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {supply.totalPending.toLocaleString()} credit(s) are pending.
+                {shortfall > 0
+                  ? ` Top up the Moolre SMS balance by at least ${shortfall.toLocaleString()} units to release them.`
+                  : " They’ll be released on the next pending-credits cron run."}
+              </span>
+            </div>
+          )}
+          {supply && supply.wholesaleBalance === 0 && (
+            <p className="text-xs text-muted-foreground">
+              A balance of 0 can also mean the Moolre API key isn’t configured in this environment (the balance read fails closed to 0).
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Provider routing */}
       <Card>
         <CardHeader>
@@ -221,6 +272,15 @@ export default function ProvidersTab() {
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-xl font-bold">{value}</p>
     </div>
   )
 }

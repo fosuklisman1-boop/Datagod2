@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
 import {
@@ -103,6 +104,7 @@ export default function SmsDashboardPage() {
   const [addInput, setAddInput] = useState("")
   const [showPreview, setShowPreview] = useState(true)
   const [showCustomers, setShowCustomers] = useState(false)
+  const [selectedSenderId, setSelectedSenderId] = useState("") // "" = account default / platform
   const [sending, setSending] = useState(false)
 
   // shop context (token values + customers) + tenant templates
@@ -172,7 +174,8 @@ export default function SmsDashboardPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { if (tab === "history") loadLogs() }, [tab, loadLogs])
-  useEffect(() => { if (tab === "senders") loadSenderIds() }, [tab, loadSenderIds])
+  // Sender IDs power the management tab AND the compose "From" selector.
+  useEffect(() => { if (tab === "senders" || tab === "send") loadSenderIds() }, [tab, loadSenderIds])
   useEffect(() => { if (tab === "send") loadComposeContext() }, [tab, loadComposeContext])
 
   // ─── actions ──────────────────────────────────────────────────────────────
@@ -282,7 +285,7 @@ export default function SmsDashboardPage() {
     const t = await token()
     const res = await fetch("/api/shop/sms/send", {
       method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ message, recipients }),
+      body: JSON.stringify({ message, recipients, senderId: selectedSenderId || undefined }),
     }).then((r) => r.json())
     setSending(false)
     if (res.success) {
@@ -329,6 +332,7 @@ export default function SmsDashboardPage() {
   const balance = account?.unitBalance ?? 0
   const overBudget = recipients.length > 0 && totalCredits > balance
   const sendDisabled = sending || message.trim().length < 3 || recipients.length === 0 || overBudget
+  const activeSenders = senderIds.filter((s) => s.local_status === "active")
 
   // ─── loading / error ────────────────────────────────────────────────────
   if (loading) {
@@ -362,7 +366,8 @@ export default function SmsDashboardPage() {
   const isSuspended = account.status === "suspended"
   const isPlatform = account.ownerType === "platform"
   const showActivation = !isPlatform && !isActive && !isSuspended
-  const showBonus = isActive && !account.bonusClaimed
+  // Welcome bonus is a tenant perk — never offered to the platform/admin account.
+  const showBonus = isActive && !isPlatform && !account.bonusClaimed
 
   return (
     <DashboardLayout>
@@ -455,6 +460,25 @@ export default function SmsDashboardPage() {
                 <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-primary" /> Compose Message</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* From (sender ID) */}
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground">From (sender ID)</Label>
+                  <Select value={selectedSenderId || "default"} onValueChange={(v) => setSelectedSenderId(v === "default" ? "" : v)}>
+                    <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default{activeSenders[0] ? ` (${activeSenders[0].sender_id})` : ""}</SelectItem>
+                      {activeSenders.map((s) => (
+                        <SelectItem key={s.id} value={s.sender_id}>{s.sender_id}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {activeSenders.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No approved sender IDs yet — request one in the <span className="font-medium">Sender IDs</span> tab. Messages use the platform default meanwhile.
+                    </p>
+                  )}
+                </div>
+
                 {/* Recipients */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
