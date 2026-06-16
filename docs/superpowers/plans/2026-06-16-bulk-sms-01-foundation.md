@@ -17,7 +17,9 @@
 **Create:**
 - `migrations/0061_create_sms_foundation.sql` — tables, indexes, RLS for `sms_accounts`, `sms_unit_transactions`, `sms_bundles`
 - `migrations/0062_create_sms_units_functions.sql` — `adjust_sms_units`, `get_or_create_sms_account` SQL functions
-- `migrations/0063_seed_sms_bundles.sql` — initial bundle tiers
+- `migrations/0063_create_sms_pending_credits.sql` — **(Revision A, applied)** pending-credits table + `credit_sms_units_if_solvent` + `settle_pending_sms_credits`
+- `migrations/0064_seed_sms_bundles.sql` — initial bundle tiers (was 0063 — renumbered by Revision A)
+- `app/api/cron/sms-pending-credits/route.ts` — **(Revision A)** settle pending credits after wholesale top-up
 - `lib/sms/foundation-rules.ts` — pure logic: `deriveOwnerType`, `canPurchaseBundle`
 - `lib/sms/foundation-rules.test.ts` — unit tests for the above
 - `lib/sms/account-service.ts` — `getOrCreateAccountForUser`, `getAccountByUser`, `listUnitTransactions`
@@ -34,6 +36,29 @@
 
 **Modify:**
 - `app/api/webhooks/paystack/route.ts` — credit SMS units when a paystack tx is an SMS bundle purchase
+- `lib/sms-service.ts` — **(Revision A)** add `queryMoolreSmsBalance()` (Moolre `type:2` wholesale balance) + `notifyAdminSmsShortfall()`
+
+---
+
+## Revision A — Fully-Backed Units (added 2026-06-16, after Tasks 1–2 shipped)
+
+Internal units must never exceed the Moolre **wholesale** balance (one shared pool, Moolre `type:2`). Every credit path is routed through an **issuance-time solvency gate**; if the wholesale can't back a purchase, the buyer still pays but units land as **pending credits** ("Pending" in the UI), admin is notified, and a cron settles them once admin tops up the wholesale. See the spec's "SMS Units & Bundles (fully backed)" section. This supersedes the simple "always credit" flow in the original Tasks 7, 8, 10, 11, 13.
+
+**DB (migration 0063 — DONE, applied + smoke-tested):** `sms_pending_credits` table; `credit_sms_units_if_solvent(p_account_id, p_units, p_reason, p_wholesale, p_ref)` → `(outcome 'credited'|'pending'|'duplicate', balance_after)` (advisory-locked, idempotent on `p_ref`); `settle_pending_sms_credits(p_wholesale)` → `(credited_count, credited_units)` (oldest-first).
+
+**Revised credit-path contract (Tasks 7, 10, 11):** after taking payment, fetch `const wholesale = await queryMoolreSmsBalance()`, then call `supabaseAdmin.rpc("credit_sms_units_if_solvent", { p_account_id, p_units, p_reason, p_wholesale: wholesale, p_ref })`. Read `data[0].outcome`:
+- `credited` → success, units added.
+- `pending` → success but pending; call `notifyAdminSmsShortfall(units)` and return `{ ok: true, pending: true }`.
+- `duplicate` → already processed (idempotent) → treat as success.
+On the wallet path, if the rpc throws (not pending — an actual error), refund the cash via `deduct_wallet(p_user_id, -price)`.
+
+**`queryMoolreSmsBalance()` (add to `lib/sms-service.ts`):** `POST https://api.moolre.com/open/sms/query` with header `X-API-VASKEY: <MOOLRE_API_KEY>` and body `{ type: 2 }`; return `Number(resp.data?.data?.balance ?? 0)`. On any error return `0` (fail-closed → everything goes pending rather than over-crediting).
+
+**`notifyAdminSmsShortfall(unitsPending)` (add to `lib/sms-service.ts` or a small helper):** insert an in-app notification for admins + best-effort push; throttle to avoid spam (skip if an unread shortfall notification was created in the last 30 min). Non-blocking (`.catch(() => {})`).
+
+**Pending-credits cron (`app/api/cron/sms-pending-credits/route.ts`):** auth via `verifyAdminAccess` (CRON_SECRET bypass); `const w = await queryMoolreSmsBalance(); const { data } = await supabaseAdmin.rpc("settle_pending_sms_credits", { p_wholesale: w });` return the counts. Register in `vercel.json` every minute.
+
+**Account/UI (Tasks 5, 13):** `GET /api/sms/account` also returns `pendingUnits` = `SUM(units) FROM sms_pending_credits WHERE status='pending'` for the account; the dashboard shows a "Pending: N units" line.
 
 ---
 
@@ -51,7 +76,7 @@
 - **Admin auth:** `const auth = await verifyAdminAccess(request); if (!auth.isAdmin) return auth.errorResponse` (`lib/admin-auth.ts`).
 - **Migrations** are plain `.sql` files applied to the live DB via the Supabase Management API (see `reference-supabase-access` memory). Use `CREATE TABLE IF NOT EXISTS`, inline `-- comments`, and `CREATE INDEX IF NOT EXISTS`.
 - **Tests:** `npm run test:run` (once) / `npm test` (watch). Pure logic → dependency-free module + colocated `*.test.ts`.
-- **Money/units law:** all balance changes go through `adjust_sms_units`. Never `UPDATE sms_accounts.unit_balance` directly from app code.
+- **Money/units law:** all balance changes go through `adjust_sms_units`. Never `UPDATE sms_accounts.unit_balance` directly from app code. **Issuing** units (any credit) must go through `credit_sms_units_if_solvent` (Revision A), never raw `adjust_sms_units` with a positive delta, so the wholesale-backing invariant holds.
 
 ---
 
