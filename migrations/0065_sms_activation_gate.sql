@@ -181,7 +181,7 @@ BEGIN
     p_account_id,
     v_bonus_units,
     'welcome_bonus',
-    p_wholesale,
+    p_wholesale::INT,   -- credit_sms_units_if_solvent expects INT; cast from NUMERIC explicitly
     'welcome-bonus-' || p_account_id::TEXT
   ) cr;
 
