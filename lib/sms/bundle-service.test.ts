@@ -45,6 +45,15 @@ const h = vi.hoisted(() => {
             if (table === "sms_bundles") return Promise.resolve({ data: bundleRow, error: null })
             if (table === "sms_unit_transactions") return Promise.resolve({ data: state.refInTx ? { id: "x" } : null, error: null })
             if (table === "sms_pending_credits") return Promise.resolve({ data: state.refInPending ? { id: "y" } : null, error: null })
+            if (table === "sms_accounts") {
+              return Promise.resolve({
+                data: {
+                  status: (fake as any)._accountStatus ?? "active",
+                  owner_type: (fake as any)._ownerType ?? "shop",
+                },
+                error: null,
+              })
+            }
             return Promise.resolve({ data: null, error: null })
           },
         }),
@@ -66,6 +75,9 @@ beforeEach(() => {
   h.state.refInTx = false
   h.state.refInPending = false
   h.notifySpy.mockClear()
+  // Reset activation gate overrides so existing tests are unaffected
+  delete (h.fake as any)._accountStatus
+  delete (h.fake as any)._ownerType
 })
 
 const fns = () => h.state.calls.map((c) => c.fn)
