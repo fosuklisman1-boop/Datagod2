@@ -3,24 +3,10 @@ import { canPurchaseBundle, type OwnerType } from "./foundation-rules"
 import { queryMoolreSmsBalance } from "@/lib/sms-service"
 import { notifyAdminSmsShortfall } from "./notify"
 
-// Lazy init: createClient is deferred so vi.mock("@supabase/supabase-js") can intercept
-// it before the module-level side-effect runs (vitest hoists vi.mock above variable decls).
-let _supabaseAdmin: any = null
-function getSupabaseAdmin(): any {
-  if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-  }
-  return _supabaseAdmin
-}
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const supabaseAdmin: any = new Proxy({} as any, {
-  get(_target, prop) {
-    return getSupabaseAdmin()[prop]
-  },
-})
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 export interface Bundle {
   id: string
