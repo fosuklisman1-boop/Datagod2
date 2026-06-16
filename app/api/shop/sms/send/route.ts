@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSend } from "@/lib/sms/send-service"
+import { getShopTokens } from "@/lib/sms/shop-context-service"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -69,8 +70,26 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Resolve {shop_*} merge-token values so the Insert chips substitute correctly,
+  // and default the sender to the account's own active sender ID (their brand)
+  // when the client didn't pick one.
+  const tokens = await getShopTokens(account)
+
+  let effectiveSenderId = senderId as string | undefined
+  if (!effectiveSenderId) {
+    const { data: activeSender } = await supabaseAdmin
+      .from("sms_sender_ids")
+      .select("sender_id")
+      .eq("sms_account_id", account.id)
+      .eq("local_status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    effectiveSenderId = (activeSender as { sender_id?: string } | null)?.sender_id ?? undefined
+  }
+
   // Enqueue
-  const result = await enqueueSend(user.id, account.id, message, recipients as string[], undefined, senderId as string | undefined)
+  const result = await enqueueSend(user.id, account.id, message, recipients as string[], tokens, effectiveSenderId)
 
   if (!result.ok) {
     switch (result.error) {
