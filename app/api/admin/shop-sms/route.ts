@@ -52,6 +52,12 @@ export async function POST(request: NextRequest) {
   if (!auth.isAdmin) return auth.errorResponse!
 
   let body: { action: string; logId?: string; accountId?: string; suspended?: boolean }
+  // Moderation actions must carry a real acting admin (for the audit log). The CRON_SECRET
+  // bypass has no userId, so reject it here rather than silently dropping the audit row.
+  if (!auth.userId) {
+    return NextResponse.json({ success: false, error: "Admin identity required for moderation actions" }, { status: 403 })
+  }
+
   try {
     body = await request.json()
   } catch {

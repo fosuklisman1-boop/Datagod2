@@ -212,11 +212,8 @@ export async function updateSmsSettings(
   const updates = Object.entries(patch).filter(([k]) => ALLOWED_KEYS.has(k))
   if (updates.length === 0) return { ok: false, error: "No valid settings keys provided" }
 
-  const upsertRows = updates.map(([key, value]) => ({
-    key,
-    value,
-    updated_at: new Date().toISOString(),
-  }))
+  // tenant_global_settings has only (key, value) — no updated_at column.
+  const upsertRows = updates.map(([key, value]) => ({ key, value }))
 
   const { error } = await supabaseAdmin
     .from("tenant_global_settings")

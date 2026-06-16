@@ -10,6 +10,7 @@ const h = vi.hoisted(() => {
     updateError: false,
     auditRows: [] as unknown[],
     rpcCallArgs: null as unknown,
+    upsertRows: null as any,
   }
 
   const fake = {
@@ -37,7 +38,7 @@ const h = vi.hoisted(() => {
         eq: (_c: string, _v: string) => Promise.resolve({ data: null, error: state.updateError ? { message: "update failed" } : null }),
       }),
       order: (_col: string, _opts?: unknown) => Promise.resolve({ data: [], error: null }),
-      upsert: (_rows: unknown, _opts?: unknown) => Promise.resolve({ data: null, error: null }),
+      upsert: (rows: any, _opts?: unknown) => { state.upsertRows = rows; return Promise.resolve({ data: null, error: null }) },
     }),
     rpc: (fn: string, args: unknown) => {
       state.rpcCallArgs = { fn, args }
@@ -61,7 +62,7 @@ vi.mock("./revenue-aggregation", () => ({
   aggregateRevenue: (_raw: unknown) => ({ activations: 0, activationTotal: 0, bundleTotal: 0, creditsSold: 0 }),
 }))
 
-import { suspendSmsAccount, dismissFlag } from "./moderation-service"
+import { suspendSmsAccount, dismissFlag, updateSmsSettings } from "./moderation-service"
 
 beforeEach(() => {
   h.state.account = null
@@ -70,6 +71,7 @@ beforeEach(() => {
   h.state.updateError = false
   h.state.auditRows.length = 0
   h.state.rpcCallArgs = null
+  h.state.upsertRows = null
 })
 
 describe("suspendSmsAccount", () => {
@@ -144,5 +146,23 @@ describe("dismissFlag", () => {
     expect(res.ok).toBe(false)
     expect((res as { status: number }).status).toBe(400)
     expect(h.state.auditRows).toHaveLength(0)
+  })
+})
+
+describe("updateSmsSettings", () => {
+  it("upserts ONLY {key, value} (no phantom updated_at column) for allowed keys", async () => {
+    const res = await updateSmsSettings({ sms_activation_fee: { amount: 30 }, bogus_key: 1 } as any)
+    expect(res.ok).toBe(true)
+    // Only the allowed key is upserted, and each row has exactly key+value (the table has no updated_at).
+    expect(h.state.upsertRows).toEqual([{ key: "sms_activation_fee", value: { amount: 30 } }])
+    for (const row of h.state.upsertRows as any[]) {
+      expect(Object.keys(row).sort()).toEqual(["key", "value"])
+    }
+  })
+
+  it("no valid keys → ok:false, no upsert", async () => {
+    const res = await updateSmsSettings({ not_allowed: 1 } as any)
+    expect(res.ok).toBe(false)
+    expect(h.state.upsertRows).toBeNull()
   })
 })
