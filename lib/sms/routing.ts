@@ -98,3 +98,72 @@ export async function getRoutingConfig(): Promise<RoutingConfig> {
     return parseRoutingConfig([])
   }
 }
+
+// ---------------------------------------------------------------------------
+// setRoutingConfig — persist routing to admin_settings (JSONB) + bust the cache
+// ---------------------------------------------------------------------------
+
+/** True if `p` is one of the providers we know how to route to. */
+export function isValidProvider(p: unknown): p is Provider {
+  return typeof p === "string" && (VALID_PROVIDERS as readonly string[]).includes(p)
+}
+
+/**
+ * Upsert the routing keys into admin_settings. `value` is written as JSONB
+ * (a bare string for primary, an array for fallbacks) — supabase-js serialises
+ * the JS value into the JSONB column.
+ *
+ * We do NOT use `.upsert({ onConflict: 'key' })`: admin_settings' UNIQUE(key) is
+ * not guaranteed to exist in every environment, and prod may carry duplicate key
+ * rows. Instead we UPDATE every row with the key (collapsing dupes to one value)
+ * and INSERT only when none existed — robust to 0, 1, or N existing rows.
+ */
+export async function setRoutingConfig(patch: {
+  primary?: string
+  fallbacks?: string[]
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const writes: { key: string; value: string | string[] }[] = []
+
+  if (patch.primary !== undefined) {
+    if (!isValidProvider(patch.primary))
+      return { ok: false, error: `Invalid primary provider: ${patch.primary}` }
+    writes.push({ key: "sms_primary_provider", value: patch.primary })
+  }
+
+  if (patch.fallbacks !== undefined) {
+    if (!Array.isArray(patch.fallbacks))
+      return { ok: false, error: "fallbacks must be an array" }
+    const invalid = patch.fallbacks.filter((p) => !isValidProvider(p))
+    if (invalid.length) return { ok: false, error: `Invalid fallback provider(s): ${invalid.join(", ")}` }
+    writes.push({ key: "sms_fallback_providers", value: patch.fallbacks })
+  }
+
+  if (writes.length === 0) return { ok: false, error: "No routing fields to update" }
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
+  for (const w of writes) {
+    const { data: updated, error: updErr } = await supabase
+      .from("admin_settings")
+      .update({ value: w.value, updated_at: new Date().toISOString() })
+      .eq("key", w.key)
+      .select("id")
+
+    if (updErr) return { ok: false, error: updErr.message }
+
+    if (!updated || updated.length === 0) {
+      const { error: insErr } = await supabase.from("admin_settings").insert({
+        key: w.key,
+        value: w.value,
+        description: "SMS provider routing (managed via the admin SMS Centre)",
+      })
+      if (insErr) return { ok: false, error: insErr.message }
+    }
+  }
+
+  invalidateRoutingCache()
+  return { ok: true }
+}
