@@ -59,6 +59,14 @@ const h = vi.hoisted(() => {
             if (table === "users") {
               return Promise.resolve({ data: { email: "test@example.com" }, error: null })
             }
+            if (table === "tenant_global_settings") {
+              if (val === "sms_activation_fee") {
+                return Promise.resolve({ data: { value: { amount: state.activationFee } }, error: null })
+              }
+              if (val === "sms_welcome_bonus_credits") {
+                return Promise.resolve({ data: { value: { units: state.welcomeBonus } }, error: null })
+              }
+            }
             return Promise.resolve({ data: null, error: null })
           },
           maybeSingle: () => {
