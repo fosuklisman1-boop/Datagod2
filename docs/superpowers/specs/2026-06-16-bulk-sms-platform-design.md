@@ -210,7 +210,9 @@ Unique constraints: `sms_contacts (sms_account_id, phone)` for per-account dedup
 
 ## Build sequence
 
-Shipped together in v1, built in dependency order so each layer is testable before the next:
+> **Superseded by Revision B** (see end of doc). The friend's-blueprint reshape reorganizes milestones 2–6 around two subsystems. Milestone 1 (Foundation) below is built; the rest is replaced by Revision B's milestone list.
+
+Original sequence (Foundation built; 2–5 superseded):
 
 1. **Foundation** — `sms_accounts`, units ledger, RLS, bundle tiers, all three top-up paths, **issuance-time solvency gate (fully-backed units) + pending-credits table + settlement cron + admin shortfall notify**.
 2. **Sender IDs** — submit → create at Moolre → poll cron → admin visibility.
@@ -236,3 +238,67 @@ Shipped together in v1, built in dependency order so each layer is testable befo
 - **Moolre inbound-SMS webhook** (for STOP auto-opt-out) — unconfirmed; gates the suppression fast-follow.
 - **Moolre master SMS account funding** — operational: admin must keep the shared Moolre credit pool topped up; the supply guard + dashboard widget make low balance visible.
 - **`vercel.json` cron registration** for the new drain + poll crons.
+
+---
+
+# Revision B — Two-subsystem reshape (2026-06-16, adopted from external blueprint)
+
+Restructures the product into **two subsystems sharing one core**, keeping everything built in Foundation + Revision A. Decisions confirmed with the user.
+
+## The split
+
+- **A. Admin Broadcast — free, internal, un-metered.** EXTENDS the existing `broadcast_recipients` queue (kept as the durable sender). No billing, no content filter, no credit ledger — strictly separate from the metered path so abuse/billing logic never leaks.
+- **B. Metered Shop SMS — paid, self-serve.** EXTENDS the Foundation. **"Credits" = our wholesale-backed units** — solvency gate + pending credits are PRESERVED; every credit (welcome bonus, bundle, etc.) is still issued through `credit_sms_units_if_solvent`, so anything exceeding the Moolre wholesale lands `pending` rather than overselling.
+
+**Shared core** (mostly built): segment/cost calculator, provider send + DB-driven routing/failover, recipient resolver (normalize→filter-null→dedupe), merge-field personalization, message-prepare (emoji strip so preview==billed==delivered), settings store.
+
+## Confirmed decisions
+
+- **Billing:** keep solvency/wholesale-backed units; layer activation + bonus + bundles + per-send debit + refunds on top.
+- **Funding (activation fee + bundle purchases):** **cash wallet (`deduct_wallet`) + Paystack (webhook)** only. **NOT** the shop profit balance.
+- **Monetization:** one-time **paid activation** gate **and** one-time **welcome bonus**.
+- **Safety controls (selected):** content anti-fraud filter; admin moderation + suspend; partial-failure refunds + replay ledger.
+- **Excluded (v1):** layered rate limits (per-send/hour/day) — deferred; profit-balance funding; inbound STOP auto-opt-out (broadcast still gets an `opted_out` flag honored at send time).
+- **Terminology:** internal columns stay `unit_balance` / `sms_unit_transactions`; UI + API surface them as **"SMS credits."**
+- **Activation scope:** metered tenants = **shop + sub_agent** accounts. The **platform/admin** account uses the free Admin Broadcast (no activation).
+
+## Metered path additions (Subsystem B)
+
+- **Activation gate.** `sms_accounts.status` ∈ `inactive | active | suspended`; metered accounts start **inactive**. `activate_sms_account(account, paid_from)` debits the one-time fee (cash via `deduct_wallet`, or Paystack via a `type:"sms_activation"` webhook branch), sets `status='active'`, records `activated_at`/`amount_paid`/`paid_from`. **Buying bundles and sending require `active`.**
+- **Welcome bonus.** One-time, single-claim via guarded `UPDATE … WHERE bonus_claimed=false RETURNING`; credits issued through the solvency gate (pending if over wholesale).
+- **Per-send pipeline (new, metered send):** `calculateSegments` → reserve `segments×recipients` via a gated debit wrapper `debit_sms_for_send(account, credits)` (checks `active` + not `suspended` INSIDE the same statement as `adjust_sms_units(negative)` — no TOCTOU) → send each recipient through provider failover → **refund failed recipients** via `adjust_sms_units(positive)` → if the refund itself errors, persist to `sms_refund_failures` (replay) → audit-log to `sms_send_logs` charging only delivered. Mind serverless timeouts on large audiences (cap concurrency / offload).
+- **Content anti-fraud filter** (`lib/sms/content-filter.ts`, pure): dual-pass over a plain-lowercased copy AND an obfuscation-normalized copy (strip diacritics/zero-width, de-confuse homoglyphs, de-leet between letters, de-space `p.i.n`→`pin`); "first block wins". `blocked` → stop at **cost 0**, log `status='blocked'`; `flagged` → deliver but surface to admin. Blocklist + allowed link domains from settings.
+- **Admin moderation + suspend.** Review/dismiss flagged sends; suspend a single tenant (gate enforced inside the debit). Revenue view: activations, bundle totals, credits sold. Suspend/unsuspend recorded to an admin audit log.
+- **Per-tenant templates.** `sms_shop_templates` (owner CRUD, cap 20/tenant, RLS owner-scoped).
+
+## Admin broadcast additions (Subsystem A)
+
+- **Address book:** `sms_groups` → `sms_contacts` (FK cascade, `opted_out` bool), CSV import with idempotent per-group dedupe (`UNIQUE(group_id, phone_number)`), optional `NameResolver` enrichment (no-op if absent).
+- **Reusable templates** (`sms_templates`, global) + **merge fields** (`[FirstName]`/`[LastName]`/`[Phone]`) shared with the live preview.
+- **DB-configurable provider routing** (primary + ordered fallbacks, TTL cache + invalidate-on-write) — replaces env-only routing; `admin_settings` rows `sms_primary_provider` / `sms_fallback_providers`.
+- **Broadcast history log** (the friend flagged this as missing) + the `opted_out` consent flag honored at resolve time.
+
+## Data-model deltas (Revision B)
+
+- `ALTER sms_accounts`: add `activated_at timestamptz`, `amount_paid numeric`, `paid_from text`, `bonus_claimed boolean default false`, `bonus_claimed_at timestamptz`; extend `status` CHECK to `('inactive','active','suspended')`. **Migration reconciliation:** Foundation created accounts defaulting `'active'` — the Rev-B migration sets the default to `'inactive'` and migrates existing rows appropriately (metered sending isn't live yet, so safe).
+- `sms_send_logs` — audit + moderation queue + future rate-limit counter: `sms_account_id, message, recipients_count, segments, credits_used, status('sent'|'partial'|'failed'|'blocked'), flagged, flag_reason, provider, created_at`; index `(sms_account_id, created_at DESC)`, partial index `WHERE flagged`.
+- `sms_refund_failures` — `sms_account_id, credits, reason, resolved, created_at` (replay ledger).
+- `sms_shop_templates` — `sms_account_id, name(1..60), body(3..1000)`, timestamps.
+- Admin broadcast: `sms_groups`, `sms_contacts(opted_out)`, `sms_templates`; `admin_settings` routing rows; settings keys `sms_activation_fee`, `sms_welcome_bonus_credits`, `sms_blocked_keywords`, `sms_allowed_link_domains`, `sms_feature_enabled`.
+- New/extended RPCs (all `SECURITY DEFINER`, service-role only): `activate_sms_account`, `claim_sms_welcome_bonus`, `debit_sms_for_send` (gated debit wrapper). Reuse `adjust_sms_units` (refund = positive delta), `credit_sms_units_if_solvent` (bonus/bundle issuance).
+
+## Revised milestones (supersede the original Build sequence 2–6)
+
+1. **Foundation** — ✅ DONE (units/solvency/pending/bundles/3 top-ups).
+2. **Activation + welcome bonus + tenant dashboard** — gate, bonus claim, tenant SMS UI (balance/pending/bundles/activation).
+3. **Metered send pipeline** — segment debit wrapper, per-recipient send + refunds + replay, content filter, `sms_send_logs`, composer with live segment/cost counter + phone-mock preview.
+4. **Admin moderation** — flag review/dismiss, suspend, revenue view.
+5. **Admin broadcast extension** — address book, templates, merge fields, provider-routing UI (on the existing queue); sender-ID management as a sub-step.
+6. *(later)* reports / analytics; layered rate limits; inbound STOP handling.
+
+## Testing focus (Revision B additions)
+
+- **Pure functions, unit-tested:** content filter (block/flag/clean, obfuscation evasion — leet/homoglyph/zero-width/de-space dual-pass), segment math at GSM-7↔UCS-2 boundaries (already done in Foundation), merge-field personalization.
+- **Send pipeline:** partial-failure → refund exactly the failed recipients; refund-failure → row in `sms_refund_failures`; blocked message → cost 0 + logged; charge only delivered.
+- **Gates:** send/purchase blocked when `inactive` or `suspended` (enforced inside the debit, atomic); welcome bonus single-claim under concurrency.
+- **Separation:** admin broadcast path never touches the credit ledger or content filter (strict subsystem isolation).
