@@ -508,6 +508,40 @@ export async function queryMoolreSmsBalance(): Promise<number> {
 }
 
 /**
+ * Send a BATCH of SMS in ONE Moolre call (POST /open/sms/send, type 1, messages[]).
+ * Far faster than the per-recipient loop for campaigns — the whole batch is
+ * accepted or rejected together (status 1 / code SMS01 = accepted). Per-recipient
+ * delivery is tracked later via the refs (query type 5). Never throws.
+ *
+ * @param items     recipients with their (already prepared) message + a ref for tracking
+ * @param senderId  the chosen sender ID; falls back to MOOLRE_SENDER_ID
+ */
+export async function sendSMSBulkViaMoolre(
+  items: { recipient: string; message: string; ref?: string }[],
+  senderId?: string
+): Promise<{ ok: boolean; code?: string; message?: string }> {
+  if (!MOOLRE_API_KEY) return { ok: false, message: 'Moolre API key not configured' }
+  if (items.length === 0) return { ok: true }
+  try {
+    const messages = items.map((i) => ({
+      recipient: normalizePhoneNumber(i.recipient),
+      message: i.message,
+      ...(i.ref ? { ref: i.ref } : {}),
+    }))
+    const response = await axios.post(
+      'https://api.moolre.com/open/sms/send',
+      { type: 1, senderid: (senderId || MOOLRE_SENDER_ID).substring(0, 11), messages },
+      { headers: { 'X-API-VASKEY': MOOLRE_API_KEY, 'Content-Type': 'application/json' }, timeout: 30000 }
+    )
+    const ok = response.data?.status === 1 || response.data?.code === 'SMS01'
+    return { ok, code: response.data?.code, message: response.data?.message }
+  } catch (error) {
+    console.error('[SMS] Moolre bulk send failed:', axios.isAxiosError(error) ? error.message : error)
+    return { ok: false, message: axios.isAxiosError(error) ? error.message : 'Unknown error' }
+  }
+}
+
+/**
  * Submit a sender-ID registration request to Moolre (type 3).
  * Integrators lack the "approve" permission (ASMQ09 constraint), so this only
  * registers the ID — Moolre staff approve it asynchronously. Success code is ASMQ12.
