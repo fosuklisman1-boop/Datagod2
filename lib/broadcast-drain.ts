@@ -65,6 +65,9 @@ interface RecipientRow {
   email: string | null
   phone: string | null
   name: string | null
+  // Per-recipient personalised body (group broadcasts w/ merge fields). NULL for
+  // role/specific sends, which fall back to broadcast_logs.message.
+  rendered_message: string | null
   attempts: number
   channel_status: Record<string, ChannelOutcome>
 }
@@ -88,10 +91,13 @@ export async function enqueueRecipients(
   opts: {
     targetType: "roles" | "specific"
     roles?: string[]
-    specificUsers?: Array<{ id?: string; email?: string; phone?: string; name?: string }>
+    // A "specific" recipient may carry its own pre-rendered body (group
+    // broadcasts with merge fields). When absent, the drain falls back to the
+    // shared broadcast_logs.message.
+    specificUsers?: Array<{ id?: string; email?: string; phone?: string; name?: string; renderedMessage?: string }>
   }
 ): Promise<number> {
-  let rows: Array<{ broadcast_id: string; user_id: string | null; email: string | null; phone: string | null; name: string | null }> = []
+  let rows: Array<{ broadcast_id: string; user_id: string | null; email: string | null; phone: string | null; name: string | null; rendered_message: string | null }> = []
 
   if (opts.targetType === "roles") {
     const roles = opts.roles || []
@@ -117,6 +123,7 @@ export async function enqueueRecipients(
             email: u.email || null,
             phone: u.phone_number || null,
             name: u.first_name || null,
+            rendered_message: null, // role sends use the shared broadcast message
           }))
         )
         hasMore = data.length === pageSize
@@ -132,6 +139,7 @@ export async function enqueueRecipients(
       email: u.email || null,
       phone: u.phone || null,
       name: u.name || null,
+      rendered_message: u.renderedMessage ?? null,
     }))
   }
 
@@ -177,6 +185,10 @@ async function processRecipient(
   const status: Record<string, ChannelOutcome> = { ...(r.channel_status || {}) }
   const channels = broadcast.channels || []
 
+  // Per-recipient personalised body when present (group merge fields), else the
+  // shared broadcast message. Same value across every channel for this recipient.
+  const body = r.rendered_message ?? broadcast.message
+
   const alreadyDone = (ch: string) => status[ch] === "sent" || status[ch] === "skipped"
   // On a fresh channel attempt we let the provider log the message; on a retry
   // we skip logging so the Emails/SMS history tabs don't accumulate duplicates.
@@ -188,7 +200,7 @@ async function processRecipient(
       status.email = "skipped"
     } else {
       try {
-        const emailData = EmailTemplates.broadcastMessage(broadcast.subject || "Notification", broadcast.message)
+        const emailData = EmailTemplates.broadcastMessage(broadcast.subject || "Notification", body)
         const res = await sendEmail({
           to: [{ email: r.email, name: r.name || "User" }],
           subject: emailData.subject,
@@ -213,7 +225,7 @@ async function processRecipient(
       try {
         const res = await sendSMS({
           phone: r.phone,
-          message: broadcast.message,
+          message: body,
           type: "broadcast",
           userId: r.user_id || undefined,
           reference: broadcast.id,
@@ -234,7 +246,7 @@ async function processRecipient(
       try {
         const { sent, removed } = await sendPushToUser(r.user_id, {
           title: broadcast.subject || "Notification",
-          body: broadcast.message,
+          body: body,
           data: { url: "/dashboard" },
         })
         // sent>0: delivered. removed>0: expired subscription = failed. else: not
@@ -256,7 +268,7 @@ async function processRecipient(
   // template — body placeholder {{1}} carries the message — which delivers
   // regardless of the window.
   if (channels.includes("whatsapp") && !alreadyDone("whatsapp")) {
-    const safeMessage = sanitizeTemplateParam(broadcast.message)
+    const safeMessage = sanitizeTemplateParam(body)
     if (!r.phone || !safeMessage) {
       status.whatsapp = "skipped"
     } else {
@@ -270,7 +282,7 @@ async function processRecipient(
           // Warm: free-form delivers. If it genuinely errors (non-200), fall
           // back to the template so the message still lands. (sendWhatsAppText
           // returns a wamid string | null — coerce to a boolean here.)
-          ok = !!(await sendWhatsAppText(waPhone, broadcast.message))
+          ok = !!(await sendWhatsAppText(waPhone, body))
           if (!ok) ok = await sendWhatsAppTemplate(waPhone, BROADCAST_TEMPLATE, BROADCAST_TEMPLATE_LANG, templateComponents)
         } else {
           // Cold (or never messaged us): the template is the only reliable path.
